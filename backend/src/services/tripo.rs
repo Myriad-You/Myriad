@@ -2,7 +2,7 @@
 //!
 //! Provider task URLs are short-lived. A successful model task therefore is
 //! downloaded, validated and stored under DATA_DIR before it is exposed to the
-//! Digital Life frontend.
+//! frontend.
 
 use crate::config::DynamicConfig;
 use futures::{stream, StreamExt, TryStreamExt};
@@ -558,7 +558,7 @@ pub fn analyze_glb(bytes: &[u8]) -> Result<GlbMetrics, TripoError> {
         warnings.push("Model contains no animation clips".to_string());
     }
     if estimated_triangles.is_some_and(|triangles| triangles > 12_000) {
-        warnings.push("Estimated triangles exceed the 12k Digital Life budget".to_string());
+        warnings.push("Estimated triangles exceed the 12k triangle budget".to_string());
     }
     let web_budget = if warnings.iter().any(|warning| {
         warning.contains("16 MB") || warning.contains("12k") || warning.contains("draw calls")

@@ -119,6 +119,21 @@ html[data-nav-layout='desktop'] .nav-container[data-nav-switch='in'] {
   }
 }
 
+/* exlight 可以没有 prefers-reduced-motion（弱硬件低档），同样硬切 */
+html[data-perf-mode='exlight'] .nav-container[data-nav-switch='out'],
+html[data-perf-mode='exlight'] .nav-container[data-nav-switch='in'] {
+  transition: opacity 0.01ms !important;
+  animation: none !important;
+}
+
+html[data-perf-mode='exlight'] .nav-container[data-nav-switch='out'] {
+  opacity: 0 !important;
+}
+
+html[data-perf-mode='exlight'] .nav-container[data-nav-switch='in'] {
+  opacity: 1 !important;
+}
+
 /* Dynamic Island - 主岛 */
 .dynamic-island {
   background: rgb(255 255 255 / 50%);

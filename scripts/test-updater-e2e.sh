@@ -102,16 +102,16 @@ host_docker build --build-arg CARGO_PROFILE=dev -t "$DOCKER_GUARD_IMAGE" -f upda
 
 info "Preparing testbed at $TESTBED"
 rm -rf "$TESTBED"
-mkdir -p "$TESTBED"/{state,pgdata,backups}
+mkdir -p "$TESTBED"/{state,pgdata,backups,guard-policy}
 
 # Minimal compose file referencing the required tag variables (probe needs this).
-cat > "$TESTBED/docker-guard.env" <<EOF
+cat > "$TESTBED/guard-policy/docker-guard.env" <<EOF
 DOCKER_GUARD_IMAGE=$DOCKER_GUARD_IMAGE
 GUARD_COMPOSE_PROJECT_NAME=myriad-e2e
 GUARD_MYRIAD_DOCKER_NETWORK=$E2E_DOCKER_NETWORK
 GUARD_MYRIAD_ADMIN_NETWORK=myriad-admin-net
 GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-e2e-guard
-MYRIAD_GUARD_ENV_FILE=$TESTBED/docker-guard.env
+MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env
 EOF
 
 cat > "$TESTBED/compose.yaml" <<'YML'
@@ -132,7 +132,7 @@ services:
       - ./.env:/host/compose/.env:rw
       - ./state:/host/compose/state:rw
       - ./pgdata:/host/compose/pgdata:rw
-      - ./docker-guard.env:/run/secrets/docker-guard.env:ro
+      - ./guard-policy:/run/secrets:ro
 networks:
   default:
     name: ${E2E_DOCKER_NETWORK}
@@ -167,12 +167,14 @@ info "Starting docker guard container on :$DOCKER_GUARD_PORT"
 host_docker run --rm --name "$DOCKER_GUARD_CONTAINER" --network host \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$TESTBED:$TESTBED:ro" \
+  -v "$TESTBED/guard-policy:/guard-policy" \
   -e DOCKER_GUARD_LISTEN="127.0.0.1:$DOCKER_GUARD_PORT" \
   -e DOCKER_GUARD_HOST_COMPOSE_ROOT="$TESTBED" \
   -e DOCKER_GUARD_COMPOSE_DIR="$TESTBED" \
   -e DOCKER_GUARD_EXPECTED_IMAGE="$DOCKER_GUARD_IMAGE" \
   -e DOCKER_GUARD_ALLOW_UNPINNED_DEV=true \
-  -e DOCKER_GUARD_HOST_POLICY_PATH="$TESTBED/docker-guard.env" \
+  -e DOCKER_GUARD_HOST_POLICY_PATH=/guard-policy/docker-guard.env \
+  -e DOCKER_GUARD_SELF_UPDATE_TOKEN="$TOKEN" \
   -e COMPOSE_PROJECT_NAME="myriad-e2e" \
   -e MYRIAD_DOCKER_NETWORK="$E2E_DOCKER_NETWORK" \
   -e MYRIAD_DOCKER_GUARD_NETWORK="myriad-e2e-guard" \
@@ -203,6 +205,7 @@ sleep 1
 # Start updater
 # ============================================================================
 info "Starting updater on :$UPDATER_PORT"
+UPDATER_GUARD_ENV_FILE="$TESTBED/guard-policy/docker-guard.env" \
 "$UPDATER_BIN" \
   --state-dir "$TESTBED/state" \
   --compose-dir "$TESTBED" \

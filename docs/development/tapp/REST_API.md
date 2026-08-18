@@ -459,6 +459,7 @@ Interaction 的动作截止时间独立于终态保留时间；所有副本都�
 | ---- | ---------------------------- | ---- | ---- |
 | GET  | `/api/tapp/federation/feed`  | 可选认证 + Runtime Grant | 需 Grant 含 `federation:read`。游客只返回公开活动（`audience: "public"`）；已登录用户返回公开 Feed 与个人时间线的合并结果（`audience: "public+personal"`，同 `activity_id` 时个人条目优先，整体按时间新到旧，条数有上限）。响应形如 `{ items, total, audience }`。 |
 | GET  | `/api/federation/public/rooms/{room_id}` | **无认证** | 仅 `is_public` 群卡片（name、owner、home_server、member_count 等）。**不**走 Runtime Grant / `host_attribution`（与 WebFinger 同类公开发现）。跨实例 `joinRoom` 用此端点物化本地行。 |
+| GET  | `/api/federation/public/limits` | **无认证** | 活的消息/Note 媒体上限（`message_payload_bytes`、`note_image_bytes`、`note_video_bytes`、`profile`）。宿主桥用来对齐内存节约档；**不**走 Runtime Grant。 |
 
 联邦写操作、消息、私有 Room 与文件等仍走各自 SDK/宿主路径，且对游客不可用；见
 [ARCHITECTURE 所有权与可见性](ARCHITECTURE.md#所有权与可见性) 与
@@ -466,15 +467,15 @@ Interaction 的动作截止时间独立于终态保留时间；所有副本都�
 Brew / 语音 / 联邦 REST 宿主代理路径已统一按 Grant 归因：带 `X-Tapp-Runtime-Grant` 的请求在服务端按路由强制 Tapp
 权限并记录归因日志（共享 `host_attribution` 中间件；路由→权限表见
 `docs/development/tapp/fixtures/host_route_permissions.json`，**先改 fixture 再改映射**）。
-`GET /api/federation/public/rooms/*` **不**列入该表。联邦 E2E 密钥交换与 Channel/Room
+`GET /api/federation/public/rooms/*` 与 `GET /api/federation/public/limits` **不**列入该表。联邦 E2E 密钥交换与 Channel/Room
 WebSocket 升级不能携带 Grant 头，因此 Tapp Bridge 先调用
 `POST /api/federation/channels/{channelId}/ws-ticket` 或
 `POST /api/federation/rooms/{roomId}/ws-ticket`（要求 `federation:message`），再把一次性
 `tapp_ws_ticket` 放入对应升级 URL。票据过期、复用、subject 或目标不匹配都会失败关闭，宿主 UI
 不带票据的 Claims-only WebSocket 语义保持不变。独立 AI 费用账本见 `/api/tapp/ai/v2/ledger`。
 
-Room 消息 POST body 上限与 `MESSAGE_PAYLOAD_LIMIT` / `MAX_ROOM_MESSAGE_PAYLOAD`
-（**36 MiB**）及联邦 inbox DefaultBodyLimit（**64 MiB**）对齐；`join` 可接受 path 中的
+Room 消息 POST body 上限与活的 `message_payload_limit()` 对齐（默认 **4 MiB**，
+节约档 **2 MiB**；见 `GET /api/federation/public/limits`）；`join` 可接受 path 中的
 `rm_…@home[:port]`（URL 编码）或 body `{ "home_server": "…" }`。
 
 ### 上下文与媒体

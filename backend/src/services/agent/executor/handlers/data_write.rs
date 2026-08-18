@@ -591,6 +591,7 @@ async fn execute_brew_mark(
     };
 
     let was_read = existing.as_ref().map(|e| e.is_read).unwrap_or(false);
+    let was_starred = existing.as_ref().map(|e| e.is_starred).unwrap_or(false);
 
     if let Some(state) = existing {
         let mut active: brew_user_states::ActiveModel = state.into();
@@ -634,6 +635,14 @@ async fn execute_brew_mark(
             tracing::error!(error = %e, "Agent data_write: failed to create state");
             "Database error".to_string()
         })?;
+    }
+
+    if is_starred == Some(true) && !was_starred {
+        crate::services::agent::life::spawn_ingest(
+            user_id,
+            "brew.starred",
+            format!("把《{}》标了星", item.title),
+        );
     }
 
     // 更新 source 的 unread_count（附带 user_id 条件，确保仅修改自己的 source）

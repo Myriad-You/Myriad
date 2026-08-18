@@ -69,6 +69,19 @@ impl NotificationManager {
         source_name: &str,
         error: &str,
     ) {
+        let summary = format!("{source_name} 连续抓取失败");
+        crate::services::agent::life::spawn_ingest(user_id, "brew.source_error", &summary);
+        if !crate::services::agent::life::allow_existing_notify(user_id).await {
+            return;
+        }
+        // Keep the deep link: the thing that broke is a feed, not a conversation.
+        // Whatever the Agent has to say about it goes out as its own speech.
+        let metadata = serde_json::json!({
+            "event_key": "brew.source_error",
+            "route": "/brew",
+            "source_id": source_id,
+            "status": "failed",
+        });
         let notification = Notification::new(
             user_id,
             NotificationType::BrewSourceError,
@@ -76,16 +89,22 @@ impl NotificationManager {
             format!("{} 连续抓取失败", source_name),
             error,
         )
-        .with_metadata(serde_json::json!({
-            "event_key": "brew.source_error",
-            "route": "/brew",
-            "source_id": source_id,
-            "status": "failed",
-        }));
+        .with_metadata(metadata);
         self.notify(notification).await;
     }
 
     pub async fn notify_platform_sync_error(&self, user_id: i32, platform: &str, error: &str) {
+        let summary = format!("{platform} 自动刷新失败");
+        crate::services::agent::life::spawn_ingest(user_id, "platform.sync.failed", &summary);
+        if !crate::services::agent::life::allow_existing_notify(user_id).await {
+            return;
+        }
+        let metadata = serde_json::json!({
+            "event_key": "platform.sync.failed",
+            "route": "/config?section=platforms",
+            "platform": platform,
+            "status": "failed",
+        });
         let notification = Notification::new(
             user_id,
             NotificationType::SystemInfo,
@@ -93,12 +112,7 @@ impl NotificationManager {
             format!("{} 自动刷新失败", platform),
             error,
         )
-        .with_metadata(serde_json::json!({
-            "event_key": "platform.sync.failed",
-            "route": "/config?section=platforms",
-            "platform": platform,
-            "status": "failed",
-        }));
+        .with_metadata(metadata);
         self.notify(notification).await;
     }
 

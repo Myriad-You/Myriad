@@ -30,7 +30,6 @@ pub const ENV_COMPOSE_DIR: &str = "MYRIAD_SELF_UPDATE_COMPOSE_DIR";
 pub const ENV_APP_ENV_FILE: &str = "MYRIAD_SELF_UPDATE_APP_ENV_FILE";
 pub const ENV_GUARD_ENV_FILE: &str = "MYRIAD_SELF_UPDATE_GUARD_ENV_FILE";
 pub const ENV_STATUS_FILE: &str = "MYRIAD_SELF_UPDATE_STATUS_FILE";
-pub const ENV_POLICY_HOST_PATH: &str = "MYRIAD_SELF_UPDATE_POLICY_HOST_PATH";
 pub const ENV_COMPOSE_NETWORK: &str = "MYRIAD_SELF_UPDATE_COMPOSE_NETWORK";
 pub const ENV_ADMIN_NETWORK: &str = "MYRIAD_SELF_UPDATE_ADMIN_NETWORK";
 pub const ENV_GUARD_NETWORK: &str = "MYRIAD_SELF_UPDATE_GUARD_NETWORK";
@@ -141,7 +140,6 @@ struct HelperConfig {
     app_env_file: PathBuf,
     guard_env_file: PathBuf,
     status_file: PathBuf,
-    policy_host_path: String,
     compose_network: String,
     admin_network: String,
     guard_network: String,
@@ -162,7 +160,6 @@ impl HelperConfig {
             app_env_file: required_env(ENV_APP_ENV_FILE)?.into(),
             guard_env_file: required_env(ENV_GUARD_ENV_FILE)?.into(),
             status_file: required_env(ENV_STATUS_FILE)?.into(),
-            policy_host_path: required_env(ENV_POLICY_HOST_PATH)?,
             compose_network: required_env(ENV_COMPOSE_NETWORK)?,
             admin_network: required_env(ENV_ADMIN_NETWORK)?,
             guard_network: required_env(ENV_GUARD_NETWORK)?,
@@ -188,19 +185,9 @@ impl HelperConfig {
         ] {
             validate_simple_name(name, value)?;
         }
-        let policy_looks_absolute = Path::new(&cfg.policy_host_path).is_absolute()
-            || cfg
-                .policy_host_path
-                .as_bytes()
-                .get(1)
-                .is_some_and(|separator| *separator == b':');
-        if !policy_looks_absolute
-            || cfg.policy_host_path.contains('\n')
-            || cfg.policy_host_path.contains('\r')
-            || cfg.policy_host_path.contains("..")
-        {
+        if cfg.guard_env_file != Path::new("/guard-policy/docker-guard.env") {
             return Err(UpdaterError::Precondition(
-                "Guard policy host path must be absolute".into(),
+                "Guard policy file must be /guard-policy/docker-guard.env".into(),
             ));
         }
         Ok(cfg)
@@ -247,12 +234,19 @@ pub fn main_from_env() -> Result<()> {
         Ok(()) => Ok(()),
         Err(error) => {
             let detail = error.to_string();
+            // Terminal failure — not recovery_pending. The updater HTTP waiter
+            // and admin UI only leave "confirming result" on succeeded/failed.
+            // A pending error left them spinning after a pull-but-no-switch.
             if let Err(status_error) = write_status(
                 &cfg.status_file,
-                &SelfUpdateLastStatus::recovery_pending(&cfg, detail.clone(), recovery_attempt),
+                &SelfUpdateLastStatus::failed_before_handoff(
+                    cfg.target_tag.clone(),
+                    cfg.previous_tag.clone(),
+                    detail.clone(),
+                ),
             ) {
                 return Err(UpdaterError::Precondition(format!(
-                    "{detail}; persist recovery-pending outcome: {status_error}"
+                    "{detail}; persist failed outcome: {status_error}"
                 )));
             }
             Err(error)
@@ -419,7 +413,7 @@ fn update_policy_files(cfg: &HelperConfig, exact_image: &str, tag: &str) -> Resu
 
     let mut guard = EnvFile::load(&cfg.guard_env_file)?;
     guard.set("DOCKER_GUARD_IMAGE", exact_image)?;
-    guard.set("MYRIAD_GUARD_ENV_FILE", &cfg.policy_host_path)?;
+    guard.set("MYRIAD_GUARD_ENV_FILE", "guard-policy/docker-guard.env")?;
     guard.save()
 }
 
@@ -465,7 +459,7 @@ fn run_compose(
         .env("UPDATER_IMAGE_REF", exact_image)
         .env("UPDATER_TAG", tag)
         .env("DOCKER_GUARD_IMAGE", exact_image)
-        .env("MYRIAD_GUARD_ENV_FILE", &cfg.policy_host_path)
+        .env("MYRIAD_GUARD_ENV_FILE", "guard-policy/docker-guard.env")
         .env("MYRIAD_COMPOSE_HOST_ROOT", &cfg.host_compose_root)
         .env("COMPOSE_PROJECT_NAME", &cfg.project)
         .env("MYRIAD_DOCKER_NETWORK", &cfg.compose_network)
@@ -578,7 +572,8 @@ fn validate_compose_model(bytes: &[u8], exact_image: &str, cfg: &HelperConfig) -
         let value = services.get(service).ok_or_else(|| {
             UpdaterError::Precondition(format!("compose config is missing {service}"))
         })?;
-        if value.get("image").and_then(Value::as_str) != Some(exact_image) {
+        let actual_image = value.get("image").and_then(Value::as_str).unwrap_or("");
+        if !digest_matches(actual_image, exact_image) {
             return Err(UpdaterError::Precondition(format!(
                 "{service} image is not the Guard-verified digest"
             )));
@@ -588,12 +583,17 @@ fn validate_compose_model(bytes: &[u8], exact_image: &str, cfg: &HelperConfig) -
                 "{service} may not be privileged"
             )));
         }
-        for forbidden in ["command", "ports", "cap_add", "devices", "pid", "ipc"] {
+        for forbidden in ["ports", "cap_add", "devices", "pid", "ipc"] {
             if value.get(forbidden).is_some_and(nonempty_json) {
                 return Err(UpdaterError::Precondition(format!(
                     "{service} field {forbidden} is outside the fixed TCB contract"
                 )));
             }
+        }
+        if service != "docker-guard" && value.get("command").is_some_and(nonempty_json) {
+            return Err(UpdaterError::Precondition(format!(
+                "{service} field command is outside the fixed TCB contract"
+            )));
         }
         let security_opt = value
             .get("security_opt")
@@ -614,17 +614,9 @@ fn validate_compose_model(bytes: &[u8], exact_image: &str, cfg: &HelperConfig) -
 
     let guard = &services["docker-guard"];
     require_read_only(guard, true, "docker-guard")?;
-    require_entrypoint(
-        guard,
-        &["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"],
-        "docker-guard",
-    )?;
+    require_guard_bootstrap(guard)?;
     require_healthcheck(guard, "http://localhost:2375/_ping", "docker-guard")?;
-    require_mount_targets(
-        guard,
-        &["/var/run/docker.sock", "/host/compose", "/host/state"],
-        "docker-guard",
-    )?;
+    require_guard_mount_targets(guard)?;
     require_networks(guard, &[&cfg.guard_network], "docker-guard")?;
     let updater = &services["updater"];
     require_read_only(updater, false, "updater")?;
@@ -681,6 +673,60 @@ fn require_read_only(service: &Value, expected: bool, name: &str) -> Result<()> 
     Ok(())
 }
 
+fn service_string_list<'a>(service: &'a Value, key: &str) -> Vec<&'a str> {
+    service
+        .get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect()
+}
+
+fn require_guard_bootstrap(service: &Value) -> Result<()> {
+    let entrypoint = service_string_list(service, "entrypoint");
+    if entrypoint != ["/bin/sh", "-c"] {
+        return Err(UpdaterError::Precondition(
+            "docker-guard entrypoint is outside the fixed TCB contract".into(),
+        ));
+    }
+    let script = match service.get("command") {
+        Some(Value::Array(items)) if items.len() == 1 => items[0].as_str().unwrap_or(""),
+        Some(Value::String(text)) => text.as_str(),
+        _ => {
+            return Err(UpdaterError::Precondition(
+                "docker-guard command must be the policy bootstrap script".into(),
+            ))
+        }
+    };
+    if !script.contains("exec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard")
+        || !script.contains("/guard-policy/docker-guard.env")
+        || !script.contains("umask 077")
+        || script.contains("docker.sock")
+        || script.contains("privileged")
+        || script.contains("cat >")
+        || script.contains("<<")
+    {
+        return Err(UpdaterError::Precondition(
+            "docker-guard command is outside the fixed TCB contract".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn require_guard_mount_targets(service: &Value) -> Result<()> {
+    require_mount_targets(
+        service,
+        &[
+            "/var/run/docker.sock",
+            "/host/compose",
+            "/host/state",
+            "/guard-policy",
+        ],
+        "docker-guard",
+    )
+}
+
 fn require_entrypoint(service: &Value, expected: &[&str], name: &str) -> Result<()> {
     let actual = service
         .get("entrypoint")
@@ -713,14 +759,19 @@ fn require_healthcheck(service: &Value, url: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
-fn require_mount_targets(service: &Value, expected: &[&str], name: &str) -> Result<()> {
-    let mut actual = service
+fn persistent_mount_targets(service: &Value) -> Vec<&str> {
+    service
         .get("volumes")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
+        .filter(|mount| mount.get("type").and_then(Value::as_str) != Some("tmpfs"))
         .filter_map(|mount| mount.get("target").and_then(Value::as_str))
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+fn require_mount_targets(service: &Value, expected: &[&str], name: &str) -> Result<()> {
+    let mut actual = persistent_mount_targets(service);
     let mut expected = expected.to_vec();
     actual.sort_unstable();
     expected.sort_unstable();
@@ -733,30 +784,24 @@ fn require_mount_targets(service: &Value, expected: &[&str], name: &str) -> Resu
 }
 
 fn require_updater_mount_targets(service: &Value) -> Result<()> {
-    let mut actual = service
-        .get("volumes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|mount| mount.get("target").and_then(Value::as_str))
-        .collect::<Vec<_>>();
+    let mut actual = persistent_mount_targets(service);
     actual.sort_unstable();
     let mut bundled = vec![
         "/host/compose",
         "/host/compose/.env",
         "/host/compose/pgdata",
         "/host/compose/state",
-        "/run/secrets/docker-guard.env",
+        "/run/secrets",
     ];
     bundled.sort_unstable();
     let mut external = bundled.clone();
     external.retain(|target| *target != "/host/compose/pgdata");
-    if actual != bundled && actual != external {
-        return Err(UpdaterError::Precondition(
-            "updater mount targets are outside the fixed bundled/external contract".into(),
-        ));
+    if actual == bundled || actual == external {
+        return Ok(());
     }
-    Ok(())
+    Err(UpdaterError::Precondition(
+        "updater mount targets are outside the fixed bundled/external contract".into(),
+    ))
 }
 
 fn wait_for_running_services(exact_image: &str, timeout: Duration) -> Result<()> {
@@ -857,17 +902,43 @@ fn digest_matches(actual: &str, expected: &str) -> bool {
     let Some((expected_repo, expected_digest)) = expected.rsplit_once("@sha256:") else {
         return false;
     };
-    actual_repo.trim_start_matches("docker.io/") == expected_repo.trim_start_matches("docker.io/")
+    normalize_image_repository(actual_repo) == normalize_image_repository(expected_repo)
         && actual_digest.eq_ignore_ascii_case(expected_digest)
 }
 
+/// Compose / Docker inspect often drop `docker.io/` and may keep `name:tag@sha256`.
+fn normalize_image_repository(repo: &str) -> String {
+    let repo = repo
+        .trim()
+        .trim_start_matches("docker.io/")
+        .trim_start_matches("index.docker.io/")
+        .trim_start_matches("registry-1.docker.io/");
+    if let Some((name, maybe_tag)) = repo.rsplit_once(':') {
+        if !maybe_tag.contains('/') {
+            return name.to_string();
+        }
+    }
+    repo.to_string()
+}
+
 fn require_networks(service: &Value, expected: &[&str], name: &str) -> Result<()> {
-    let networks = service
-        .get("networks")
-        .and_then(Value::as_object)
-        .ok_or_else(|| UpdaterError::Precondition(format!("{name} has no network map")))?;
-    if networks.len() != expected.len() || expected.iter().any(|item| !networks.contains_key(*item))
-    {
+    let mut actual: Vec<String> =
+        if let Some(map) = service.get("networks").and_then(Value::as_object) {
+            map.keys().cloned().collect()
+        } else if let Some(list) = service.get("networks").and_then(Value::as_array) {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        } else {
+            return Err(UpdaterError::Precondition(format!(
+                "{name} has no network map"
+            )));
+        };
+    let mut expected: Vec<String> = expected.iter().map(|item| (*item).to_string()).collect();
+    actual.sort();
+    expected.sort();
+    if actual != expected {
         return Err(UpdaterError::Precondition(format!(
             "{name} network topology is outside the fixed allowlist"
         )));
@@ -951,9 +1022,8 @@ mod tests {
             host_compose_root: "/srv/myriad".into(),
             compose_dir: "/host/compose".into(),
             app_env_file: "/host/write/.env".into(),
-            guard_env_file: "/host/policy/docker-guard.env".into(),
+            guard_env_file: "/guard-policy/docker-guard.env".into(),
             status_file: "/host/write/state/self-update-last.json".into(),
-            policy_host_path: "/etc/myriad/docker-guard.env".into(),
             compose_network: "myriad-net".into(),
             admin_network: "myriad-admin-net".into(),
             guard_network: "myriad-docker-guard-net".into(),
@@ -984,13 +1054,13 @@ mod tests {
     }
 
     fn compose_model(image: &str) -> Value {
-        serde_json::json!({
+        let mut model = serde_json::json!({
             "services": {
                 "docker-guard": service(
                     image,
                     &["myriad-docker-guard-net"],
-                    &["/var/run/docker.sock", "/host/compose", "/host/state"],
-                    Some(&["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"]),
+                    &["/var/run/docker.sock", "/host/compose", "/host/state", "/guard-policy"],
+                    Some(&["/bin/sh", "-c"]),
                     true,
                     "http://localhost:2375/_ping",
                 ),
@@ -1002,7 +1072,7 @@ mod tests {
                         "/host/compose/.env",
                         "/host/compose/pgdata",
                         "/host/compose/state",
-                        "/run/secrets/docker-guard.env",
+                        "/run/secrets",
                     ],
                     None,
                     false,
@@ -1017,7 +1087,11 @@ mod tests {
                     "http://localhost:1104/healthz",
                 )
             }
-        })
+        });
+        model["services"]["docker-guard"]["command"] = serde_json::json!([
+            "set -eu\nif [ ! -f /guard-policy/docker-guard.env ]; then umask 077; fi\nexec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard\n"
+        ]);
+        model
     }
 
     #[test]
@@ -1063,10 +1137,72 @@ mod tests {
         let expected = exact_image();
         let short = expected.trim_start_matches("docker.io/");
         assert!(digest_matches(short, &expected));
+        let tagged = format!(
+            "somekawahitomi/myriad-updater:v1.2.3@sha256:{}",
+            "a".repeat(64)
+        );
+        assert!(digest_matches(&tagged, &expected));
         assert!(!digest_matches(
             &expected.replace("somekawahitomi", "attacker"),
             &expected
         ));
+    }
+
+    #[test]
+    fn compose_model_accepts_canonicalized_digest_and_tmpfs_mounts() {
+        let image = exact_image();
+        let mut model = compose_model(&image);
+        let short = image.trim_start_matches("docker.io/");
+        for service in ["docker-guard", "updater", "updater-gateway"] {
+            model["services"][service]["image"] = serde_json::json!(short);
+        }
+        model["services"]["docker-guard"]["volumes"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"type": "tmpfs", "target": "/tmp"}));
+        model["services"]["updater-gateway"]["volumes"] = serde_json::json!([
+            {"type": "tmpfs", "target": "/tmp"},
+            {"type": "tmpfs", "target": "/run"}
+        ]);
+        model["services"]["updater"]["networks"] =
+            serde_json::json!(["myriad-admin-net", "myriad-docker-guard-net"]);
+        let bytes = serde_json::to_vec(&model).unwrap();
+        assert!(validate_compose_model(&bytes, &image, &config()).is_ok());
+    }
+
+    #[test]
+    fn guard_bootstrap_rejects_quoted_policy_stub() {
+        let stub = serde_json::json!({
+            "entrypoint": ["/bin/sh", "-c"],
+            "command": [
+                "set -eu\nif [ ! -f /guard-policy/docker-guard.env ]; then\n  umask 077\n  cat > /guard-policy/docker-guard.env <<'POLICY'\nDOCKER_GUARD_IMAGE=bad\nPOLICY\nfi\nexec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard\n"
+            ]
+        });
+        assert!(require_guard_bootstrap(&stub).is_err());
+
+        let umask_only = serde_json::json!({
+            "entrypoint": ["/bin/sh", "-c"],
+            "command": [
+                "set -eu\nif [ ! -f /guard-policy/docker-guard.env ]; then umask 077; fi\nexec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard\n"
+            ]
+        });
+        assert!(require_guard_bootstrap(&umask_only).is_ok());
+    }
+
+    #[test]
+    fn official_compose_guard_command_does_not_write_policy_stub() {
+        let compose = include_str!("../../../docker-compose.yml");
+        let example = include_str!(
+            "../../../docs/deployment/examples/docker-compose.external-db.example.yml"
+        );
+        for text in [compose, example] {
+            assert!(!text.contains("<<'POLICY'"));
+            assert!(!text.contains("cat > /guard-policy/docker-guard.env"));
+            assert!(text.contains("if [ ! -f /guard-policy/docker-guard.env ]; then umask 077; fi"));
+            assert!(text.contains(
+                "MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:?Set MYRIAD_SETUP_SECRET in .env}"
+            ));
+        }
     }
 
     #[test]

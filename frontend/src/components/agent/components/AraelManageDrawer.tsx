@@ -13,13 +13,15 @@ import type {
   SkillInfo,
 } from '../../../services/agent'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useAuth } from '../../../contexts/AuthContext'
 import { useI18n } from '../../../contexts/I18nContext'
 import { agentService } from '../../../services/agent'
 import { isImeComposing } from '../../../utils/ime'
 import { Spinner } from '../../Spinner'
 import { AraelHeartbeatSection } from './AraelHeartbeatSection'
+import { AraelPersonaSection } from './AraelPersonaSection'
 
-type ManageTab = 'heartbeat' | 'skills' | 'memory'
+type ManageTab = 'persona' | 'heartbeat' | 'skills' | 'memory'
 
 export interface AraelManageDrawerProps {
   /** BE heartbeat/skill writes require admin; hide write UI for non-admin */
@@ -28,9 +30,24 @@ export interface AraelManageDrawerProps {
   isAuthenticated?: boolean
 }
 
-const TAB_KEYS: ManageTab[] = ['heartbeat', 'skills', 'memory']
+const TAB_KEYS: ManageTab[] = ['persona', 'heartbeat', 'skills', 'memory']
 
 const TAB_ICONS: Record<ManageTab, React.ReactNode> = {
+  persona: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  ),
   heartbeat: (
     <svg
       width="16"
@@ -128,13 +145,20 @@ export const AraelManageDrawer: React.FC<AraelManageDrawerProps> = ({
   isAuthenticated = false,
 }) => {
   const { t: i18n } = useI18n()
-  const [tab, setTab] = useState<ManageTab>('heartbeat')
+  const { user } = useAuth()
+  const isOwner = user?.is_owner === true
+  const [tab, setTab] = useState<ManageTab>('persona')
 
   // Skill/heartbeat notifications pass tab via arael-open-manage detail
   useEffect(() => {
     const onOpen = (e: Event) => {
       const raw = (e as CustomEvent<{ tab?: string }>).detail?.tab
-      if (raw === 'skills' || raw === 'memory' || raw === 'heartbeat') {
+      if (
+        raw === 'skills' ||
+        raw === 'memory' ||
+        raw === 'heartbeat' ||
+        raw === 'persona'
+      ) {
         setTab(raw)
       }
     }
@@ -143,6 +167,7 @@ export const AraelManageDrawer: React.FC<AraelManageDrawerProps> = ({
   }, [])
 
   const tabLabels: Record<ManageTab, string> = {
+    persona: i18n.arael.tabPersona,
     heartbeat: i18n.arael.tabHeartbeat,
     skills: i18n.arael.tabSkills,
     memory: i18n.arael.tabMemory,
@@ -169,6 +194,9 @@ export const AraelManageDrawer: React.FC<AraelManageDrawerProps> = ({
       setError(null)
       try {
         switch (currentTab) {
+          case 'persona':
+            setLoading(false)
+            return
           case 'heartbeat': {
             // GET /api/agent/heartbeat is admin-only on BE — skip for non-admin
             // so the drawer does not spam 403 noise.
@@ -307,12 +335,12 @@ export const AraelManageDrawer: React.FC<AraelManageDrawerProps> = ({
       {/* Right content */}
       <div className="arael-manage-main">
         <div className="arael-manage-main-content">
-          {!isAdmin && (
+          {!isAdmin && tab !== 'persona' && (
             <div className="arael-manage-error" role="status">
               {i18n.arael.manageAdminOnly}
             </div>
           )}
-          {loading && (
+          {loading && tab !== 'persona' && (
             <div className="arael-manage-loading">
               <Spinner size="xs" color="primary" />
             </div>
@@ -330,6 +358,15 @@ export const AraelManageDrawer: React.FC<AraelManageDrawerProps> = ({
               </button>
             </div>
           )}
+
+          {tab === 'persona' &&
+            (isAuthenticated ? (
+              <AraelPersonaSection isOwner={isOwner} />
+            ) : (
+              <div className="arael-manage-empty">
+                {i18n.arael.statusNeedLogin}
+              </div>
+            ))}
 
           {/* Heartbeat */}
           {!loading && !error && tab === 'heartbeat' && (

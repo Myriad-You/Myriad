@@ -53,6 +53,57 @@ ON CONFLICT (id) DO NOTHING;
 }
 
 /// 近月功能表兜底（`migrations/004` 已 CREATE）。
+pub(crate) async fn ensure_agent_life_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+CREATE TABLE IF NOT EXISTS agent_persona (
+    id VARCHAR(16) PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    personality TEXT NOT NULL DEFAULT '',
+    portrait_asset_id TEXT,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_addressee_state (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    mood DOUBLE PRECISION NOT NULL DEFAULT 70,
+    activity VARCHAR(16) NOT NULL DEFAULT 'idle',
+    do_not_disturb BOOLEAN NOT NULL DEFAULT false,
+    last_user_message_at TIMESTAMPTZ,
+    last_proactive_at TIMESTAMPTZ,
+    last_departure_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_diary (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    source VARCHAR(16) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_diary_user_created
+    ON agent_diary (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_proactive_messages (
+    id BIGSERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(16) NOT NULL,
+    content TEXT NOT NULL,
+    event_key VARCHAR(64),
+    notified BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_proactive_user_created
+    ON agent_proactive_messages (user_id, created_at DESC);
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// 近月功能表兜底（`migrations/004` 已 CREATE）。
 pub(crate) async fn ensure_heartbeat_claims_table(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(
         r#"

@@ -254,6 +254,7 @@ function Ensure-DevUpdaterFiles {
     New-Item -ItemType Directory -Force -Path (Join-Path $devUpdaterDir "state") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $devUpdaterDir "pgdata") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $devUpdaterDir "backups") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $devUpdaterDir "guard-policy") | Out-Null
 
     $envText = @"
 MYRIAD_TAG=v0.0.0-dev
@@ -275,9 +276,9 @@ GUARD_COMPOSE_PROJECT_NAME=myriad-dev-updater
 GUARD_MYRIAD_DOCKER_NETWORK=myriad-dev-updater_default
 GUARD_MYRIAD_ADMIN_NETWORK=myriad-dev-admin-net
 GUARD_MYRIAD_DOCKER_GUARD_NETWORK=myriad-dev-docker-guard-net
-MYRIAD_GUARD_ENV_FILE=/dev/docker-guard.env
+MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env
 "@
-    Set-Content -Path (Join-Path $devUpdaterDir "docker-guard.env") -Value $guardEnvText -Encoding UTF8
+    Set-Content -Path (Join-Path $devUpdaterDir "guard-policy/docker-guard.env") -Value $guardEnvText -Encoding UTF8
 
     $composeText = @"
 services:

@@ -8,6 +8,10 @@ import type { TappInstance } from '../types'
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 import { TappBridge } from './TappBridge.ts'
+import {
+  applyFederationLimitsPayload,
+  resetFederationLimitsForTests,
+} from './federationLimits.ts'
 
 const instance: TappInstance = {
   id: 'com.example.sec',
@@ -54,6 +58,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
 
   afterEach(() => {
     bridge.destroy()
+    resetFederationLimitsForTests()
   })
 
   function dispatchFromIframe(data: Record<string, unknown>): void {
@@ -223,9 +228,23 @@ describe('TappBridge session token + inbound event allowlist', () => {
     })
 
     assert.equal(result.valid, false)
-    assert.match(result.error ?? '', /max 4 MiB/)
+    assert.match(result.error ?? '', /max 4194304 bytes/)
     assert.match(result.error ?? '', /UTF-8 bytes/)
     assert.match(result.error ?? '', /chunked transfer/)
+  })
+
+  it('tightens the federation message cap when saver limits are live', () => {
+    applyFederationLimitsPayload({
+      profile: 'saver',
+      message_payload_bytes: 2 * 1024 * 1024,
+      note_image_bytes: 8 * 1024 * 1024,
+      note_video_bytes: 32 * 1024 * 1024,
+    })
+    const result = validateRequest('federation.sendMessage', {
+      args: ['channel-1', { payload: 'x'.repeat(2 * 1024 * 1024 + 1) }],
+    })
+    assert.equal(result.valid, false)
+    assert.match(result.error ?? '', /max 2097152 bytes/)
   })
 
   it('keeps install packages on their separate larger budget', () => {

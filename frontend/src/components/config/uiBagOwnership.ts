@@ -72,6 +72,7 @@ export const MODULE_UI_RESET_KEYS: readonly string[] = Object.freeze([
 /** 高级页：内存节约 + 网络代理 + API 镜像 */
 export const ADVANCED_RESET_KEYS: readonly string[] = Object.freeze([
   'memory_saver_enabled',
+  'agent_life_enabled',
   'proxy_enabled',
   'proxy_url',
   'proxy_bypass',

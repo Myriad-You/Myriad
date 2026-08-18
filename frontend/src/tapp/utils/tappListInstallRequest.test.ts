@@ -24,13 +24,13 @@ describe('resolveTappListInstallRequest (shipped install shape)', () => {
       source: 'store',
       storeSource: '1',
       tappId: TAPP_ID,
-      permissions: ['storage'],
+      permissions: ['storage:read', 'storage:write'],
     })
     assert.equal(r.kind, 'store')
     if (r.kind === 'store') {
       assert.equal(r.catalogRef, '1')
       assert.equal(r.tappId, TAPP_ID)
-      assert.deepEqual(r.permissions, ['storage'])
+      assert.deepEqual(r.permissions, ['storage:read', 'storage:write'])
     }
   })
 
@@ -103,7 +103,7 @@ describe('resolveTappListInstallRequest (shipped install shape)', () => {
         permissions: [],
       },
       code: 'console.log(1)',
-      permissions: ['storage'],
+      permissions: ['storage:read', 'storage:write'],
     })
     assert.equal(r.kind, 'direct')
     if (r.kind === 'direct') {

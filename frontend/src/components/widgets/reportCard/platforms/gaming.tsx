@@ -671,7 +671,7 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
                 // 评分卡：类型 + 分数进度条（横向卡片专属，取代圆环）
                 <motion.div
                   key="score"
-                  className="absolute inset-0 flex flex-col justify-center gap-1 rounded-lg bg-white/45 px-3.5 ring-1 ring-black/5 backdrop-blur-md dark:bg-white/8 dark:ring-white/10"
+                  className="absolute inset-0 flex flex-col justify-center gap-1 rounded-lg glass-surface glass-45 px-3.5 ring-1 ring-black/5 dark:ring-white/10"
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
@@ -1357,7 +1357,7 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
               ) : (
                 <motion.div
                   key="score"
-                  className="absolute inset-0 flex flex-col justify-center gap-1 rounded-lg bg-white/45 px-3.5 ring-1 ring-black/5 backdrop-blur-md dark:bg-white/8 dark:ring-white/10"
+                  className="absolute inset-0 flex flex-col justify-center gap-1 rounded-lg glass-surface glass-45 px-3.5 ring-1 ring-black/5 dark:ring-white/10"
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
@@ -1559,7 +1559,7 @@ export const XboxWidget = memo(({ data, showOverview, onContentChange }: any) =>
             </div>
             {/* 完成度角标（右上）；标题只走 onContentChange → 左下 Logo */}
             {(progress > 0 || achTotal > 0) && (
-              <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 backdrop-blur-sm ring-1 ring-white/15">
+              <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 ring-1 ring-white/15">
                 <span
                   className="text-[10px] font-black tabular-nums text-white"
                   style={{ color: progress >= 100 ? '#a3e635' : undefined }}
@@ -2046,7 +2046,7 @@ export const PsnStatsWidget = memo(({ data, isPreview }: any) => {
               ) : (
                 <motion.div
                   key="score"
-                  className="absolute inset-0 flex flex-col justify-center gap-1 rounded-lg bg-white/45 px-3.5 ring-1 ring-black/5 backdrop-blur-md dark:bg-white/8 dark:ring-white/10"
+                  className="absolute inset-0 flex flex-col justify-center gap-1 rounded-lg glass-surface glass-45 px-3.5 ring-1 ring-black/5 dark:ring-white/10"
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
@@ -2142,7 +2142,7 @@ export const PsnWidget = memo(({ data, showOverview, onContentChange }: any) => 
             </div>
             {/* 右上：完成度 + 白金标记；标题只走左下 Logo */}
             {(progress > 0 || hasPlatinum) && (
-              <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 backdrop-blur-sm ring-1 ring-white/15">
+              <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 ring-1 ring-white/15">
                 {hasPlatinum && (
                   <span className="text-[10px]" title="Platinum">
                     🏆

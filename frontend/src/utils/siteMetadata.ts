@@ -290,13 +290,10 @@ function updateFavicon(faviconUrl: string): void {
     return
   }
 
-  if (isDataUrl) {
-    favicon.removeAttribute('crossorigin')
-  } else if (isExternalUrl) {
-    favicon.crossOrigin = 'anonymous'
-  } else {
-    favicon.removeAttribute('crossorigin')
-  }
+  // Tab icons are display-only. `crossorigin=anonymous` forces a CORS fetch
+  // that fails on static hosts without ACAO and hides the favicon. Canvas
+  // readback (PWA compose) is a separate fetch and skips those URLs.
+  favicon.removeAttribute('crossorigin')
 
   const mime = inferFaviconType(faviconUrl)
   if (mime) {

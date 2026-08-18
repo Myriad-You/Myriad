@@ -144,7 +144,7 @@ export const MobileReaderBar = memo(
                     ? { duration: 0.3, ease: [0.16, 1, 0.3, 1] }
                     : undefined
                 }
-                className={`flex flex-col-reverse backdrop-blur-md border-t ${currentTheme.border} ${currentTheme.surface}`}
+                className={`flex flex-col-reverse border-t ${currentTheme.border} ${currentTheme.surface}`}
               >
                 {/* 主控制栏 - 始终显示（在底部） */}
                 <div className="flex items-center justify-between px-3 py-2 safe-area-inset-bottom">

@@ -578,7 +578,7 @@ const PlatformLogoBadge = memo(
 
     return (
       <div
-        className={`flex shrink-0 items-center justify-center rounded-lg backdrop-blur-sm shadow-lg ${config.textColor}`}
+        className={`flex shrink-0 items-center justify-center rounded-lg shadow-lg ${config.textColor}`}
         style={{
           width: box,
           height: box,

@@ -20,8 +20,8 @@
 
 ```bash
 cd /path/to/myriad
-# 先把 docker-guard.env.example 复制到 /etc/myriad/docker-guard.env，
-# 并填入独立验证过的 updater 镜像 repo@sha256 digest（权限 0600/0640）。
+# .env 填入独立验证过的 DOCKER_GUARD_IMAGE（repo@sha256）。
+# Guard 首次启动会写入 ./guard-policy/docker-guard.env。
 bash scripts/docker/deploy.sh up
 ```
 
@@ -31,9 +31,8 @@ bash scripts/docker/deploy.sh up
 - 创建 `./pgdata`、`./state`、`./backups`
 - 补齐 `MYRIAD_TAG`、`PROXY_TAG`、`UPDATER_TAG`、`COMPOSE_PROJECT_NAME=myriad` 等当前布局 key
 - 若 `UPDATE_TOKEN` 为空则随机生成
-- 若宿主 Guard 策略缺少 `GUARD_SELF_UPDATE_TOKEN` 则随机生成
-- 新建或仍有有效 bootstrap token 的未认领安装默认临时允许浏览器经 proxy 完成 setup；创建 owner 后再次运行
-  `deploy.sh up`，脚本会依据 `.bootstrap-claimed` 自动关闭远程 bootstrap
+- 若 `.env` / `./guard-policy/docker-guard.env` 缺少 `GUARD_SELF_UPDATE_TOKEN` 则随机生成
+- 未认领的首次安装可直接用浏览器经 proxy 做完向导；编排预置了安装暗号则要对上。官方 compose 没有暗号会拒绝启动；`deploy.sh` 会在空值时生成
 - Docker 网络默认显式命名为 `myriad-net`；同机多套部署时可设置 `MYRIAD_DOCKER_NETWORK`
 
 生产布局为 proxy + updater（见 [deployment/DOCKER_DEPLOYMENT.md](./deployment/DOCKER_DEPLOYMENT.md)）。
@@ -47,13 +46,13 @@ proxy (80) ─┬─► frontend
             └─► backend ─► postgres
 updater (内网) ─► docker-guard ─► docker.sock
        └──────── 部署根只读 + .env/pgdata/state 精确可写
-宿主只读策略 ──► docker-guard.env（Guard 的独立镜像 digest + 自更新 capability）
+./guard-policy/docker-guard.env ──► Guard 的独立镜像 digest + 自更新 capability
 ```
 
 只有 `proxy` 暴露宿主端口。`HTTP_PORT` 可以在 `.env` 调（默认 80）。原始 Docker socket
 只挂载给 `docker-guard`；updater 通过内部网络访问经项目/镜像/请求体白名单限制的 API。
 updater 对部署根本身只读，仅通过独立挂载写入 `./.env`、`./pgdata`、`./state`；Compose
-文件和部署根之外的 Guard 策略不可写。
+文件和 `./guard-policy/` 对 updater 只读。
 
 当前拓扑见 [deployment/DOCKER_DEPLOYMENT.md](./deployment/DOCKER_DEPLOYMENT.md)
 （三网 + docker-guard + updater-gateway）。首次或改拓扑请在宿主执行
@@ -249,7 +248,8 @@ UI / API 手动回滚到某个快照时，同样会按快照的 `source_version`
 history 是否有 `PRE_SWAP_FAIL` / `ROLLBACK_OK` / `NEEDS_MANUAL`；再按 §5 救援。
 
 管理 UI 在自动回滚成功、维护已退出时，仍会通过 `/status.last_failed_update` 显示
-「上次更新未成功」横幅，避免误以为升级成功。
+「上次更新未成功」横幅，避免误以为升级成功。横幅可永久关闭（`POST /last-failed/dismiss`）；
+下次失败会再出现。
 
 本地回归：
 

@@ -166,7 +166,7 @@ export const BilibiliWidget = memo(
               <div className="absolute bottom-3 right-3 z-20 flex flex-col items-end gap-1.5 pointer-events-none">
                 {userLevel > 0 && (
                   <motion.div
-                    className="px-2.5 py-0.5 rounded-full text-[9px] font-bold flex items-center gap-1 backdrop-blur-md shadow-lg bg-linear-to-br from-pink-50 to-pink-100 dark:from-pink-950/80 dark:to-pink-900/60 text-pink-600 dark:text-pink-300"
+                    className="px-2.5 py-0.5 rounded-full text-[9px] font-bold flex items-center gap-1 shadow-lg bg-linear-to-br from-pink-50 to-pink-100 dark:from-pink-950/80 dark:to-pink-900/60 text-pink-600 dark:text-pink-300"
                     style={{ boxShadow: '0 2px 12px rgba(236, 72, 153, 0.25)' }}
                     initial={{ scale: 0.8, opacity: 0, x: 20 }}
                     animate={{ scale: 1, opacity: 1, x: 0 }}
@@ -178,7 +178,7 @@ export const BilibiliWidget = memo(
                 )}
                 {(followerCount > 0 || followingCount > 0) && (
                   <motion.div
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg backdrop-blur-md shadow-lg bg-white/90 dark:bg-black/90 border border-white/30 dark:border-white/10"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg glass-surface glass-90 shadow-lg border border-white/30 dark:border-white/10"
                     initial={{ scale: 0.8, opacity: 0, x: 20 }}
                     animate={{ scale: 1, opacity: 1, x: 0 }}
                     transition={{ duration: 0.4, delay: 0.2 }}

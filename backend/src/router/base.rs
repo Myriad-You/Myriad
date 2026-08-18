@@ -1,33 +1,11 @@
 //! Base API routes (setup, system, public config, federation surface).
 use super::*;
 
-fn setup_peer_ip(req: &Request) -> Result<std::net::IpAddr, myriad_error::AppError> {
-    req.extensions()
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|connect| connect.0.ip())
-        .ok_or_else(|| {
-            myriad_error::AppError::forbidden("Bootstrap peer unavailable")
-                .with_message("安装控制面无法确认原始连接对端，已拒绝请求。")
-        })
-}
-
-/// Guard setup mutations before body extraction, database extraction, or Argon2.
+/// Guard the open setup window before body extraction, database extraction, or
+/// Argon2. Handlers then match `MYRIAD_SETUP_SECRET` from header or JSON so a
+/// body-only client still works on every setup write.
 async fn require_installation_capability(req: Request, next: Next) -> Response {
-    let result = setup_peer_ip(&req)
-        .and_then(|peer_ip| crate::api::setup_bootstrap::require_bootstrap(req.headers(), peer_ip));
-    if let Err(error) = result {
-        return crate::error::app_error_response(error);
-    }
-    next.run(req).await
-}
-
-/// First-owner creation is authorized before body extraction. The handler
-/// consumes the capability immediately before committing its transaction so a
-/// post-commit crash cannot leave a replayable capability on disk.
-async fn claim_installation_capability(req: Request, next: Next) -> Response {
-    let result = setup_peer_ip(&req)
-        .and_then(|peer_ip| crate::api::setup_bootstrap::require_bootstrap(req.headers(), peer_ip));
-    if let Err(error) = result {
+    if let Err(error) = crate::api::setup_bootstrap::require_setup_window() {
         return crate::error::app_error_response(error);
     }
     next.run(req).await
@@ -64,7 +42,7 @@ pub(super) fn build_config_mode_router() -> Router {
         )
         .route(
             "/api/setup/create-admin",
-            post(api::auth_local::create_admin).route_layer(from_fn(claim_installation_capability)),
+            post(api::auth_local::create_admin).route_layer(from_fn(require_installation_capability)),
         )
         // system status stays public for operators during setup
         .route("/api/system/status", get(api::system::system_status))
@@ -112,7 +90,7 @@ pub(super) fn build_base_api_router(
         )
         .route(
             "/api/setup/create-admin",
-            post(api::auth_local::create_admin).route_layer(from_fn(claim_installation_capability)),
+            post(api::auth_local::create_admin).route_layer(from_fn(require_installation_capability)),
         )
         // System management routes
         // P2: system/status 暴露了一些系统信息，但为了监控保持公开（考虑移除敏感字段）
@@ -513,6 +491,10 @@ pub(super) fn build_base_api_router(
         .route(
             "/api/federation/public/rooms/{room_id}",
             get(api::federation::federation_get_public_room),
+        )
+        .route(
+            "/api/federation/public/limits",
+            get(federation::limits::public_limits),
         )
         // Layer 2: Actor + Outbox + Collections（无需认证，AP 标准端点）
         .route("/users/{username}", get(federation::actor::get_actor))

@@ -6,20 +6,9 @@ mod authenticated;
 mod base;
 
 async fn installation_claimed(db: &sea_orm::DatabaseConnection) -> anyhow::Result<bool> {
-    use sea_orm::ConnectionTrait;
-
-    let row = db
-        .query_one_raw(sea_orm::Statement::from_string(
-            sea_orm::DatabaseBackend::Postgres,
-            "SELECT EXISTS (
-                SELECT 1 FROM users
-                WHERE is_admin = true OR COALESCE(is_owner, false) = true
-            ) AS claimed",
-        ))
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("installation claim query returned no row"))?;
-    row.try_get("", "claimed")
-        .map_err(|error| anyhow::anyhow!("decode installation claim state: {error}"))
+    crate::services::site_owner::installation_has_owner(db)
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
 pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
@@ -60,8 +49,8 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
         axum::http::header::HeaderName::from_static("x-csrf-token"),
         axum::http::header::HeaderName::from_static("x-tapp-runtime-grant"),
         axum::http::header::HeaderName::from_static("x-requested-with"),
-        // Setup wizard (already-configured instance re-init) + host locale/TZ for Tapp context.
-        axum::http::header::HeaderName::from_static("x-bootstrap-token"),
+        // Setup wizard passphrase + host locale/TZ for Tapp context.
+        axum::http::header::HeaderName::from_static("x-setup-secret"),
         axum::http::header::HeaderName::from_static("x-myriad-locale"),
         axum::http::header::HeaderName::from_static("x-myriad-timezone"),
     ];
@@ -95,8 +84,8 @@ pub(crate) async fn start_unified_server(config: AppConfig) -> anyhow::Result<()
     let data_dir = &services::data_paths::paths().root;
     if let Some(db) = db_opt.as_ref() {
         if installation_claimed(db).await? {
-            api::setup_bootstrap::remove_stale_token_file(data_dir)
-                .map_err(|error| anyhow::anyhow!("remove stale bootstrap capability: {error}"))?;
+            api::setup_bootstrap::mark_claimed_on_disk(data_dir)
+                .map_err(|error| anyhow::anyhow!("persist claimed setup marker: {error}"))?;
         } else {
             api::setup_bootstrap::init_for_setup(data_dir, true)
                 .map_err(|error| anyhow::anyhow!("initialize setup capability: {error}"))?;

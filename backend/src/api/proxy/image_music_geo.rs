@@ -86,11 +86,6 @@ impl TokenBucket {
 }
 
 // 全局代理限流器映射 (域名 -> 令牌桶)
-/// 音频代理的响应体上限。
-///
-/// 原实现直接 `bytes()`，**完全没有上限** —— 上游返回多大就往内存里读多大。
-/// 128 MiB 足以覆盖无损单曲（FLAC 一首约 30–60 MB），同时把单个请求的
-/// 内存占用封死。
 /// 上游 JSON 元数据的响应体上限。
 ///
 /// 这些都是歌单/歌词/地理位置之类的小 JSON。`resp.json()` 会无界缓冲，
@@ -107,8 +102,6 @@ async fn read_limited_json(resp: reqwest::Response) -> Result<Value, String> {
             .await?;
     serde_json::from_slice(&bytes).map_err(|e| format!("Invalid JSON from upstream: {e}"))
 }
-
-const MAX_AUDIO_BYTES: usize = 128 * 1024 * 1024;
 
 static PROXY_LIMITERS: Lazy<Arc<Mutex<HashMap<String, TokenBucket>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
@@ -945,7 +938,7 @@ pub async fn proxy_netease_audio(Path(song_id): Path<String>) -> Response {
 
                     match crate::services::outbound_security::read_limited_body(
                         audio_resp,
-                        MAX_AUDIO_BYTES,
+                        crate::services::memory_profile::max_audio_bytes(),
                     )
                     .await
                     {
@@ -1278,7 +1271,10 @@ pub async fn proxy_qq_audio(Path(song_mid): Path<String>) -> Response {
                 .unwrap_or("audio/mpeg")
                 .to_string();
 
-            match crate::services::outbound_security::read_limited_body(audio_resp, MAX_AUDIO_BYTES)
+            match crate::services::outbound_security::read_limited_body(
+                audio_resp,
+                crate::services::memory_profile::max_audio_bytes(),
+            )
                 .await
             {
                 Ok(audio_data) => (

@@ -63,6 +63,34 @@ pub fn create_agent_routes(
                 .put(mcp_put_config)
                 .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::auth_middleware)),
         )
+        .route(
+            "/persona",
+            get(super::persona::get_persona)
+                .put(super::persona::put_persona)
+                .delete(super::persona::delete_persona)
+                .route_layer(from_fn_with_state(app_state.clone(), middleware::auth::auth_middleware)),
+        )
+        .route(
+            "/persona/signals",
+            get(super::persona::get_persona_signals).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
+            "/persona/draft",
+            axum::routing::post(super::persona::draft_persona).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
+            "/addressee",
+            put(super::persona::put_addressee).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // Agent 列表（需要认证）
         .route(
             "/agents",

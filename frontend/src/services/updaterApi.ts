@@ -546,6 +546,9 @@ export function makeUpdaterApi(
       wrap<{ job_id: string }>('POST', '/rollback', {
         snapshot_id: snapshotId,
       }),
+    /** Hide the last-failed banner permanently (clears updater.json). */
+    dismissLastFailed: () =>
+      wrap<{ ok: boolean }>('POST', '/last-failed/dismiss'),
     /** Permanently remove a single backup snapshot. */
     deleteSnapshot: (snapshotId: string) =>
       wrap<{ ok: boolean; id: string }>(

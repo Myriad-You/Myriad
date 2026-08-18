@@ -110,8 +110,8 @@ cd /path/to/deploy
 cp /path/to/repo/docs/deployment/examples/docker-compose.external-db.example.yml docker-compose.yml
 # 编辑 .env：MYRIAD_DB_MODE、DATABASE_URL、密钥与 tags
 
-docker compose --env-file .env --env-file /etc/myriad/docker-guard.env pull
-docker compose --env-file .env --env-file /etc/myriad/docker-guard.env up -d
+docker compose --env-file .env pull
+docker compose --env-file .env up -d
 # 或（若仍使用仓库脚本且 compose 文件名兼容）：
 # bash scripts/docker/deploy.sh up
 ```
@@ -215,7 +215,7 @@ pg_dump "$DATABASE_URL" -Fc -f "backups/myriad_$(date +%Y%m%d_%H%M%S).dump"
 1. 维护窗口：`docker compose stop frontend backend`（或整栈 stop，按你的流程）。  
 2. `pg_dump` 栈内库 → 导入外部 Postgres（建库/用户/权限先就绪）。  
 3. 换用外部 compose（无 `postgres` 服务），设置 `MYRIAD_DB_MODE=external` 与 `DATABASE_URL`。  
-4. 使用 `docker compose --env-file .env --env-file /etc/myriad/docker-guard.env up -d`，执行上一节容器内校验。
+4. 使用 `docker compose --env-file .env up -d`（若 `./guard-policy/docker-guard.env` 已存在可再加 `--env-file ./guard-policy/docker-guard.env`），执行上一节容器内校验。
 5. 确认无误后处理旧 `./pgdata`（备份后删除或离线归档）。
 
 Schema migration 仍由 **backend 启动路径** 负责（与默认部署相同）；确保外部库用户具备所需 DDL 权限。

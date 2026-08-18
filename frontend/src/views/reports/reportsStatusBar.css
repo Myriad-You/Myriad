@@ -1,0 +1,280 @@
+/* ============================================
+   报告页状态条
+   与首页状态条（Home.tsx 用户卡）同一套控件语言：
+   圆角矩形玻璃 + 头像圆片 + 竖发丝分隔 + rounded-lg 幽灵按钮（主题色字）。
+   旧版的问题：白方块按钮硬编码 bg-white/neutral-800，表面主题一换就脱节；
+   条宽固定 576px，左文右钮中间空三百像素。
+
+   这一版：宽度贴内容走（framer layout 形变）、字形只在「说得出是谁」时才有、
+   动作跟着当前那条走（报告给播放、生命给创建），按钮全部改用首页那套
+   bg-black/5 + 主题色字，四种表面主题下都自洽。
+   ============================================ */
+
+.rsb {
+  --rsb-h: 3.25rem;
+  --rsb-accent: var(--color-primary, #7c6ee6);
+  --rsb-ink: color-mix(in srgb, var(--text-primary, #1f2937) 94%, transparent);
+  --rsb-muted: color-mix(
+    in srgb,
+    var(--text-secondary, #4b5563) 78%,
+    transparent
+  );
+  --rsb-line: rgb(0 0 0 / 10%);
+  --rsb-ghost: rgb(0 0 0 / 5%);
+  --rsb-ghost-hover: rgb(0 0 0 / 10%);
+  --rsb-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  position: relative;
+  max-width: 100%;
+}
+
+html.dark .rsb {
+  --rsb-line: rgb(255 255 255 / 10%);
+  --rsb-ghost: rgb(255 255 255 / 5%);
+  --rsb-ghost-hover: rgb(255 255 255 / 10%);
+}
+
+/* 大标题（跟随当前 tip 的英雄字）—— 位置/字体由页面注入内联样式。
+   左边距与条子对齐（都是 rail 的 0.25rem 内边距），同主页 h1 与用户卡的关系 */
+.rsb-hero {
+  position: absolute;
+  left: 0.25rem;
+  z-index: 0;
+  overflow: visible;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 与主页顶部信息条同一套节奏：60px 的槽里放 52px 的卡，上下各留 4px 净空。
+   条子本身两边一样高，是这层净空让主页那张卡不显得「顶」着下面的内容 */
+.rsb-rail {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  height: 3.75rem;
+  padding: 0.25rem;
+}
+
+.rsb-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: fit-content;
+  min-width: min(100%, 14rem);
+  max-width: min(100%, 34rem);
+  height: var(--rsb-h);
+  padding: 0 0.5rem 0 0.75rem;
+
+  /* 与首页状态条同形：rounded-xl 圆角矩形 */
+  border-radius: 0.75rem;
+}
+
+/* ---------- 提示主体 ---------- */
+
+.rsb-tip {
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+  min-width: 0;
+  padding: 0.25rem 0.375rem;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 0.5rem;
+  transition: background 0.24s var(--rsb-ease);
+}
+
+.rsb-tip.is-clickable {
+  cursor: pointer;
+}
+
+.rsb-tip.is-clickable:hover {
+  background: var(--rsb-ghost);
+}
+
+/* 进出场共处同一网格格；退场那份由 popLayout 抽出文档流，
+   所以容器宽度永远只由「当前这条」决定，形变不会被旧内容卡住 */
+.rsb-stack {
+  display: grid;
+  min-width: 0;
+}
+
+.rsb-slide {
+  display: flex;
+  grid-area: 1 / 1;
+  gap: 0.625rem;
+  align-items: center;
+  min-width: 0;
+}
+
+/* 字形就是字形，不套底、不描边：报告类提示干脆连字形都不要，
+   只有「这一条说的是谁」（舞台的平台标、Arael 生命标记）才配一个 */
+.rsb-glyph {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--rsb-accent);
+}
+
+.rsb-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Viewer avatar on their own report tips */
+.rsb-portrait {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  object-fit: cover;
+  border: 1px solid var(--rsb-line);
+  border-radius: 50%;
+}
+
+.rsb-lines {
+  min-width: 0;
+}
+
+.rsb-main {
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--rsb-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rsb-sub {
+  overflow: hidden;
+  font-size: 0.625rem;
+  line-height: 1.25;
+  color: var(--rsb-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rsb-go {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  color: var(--rsb-muted);
+  opacity: 0.4;
+  transition:
+    opacity 0.24s var(--rsb-ease),
+    transform 0.24s var(--rsb-ease);
+  transform: translateX(-2px);
+}
+
+.rsb-tip.is-clickable:hover .rsb-go {
+  opacity: 0.85;
+  transform: none;
+}
+
+/* ---------- 动作区（首页状态条那套按钮） ---------- */
+
+.rsb-sep {
+  flex: none;
+  width: 1px;
+  height: 1.5rem;
+  background: var(--rsb-line);
+}
+
+.rsb-actions {
+  display: flex;
+  flex: none;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+.rsb-btn {
+  display: flex;
+  flex: none;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+  height: 1.875rem;
+  padding: 0 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--rsb-accent);
+  white-space: nowrap;
+  cursor: pointer;
+  background: var(--rsb-ghost);
+  border: 0;
+  border-radius: 0.5rem;
+  transition:
+    background 0.22s var(--rsb-ease),
+    opacity 0.22s var(--rsb-ease),
+    transform 0.22s var(--rsb-ease);
+}
+
+/* 只有图标的传输键收成方钮 */
+.rsb-btn.is-icon {
+  width: 1.875rem;
+  padding: 0;
+}
+
+.rsb-btn svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* 播放/暂停是「传输键」，实心才读得出是按钮不是图示 */
+.rsb-glyph-solid {
+  fill: currentcolor;
+}
+
+.rsb-btn:hover:not(:disabled) {
+  background: var(--rsb-ghost-hover);
+}
+
+.rsb-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.rsb-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* 主动作：与首页「编辑中」态同款——实心主题色 + 白字 */
+.rsb-btn.is-key {
+  color: #fff;
+  background: var(--rsb-accent);
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--rsb-accent) 60%, transparent);
+}
+
+.rsb-btn.is-key:hover:not(:disabled) {
+  background: var(--rsb-accent);
+  opacity: 0.9;
+}
+
+.rsb-btn.is-spinning svg {
+  animation: spin 1s linear infinite;
+}
+
+.rsb-tip:focus-visible,
+.rsb-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--rsb-accent) 62%, transparent);
+  outline-offset: 2px;
+}
+
+/* 窄屏：收紧留白给文字让路，其余不变 */
+@media (width <= 26rem) {
+  .rsb-bar {
+    min-width: 0;
+    gap: 0.375rem;
+    padding-left: 0.5rem;
+  }
+}
+

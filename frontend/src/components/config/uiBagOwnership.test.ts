@@ -34,6 +34,7 @@ describe('uiBagOwnership', () => {
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('wallpaper_url'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('analytics_enabled'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('music_enabled'))
+    assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('agent_life_enabled'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('proxy_url'))
     assert.ok(!ALL_OWNED_UI_BAG_KEYS.includes('base_url'))
   })
@@ -166,6 +167,7 @@ describe('uiBagOwnership', () => {
 
     for (const key of [
       'memory_saver_enabled',
+      'agent_life_enabled',
       'proxy_enabled',
       'proxy_url',
       'proxy_bypass',

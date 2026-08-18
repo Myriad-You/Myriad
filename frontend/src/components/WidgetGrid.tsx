@@ -1742,7 +1742,7 @@ export default function WidgetGrid({
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       className={
         libraryContainerClassName ||
-        'fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-black/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-white/5 shadow-2xl'
+        'fixed top-0 left-0 right-0 z-50 glass-surface glass-80 border-b border-gray-200/50 dark:border-white/5 shadow-2xl'
       }
       style={libraryStyle}
     >
@@ -1928,7 +1928,7 @@ export default function WidgetGrid({
                       <div className="absolute inset-0 z-20 rounded-xl ring-1 ring-black/5 dark:ring-white/10 group-hover:ring-2 group-hover:ring-blue-500 transition-all bg-transparent" />
 
                       {/* 悬浮提示（非 1x1 维持原样） */}
-                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-bold text-gray-600 dark:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none bg-white/90 dark:bg-neutral-900/90 px-3 py-1 rounded-full backdrop-blur-sm shadow-sm border border-gray-200/50 dark:border-neutral-700/50">
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-bold text-gray-600 dark:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none glass-surface glass-90 px-3 py-1 rounded-full shadow-sm border border-gray-200/50 dark:border-neutral-700/50">
                         {libraryLabel}
                       </div>
                     </>
@@ -2026,7 +2026,7 @@ export default function WidgetGrid({
               {/* 状态提示：1x1 格子窄，强制单行并允许溢出，避免「位置冲突」折行 */}
               <div className="absolute inset-0 flex items-center justify-center overflow-visible">
                 <div
-                  className={`rounded-full font-bold shadow-lg backdrop-blur-sm whitespace-nowrap ${
+                  className={`rounded-full font-bold shadow-lg whitespace-nowrap ${
                     dragPreview.size.w === 1 && dragPreview.size.h === 1
                       ? 'px-1.5 py-0.5 text-[9px] leading-none'
                       : 'px-3 py-1 text-xs'

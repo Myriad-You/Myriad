@@ -132,8 +132,9 @@ img[loading='lazy'] {
  * 动效降级只认 data-perf-mode（useAnimationLevel）：
  *
  * - light：只关 Tailwind backdrop-blur 工具类（保留半透明玻璃观感）
- * - exlight：关全部 backdrop-filter，并在「默认玻璃表面」下抬不透明度，
- *   避免半透明底叠壁纸仍读作毛玻璃
+ * - exlight：关全部 backdrop-filter，并抬「玻璃/frost」不透明度。
+ *   只关 blur、半透明底仍叠壁纸，读起来还是毛玻璃。
+ *   令牌（--cfg-frost-* / --surface-*）先改；白名单只兜硬编码底。
  *
  * 作用域必须带 html[data-perf-mode=…] 前缀，standard 不受影响。
  * 不改写壁纸 filter（#bg-container 等）。
@@ -142,7 +143,7 @@ img[loading='lazy'] {
 /* light + exlight：关掉 Tailwind 毛玻璃工具类 */
 html[data-perf-mode='light'] [class*='backdrop-blur'],
 html[data-perf-mode='exlight'] [class*='backdrop-blur'] {
-  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
 
@@ -154,51 +155,89 @@ html[data-perf-mode='exlight'] [class*='backdrop-blur'] {
  * 单写 html[data-perf-mode=exlight] (0,1,1)，导致变量仍是 blur(...)，
  * 虽有 * { backdrop-filter:none !important } 兜底，但令牌应自洽。
  * 用 !important + 带 data-surface 的选择器压过 surface 主题。
- * 默认 alpha 仍只在无 data-surface 时抬高，不破坏 solid/flat/liquid 底色设计。
+ * 默认玻璃抬 --surface-alpha；liquid/outline 的实底回退在 theme.css。
  */
 html[data-perf-mode='exlight'],
 html[data-perf-mode='exlight'][data-surface] {
   --surface-filter: none !important;
+  --cfg-frost-filter: none !important;
+  --cfg-frost-bg: rgb(255 255 255 / 96%);
+  --cfg-frost-elevated-bg: rgb(255 255 255 / 96%);
+  --cfg-input-bg: rgb(255 255 255 / 96%);
+  --cfg-input-bg-focus: rgb(255 255 255 / 96%);
+  --bg-card: rgb(255 255 255 / 96%);
+  --input-bg: rgb(255 255 255 / 96%);
+}
+
+html.dark[data-perf-mode='exlight'],
+html.dark[data-perf-mode='exlight'][data-surface] {
+  --cfg-frost-bg: rgb(16 16 16 / 96%);
+  --cfg-frost-elevated-bg: rgb(20 20 20 / 96%);
+  --cfg-input-bg: rgb(26 26 26 / 96%);
+  --cfg-input-bg-focus: rgb(26 26 26 / 96%);
+  --bg-card: rgb(26 26 26 / 96%);
+  --input-bg: rgb(26 26 26 / 96%);
 }
 
 html[data-perf-mode='exlight']:not([data-surface]) {
   --surface-alpha: 96%;
 }
 
-/* 全局关 backdrop（含 .glass / 组件 CSS / 内联），不碰 filter（壁纸/光晕另论） */
+/* 全局关 backdrop（含 .glass / 组件 CSS / 内联 / WebKit 前缀） */
+html[data-perf-mode='exlight'],
 html[data-perf-mode='exlight'] *,
 html[data-perf-mode='exlight'] *::before,
-html[data-perf-mode='exlight'] *::after {
-  backdrop-filter: none !important;
+html[data-perf-mode='exlight'] *::after,
+html[data-perf-mode='exlight'] ::backdrop {
+  -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
 
 /*
  * 默认玻璃表面（无 data-surface）：.glass / .glass-surface 走令牌背景时
  * 抬不透明度即可。不用 background:!important，以免压掉带渐变的特殊卡。
- * 已选 solid / flat / outline / liquid 时不改其 --surface-bg 设计。
+ * solid / flat 保持各自底色；liquid / outline 的实底回退在 theme.css。
  */
-html[data-perf-mode='exlight']:not([data-surface]) .glass,
-html[data-perf-mode='exlight']:not([data-surface]) .glass-surface {
+html[data-perf-mode='exlight']:not([data-surface])
+  .glass,
+html[data-perf-mode='exlight']:not([data-surface])
+  .glass-surface {
   --surface-alpha: 96%;
   --surface-filter: none;
+  --surface-bg: rgb(var(--surface-rgb) / 96%);
 }
 
 /*
  * 硬编码半透明底的浮动 chrome（导航岛 / 控制岛 / 页脚）不读 --surface-alpha。
  * 仅默认玻璃表面时抬不透明；用户切了表面主题时跟随主题令牌（见 theme.css）。
  */
-html[data-perf-mode='exlight']:not([data-surface]) .dynamic-island,
-html[data-perf-mode='exlight']:not([data-surface]) .secondary-island,
-html[data-perf-mode='exlight']:not([data-surface]) .control-bar-trigger,
-html[data-perf-mode='exlight']:not([data-surface]) .site-footer-content {
+html[data-perf-mode='exlight']:not([data-surface])
+  .dynamic-island,
+html[data-perf-mode='exlight']:not([data-surface])
+  .secondary-island,
+html[data-perf-mode='exlight']:not([data-surface])
+  .control-bar-trigger,
+html[data-perf-mode='exlight']:not([data-surface])
+  .site-footer-content {
   background: rgb(255 255 255 / 96%) !important;
 }
 
-html.dark[data-perf-mode='exlight']:not([data-surface]) .dynamic-island,
-html.dark[data-perf-mode='exlight']:not([data-surface]) .secondary-island,
-html.dark[data-perf-mode='exlight']:not([data-surface]) .control-bar-trigger,
-html.dark[data-perf-mode='exlight']:not([data-surface]) .site-footer-content {
+html.dark[data-perf-mode='exlight']:not(
+    [data-surface]
+  )
+  .dynamic-island,
+html.dark[data-perf-mode='exlight']:not(
+    [data-surface]
+  )
+  .secondary-island,
+html.dark[data-perf-mode='exlight']:not(
+    [data-surface]
+  )
+  .control-bar-trigger,
+html.dark[data-perf-mode='exlight']:not(
+    [data-surface]
+  )
+  .site-footer-content {
   background: rgb(26 26 26 / 96%) !important;
 }
 
@@ -214,8 +253,59 @@ html[data-perf-mode='exlight'] .animate-pulse {
 }
 
 /*
+ * 装饰性无限循环：exlight 可以没有 prefers-reduced-motion
+ * （弱硬件 + 用户选低档），那些 @media reduce 规则覆盖不到。
+ */
+html[data-perf-mode='exlight'] .dynamic-island::before,
+html[data-perf-mode='exlight'] .secondary-island::before {
+  animation: none !important;
+  opacity: 0 !important;
+}
+
+html[data-perf-mode='exlight'] [data-fittext-track],
+html[data-perf-mode='exlight'] .tapp-app-card__icon-pulse,
+html[data-perf-mode='exlight'] .playground-island-aura,
+html[data-perf-mode='exlight'] .playground-text-shimmer,
+html[data-perf-mode='exlight'] .tapp-detail-status-dot.is-running,
+html[data-perf-mode='exlight'] .arael-empty-hero-name,
+html[data-perf-mode='exlight'] .arael-empty-hero-name::after,
+html[data-perf-mode='exlight'] .arael-current-step-text,
+html[data-perf-mode='exlight'] .user-modal-hero-bg,
+html[data-perf-mode='exlight'] .user-modal-avatar-wrapper,
+html[data-perf-mode='exlight'] .user-modal-online-dot,
+html[data-perf-mode='exlight'] #bg-container.wallpaper-awaiting #wallpaper-awaiting-fx,
+html[data-perf-mode='exlight'] #bg-container.wallpaper-awaiting #wallpaper-awaiting-fx::after {
+  animation: none !important;
+}
+
+html[data-perf-mode='exlight'] .as-detail__progress-bar > i::after {
+  animation: none !important;
+}
+
+html[data-perf-mode='exlight'] .playground-text-shimmer,
+html[data-perf-mode='exlight'] .arael-empty-hero-name {
+  background-image: none;
+  background-clip: border-box;
+  color: var(--color-primary, #10b981);
+  -webkit-text-fill-color: var(--color-primary, #10b981);
+}
+
+html[data-perf-mode='exlight'] .arael-empty-hero-name::after {
+  display: none;
+}
+
+html[data-perf-mode='exlight'] .arael-current-step-text {
+  background-image: none;
+  background-clip: border-box;
+  color: var(--text-muted, #9ca3af);
+  -webkit-text-fill-color: var(--text-muted, #9ca3af);
+}
+
+/*
  * 硬编码 CSS 玻璃面板（有 backdrop-filter:blur 的命名类）。
  * blur 已被全局关掉；这里只抬「亮色半透明面板」不透明度。
+ * 浮层若把 --cfg-frost-bg 再和 transparent 混一次（88%/90%），
+ * 令牌抬到 96% 后实际仍约 84%，必须进白名单直接盖实底。
  * 遮罩/scrim（.control-panel-overlay 等）不抬实心，只保留无 blur。
  * 仅 exlight。
  */
@@ -224,7 +314,6 @@ html[data-perf-mode='exlight'] .config-sidebar,
 html[data-perf-mode='exlight'] .config-section,
 html[data-perf-mode='exlight'] .about-card,
 html[data-perf-mode='exlight'] .platform-card,
-html[data-perf-mode='exlight'] .info-card,
 html[data-perf-mode='exlight'] .provider-option,
 html[data-perf-mode='exlight'] .field-input,
 html[data-perf-mode='exlight'] .field-select,
@@ -241,15 +330,21 @@ html[data-perf-mode='exlight'] .arael-panel,
 html[data-perf-mode='exlight'] .arael-input-wrapper,
 html[data-perf-mode='exlight'] .arael-favorite-capsule,
 html[data-perf-mode='exlight'] .arael-voice-btn,
+html[data-perf-mode='exlight'] .arael-sessions-search,
 html[data-perf-mode='exlight'] .modal-content,
 html[data-perf-mode='exlight'] .user-modal,
 html[data-perf-mode='exlight'] .user-modal-login-only,
 html[data-perf-mode='exlight'] .setup-ob__card,
 html[data-perf-mode='exlight'] .setup-ob-note,
-html[data-perf-mode='exlight'] .tooltip-content,
+html[data-perf-mode='exlight'] .setup-ob-ghost,
 html[data-perf-mode='exlight'] .tapp-data-consent-dialog,
-html[data-perf-mode='exlight'] .playground-diff-side-head,
-html[data-perf-mode='exlight'] [data-perf-monitor].pm-root {
+html[data-perf-mode='exlight'] .modern-config-error-card,
+html[data-perf-mode='exlight'] .tapp-launchpad-stage,
+html[data-perf-mode='exlight'] .setting-title-guide-pin,
+html[data-perf-mode='exlight'] .setting-title-guide-float,
+html[data-perf-mode='exlight'] .date-range-popover,
+html[data-perf-mode='exlight'] .install-tip,
+html[data-perf-mode='exlight'] .uninstall-tip {
   background: rgb(255 255 255 / 96%) !important;
 }
 
@@ -258,7 +353,6 @@ html.dark[data-perf-mode='exlight'] .config-sidebar,
 html.dark[data-perf-mode='exlight'] .config-section,
 html.dark[data-perf-mode='exlight'] .about-card,
 html.dark[data-perf-mode='exlight'] .platform-card,
-html.dark[data-perf-mode='exlight'] .info-card,
 html.dark[data-perf-mode='exlight'] .provider-option,
 html.dark[data-perf-mode='exlight'] .field-input,
 html.dark[data-perf-mode='exlight'] .field-select,
@@ -275,16 +369,40 @@ html.dark[data-perf-mode='exlight'] .arael-panel,
 html.dark[data-perf-mode='exlight'] .arael-input-wrapper,
 html.dark[data-perf-mode='exlight'] .arael-favorite-capsule,
 html.dark[data-perf-mode='exlight'] .arael-voice-btn,
+html.dark[data-perf-mode='exlight'] .arael-sessions-search,
 html.dark[data-perf-mode='exlight'] .modal-content,
 html.dark[data-perf-mode='exlight'] .user-modal,
 html.dark[data-perf-mode='exlight'] .user-modal-login-only,
 html.dark[data-perf-mode='exlight'] .setup-ob__card,
 html.dark[data-perf-mode='exlight'] .setup-ob-note,
-html.dark[data-perf-mode='exlight'] .tooltip-content,
+html.dark[data-perf-mode='exlight'] .setup-ob-ghost,
 html.dark[data-perf-mode='exlight'] .tapp-data-consent-dialog,
-html.dark[data-perf-mode='exlight'] .playground-diff-side-head,
-html.dark[data-perf-mode='exlight'] [data-perf-monitor].pm-root {
+html.dark[data-perf-mode='exlight'] .modern-config-error-card,
+html.dark[data-perf-mode='exlight'] .tapp-launchpad-stage,
+html.dark[data-perf-mode='exlight'] .setting-title-guide-pin,
+html.dark[data-perf-mode='exlight'] .setting-title-guide-float,
+html.dark[data-perf-mode='exlight'] .date-range-popover,
+html.dark[data-perf-mode='exlight'] .install-tip,
+html.dark[data-perf-mode='exlight'] .uninstall-tip {
   background: rgb(26 26 26 / 96%) !important;
+}
+
+/* 这两处本就是近黑面板，不能吃上面的浅色白名单 */
+html[data-perf-mode='exlight'] [data-perf-monitor].pm-root {
+  background: rgb(0 0 0 / 96%) !important;
+}
+
+html[data-perf-mode='exlight'] .playground-diff-side-head {
+  background: rgb(13 15 20 / 96%) !important;
+}
+
+/* 页脚 tooltip 本色近黑 + 浅字，不能吃浅色白名单 */
+html[data-perf-mode='exlight'] .tooltip-content {
+  background: rgb(23 23 23 / 96%) !important;
+}
+
+html.dark[data-perf-mode='exlight'] .tooltip-content {
+  background: rgb(10 10 10 / 96%) !important;
 }
 
 /* 音乐条：保留主题色，不透明混色 */
@@ -304,63 +422,23 @@ html.dark[data-perf-mode='exlight'] .music-player-container {
   ) !important;
 }
 
-/*
- * Tailwind「面板型」玻璃：backdrop-blur + 较高不透明底。
- * 白 45–95 / 黑 70–90 / neutral-900 80–90；不伤 bg-white/10、bg-black/20 scrim。
- */
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-white/45'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-white/50'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-white/60'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-white/70'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-white/80'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-white/85'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-white/90'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-white/95'] {
-  background-color: rgb(255 255 255 / 96%) !important;
-}
-
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-black/70'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-black/80'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-black/90'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='dark:bg-black/70'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='dark:bg-black/80'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='dark:bg-black/90'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-neutral-900/80'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='dark:bg-neutral-900/80'],
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='dark:bg-neutral-900/90'] {
-  background-color: rgb(26 26 26 / 96%) !important;
-}
-
-/*
- * Brew 阅读器主题 surface（bg-[#xxx]/80 + backdrop-blur）。
- * 任意色不在 bg-white/* 规则里；exlight 下改为实心主题色。
- * （useReaderSettings 也会把 surface 换成 surfaceSolid，双保险）
- */
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-[#fff9f0]/80'] {
-  background-color: #fff9f0 !important;
-}
-
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-[#faf4e6]/80'] {
-  background-color: #faf4e6 !important;
-}
-
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-[#242424]/80'] {
-  background-color: #242424 !important;
-}
-
-html[data-perf-mode='exlight'] [class*='backdrop-blur'][class*='bg-[#161b22]/80'] {
-  background-color: #161b22 !important;
-}
-
-/* glass-60/70 档：元素级 --surface-alpha 需压过 theme.css 的 60%/70% */
+/* glass-* 档：连 --surface-bg 一起重声明，压过 theme.css 已烘焙的档位底 */
+html[data-perf-mode='exlight']:not([data-surface]) .glass-30,
+html[data-perf-mode='exlight']:not([data-surface]) .glass-45,
 html[data-perf-mode='exlight']:not([data-surface]) .glass-60,
 html[data-perf-mode='exlight']:not([data-surface]) .glass-70,
+html[data-perf-mode='exlight']:not([data-surface]) .glass-80,
 html[data-perf-mode='exlight']:not([data-surface]) .glass-90,
 html[data-perf-mode='exlight']:not([data-surface]) .glass-95 {
   --surface-alpha: 96%;
+  --surface-bg: rgb(var(--surface-rgb) / 96%);
 }
 
-/* dark:bg-white/3 等极淡装饰 / bg-black/20 scrim：只关 blur，不抬实心 */
+/* glass-solid 保持 100%，压过同元素上 .glass-surface 的 96% */
+html[data-perf-mode='exlight']:not([data-surface]) .glass-solid {
+  --surface-alpha: 100%;
+  --surface-bg: rgb(var(--surface-rgb) / 100%);
+}
 
 /* ============================================
    帧率保护

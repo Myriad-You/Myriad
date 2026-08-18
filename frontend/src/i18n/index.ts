@@ -209,6 +209,8 @@ export interface TranslationKeys {
     adminAccount: string
     connectionFailed: string
     connectionFailedDesc: string
+    claimedRepairTitle: string
+    claimedRepairDesc: string
     backendDisconnected: string
     reconnecting: string
     retry: string
@@ -269,12 +271,6 @@ export interface TranslationKeys {
     setupSecretHint: string
     setupSecretPlaceholder: string
     setupSecretRequired: string
-    bootstrapToken: string
-    bootstrapTokenOptional: string
-    bootstrapTokenPlaceholder: string
-    bootstrapTokenHint: string
-    bootstrapTokenRequired: string
-    bootstrapTokenRotated: string
   }
 
   // 配置
@@ -792,6 +788,8 @@ export interface TranslationKeys {
     updaterStatusFirstRun: string
     updaterLastFailedTitle: string
     updaterLastFailedBody: string
+    updaterLastFailedDismiss: string
+    updaterLastFailedDismissAria: string
     updaterHintHealthy: string
     updaterHintUpdating: string
     updaterHintMaintenance: string
@@ -892,6 +890,7 @@ export interface TranslationKeys {
     updaterTargetCommitHead: string
     updaterTargetDockerHubHead: string
     updaterDockerHubFallback: string
+    updaterDockerHubSourceTag: string
     updaterDockerHubBuild: string
     updaterCommitTarget: string
     updaterCommitPlaceholder: string
@@ -1121,6 +1120,8 @@ export interface TranslationKeys {
     memorySaverGroupDesc: string
     memorySaver: string
     memorySaverHint: string
+    agentLife: string
+    agentLifeHint: string
     enableProxy: string
     enableProxyHint: string
     proxyUrl: string
@@ -1693,13 +1694,10 @@ export interface TranslationKeys {
     visitorStats: string
     library: string
     dataReport: string
-    digitalLife: string
     multiPlatformAggregation: string
     dualLayerAnalysis: string
-    digitalLifeDesc: string
-    showPersonality: string
+    libraryFeature: string
     platformProfile: string
-    digitalLifeFeature: string
     // Brew 阅读
     brewReading: string
     brewDesc: string
@@ -1819,205 +1817,34 @@ export interface TranslationKeys {
     title: string
   }
 
-  // 数字生命
+  // Agent 设定引导
   life: {
     onboarding: {
       title: string
       stepOf: string
       next: string
       backTo: string
-      optional: string
       step1Short: string
       step2Short: string
       step3Short: string
-      step4Short: string
-      step5Short: string
-      step6Short: string
       step1Title: string
       step1Lead: string
       step2Title: string
       step2Lead: string
       step3Title: string
       step3Lead: string
-      step3LeadPending: string
-      regeneratePersona: string
-      regeneratingPersona: string
-      regeneratePersonaFailed: string
-      personaNotCompletePending: string
-      personaNotCompleteIncomplete: string
-      personaFieldGenerating: string
-      personaDraftLabel: string
-      step4Title: string
-      step4Lead: string
-      step5Title: string
-      step5Lead: string
-      step6Title: string
-      step6Lead: string
-      loadingAiSignals: string
-      loadSignalsFailed: string
-      reportCount: string
-      aiDistilledMeta: string
-      reportsButFallback: string
       noReports: string
       selectedCount: string
       selectNothingYet: string
-      dragCanvas: string
       skipTags: string
-      regenerateSeeds: string
-      regeneratingSeeds: string
       nameLabel: string
       nameHint: string
       namePlaceholder: string
-      /** Step-2 random display name button (Lite AI) */
-      randomName: string
-      randomNameBusy: string
-      randomNameFailed: string
-      genderLabel: string
-      gender: {
-        female: string
-        male: string
-        nonbinary: string
-        unspecified: string
-      }
-      genderRequired: string
-      outfitNeedGender: string
-      extraLabel: string
-      extraHint: string
       extraPlaceholder: string
+      personaGroupCharacter: string
       creating: string
       createAndContinue: string
       createFailed: string
-      outfitSuggestTitle: string
-      outfitSuggestLead: string
-      outfitSuggesting: string
-      outfitSuggestAgain: string
-      outfitSuggestFailed: string
-      outfitSuggestEmpty: string
-      roomSuggestTitle: string
-      roomSuggestLead: string
-      roomSuggesting: string
-      roomSuggestAgain: string
-      roomSuggestFailed: string
-      roomSuggestEmpty: string
-      signalsEmpty: string
-      visualsWaitingDesign: string
-      roomMoodHint: string
-      roomPickFirst: string
-      envNotesLabel: string
-      envNotesHint: string
-      envNotesPlaceholder: string
-      designPendingSync: string
-      designPendingSyncHint: string
-      designBgBadge: string
-      designBgNotice: string
-      designPhaseBootstrap: string
-      designPhaseQueued: string
-      designPhaseDesigning: string
-      designPhasePending: string
-      designPhaseReady: string
-      designPhaseFallback: string
-      designPhaseFailed: string
-      designStepBootstrap: string
-      designStepDesign: string
-      designStepReady: string
-      designElapsed: string
-      identityStaleRebuild: string
-      localeGlossHint: string
-      editPersona: string
-      doneEditing: string
-      cancelEdit: string
-      personaGroupCharacter: string
-      personaGroupLook: string
-      personaGroupRoom: string
-      fieldTemperament: string
-      fieldLikes: string
-      fieldDrives: string
-      fieldSocial: string
-      fieldVoice: string
-      fieldSummary: string
-      fieldOutfit: string
-      fieldHair: string
-      fieldRoomMood: string
-      fieldPaletteMood: string
-      saving: string
-      saveAndContinue: string
-      saveFailed: string
-      characterMaster: string
-      worldMaster: string
-      locked: string
-      needsMaster: string
-      lockedUntilCharacter: string
-      worldNeedsCharacter: string
-      noAssetsBeforePreview: string
-      step5SequenceHint: string
-      firstPreviewBadge: string
-      previewLabel: string
-      awaitingFirstPreview: string
-      readyForFirstPreview: string
-      generatingFirstPreview: string
-      busyPleaseWait: string
-      designCardTitle: string
-      designCardArchetype: string
-      designCardAccessory: string
-      designCardBeforeImage: string
-      advancedPrompt: string
-      planAppearance: string
-      planning: string
-      generateMaster: string
-      generating: string
-      rollAgain: string
-      reviewAsset: string
-      reviewingAsset: string
-      acceptMaster: string
-      redoMaster: string
-      overrideAccept: string
-      overrideReasonPrompt: string
-      accepted: string
-      finishBothFirst: string
-      visualUnavailable: string
-      waitDesignForVisuals: string
-      step6Optional: string
-      actionAssets: string
-      lightingAssets: string
-      noLightingRecipesYet: string
-      furnitureAssets: string
-      assetDone: string
-      assetPending: string
-      selectPending: string
-      selectSomething: string
-      generate: string
-      rollSelected: string
-      batchProgress: string
-      generateFailed: string
-      noRecipesYet: string
-      furnitureDone: string
-      derivedUnavailable: string
-      finish: string
-      missingCharacter: string
-      slotFront: string
-      slotSide: string
-      slotBack: string
-      slotIdle: string
-      slotTalk: string
-      slotHappy: string
-      slotSad: string
-      slotSleep: string
-      slotWalkDown: string
-      slotWalkUp: string
-      slotWalkLeft: string
-      slotWalkRight: string
-      slotSit: string
-      slotStudy: string
-      slotListen: string
-      slotObserve: string
-      slotUse: string
-      slotPat: string
-      slotPoke: string
-      slotGift: string
-      slotWorldDawn: string
-      slotWorldDay: string
-      slotWorldDusk: string
-      slotWorldNight: string
     }
   }
 
@@ -2349,6 +2176,15 @@ export interface TranslationKeys {
     platformReport: string
     clickToView: string
     stagePlaying: string
+    stagePaused: string
+    heroStage: string
+    heroLife: string
+    tipPlatformCount: string
+    tipPlatformCountSub: string
+    tipReportReady: string
+    tipReportReadySub: string
+    tipNoReports: string
+    tipNoReportsSub: string
     playAllReports: string
     refreshing: string
     refreshCurrentReport: string
@@ -3121,7 +2957,7 @@ export interface TranslationKeys {
     inboundBlockManual: string
     inboundGuardLoadFailed: string
     inboundGuardSaveFailed: string
-    credentialBinding: string
+    credentialBindings: string
     credentialBindingPlacement: string
     credentialBindingSign: string
     credentialReauthorizationRequired: string
@@ -3816,13 +3652,13 @@ export interface TranslationKeys {
       library: string[]
       brew: string[]
       reports: string[]
-      life: string[]
       config: string[]
       tapp: string[]
     }
     generalHints: string[]
     // 空状态
     heroSub: string
+    askArael: string
     recentConversations: string
     noRecentConversations: string
     unnamedConversation: string
@@ -3845,9 +3681,30 @@ export interface TranslationKeys {
     timeHoursAgo: string
     timeDaysAgo: string
     // 管理面板
+    tabPersona: string
     tabHeartbeat: string
     tabSkills: string
     tabMemory: string
+    personaName: string
+    personaPersonality: string
+    personaPersonalityHint: string
+    personaSave: string
+    personaReset: string
+    personaOwnerOnly: string
+    personaDoNotDisturb: string
+    personaLifeOff: string
+    statusBarTitle: string
+    statusLoading: string
+    statusDisabled: string
+    statusNeedLogin: string
+    statusCreateHint: string
+    statusReadyHint: string
+    statusIdle: string
+    statusThinking: string
+    statusTalking: string
+    statusCreate: string
+    statusOpen: string
+    statusLogin: string
     emptyHeartbeat: string
     emptyHeartbeatHint: string
     emptySkills: string

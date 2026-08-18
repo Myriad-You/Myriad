@@ -18,6 +18,21 @@ use super::agent_header::*;
 use super::agent_footer::*;
 use super::types::*;
 
+fn utterance_index_in_session(request: &UserRequest) -> u32 {
+    request
+        .context
+        .as_ref()
+        .and_then(|ctx| ctx.conversation_history.as_ref())
+        .map(|history| {
+            history
+                .iter()
+                .filter(|message| message.role == "user")
+                .count()
+                .saturating_sub(1) as u32
+        })
+        .unwrap_or(0)
+}
+
 impl Agent {
     /// 创建新的 Agent 实例
     pub async fn new(db: DatabaseConnection) -> Self {
@@ -62,8 +77,35 @@ impl Agent {
             "[Agent] Processing request"
         );
 
+        crate::services::agent::life::mark_activity(&self.db, user_id, "talking").await;
+        let mood_before = crate::services::agent::life::note_user_turn(
+            &self.db,
+            user_id,
+            &request.raw_input,
+            utterance_index_in_session(&request),
+        )
+        .await;
+
         // 1. Planner 规划
-        let planner_output = self.planner.plan(&request).await?;
+        let planner_output = match self.planner.plan(&request).await {
+            Ok(output) => output,
+            Err(error) => {
+                crate::services::agent::life::note_chat_diary(
+                    &self.db,
+                    user_id,
+                    &request.raw_input,
+                )
+                .await;
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                return Err(error);
+            }
+        };
+        crate::services::agent::life::note_chat_diary(
+            &self.db,
+            user_id,
+            &request.raw_input,
+        )
+        .await;
 
         tracing::debug!(
             status = ?planner_output.status,
@@ -75,6 +117,7 @@ impl Agent {
         // 2. 根据状态分流
         match planner_output.status {
             PlannerStatus::Chat => {
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
                 return Ok(AgentResponse {
                     response_type: AgentResponseType::Answer,
                     message: planner_output
@@ -95,6 +138,7 @@ impl Agent {
                         message: response_agent::need_clarification(),
                         options: vec![],
                     });
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
                 return Ok(AgentResponse {
                     response_type: AgentResponseType::Clarification,
                     message: clarification.message.clone(),
@@ -122,6 +166,7 @@ impl Agent {
                     evo.detect_capability_gap(&request.raw_input, &reason).await;
                 }
 
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
                 return Ok(AgentResponse {
                     response_type: AgentResponseType::Answer,
                     message: reason.clone(),
@@ -137,6 +182,16 @@ impl Agent {
                 });
             }
             PlannerStatus::Plan => {
+                if let Some(response) = self
+                    .mood_refuse_response(
+                        user_id,
+                        crate::services::agent::life::refuse_new_task_message(mood_before),
+                        None,
+                    )
+                    .await
+                {
+                    return Ok(response);
+                }
                 // 低置信度时在 process() 中也记录警告
                 if planner_output.confidence < 0.3 && planner_output.confidence > 0.0 {
                     tracing::warn!(
@@ -154,11 +209,17 @@ impl Agent {
             .map(|s| s.capability_id.clone())
             .collect();
         let cap_schemas = capability::get_capabilities_by_ids(&cap_ids).await;
-        let recipe_steps = recipe::validate_and_convert_steps(
+        let recipe_steps = match recipe::validate_and_convert_steps(
             planner_output.steps.clone(),
             planner_output.reasoning.clone(),
             &cap_schemas,
-        )?;
+        ) {
+            Ok(steps) => steps,
+            Err(error) => {
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                return Err(error);
+            }
+        };
 
         let recipe = Self::build_recipe_from_steps(
             recipe_steps,
@@ -174,10 +235,14 @@ impl Agent {
         if !sensitive_steps.is_empty() {
             match Self::system_sensitive_gate(user_id, &sensitive_steps) {
                 Some(Ok(())) => {} // 系统任务已自动确认，继续执行
-                Some(Err(blocked)) => return Ok(blocked),
+                Some(Err(blocked)) => {
+                    crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                    return Ok(blocked);
+                }
                 None => {
                     let session_id = request.context.as_ref().and_then(|c| c.session_id.clone());
                     let run_id = request.context.as_ref().and_then(|c| c.run_id.clone());
+                    crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
                     return self
                         .request_confirmation_v2(
                             &recipe,
@@ -193,15 +258,26 @@ impl Agent {
         }
 
         // 4.5 检查必需参数缺失
-        if let Some(missing_response) = self
+        match self
             .check_missing_required_parameters(&recipe, &planner_output, user_id, None)
-            .await?
+            .await
         {
-            return Ok(missing_response);
+            Ok(Some(missing_response)) => {
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                return Ok(missing_response);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                return Err(error);
+            }
         }
 
         // 5. 执行方案
-        let task_state = self.executor.execute(&recipe, user_id).await?;
+        crate::services::agent::life::mark_activity(&self.db, user_id, "working").await;
+        let task_result = self.executor.execute(&recipe, user_id).await;
+        crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+        let task_state = task_result?;
         let result = self.extract_final_result(&task_state);
 
         // 6. v3 记忆提取 + 日志
@@ -262,7 +338,7 @@ impl Agent {
         Ok(AgentResponse {
             response_type: AgentResponseType::Answer,
             message: self
-                .generate_response_message_v2(&planner_output, &task_state, None)
+                .generate_response_message_v2(&planner_output, &task_state, user_id, None)
                 .await,
             data: Some(result),
             data_display,
@@ -307,6 +383,15 @@ impl Agent {
             "[Agent] Processing request with progress tracking"
         );
 
+        crate::services::agent::life::mark_activity(&self.db, user_id, "talking").await;
+        let mood_before = crate::services::agent::life::note_user_turn(
+            &self.db,
+            user_id,
+            &request.raw_input,
+            utterance_index_in_session(&request),
+        )
+        .await;
+
         // 1. Planner 规划（Pro AI 单次调用）
         let _ = progress_tx
             .send(AgentProgressEvent::Progress {
@@ -317,7 +402,25 @@ impl Agent {
             })
             .await;
 
-        let planner_output = self.planner.plan(&request).await?;
+        let planner_output = match self.planner.plan(&request).await {
+            Ok(output) => output,
+            Err(error) => {
+                crate::services::agent::life::note_chat_diary(
+                    &self.db,
+                    user_id,
+                    &request.raw_input,
+                )
+                .await;
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                return Err(error);
+            }
+        };
+        crate::services::agent::life::note_chat_diary(
+            &self.db,
+            user_id,
+            &request.raw_input,
+        )
+        .await;
 
         tracing::debug!(
             status = ?planner_output.status,
@@ -407,6 +510,7 @@ impl Agent {
                 let reply = self
                     .stream_chat_response(&request, &planner_reply, &progress_tx)
                     .await;
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
 
                 let _ = progress_tx
                     .send(AgentProgressEvent::Progress {
@@ -437,6 +541,7 @@ impl Agent {
 
                 // 流式推送澄清消息
                 Self::stream_text_as_tokens(&progress_tx, &clarification.message).await;
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
                 return Ok(AgentResponse {
                     response_type: AgentResponseType::Clarification,
                     message: clarification.message.clone(),
@@ -464,6 +569,7 @@ impl Agent {
                     evo.detect_capability_gap(&request.raw_input, &reason).await;
                 }
 
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
                 return Ok(AgentResponse {
                     response_type: AgentResponseType::Answer,
                     message: reason.clone(),
@@ -479,6 +585,16 @@ impl Agent {
                 });
             }
             PlannerStatus::Plan => {
+                if let Some(response) = self
+                    .mood_refuse_response(
+                        user_id,
+                        crate::services::agent::life::refuse_new_task_message(mood_before),
+                        Some(&progress_tx),
+                    )
+                    .await
+                {
+                    return Ok(response);
+                }
                 // 低置信度：降级为澄清请求，避免盲目执行
                 if planner_output.confidence < 0.3 && planner_output.confidence > 0.0 {
                     tracing::warn!(
@@ -491,6 +607,7 @@ impl Agent {
                         planner_output.reasoning.as_deref().map(|r| format!("我的理解是：{}。", r)).unwrap_or_default()
                     );
                     Self::stream_text_as_tokens(&progress_tx, &msg).await;
+                    crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
                     return Ok(AgentResponse {
                         response_type: AgentResponseType::Clarification,
                         message: msg.clone(),
@@ -524,11 +641,17 @@ impl Agent {
             .map(|s| s.capability_id.clone())
             .collect();
         let cap_schemas = capability::get_capabilities_by_ids(&cap_ids).await;
-        let recipe_steps = recipe::validate_and_convert_steps(
+        let recipe_steps = match recipe::validate_and_convert_steps(
             planner_output.steps.clone(),
             planner_output.reasoning.clone(),
             &cap_schemas,
-        )?;
+        ) {
+            Ok(steps) => steps,
+            Err(error) => {
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                return Err(error);
+            }
+        };
 
         let mut recipe = Self::build_recipe_from_steps(
             recipe_steps,
@@ -580,10 +703,14 @@ impl Agent {
         if !sensitive_steps.is_empty() {
             match Self::system_sensitive_gate(user_id, &sensitive_steps) {
                 Some(Ok(())) => {} // 系统任务已自动确认，继续执行
-                Some(Err(blocked)) => return Ok(blocked),
+                Some(Err(blocked)) => {
+                    crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                    return Ok(blocked);
+                }
                 None => {
                     let session_id = request.context.as_ref().and_then(|c| c.session_id.clone());
                     let run_id = request.context.as_ref().and_then(|c| c.run_id.clone());
+                    crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
                     return self
                         .request_confirmation_v2(
                             &recipe,
@@ -599,16 +726,24 @@ impl Agent {
         }
 
         // 4.5 检查必需参数缺失 — 执行前收集用户信息（单步/多步共用）
-        if let Some(missing_response) = self
+        match self
             .check_missing_required_parameters(
                 &recipe,
                 &planner_output,
                 user_id,
                 Some(&progress_tx),
             )
-            .await?
+            .await
         {
-            return Ok(missing_response);
+            Ok(Some(missing_response)) => {
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                return Ok(missing_response);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+                return Err(error);
+            }
         }
 
         // 快速路径：仅安全的单步且参数齐全时走
@@ -651,7 +786,13 @@ impl Agent {
 
         // 副 Agent 生成计划说明（AI 流式推送，告诉用户即将做什么）
         let _plan_msg =
-            response_agent::announce_plan(&request.raw_input, &step_descs, &progress_tx).await;
+            response_agent::announce_plan(
+                &request.raw_input,
+                &step_descs,
+                user_id,
+                &progress_tx,
+            )
+            .await;
 
         // 5. 执行方案（带进度回调和升级）
         let result = self
@@ -736,10 +877,13 @@ impl Agent {
         progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
     ) -> Result<AgentResponse, String> {
         // 执行 Recipe
-        let mut task_state = self
+        crate::services::agent::life::mark_activity(&self.db, user_id, "working").await;
+        let task_result = self
             .executor
             .execute_with_progress(recipe, user_id, Some(progress_tx.clone()))
-            .await?;
+            .await;
+        crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+        let mut task_state = task_result?;
 
         // 注入 Planner 决策到 ExecutionTrace
         if let Some(ref mut trace) = task_state.execution_trace {
@@ -827,10 +971,15 @@ impl Agent {
 
                         // 执行升级后的 Recipe
                         let progress_tx_for_summary = progress_tx.clone();
-                        let new_task_state = self
+                        crate::services::agent::life::mark_activity(&self.db, user_id, "working")
+                            .await;
+                        let new_task_result = self
                             .executor
                             .execute_with_progress(&new_recipe, user_id, Some(progress_tx))
-                            .await?;
+                            .await;
+                        crate::services::agent::life::mark_activity(&self.db, user_id, "idle")
+                            .await;
+                        let new_task_state = new_task_result?;
                         result = self.extract_final_result(&new_task_state);
 
                         let frontend_action = self.extract_frontend_action(&result);
@@ -853,6 +1002,7 @@ impl Agent {
                                 .generate_response_message_v2(
                                     &replan_output,
                                     &new_task_state,
+                                    user_id,
                                     Some(&progress_tx_for_summary),
                                 )
                                 .await,
@@ -892,7 +1042,12 @@ impl Agent {
                 AgentResponseType::Answer
             },
             message: self
-                .generate_response_message_v2(planner_output, &task_state, Some(&progress_tx))
+                .generate_response_message_v2(
+                    planner_output,
+                    &task_state,
+                    user_id,
+                    Some(&progress_tx),
+                )
                 .await,
             data: Some(result),
             data_display,
@@ -1074,6 +1229,29 @@ impl Agent {
         }
     }
 
+    async fn mood_refuse_response(
+        &self,
+        user_id: i32,
+        message: Option<String>,
+        progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
+    ) -> Option<AgentResponse> {
+        let message = message?;
+        if let Some(tx) = progress_tx {
+            Self::stream_text_as_tokens(tx, &message).await;
+        }
+        crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+        Some(AgentResponse {
+            response_type: AgentResponseType::Answer,
+            message,
+            data: Some(json!({ "type": "mood_refuse" })),
+            data_display: None,
+            suggestions: vec![],
+            task: None,
+            confirmation: None,
+            frontend_action: None,
+        })
+    }
+
     /// 执行已保存的 Recipe（跳过意图分析）
     ///
     /// 用于从预设中直接执行任务，避免重复的意图解析
@@ -1114,6 +1292,18 @@ impl Agent {
         );
 
         Self::validate_saved_recipe(&recipe)?;
+
+        if let Some(response) = self
+            .mood_refuse_response(
+                user_id,
+                crate::services::agent::life::maybe_refuse_new_task(&self.db, user_id)
+                    .await,
+                Some(&progress_tx),
+            )
+            .await
+        {
+            return Ok(response);
+        }
 
         // Saved recipes are an execution shortcut, not a security shortcut.
         // Re-run the same sensitive-operation gate used by newly planned work.
@@ -1159,10 +1349,13 @@ impl Agent {
             .await;
 
         // 直接执行 recipe
-        let task_state = self
+        crate::services::agent::life::mark_activity(&self.db, user_id, "working").await;
+        let task_result = self
             .executor
             .execute_with_progress(&recipe, user_id, Some(progress_tx))
-            .await?;
+            .await;
+        crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+        let task_state = task_result?;
 
         // 根据执行类型返回结果
         let mut result = self.extract_final_result(&task_state);
@@ -1337,10 +1530,13 @@ impl Agent {
             .await;
 
         // 带进度执行（Skill 可能展开为多个动态子步骤，需要把 progress_tx 传下去）
-        let task_state = self
+        crate::services::agent::life::mark_activity(&self.db, user_id, "working").await;
+        let task_result = self
             .executor
             .execute_with_progress(recipe, user_id, Some(progress_tx.clone()))
-            .await?;
+            .await;
+        crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
+        let task_state = task_result?;
 
         // 获取执行结果
         let step_result = task_state.step_results.get(&step.id);
@@ -1392,7 +1588,12 @@ impl Agent {
                 AgentResponseType::Answer
             },
             message: self
-                .generate_response_message_v2(planner_output, &task_state, Some(&progress_tx))
+                .generate_response_message_v2(
+                    planner_output,
+                    &task_state,
+                    user_id,
+                    Some(&progress_tx),
+                )
                 .await,
             data: Some(result),
             data_display,

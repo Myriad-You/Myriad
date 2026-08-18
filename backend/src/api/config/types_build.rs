@@ -38,7 +38,9 @@ pub(crate) fn form_secret_if_plaintext(value: Option<&str>) -> Option<String> {
 ///
 /// Semantics (data platforms only — not AI/OAuth omit-empty-keep):
 /// - masked (`••••` / `****…`) → skip (keep existing DB value)
-/// - empty string → insert `""` so clear persists
+/// - empty / whitespace → `null` (未配置). Do not persist `""`:
+///   `Option::as_deref()` treats `Some("")` as a credential and GitHub
+///   rejects `Authorization: token ` with 401.
 /// - non-empty plaintext → set new value
 fn insert_platform_field(
     updates: &mut std::collections::HashMap<String, Value>,
@@ -46,6 +48,10 @@ fn insert_platform_field(
     value: &str,
 ) {
     if is_masked_secret_value(value) {
+        return;
+    }
+    if value.trim().is_empty() {
+        updates.insert(db_key.to_string(), Value::Null);
         return;
     }
     updates.insert(db_key.to_string(), Value::String(value.to_string()));
@@ -1916,6 +1922,17 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                     placeholder: "false".to_string(),
                     required: false,
                 },
+                ConfigField {
+                    key: "agent_life_enabled".to_string(),
+                    label: "Agent 生命".to_string(),
+                    field_type: "checkbox".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.agent_life_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
                 // 网络代理配置
                 ConfigField {
                     key: "proxy_enabled".to_string(),
@@ -2097,6 +2114,7 @@ pub(crate) struct SettingDescriptor {
 /// 备份/恢复 registry：含 legacy 键（`pet_*` / `ui_wallpaper_parallax` / `github_client_*` 等）。
 /// 这些键仍可从旧备份还原到 DB，但**不再**进入管理端 `ui_config.config_fields` emit。
 pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
+    "agent_life_enabled",
     "ai_image_model",
     "ai_image_openai_api_key",
     "ai_image_openai_base_url",
@@ -3022,6 +3040,18 @@ mod settings_backup_tests {
     }
 
     #[test]
+    fn ui_agent_life_flag_persists_bool() {
+        let mut config = empty_config();
+        config.ui_config.config_fields = vec![ui_field("agent_life_enabled", "true")];
+        let on = collect_database_updates(&config);
+        assert_eq!(on.get("agent_life_enabled"), Some(&json!(true)));
+
+        config.ui_config.config_fields = vec![ui_field("agent_life_enabled", "false")];
+        let off = collect_database_updates(&config);
+        assert_eq!(off.get("agent_life_enabled"), Some(&json!(false)));
+    }
+
+    #[test]
     fn ui_network_proxy_and_mirror_fields_persist_non_empty() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![
@@ -3382,8 +3412,8 @@ mod settings_backup_tests {
             },
         ];
         let cleared = collect_database_updates(&config);
-        assert_eq!(cleared.get("github_username"), Some(&json!("")));
-        assert_eq!(cleared.get("github_token"), Some(&json!("")));
+        assert_eq!(cleared.get("github_username"), Some(&json!(null)));
+        assert_eq!(cleared.get("github_token"), Some(&json!(null)));
     }
 
     #[test]
@@ -3441,14 +3471,14 @@ mod settings_backup_tests {
             });
         }
         let updates = collect_database_updates(&config);
-        assert_eq!(updates.get("bangumi_username"), Some(&json!("")));
-        assert_eq!(updates.get("bangumi_access_token"), Some(&json!("")));
-        assert_eq!(updates.get("x_username"), Some(&json!("")));
-        assert_eq!(updates.get("x_bearer_token"), Some(&json!("")));
-        assert_eq!(updates.get("steam_api_key"), Some(&json!("")));
-        assert_eq!(updates.get("steam_id"), Some(&json!("")));
-        assert_eq!(updates.get("psn_online_id"), Some(&json!("")));
-        assert_eq!(updates.get("psn_npsso"), Some(&json!("")));
+        assert_eq!(updates.get("bangumi_username"), Some(&json!(null)));
+        assert_eq!(updates.get("bangumi_access_token"), Some(&json!(null)));
+        assert_eq!(updates.get("x_username"), Some(&json!(null)));
+        assert_eq!(updates.get("x_bearer_token"), Some(&json!(null)));
+        assert_eq!(updates.get("steam_api_key"), Some(&json!(null)));
+        assert_eq!(updates.get("steam_id"), Some(&json!(null)));
+        assert_eq!(updates.get("psn_online_id"), Some(&json!(null)));
+        assert_eq!(updates.get("psn_npsso"), Some(&json!(null)));
     }
 
     #[test]
@@ -3626,7 +3656,7 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
     // Shared with types_build / platform_test — see `is_masked_secret_value`.
     let is_masked = is_masked_secret_value;
 
-    // 保存平台配置（空串 = 清除；掩码 = 保留；明文 = 写入）
+    // 保存平台配置（空 = null 清除；掩码 = 保留；明文 = 写入）
     for platform in &config.platforms {
         match platform.name.as_str() {
             "GitHub" => {
@@ -4128,6 +4158,10 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
             "memory_saver_enabled" => {
                 let enabled = field.value == "true";
                 ("memory_saver_enabled", JsonValue::Bool(enabled))
+            }
+            "agent_life_enabled" => {
+                let enabled = field.value == "true";
+                ("agent_life_enabled", JsonValue::Bool(enabled))
             }
             _ => continue,
         };
@@ -4745,8 +4779,28 @@ pub async fn get_public_config(
         db_config.as_ref().and_then(|c| c.platform_order.as_ref()),
     );
 
+    let life_enabled = db_config
+        .as_ref()
+        .map(|config| config.agent_life_enabled_resolved())
+        .unwrap_or_else(|| {
+            crate::config::DynamicConfig::default().agent_life_enabled_resolved()
+        });
+    let stored_name = if life_enabled {
+        crate::services::agent::life::get_persona(&db)
+            .await
+            .ok()
+            .flatten()
+            .map(|persona| persona.name)
+    } else {
+        None
+    };
     let response = json!({
-        "platforms": public_platforms
+        "platforms": public_platforms,
+        "agentLifeEnabled": life_enabled,
+        "agentPersonaName": crate::services::agent::life::public_persona_name(
+            life_enabled,
+            stored_name.as_deref(),
+        ),
     });
 
     (StatusCode::OK, Json(response))

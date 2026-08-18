@@ -15,6 +15,7 @@ import type { TappPermission } from '../types'
 /** Host capabilities available in temporary Playground preview only. */
 export const PREVIEW_PERMISSIONS = [
   'storage:read',
+  'storage:write',
   'ui:theme',
   'ui:confirm',
   'ui:fullscreen',

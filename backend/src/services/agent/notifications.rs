@@ -524,15 +524,39 @@ impl NotificationManager {
             "waiting_for_input" => NotificationPriority::High,
             _ => NotificationPriority::Normal,
         };
+        let event_key = match status {
+            "completed" => "agent.task_completed",
+            "failed" => "agent.task_failed",
+            "cancelled" => "agent.task_cancelled",
+            "waiting_for_input" => "agent.clarification",
+            _ => "agent.task_progress",
+        };
+        // Heartbeat already notifies admins via `notify_heartbeat_result`.
+        if user_id == crate::services::agent::SYSTEM_USER_ID {
+            return;
+        }
+        if event_key != "agent.task_progress" {
+            crate::services::agent::life::spawn_ingest(user_id, event_key, body);
+        }
+        if crate::services::agent::life::gates::is_valuable_event(event_key)
+            && !crate::services::agent::life::allow_existing_notify(user_id).await
+        {
+            let _ = self
+                .delete_notification(&format!("agent_run_{}", run_id), user_id)
+                .await;
+            return;
+        }
+        let session_id = match session_id {
+            Some(id) if !id.is_empty() => Some(id.to_string()),
+            _ if crate::services::agent::life::life_enabled().await => {
+                crate::services::agent::life::ingest::latest_session_id_for(user_id).await
+            }
+            _ => None,
+        };
         let mut notification = Notification::new(user_id, notification_type, priority, title, body)
             .with_metadata(serde_json::json!({
-                "event_key": match status {
-                    "completed" => "agent.task_completed",
-                    "failed" => "agent.task_failed",
-                    "cancelled" => "agent.task_cancelled",
-                    "waiting_for_input" => "agent.clarification",
-                    _ => "agent.task_progress",
-                },
+                "event_key": event_key,
+                "action": "open_arael",
                 "run_id": run_id,
                 "task_id": task_id,
                 "session_id": session_id,

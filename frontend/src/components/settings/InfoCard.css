@@ -56,3 +56,36 @@ html.dark .info-card-error {
   background: color-mix(in srgb, #ef4444 15%, transparent);
   border-color: color-mix(in srgb, #ef4444 30%, transparent);
 }
+
+/* exlight：blur 关掉后 transparent tint 仍透壁纸，改叠到实底 */
+html[data-perf-mode='exlight'] .info-card.info-card-info {
+  background: color-mix(in srgb, var(--cfg-accent) 10%, #fff);
+}
+
+html[data-perf-mode='exlight'] .info-card.info-card-warning {
+  background: color-mix(in srgb, #f59e0b 10%, #fff);
+}
+
+html[data-perf-mode='exlight'] .info-card.info-card-success {
+  background: color-mix(in srgb, #10b981 10%, #fff);
+}
+
+html[data-perf-mode='exlight'] .info-card.info-card-error {
+  background: color-mix(in srgb, #ef4444 10%, #fff);
+}
+
+html.dark[data-perf-mode='exlight'] .info-card.info-card-info {
+  background: color-mix(in srgb, var(--cfg-accent) 15%, #1a1a1a);
+}
+
+html.dark[data-perf-mode='exlight'] .info-card.info-card-warning {
+  background: color-mix(in srgb, #f59e0b 15%, #1a1a1a);
+}
+
+html.dark[data-perf-mode='exlight'] .info-card.info-card-success {
+  background: color-mix(in srgb, #10b981 15%, #1a1a1a);
+}
+
+html.dark[data-perf-mode='exlight'] .info-card.info-card-error {
+  background: color-mix(in srgb, #ef4444 15%, #1a1a1a);
+}

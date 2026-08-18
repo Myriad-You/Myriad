@@ -27,7 +27,7 @@ pub struct NotificationEventDefinition {
     pub source: &'static str,
 }
 
-pub const EVENT_DEFINITIONS: [NotificationEventDefinition; 32] = [
+pub const EVENT_DEFINITIONS: [NotificationEventDefinition; 34] = [
     NotificationEventDefinition {
         key: "agent.task_progress",
         source: "agent",
@@ -46,6 +46,10 @@ pub const EVENT_DEFINITIONS: [NotificationEventDefinition; 32] = [
     },
     NotificationEventDefinition {
         key: "agent.clarification",
+        source: "agent",
+    },
+    NotificationEventDefinition {
+        key: "agent.life.platform_activity",
         source: "agent",
     },
     NotificationEventDefinition {
@@ -71,6 +75,10 @@ pub const EVENT_DEFINITIONS: [NotificationEventDefinition; 32] = [
     NotificationEventDefinition {
         key: "brew.source_error",
         source: "brew",
+    },
+    NotificationEventDefinition {
+        key: "platform.sync.failed",
+        source: "system",
     },
     NotificationEventDefinition {
         key: "tapp.message",
@@ -411,7 +419,16 @@ mod tests {
         assert!(!preferences.sources["agent"]);
         assert!(!preferences.events["agent.task_failed"]);
         assert!(preferences.events["brew.source_error"]);
+        assert!(preferences.events["platform.sync.failed"]);
         assert!(!preferences.sources.contains_key("removed"));
+        assert!(EVENT_DEFINITIONS
+            .iter()
+            .any(|definition| definition.key == "platform.sync.failed"));
+        assert!(preferences.allows("platform.sync.failed"));
+        let mut off = preferences.clone();
+        off.events
+            .insert("platform.sync.failed".to_string(), false);
+        assert!(!off.allows("platform.sync.failed"));
         assert!(preferences.locations["agent"].toast);
         assert!(!preferences.locations.contains_key("removed"));
     }

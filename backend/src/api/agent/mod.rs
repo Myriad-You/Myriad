@@ -222,6 +222,7 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
 
 mod types;
 mod helpers;
+mod persona;
 mod process;
 mod presets;
 mod heartbeat_mcp;

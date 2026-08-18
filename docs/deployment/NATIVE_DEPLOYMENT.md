@@ -265,8 +265,7 @@ openssl rand -base64 48   # JWT_SECRET
 | `BASE_URL` | for federation/OAuth | — | Public HTTPS origin used for Actor/WebFinger/OAuth callback URLs. |
 | `FRONTEND_URL` | no | — | Redirect target after OAuth; usually equals `BASE_URL`. |
 | `RUST_LOG` | no | `info` | `error\|warn\|info\|debug\|trace`, e.g. `info,myriad_backend=debug`. |
-| `MYRIAD_SETUP_SECRET` | only if pre-set | unset | Required for first-owner claim **only** when this env is already set (orchestration / compose). Native wizard that types the DB itself does not need it. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
-| `MYRIAD_BOOTSTRAP_TOKEN` | no | generated file | Optional preset for setup break-glass when this instance was already configured and the DB is down. If unset, the process writes `.bootstrap-token` next to `.env` (`0600`). See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
+| `MYRIAD_SETUP_SECRET` | only if pre-set | unset | Required for setup writes **only** when this env is already set (orchestration / compose). Native wizard that types the DB itself does not need it. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
 | `DATA_DIR` | no | `data` | App data root (brew, tapps). Relative to working dir. Leave default. |
 | `CACHE_DIR` | no | `cache` | Cache root. Relative to working dir. Leave default. |
 | `MYRIAD_UPDATER_URL` / `UPDATE_TOKEN` | no | — | Docker updater proxy only. **Leave unset** on native installs; a harmless startup warning is logged. |
@@ -515,7 +514,7 @@ reachable from the internet.
 | --- | --- |
 | `JWT_SECRET is too weak...` at startup | Secret `< 32` chars or a default value. Regenerate: `openssl rand -base64 48`. |
 | `DATABASE_URL is required` / connection refused | `.env` not loaded (wrong WorkingDirectory) or Postgres down. Confirm `WorkingDirectory=/opt/myriad` and `systemctl status postgresql`. |
-| Setup wizard returns 401 / “Bootstrap token required” | This host already had a real `DATABASE_URL`. Read `/opt/myriad/.bootstrap-token` (not journald) and paste it into the wizard. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
+| Setup wizard returns 401 / “Setup secret required” | Orchestration set `MYRIAD_SETUP_SECRET`. Copy it from `.env`. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md). |
 | Blank page / API calls 404 | `FRONTEND_DIST_PATH` doesn't point at a real `dist/`, or the frontend was built with a wrong `PUBLIC_API_URL`. Rebuild with `PUBLIC_API_URL` empty. |
 | `[Identity]` warnings / agents act generic | `data/agent` missing from the working directory. Re-copy `backend/data` into `/opt/myriad/data`. |
 | CORS errors in browser | Add the exact public origin to `CORS_ORIGINS` (scheme + host, no trailing slash). |
@@ -533,7 +532,7 @@ reachable from the internet.
 - [ ] `CORS_ORIGINS` / `BASE_URL` / `FRONTEND_URL` use HTTPS and your real domain.
 - [ ] The service runs as the unprivileged `myriad` user with systemd hardening.
 - [ ] Regular `pg_dump` + `data/` backups are scheduled.
-- [ ] You know how to read `/opt/myriad/.bootstrap-token` if Postgres is down; do not put that value in the web UI. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md).
+- [ ] You know that a claimed install will not reopen the wizard if Postgres is down; fix the database first. See [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md).
 
 ---
 
@@ -544,7 +543,7 @@ reachable from the internet.
   compose postgres). `scripts/native/assemble.sh` builds the deploy bundle
   described above.
 - [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) — the containerized topology
-- [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md) — CONFIG_MODE bootstrap token
+- [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md) — setup passphrase
 - [PORTS.md](./PORTS.md) — full port map
 - [../development/BUILD.md](../development/BUILD.md) — build details and troubleshooting
 - [../API.md](../API.md) — HTTP API reference

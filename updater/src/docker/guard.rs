@@ -5,6 +5,8 @@
 //! reaching the daemon. The updater never receives the raw Unix socket.
 
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -43,6 +45,8 @@ const HELPER_LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
 const HELPER_TOTAL_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const SELF_UPDATE_GATE: usize = 1usize << (usize::BITS - 1);
 const SELF_UPDATE_TOKEN_HEADER: &str = "x-guard-self-update-token";
+const COMPOSE_RELATIVE_POLICY_PATH: &str = "guard-policy/docker-guard.env";
+const POLICY_CONTAINER_FILE: &str = "/guard-policy/docker-guard.env";
 
 #[derive(Debug)]
 struct HandoffCleanupUnconfirmed;
@@ -76,7 +80,6 @@ pub struct GuardConfig {
     pub compose_dir: PathBuf,
     pub state_dir: PathBuf,
     pub expected_guard_image: String,
-    pub host_policy_path: String,
     pub self_update_token: SecretString,
     pub allow_unpinned_dev: bool,
     pub allowed_images: HashSet<String>,
@@ -152,7 +155,6 @@ impl GuardConfig {
             compose_dir,
             state_dir,
             expected_guard_image,
-            host_policy_path,
             self_update_token: SecretString::new(self_update_token),
             allow_unpinned_dev,
             allowed_images,
@@ -176,23 +178,85 @@ fn validate_self_update_token(token: &str) -> Result<()> {
 }
 
 fn validate_host_policy_path(path: &str) -> Result<()> {
-    let looks_absolute = path.starts_with('/')
-        || path
-            .as_bytes()
-            .get(1)
-            .is_some_and(|separator| *separator == b':');
-    if !looks_absolute
-        || path.contains('\n')
-        || path.contains('\r')
-        || Path::new(path)
-            .components()
-            .any(|component| component == std::path::Component::ParentDir)
-    {
-        return Err(anyhow!(
-            "DOCKER_GUARD_HOST_POLICY_PATH must be an absolute path without traversal"
-        ));
+    if path == POLICY_CONTAINER_FILE {
+        return Ok(());
     }
+    Err(anyhow!(
+        "DOCKER_GUARD_HOST_POLICY_PATH must be {POLICY_CONTAINER_FILE}"
+    ))
+}
+
+fn ensure_host_policy_file(config: &GuardConfig, write_path: &Path) -> Result<()> {
+    let Some(parent) = write_path.parent() else {
+        return Ok(());
+    };
+    if !parent.exists() {
+        info!(
+            path = %write_path.display(),
+            "Guard policy parent is not mounted; skipping automatic policy creation"
+        );
+        return Ok(());
+    }
+    if write_path.exists() {
+        if host_policy_file_is_pinned(write_path) {
+            return Ok(());
+        }
+        warn!(
+            path = %write_path.display(),
+            "replacing invalid host Guard policy"
+        );
+    }
+    let body = format!(
+        "DOCKER_GUARD_IMAGE={}\n\
+         GUARD_SELF_UPDATE_TOKEN={}\n\
+         GUARD_COMPOSE_PROJECT_NAME={}\n\
+         GUARD_MYRIAD_DOCKER_NETWORK={}\n\
+         GUARD_MYRIAD_ADMIN_NETWORK={}\n\
+         GUARD_MYRIAD_DOCKER_GUARD_NETWORK={}\n\
+         MYRIAD_GUARD_ENV_FILE={}\n",
+        config.expected_guard_image,
+        config.self_update_token.expose(),
+        config.project,
+        config.compose_network,
+        config.admin_network,
+        config.guard_network,
+        COMPOSE_RELATIVE_POLICY_PATH
+    );
+    let tmp = parent.join(".docker-guard.env.tmp");
+    {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tmp)
+            .with_context(|| format!("cannot create {}", tmp.display()))?;
+        file.write_all(body.as_bytes())
+            .with_context(|| format!("cannot write {}", tmp.display()))?;
+        file.sync_all()?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
+    }
+    fs::rename(&tmp, write_path)
+        .with_context(|| format!("cannot install {}", write_path.display()))?;
+    info!(path = %write_path.display(), "wrote host Guard policy");
     Ok(())
+}
+
+fn host_policy_file_is_pinned(path: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(path) else {
+        return false;
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        let Some(image) = line.strip_prefix("DOCKER_GUARD_IMAGE=") else {
+            continue;
+        };
+        return validate_guard_image_ref(image, false).is_ok();
+    }
+    false
 }
 
 #[derive(Clone)]
@@ -215,6 +279,7 @@ pub async fn run(config: GuardConfig) -> Result<()> {
         Ok(root) if !root.trim().is_empty() => PathBuf::from(root),
         _ => discover_host_compose_root(&config.socket_path, &hostname).await?,
     };
+    ensure_host_policy_file(&config, Path::new(POLICY_CONTAINER_FILE))?;
     let listen = config.listen;
     let state = GuardState {
         config: Arc::new(config),
@@ -1549,6 +1614,18 @@ async fn prepare_trusted_self_update(
     let previous_tag = running_updater_tag(&state.config.socket_path).await?;
     prevent_release_downgrade(&previous_tag, requested_tag)?;
 
+    // Record intent before the pull so a long Hub fetch is not an invisible
+    // "confirming result" gap, and a post-pull rejection can replace it.
+    let pending = super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
+        requested_tag.to_owned(),
+        previous_tag.clone(),
+    );
+    super::self_update_helper::write_status(
+        &state.config.state_dir.join("self-update-last.json"),
+        &pending,
+    )
+    .context("persist trusted handoff intent")?;
+
     // Guard has no egress. The host daemon pulls only the compiled-in official
     // repository; Guard then converts the result to repo@sha256 before handoff.
     let (exact_image, target_created_at) =
@@ -1565,15 +1642,6 @@ async fn prepare_trusted_self_update(
         target_tag: requested_tag.to_owned(),
         recovery_only: false,
     };
-    let pending = super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
-        attempt.target_tag.clone(),
-        attempt.previous_tag.clone(),
-    );
-    super::self_update_helper::write_status(
-        &state.config.state_dir.join("self-update-last.json"),
-        &pending,
-    )
-    .context("persist trusted handoff intent")?;
     let helper_id = launch_trusted_handoff(
         state,
         &attempt.previous_image,
@@ -1775,8 +1843,11 @@ async fn launch_trusted_handoff(
     if !env_path.is_file() || !state_path.is_dir() {
         return Err(anyhow!("fixed updater .env/state paths are unavailable"));
     }
-    let (policy_parent, policy_name) = split_host_policy_path(&state.config.host_policy_path)?;
-    let policy_container_path = format!("/host/policy/{policy_name}");
+    let policy_host_dir = state
+        .host_compose_root
+        .join("guard-policy")
+        .to_string_lossy()
+        .into_owned();
 
     let mut command = Command::new("docker");
     command.env("DOCKER_HOST", &docker_host);
@@ -1811,7 +1882,7 @@ async fn launch_trusted_handoff(
         "--mount",
         &format!("type=bind,source={host_root},target=/host/write"),
         "--mount",
-        &format!("type=bind,source={policy_parent},target=/host/policy"),
+        &format!("type=bind,source={policy_host_dir},target=/guard-policy"),
     ]);
     for (name, value) in [
         (
@@ -1837,15 +1908,11 @@ async fn launch_trusted_handoff(
         ),
         (
             super::self_update_helper::ENV_GUARD_ENV_FILE,
-            &policy_container_path,
+            POLICY_CONTAINER_FILE,
         ),
         (
             super::self_update_helper::ENV_STATUS_FILE,
             "/host/write/state/self-update-last.json",
-        ),
-        (
-            super::self_update_helper::ENV_POLICY_HOST_PATH,
-            &state.config.host_policy_path,
         ),
         (
             super::self_update_helper::ENV_COMPOSE_NETWORK,
@@ -1888,23 +1955,6 @@ async fn launch_trusted_handoff(
     validate_identifier(&helper_id).map_err(anyhow::Error::msg)?;
     info!(%helper_id, %target_image, "trusted TCB handoff scheduled");
     Ok(helper_id)
-}
-
-fn split_host_policy_path(path: &str) -> Result<(String, String)> {
-    let split = path
-        .rfind(['/', '\\'])
-        .ok_or_else(|| anyhow!("Guard policy path has no parent directory"))?;
-    let parent = &path[..split];
-    let name = &path[split + 1..];
-    if parent.is_empty()
-        || name.is_empty()
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    {
-        return Err(anyhow!("Guard policy path is not a safe fixed file path"));
-    }
-    Ok((parent.to_owned(), name.to_owned()))
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -2481,20 +2531,11 @@ fn validate_mount_pair(
             if exact_host_pair("pgdata", "/host/compose/pgdata") {
                 return validate_visible_host_directory(state, "pgdata");
             }
-            if source == state.config.host_policy_path && target == "/run/secrets/docker-guard.env"
-            {
+            if exact_host_pair("guard-policy", "/run/secrets") {
                 if !read_only {
                     return Err("host Guard policy must be mounted read-only".into());
                 }
-                return Ok(());
-            }
-            if cfg!(debug_assertions)
-                && exact_host_pair("docker-guard.env", "/run/secrets/docker-guard.env")
-            {
-                if !read_only {
-                    return Err("development Guard policy must be mounted read-only".into());
-                }
-                return validate_visible_host_path(state, "docker-guard.env", false);
+                return validate_visible_host_directory(state, "guard-policy");
             }
             Err("updater host bind is outside the fixed deployment allowlist".into())
         }
@@ -2504,6 +2545,27 @@ fn validate_mount_pair(
                 return Err("proxy may only bind the project state directory at /state".into());
             }
             validate_visible_host_directory(state, "state")
+        }
+        "docker-guard" => {
+            if !host_bind {
+                return Err("docker-guard mounts must be fixed host bind paths".into());
+            }
+            if source == "/var/run/docker.sock" && target == "/var/run/docker.sock" {
+                return Ok(());
+            }
+            if exact_host_pair("", "/host/compose") {
+                if !read_only {
+                    return Err("docker-guard deployment root must be mounted read-only".into());
+                }
+                return validate_visible_host_directory(state, "");
+            }
+            if exact_host_pair("state", "/host/state") {
+                return validate_visible_host_directory(state, "state");
+            }
+            if exact_host_pair("guard-policy", "/guard-policy") {
+                return validate_visible_host_directory(state, "guard-policy");
+            }
+            Err("docker-guard host bind is outside the fixed deployment allowlist".into())
         }
         _ => Err("service mount policy is undefined".into()),
     }
@@ -2612,9 +2674,10 @@ fn validate_image_pull(
                 has_tag = true;
                 validate_pull_tag(&value)?;
             }
-            // Compose/Bollard may select an architecture, but import/build
+            // Bollard 0.21 always serializes `platform` (empty = let the engine
+            // choose). A non-empty value pins an architecture. Import/build
             // selectors such as fromSrc/repo are never part of a registry pull.
-            "platform" if !value.trim().is_empty() => {}
+            "platform" => {}
             _ => return Err(format!("image pull query parameter {name} is forbidden")),
         }
     }
@@ -2932,7 +2995,6 @@ mod tests {
                     "{TRUSTED_GUARD_REPOSITORY}@sha256:{}",
                     "a".repeat(64)
                 ),
-                host_policy_path: "/etc/myriad/docker-guard.env".into(),
                 self_update_token: SecretString::new("g7N2pQ8xV4mK6rT9wY3zA5bC1dF0hJ8l"),
                 allow_unpinned_dev: false,
                 allowed_images: [
@@ -3064,16 +3126,39 @@ mod tests {
     }
 
     #[test]
-    fn host_policy_path_split_supports_linux_and_windows() {
-        assert_eq!(
-            split_host_policy_path("/etc/myriad/docker-guard.env").unwrap(),
-            ("/etc/myriad".into(), "docker-guard.env".into())
-        );
-        assert_eq!(
-            split_host_policy_path(r"C:\ProgramData\Myriad\docker-guard.env").unwrap(),
-            (r"C:\ProgramData\Myriad".into(), "docker-guard.env".into())
-        );
-        assert!(split_host_policy_path("docker-guard.env").is_err());
+    fn host_policy_path_accepts_only_the_container_file() {
+        assert!(validate_host_policy_path("/guard-policy/docker-guard.env").is_ok());
+        assert!(validate_host_policy_path("guard-policy/docker-guard.env").is_err());
+        assert!(validate_host_policy_path("/tmp/docker-guard.env").is_err());
+        assert!(validate_host_policy_path("../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn ensure_host_policy_file_writes_once_and_skips_missing_parent() {
+        let missing = PathBuf::from("/no/such/myriad-policy/docker-guard.env");
+        let cfg = state().config.as_ref().clone();
+        assert!(ensure_host_policy_file(&cfg, &missing).is_ok());
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("docker-guard.env");
+        assert!(ensure_host_policy_file(&cfg, &path).is_ok());
+        let first = fs::read_to_string(&path).unwrap();
+        assert!(first.contains("DOCKER_GUARD_IMAGE="));
+        assert!(first.contains("GUARD_SELF_UPDATE_TOKEN="));
+        assert!(first.contains("MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env"));
+        let pinned = first.clone();
+        assert!(ensure_host_policy_file(&cfg, &path).is_ok());
+        assert_eq!(fs::read_to_string(&path).unwrap(), pinned);
+
+        fs::write(
+            &path,
+            "DOCKER_GUARD_IMAGE=${DOCKER_GUARD_IMAGE:?Set DOCKER_GUARD_IMAGE in .env}\n",
+        )
+        .unwrap();
+        assert!(ensure_host_policy_file(&cfg, &path).is_ok());
+        let healed = fs::read_to_string(&path).unwrap();
+        assert!(healed.contains(&cfg.expected_guard_image));
+        assert!(!healed.contains("${DOCKER_GUARD_IMAGE:?"));
     }
 
     #[test]
@@ -3585,6 +3670,14 @@ mod tests {
         let allowed =
             Uri::from_static("/v1.51/images/create?fromImage=docker.io%2Fexample%2Fbackend&tag=v1");
         assert!(validate_image_pull(&state(), &allowed, &Bytes::new()).is_ok());
+        let empty_platform = Uri::from_static(
+            "/v1.51/images/create?fromImage=docker.io%2Fexample%2Fbackend&tag=v1&platform=",
+        );
+        assert!(validate_image_pull(&state(), &empty_platform, &Bytes::new()).is_ok());
+        let pinned_platform = Uri::from_static(
+            "/v1.51/images/create?fromImage=docker.io%2Fexample%2Fbackend&tag=v1&platform=linux%2Farm64",
+        );
+        assert!(validate_image_pull(&state(), &pinned_platform, &Bytes::new()).is_ok());
         let denied = Uri::from_static("/v1.51/images/create?fromImage=evil%2Fpayload&tag=latest");
         assert!(validate_image_pull(&state(), &denied, &Bytes::new()).is_err());
 

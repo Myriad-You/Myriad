@@ -1,5 +1,5 @@
 /* ============================================
-   初始化向导 — 沿用「数字生命」引导的流体玻璃语言
+   初始化向导 — 沿用设定引导的流体玻璃语言
    一张定高玻璃卡：顶栏（返回 + 步骤位置）→ 标题区 → 正文 → 右下悬浮动作。
    没有进度条，位置全靠顶栏右侧那一行文字交代。
 
@@ -1588,6 +1588,13 @@ html[data-perf-mode='exlight'] .setup-ob {
   --sob-lift: 0px;
   --sob-stagger: 0ms;
   --sob-ease-spring: var(--sob-ease-glide);
+  --sob-glass: rgb(var(--sob-surface-rgb) / 96%);
+  --sob-glass-strong: rgb(var(--sob-surface-rgb) / 96%);
+  --sob-glass-soft: rgb(var(--sob-surface-rgb) / 96%);
+}
+
+html[data-perf-mode='exlight'] .setup-ob-bar .setup-ob-cta {
+  background: rgb(var(--sob-surface-rgb) / 96%);
 }
 
 html[data-perf-mode='exlight'] .setup-ob__aurora i,

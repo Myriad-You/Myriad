@@ -98,8 +98,7 @@ export function useReaderSettings(): UseReaderSettingsReturn {
   }, [fontSize, lineHeight, fontFamily, layout])
 
   // 计算值 - useMemo 缓存
-  // exlight：侧栏等用 surface + backdrop-blur；blur 被关后 /80 半透明仍像毛玻璃，
-  // 改用已有的 surfaceSolid，不动 standard/light。
+  // exlight：chrome 走 glass-solid（100%），不动 standard/light 的 glass-80。
   const currentTheme = useMemo(() => {
     const base = THEMES[theme]
     if (isExlight(anim)) {

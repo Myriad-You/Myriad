@@ -61,7 +61,7 @@ Windows:
 .\scripts\docker\deploy.ps1 up
 ```
 
-打开 `http://localhost`，或 `.env` 中 `HTTP_PORT` 指向的端口。首次访问会进入初始化向导。Docker / 编排已经写好数据库时，创建所有者要填安装暗号（`.env` 的 `MYRIAD_SETUP_SECRET`，`deploy.sh up` 会生成）。向导自己填库则不用。详见 [SETUP_BOOTSTRAP.md](deployment/SETUP_BOOTSTRAP.md)。
+打开 `http://localhost`，或 `.env` 中 `HTTP_PORT` 指向的端口。首次访问会进入初始化向导，浏览器里可以直接做完。官方 compose 已经写好数据库，未设置 `MYRIAD_SETUP_SECRET` 会拒绝启动（`deploy.sh up` 会生成）。向导自己填库则不用。详见 [SETUP_BOOTSTRAP.md](deployment/SETUP_BOOTSTRAP.md)。
 
 ### 3. 常用运维命令
 
@@ -180,13 +180,7 @@ docker compose logs postgres
 docker compose exec backend env | grep DATABASE_URL
 ```
 
-库挂了之后 backend 会进 CONFIG_MODE。生产栈几乎总是已经注入了真实 `DATABASE_URL`，这时向导保存数据库会要求 **引导令牌**（401），不是再走一遍首次安装。令牌在容器内 `/app/.bootstrap-token`，日志里不会打印正文：
-
-```bash
-docker compose exec backend cat /app/.bootstrap-token
-```
-
-完整说明见 [SETUP_BOOTSTRAP.md](deployment/SETUP_BOOTSTRAP.md)。
+库挂了之后 backend 会进 CONFIG_MODE。已经认领的实例进程仍能起来，但不会重开向导，先修 postgres。完整说明见 [SETUP_BOOTSTRAP.md](deployment/SETUP_BOOTSTRAP.md)。
 
 ### CORS 错误
 
@@ -216,7 +210,7 @@ CORS_ORIGINS=http://localhost:1102,http://localhost:1103
 
 - [Docker 部署](deployment/DOCKER_DEPLOYMENT.md)
 - [无 Docker 部署](deployment/NATIVE_DEPLOYMENT.md)
-- [Setup 引导令牌](deployment/SETUP_BOOTSTRAP.md)
+- [Setup 安装暗号](deployment/SETUP_BOOTSTRAP.md)
 - [端口清单](deployment/PORTS.md)
 - [Updater 运维](UPDATER_QUICKSTART.md)
 - [README](../README.md)

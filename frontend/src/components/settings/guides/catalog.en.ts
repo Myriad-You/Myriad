@@ -622,7 +622,7 @@ export const en: SettingGuidesCatalog = {
       chain:
         '1) Turn enable on, fill the API key (and optional base URL) → save config at the bottom.\n2) Fully independent from “AI configuration” image generation: reference images are only inputs to the 3D pipeline, not the same keys.\n3) Only when enabled and the key is valid may tasks that consume Tripo credits be created.\n4) The key is stored on the server only — never sent to browsers or embedded in model files.\n5) Outbound traffic uses the global proxy under Advanced settings; Tripo does not open a separate network path.',
       frontend:
-        'Settings → 3D & Tripo → “Tripo connection” group.\nDigital Life / 3D task creation entry points (admin).',
+        'Settings → 3D & Tripo → “Tripo connection” group.\n3D task creation entry points (admin).',
       notes: 'Get the key from platform.tripo3d.ai. Turning enable off greys out fields below but keeps what you already filled.',
     },
     enabled: {
@@ -810,7 +810,7 @@ export const en: SettingGuidesCatalog = {
     memorySaver: {
       what: 'Trade concurrent capacity for lower memory use on small hosts (~1 GiB).',
       chain:
-        '1) Off (default) = current balanced, bounded budgets: 4 MiB message payload, 8 MiB federation inbox body, 24 MiB authenticated body, and 32 MiB concurrent raw inbox buffering. Upgrading from older releases can therefore change limits.\n2) On = tighter concurrent federation buffers, slightly lower single-message/attachment caps, smaller process caches, fewer DB pool connections and Argon2 slots.\n3) Normal chat/media still fit; huge inline attachments may need chunked transfer or turn saver off.\n4) Most knobs apply after Save; DB pool size fully applies after backend reconnect/restart.',
+        '1) Off (default) = current balanced, bounded budgets: 4 MiB message payload, 8 MiB federation inbox body, 24 MiB authenticated body, and 32 MiB concurrent raw inbox buffering. Upgrading from older releases can therefore change limits.\n2) On = a second notch: 4 MiB inbox inflight, 16 MiB chunk inflight, 8 MiB API cache, DB pool 1–4, 1 Argon2 slot, 32 MiB note video, 16 MiB audio proxy.\n3) Everyday messages still fit; large video or lossless audio should use chunked transfer or turn saver off.\n4) Most knobs apply after Save; DB pool size fully applies after backend reconnect/restart.',
       frontend: 'No page theme change. Very large media or multi-path peaks may reject sooner or show “retry later”.',
       notes: 'Operators can force a profile with MYRIAD_MEMORY_PROFILE=default|saver (env overrides this switch).',
     },
@@ -820,6 +820,13 @@ export const en: SettingGuidesCatalog = {
         '1) Saves to server config, then reloads runtime concurrency/federation/cache caps.\n2) Federation stays on; budgets are just tighter.\n3) Best for 1 GiB VMs; leave off on larger hosts.',
       frontend: 'Indirect under heavy load. Daily browsing should feel the same.',
       notes: 'Turn off anytime and Save to restore balanced budgets (restart if you care about DB pool size).',
+    },
+    agentLife: {
+      what: 'Let Arael speak with the site persona, keep per-person mood and diary, and speak after named events.',
+      chain:
+        '1) Off by default. Off means chat and tasks only — no event listening, no hidden speech, persona unused.\n2) On: the owner’s persona replaces the public soul; mood and diary stay per signed-in person.\n3) AGENT_LIFE_ENABLED can override the saved switch.\n4) Autonomic speech stays hidden; valuable events also notify if the person is not chatting.',
+      frontend: 'Shows on the reports bar and persona guide. Guests only see the public name.',
+      notes: 'Only the site owner can write the persona. Diary cannot be deleted. Heartbeat is never blocked by mood.',
     },
     network: {
       what: 'Whether the server uses a proxy when going to the open internet, and access addresses for a few services.',

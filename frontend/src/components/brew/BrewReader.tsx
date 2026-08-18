@@ -832,7 +832,7 @@ export default function BrewReader({
         // 添加复制按钮 - 代码块背景始终是深色的，所以按钮用浅色样式
         const copyBtn = document.createElement('button')
         copyBtn.className =
-          'absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 bg-white/10 hover:bg-white/20 text-white/60 hover:text-white/90 backdrop-blur-sm'
+          'absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 bg-white/10 hover:bg-white/20 text-white/60 hover:text-white/90'
         copyBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`
         copyBtn.title = '复制代码'
 
@@ -1618,6 +1618,7 @@ export default function BrewReader({
       style={STYLE_READER_CONTAINER}
       className={`fixed inset-0 z-50 ${currentTheme.bg}`}
       data-brew-reader="true"
+      data-brew-theme={theme}
     >
       {/* 顶部进度条 - 用 scaleX 替代 width 动画，避免触发 layout recalculation */}
       <div className="absolute top-0 left-0 right-0 h-0.5 z-10 overflow-hidden">

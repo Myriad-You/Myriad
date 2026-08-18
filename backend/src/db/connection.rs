@@ -192,7 +192,7 @@ fn redact_database_url_fallback(input: &str) -> String {
 pub async fn establish_connection(database_url: &str) -> Result<DatabaseConnection, DbErr> {
     let mut opt = ConnectOptions::new(database_url.to_owned());
 
-    // Pool size follows memory profile (default 5/20; saver 2/8). Applied at
+    // Pool size follows memory profile (default 2/24; saver 1/4). Applied at
     // connect only — changing profile later needs a reconnect/restart for pool.
     let min_c = crate::services::memory_profile::db_min_connections();
     let max_c = crate::services::memory_profile::db_max_connections().max(min_c);

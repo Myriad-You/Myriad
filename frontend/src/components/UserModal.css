@@ -1070,8 +1070,10 @@ html.dark .user-modal-overlay {
   border-radius: 1.75rem;
   z-index: 10001;
 
-  /* 顶距与关闭钮 inset 对齐，标题和圆钮同一行 */
-  padding: var(--user-modal-chrome-inset) var(--user-modal-chrome-inset) 2rem;
+  /* 比共用 1rem 宽一圈，表单别贴边；关闭钮跟着 inset 走，仍和标题同一行 */
+  --user-modal-chrome-inset: 1.8rem;
+
+  padding: var(--user-modal-chrome-inset);
 
   /* 初始隐藏状态 */
   opacity: 0;

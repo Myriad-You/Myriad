@@ -6,6 +6,7 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { ToastType } from '../../components/Toast'
 import type {
+  TappCredentialBindingSummary,
   TappCredentialStatus,
   TappInboundGuardStatus,
 } from '../services/TappCredentialApi'
@@ -66,12 +67,33 @@ import { useTappShellPresence } from '../hooks/useTappShellPresence'
 import { getTappRuntime } from '../runtime'
 import { PERMISSION_LEVELS } from '../runtime/permissionConfig'
 import * as TappApiService from '../services/TappApiService'
+import {
+  summarizeCredentialBindings,
+  uniqueNonEmpty,
+} from '../utils/credentialBindingDisplay'
 import { resolveManifestText } from '../utils/manifestLocale'
 import { getTappIconStyle } from '../utils/tappColors'
 import { buildTappDetailPageSeo } from '../utils/tappPageSeo'
 import { TAPP_LIST_PATH, tappRunPath } from '../utils/tappPaths'
 import '../../components/ConfigForm.css'
 import './TappDetailPage.css'
+
+function formatCredentialBindingDetail(
+  binding: TappCredentialBindingSummary,
+  copy: { credentialBindingSign: string; credentialBindingPlacement: string },
+  format: (template: string, params: Record<string, string | number>) => string,
+): string {
+  if (binding.signAlg && binding.signOver?.length) {
+    return format(copy.credentialBindingSign, {
+      alg: binding.signAlg,
+      fields: binding.signOver.join(', '),
+    })
+  }
+  return format(copy.credentialBindingPlacement, {
+    placement: binding.placement,
+    field: binding.field,
+  })
+}
 
 export function TappDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -738,6 +760,17 @@ export function TappDetailPage() {
         ]
       : []),
     {
+      key: 'ask-arael',
+      label: t.arael.askArael,
+      onClick: () =>
+        window.dispatchEvent(
+          new CustomEvent('arael-open-session', {
+            detail: { sessionId: '' },
+          }),
+        ),
+      variant: 'secondary' as const,
+    },
+    {
       key: 'export',
       label: t.tapp.export || 'Export',
       onClick: () => void handleExport(),
@@ -994,30 +1027,35 @@ export function TappDetailPage() {
                 : (status?.bindings ?? []).some((binding) => binding.placement === 'verify')
                   ? t.tapp.credentialInboundVerify
                   : ''
-              const bindings = (status?.bindings ?? [])
-                .map((binding) => {
-                  const sign =
-                    binding.signAlg && binding.signOver?.length
-                      ? format(t.tapp.credentialBindingSign, {
-                          alg: binding.signAlg,
-                          fields: binding.signOver.join(', '),
-                        })
-                      : format(t.tapp.credentialBindingPlacement, {
-                          placement: binding.placement,
-                          field: binding.field,
-                        })
-                  return format(t.tapp.credentialBinding, {
-                    method: binding.method,
-                    endpoint: binding.endpoint,
-                    access: binding.access,
-                    detail: sign,
-                  })
-                })
+              const bindingStatus = status?.bindings ?? []
+              const bindingSummary = summarizeCredentialBindings(bindingStatus)
+              const bindingRows = bindingSummary.rows.map((row, index) => ({
+                ...row,
+                detail: formatCredentialBindingDetail(
+                  bindingStatus[index]!,
+                  t.tapp,
+                  format,
+                ),
+              }))
+              const sharedAccess =
+                bindingSummary.accesses.length === 1
+                  ? bindingSummary.accesses[0]
+                  : ''
+              const sharedDetails = uniqueNonEmpty(
+                bindingRows.map((row) => row.detail),
+              )
+              const canShareMeta =
+                bindingSummary.accesses.length <= 1 && sharedDetails.length <= 1
+              const sharedMeta = [
+                sharedAccess,
+                sharedDetails.length === 1 ? sharedDetails[0] : '',
+              ]
+                .filter(Boolean)
                 .join(' · ')
+              const splitMeta = !canShareMeta
               const description = [
                 credential.description,
                 destination,
-                bindings,
                 status?.needsReauthorization
                   ? t.tapp.credentialReauthorizationRequired
                   : undefined,
@@ -1052,6 +1090,37 @@ export function TappDetailPage() {
                     loading={busy}
                     onCommit={(value) => saveCredential(credential.key, value)}
                   />
+                  {bindingRows.length > 0 && (
+                    <div className="tapp-detail-credential-bindings">
+                      <ul
+                        className="tapp-detail-credential-binding-list"
+                        aria-label={t.tapp.credentialBindings}
+                      >
+                        {bindingRows.map((row) => (
+                          <li key={row.api} title={row.endpoint}>
+                            <span className="tapp-detail-credential-binding-method">
+                              {row.method}
+                            </span>
+                            <span className="tapp-detail-credential-binding-api">
+                              {row.api}
+                            </span>
+                            {splitMeta && (
+                              <span className="tapp-detail-credential-binding-extra">
+                                {[row.access, row.detail]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      {sharedMeta && canShareMeta && (
+                        <p className="tapp-detail-credential-binding-meta">
+                          {sharedMeta}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {status?.configured && (
                     <div className="tapp-detail-credential-actions">
                       <SettingsButton

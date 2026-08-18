@@ -1320,6 +1320,18 @@ pub(crate) async fn generate_platform_reports_internal(
         MAX_CONCURRENT_PLATFORM_REPORTS,
         skipped.len()
     );
+    if !platform_reports.is_empty() {
+        let names = platform_reports
+            .iter()
+            .map(|report| report.platform.as_str())
+            .collect::<Vec<_>>()
+            .join("、");
+        crate::services::agent::life::spawn_ingest(
+            user_id,
+            "agent.life.report_ready",
+            format!("这个人的报告算完了：{names}"),
+        );
+    }
     (platform_reports, skipped)
 }
 

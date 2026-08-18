@@ -373,6 +373,9 @@ pub struct DynamicConfig {
     pub ai_image_volcengine_api_key: Option<String>,
     pub ai_image_volcengine_base_url: String,
 
+    /// Agent 生命：设定、状态、主动对话、事件开口。默认关。
+    pub agent_life_enabled: bool,
+
     // 3D 模型生成配置（独立于 AI 图片 Provider）
     pub tripo_enabled: bool,
     pub tripo_api_key: Option<String>,
@@ -523,8 +526,8 @@ pub struct DynamicConfig {
     /// 全站常驻名额上限
     pub resident_quota_site_total: i32,
 
-    /// 内存节约模式（高级设置）：收紧并发预算 / 缓存 / 连接池等，适合 ~1 GiB 主机。
-    /// 默认 false = 历史行为。`MYRIAD_MEMORY_PROFILE` env 可覆盖。
+    /// 内存节约模式（高级设置）：在当前有界均衡档上再收一档，适合 ~1 GiB 主机。
+    /// 默认 false = 均衡档，不是旧版无界高水位。`MYRIAD_MEMORY_PROFILE` env 可覆盖。
     pub memory_saver_enabled: bool,
 
     // 网络代理配置（用于中国大陆服务器访问外部API）
@@ -660,6 +663,7 @@ impl Default for DynamicConfig {
             ai_image_openrouter_api_key: None,
             ai_image_volcengine_api_key: None,
             ai_image_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
+            agent_life_enabled: false,
             // Tripo 3D（低模 Web 角色默认预算）
             tripo_enabled: false,
             tripo_api_key: None,
@@ -763,6 +767,17 @@ impl Default for DynamicConfig {
 }
 
 impl DynamicConfig {
+    /// 环境变量 `AGENT_LIFE_ENABLED` 覆盖库里的开关。未设置时用 `agent_life_enabled`。
+    pub fn agent_life_enabled_resolved(&self) -> bool {
+        match std::env::var("AGENT_LIFE_ENABLED") {
+            Ok(value) => matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            ),
+            Err(_) => self.agent_life_enabled,
+        }
+    }
+
     /// 根据模型层级解析 AI 配置
     ///
     /// Lite / Pro 仅在对应开关开启时使用独立配置；关闭或字段留空时回退到 Standard。

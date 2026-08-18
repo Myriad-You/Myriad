@@ -637,6 +637,26 @@ html.dark.surface-lens .glass-liquid {
   transition-duration: 0.3s, 0.3s, 0.3s, 0.09s, 0.09s;
 }
 
+/* exlight：流体/描边在 blur 关掉后仍是高透 tint，读作未完成的毛玻璃。
+   退回实底；凝胶悬停/按压一并关掉。 */
+html[data-perf-mode='exlight']
+  :is(.glass, .glass-surface, .glass-liquid):is(
+    a,
+    button,
+    [role='button'],
+    .cursor-pointer
+  ):hover,
+html[data-perf-mode='exlight']
+  :is(.glass, .glass-surface, .glass-liquid):is(
+    a,
+    button,
+    [role='button'],
+    .cursor-pointer
+  ):active {
+  transform: none !important;
+  filter: none !important;
+}
+
 /* 玻璃需要背后有光 —— 这是流体玻璃可见性的第一前提。
    #bg-gradient 默认把页面下部（恰是小组件区）压到 90-95% 的纯色场，
    玻璃背后没有任何明暗/色彩结构，折射和高光的输入是一片平坦，
@@ -852,8 +872,19 @@ html.dark[data-surface='liquid'] .control-bar-trigger:not(.expanded):hover {
   }
 }
 
-/* .glass-surface 的透明度档位（默认 80%）：仅玻璃默认态生效，
-   切非玻璃主题时让位给全局收敛 */
+/* .glass-surface 的透明度档位：仅玻璃默认态生效，
+   切非玻璃主题时让位给全局收敛。
+   必须连 --surface-bg 一起在元素上重声明，否则根上已烘焙的
+   rgb(… / 74%) 不会跟着 --surface-alpha 变（见上方 liquid chrome 注释）。
+   面板用 .glass / .glass-surface + 档位，不要写 bg-white/X + backdrop-blur。 */
+:root:not([data-surface]) .glass-30 {
+  --surface-alpha: 30%;
+}
+
+:root:not([data-surface]) .glass-45 {
+  --surface-alpha: 45%;
+}
+
 :root:not([data-surface]) .glass-60 {
   --surface-alpha: 60%;
 }
@@ -862,12 +893,59 @@ html.dark[data-surface='liquid'] .control-bar-trigger:not(.expanded):hover {
   --surface-alpha: 70%;
 }
 
+:root:not([data-surface]) .glass-80 {
+  --surface-alpha: 80%;
+}
+
 :root:not([data-surface]) .glass-90 {
   --surface-alpha: 90%;
 }
 
 :root:not([data-surface]) .glass-95 {
   --surface-alpha: 95%;
+}
+
+:root:not([data-surface]) .glass-solid {
+  --surface-alpha: 100%;
+}
+
+:root:not([data-surface])
+  :is(
+    .glass-30,
+    .glass-45,
+    .glass-60,
+    .glass-70,
+    .glass-80,
+    .glass-90,
+    .glass-95,
+    .glass-solid
+  ) {
+  --surface-bg:
+    var(--surface-sheen), rgb(var(--surface-rgb) / var(--surface-alpha));
+}
+
+/* Brew 阅读器：纸色写入 --surface-rgb，并重声明 --surface-bg，
+   避免子级仍继承根上已烘焙的站点白/黑。 */
+[data-brew-reader][data-brew-theme='light'] {
+  --surface-rgb: 255 249 240;
+}
+
+[data-brew-reader][data-brew-theme='sepia'] {
+  --surface-rgb: 250 244 230;
+}
+
+[data-brew-reader][data-brew-theme='dark'] {
+  --surface-rgb: 36 36 36;
+}
+
+[data-brew-reader][data-brew-theme='night'] {
+  --surface-rgb: 22 27 34;
+}
+
+/* 只在默认玻璃态重声明底；liquid/solid/flat/outline 继续吃全局表面栈。 */
+:root:not([data-surface]) [data-brew-reader] {
+  --surface-bg:
+    var(--surface-sheen), rgb(var(--surface-rgb) / var(--surface-alpha));
 }
 
 /* 主题选择器里的表面预览色块：静态呈现四种质感，
@@ -1080,4 +1158,29 @@ html.dark ::placeholder {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/*
+ * exlight + 流体/描边：blur 已由 performance.css 清掉，但 tint 仍是 18–42%。
+ * 半透明叠壁纸 = 毛玻璃观感还在。压过明暗 × surface-lens 的全部组合。
+ * flat（本就无 blur 的轻盈半透）不改。
+ */
+html[data-perf-mode='exlight'][data-surface='liquid'],
+html[data-perf-mode='exlight'][data-surface='outline'],
+html.dark[data-perf-mode='exlight'][data-surface='liquid'],
+html.dark[data-perf-mode='exlight'][data-surface='outline'],
+html.surface-lens[data-perf-mode='exlight'][data-surface='liquid'],
+html.dark.surface-lens[data-perf-mode='exlight'][data-surface='liquid'],
+html[data-perf-mode='exlight'] .glass-liquid,
+html.dark[data-perf-mode='exlight'] .glass-liquid,
+html.surface-lens[data-perf-mode='exlight'] .glass-liquid,
+html.dark.surface-lens[data-perf-mode='exlight'] .glass-liquid {
+  --surface-filter: none !important;
+  --surface-alpha: 96%;
+  --surface-noise: none;
+  --surface-sheen: none;
+  --surface-streak: none;
+  --surface-bounce: none;
+  --surface-tint: none;
+  --surface-bg: rgb(var(--surface-rgb) / 96%);
 }

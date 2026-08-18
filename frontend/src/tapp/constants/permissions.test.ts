@@ -1,7 +1,7 @@
 /**
  * PERMISSION_CONFIG copy-key integrity.
  *
- * storage:read and storage:write are separate permissions (ADR 0020) and must
+ * storage:read and storage:write are separate permissions and must
  * not share label/description i18n keys; every permission gets a unique pair.
  */
 import assert from 'node:assert/strict'

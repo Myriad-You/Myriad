@@ -165,7 +165,7 @@ Myriad/
 | [Updater 运维](docs/UPDATER_QUICKSTART.md) | 自更新通道 |
 | [外部 PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md) | 自带库以外的 PG |
 | [无 Docker 部署](docs/deployment/NATIVE_DEPLOYMENT.md) | 本机 PostgreSQL + 二进制 |
-| [Setup 引导令牌](docs/deployment/SETUP_BOOTSTRAP.md) | CONFIG_MODE 破窗令牌；编排安装时的所有者暗号 |
+| [Setup 安装暗号](docs/deployment/SETUP_BOOTSTRAP.md) | 编排安装时的安装暗号 |
 
 ---
 

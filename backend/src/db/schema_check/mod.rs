@@ -21,6 +21,7 @@ mod introspect;
 mod orchestrator;
 mod seeds;
 mod tables_agent;
+mod tables_agent_life;
 mod tables_analytics;
 mod tables_brew;
 mod tables_core;

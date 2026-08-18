@@ -160,6 +160,16 @@ html.dark .tapp-app-card__drag-handle {
     0 4px 14px rgb(0 0 0 / 28%);
 }
 
+html[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
+  backdrop-filter: none;
+  background: #fff;
+  opacity: 1;
+}
+
+html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
+  background: #1a1a1a;
+}
+
 .tapp-app-card__drag-icon {
   width: 0.72rem;
   height: 0.72rem;

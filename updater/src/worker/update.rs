@@ -621,6 +621,8 @@ fn record_successful_deploy(
     state.current_version = Some(target);
     state.current_commit_sha = target_commit_sha;
     state.updater_version = MyriadVersion::parse(crate::self_version()).ok();
+    // A later success supersedes the unacknowledged failure banner.
+    state.last_failed_update = None;
     // `rollback_version` deliberately remains unchanged: it identifies the
     // previous known-good build pinned immediately before this deploy started.
 }
@@ -1630,6 +1632,23 @@ mod health_match_tests {
             state.current_commit_sha.as_deref(),
             Some("0123456789abcdef")
         );
+        assert!(state.last_failed_update.is_none());
+    }
+
+    #[test]
+    fn successful_deploy_clears_last_failed_banner() {
+        let mut state = UpdaterStateFile {
+            last_failed_update: Some(crate::state::FailedUpdate {
+                from_version: DeployTag::parse("v0.3.32").ok(),
+                to_version: DeployTag::parse("v0.3.33").ok(),
+                at: Utc::now(),
+                reason: "preflight".into(),
+                job_id: "job-1".into(),
+            }),
+            ..UpdaterStateFile::default()
+        };
+        record_successful_deploy(&mut state, DeployTag::parse("v0.3.34").unwrap(), None);
+        assert!(state.last_failed_update.is_none());
     }
 
     #[test]

@@ -200,6 +200,7 @@ export interface SettingGuidesCatalog {
   advanced: {
     memorySaver: SettingGuideEntry
     memorySaverEnable: SettingGuideEntry
+    agentLife: SettingGuideEntry
     network: SettingGuideEntry
     proxyEnable: SettingGuideEntry
     proxyUrl: SettingGuideEntry

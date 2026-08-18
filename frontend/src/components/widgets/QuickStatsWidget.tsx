@@ -169,7 +169,7 @@ const StatCard = memo(
 
     return (
       <div
-        className="flex flex-col items-center justify-center bg-white/60 dark:bg-white/3 backdrop-blur-sm rounded-lg relative overflow-hidden p-1.5"
+        className="flex flex-col items-center justify-center glass-surface glass-60 rounded-lg relative overflow-hidden p-1.5"
         style={{ padding: `${6 * scale}px` }}
       >
         <div

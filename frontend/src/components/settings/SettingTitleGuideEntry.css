@@ -447,6 +447,10 @@ html.dark .setting-title-guide-float.is-ready {
   backdrop-filter: blur(8px);
 }
 
+html[data-perf-mode='exlight'] .setting-title-guide-pin {
+  background: var(--cfg-frost-bg);
+}
+
 .setting-title-guide-pin.is-pinned {
   border-color: color-mix(in srgb, var(--cfg-accent, #6c8cff) 55%, transparent);
   background: linear-gradient(

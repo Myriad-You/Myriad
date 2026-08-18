@@ -182,6 +182,11 @@ pub async fn notify_channel_message(
     notification.id = format!("fed_ch_{}_u{}", stable_hash(channel_id), user_id);
     notification.read = false;
     manager.upsert(notification).await;
+    crate::services::agent::life::spawn_ingest(
+        user_id,
+        "federation.channel_message",
+        format!("{sender_label} 发来私信：{preview}"),
+    );
 }
 
 /// 群聊 / Room 新消息（按会话 + 用户 upsert）
@@ -222,6 +227,11 @@ pub async fn notify_room_message(
     notification.id = format!("fed_rm_{}_u{}", stable_hash(room_id), user_id);
     notification.read = false;
     manager.upsert(notification).await;
+    crate::services::agent::life::spawn_ingest(
+        user_id,
+        "federation.room_message",
+        format!("{sender_label} 在群里说话：{preview}"),
+    );
 }
 
 /// 新粉丝（自动 Accept 后的关注事件）
@@ -246,6 +256,11 @@ pub async fn notify_new_follower(user_id: i32, actor_url: &str, actor_label: &st
     notification.id = format!("fed_follower_{}_u{}", stable_hash(actor_url), user_id);
     notification.read = false;
     manager.upsert(notification).await;
+    crate::services::agent::life::spawn_ingest(
+        user_id,
+        "federation.new_follower",
+        format!("{actor_label} 关注了这个人"),
+    );
 }
 
 /// 我们发出的关注被接受

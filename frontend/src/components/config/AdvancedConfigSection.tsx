@@ -250,6 +250,8 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   const isProxyEnabled = getUiFieldValue('proxy_enabled') === 'true'
   const isMemorySaverEnabled =
     getUiFieldValue('memory_saver_enabled') === 'true'
+  const isAgentLifeEnabled =
+    getUiFieldValue('agent_life_enabled') === 'true'
 
   const closeImportConfirm = useCallback(() => {
     setImportConfirmOpen(false)
@@ -431,6 +433,17 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
           value={isMemorySaverEnabled}
           onChange={(v) =>
             updateUiFieldValue('memory_saver_enabled', v.toString())
+          }
+          layout="horizontal"
+        />
+        <SwitchItem
+          itemKey="agent_life_enabled"
+          label={t.config.agentLife}
+          description={t.config.agentLifeHint}
+          {...bindGuide('advanced.agentLife', g.advanced.agentLife)}
+          value={isAgentLifeEnabled}
+          onChange={(v) =>
+            updateUiFieldValue('agent_life_enabled', v.toString())
           }
           layout="horizontal"
         />

@@ -209,14 +209,8 @@ pub async fn execute_inbound_route(
     let params =
         merge_params(query, method_name, &body, content_type).map_err(inbound_http_error)?;
 
-    let declared: Vec<myriad_tapp_contract::manifest::TappSettingDef> = tapp
-        .manifest
-        .get("settings")
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|_| inbound_http_error(InboundRouteError::InvalidParams))?
-        .unwrap_or_default();
+    let declared = tapp_declared_api::declared_settings_from_manifest(&tapp.manifest)
+        .map_err(|_| inbound_http_error(InboundRouteError::InvalidParams))?;
     let (outbound_credential, settings) = tokio::try_join!(
         async {
             tapp_credentials::resolve_api_credential(&db, &tapp, api_def)

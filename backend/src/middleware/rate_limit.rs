@@ -356,6 +356,7 @@ fn is_admin_updater_mutate(path: &str) -> bool {
         || p.ends_with("/api/admin/updater/rollback")
         || p.ends_with("/api/admin/updater/self-update")
         || p.ends_with("/api/admin/updater/prefs")
+        || p.ends_with("/api/admin/updater/last-failed/dismiss")
         || p.contains("/api/admin/updater/rescue/")
         // DELETE /api/admin/updater/snapshots/{id}
         || p.contains("/api/admin/updater/snapshots/")
@@ -409,6 +410,9 @@ mod tests {
         // Must match the registered public path (not the old /defaults typo).
         assert!(is_admin_updater_mutate("/api/admin/updater/prefs"));
         assert!(is_admin_updater_mutate("/api/admin/updater/prefs/"));
+        assert!(is_admin_updater_mutate(
+            "/api/admin/updater/last-failed/dismiss"
+        ));
         assert!(!is_admin_updater_mutate("/api/admin/updater/defaults"));
         assert!(is_admin_updater_mutate(
             "/api/admin/updater/snapshots/snap-abc"

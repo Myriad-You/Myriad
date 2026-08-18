@@ -54,12 +54,14 @@ These are intentionally broader than event keys so old history remains readable:
 | Arael | `agent.task_failed` | Agent run terminal failure |
 | Arael | `agent.task_cancelled` | User-cancelled run |
 | Arael | `agent.clarification` | Run waiting for user input |
+| Arael | `agent.life.platform_activity` | High-importance connected-platform activity |
 | Heartbeat | `heartbeat.succeeded` | Heartbeat scheduled task success |
 | Heartbeat | `heartbeat.failed` | Heartbeat scheduled task failure |
 | MCP | `mcp.connected` | MCP server connection/recovery |
 | MCP | `mcp.disconnected` | MCP server connection/restart failure |
 | Brew | `brew.new_items` | Feed refresh with new items |
 | Brew | `brew.source_error` | Feed reaches the consecutive-error threshold |
+| System | `platform.sync.failed` | Connected-platform auto-refresh failure |
 | Tapp | `tapp.message` | Tapp queued informational notification |
 | Tapp | `tapp.warning` | Tapp queued warning |
 | Tapp | `tapp.error` | Tapp error or scheduled task failure |

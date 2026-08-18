@@ -29,6 +29,9 @@ export interface AdminUserTapp {
   version: string
   status: string
   icon: string | null
+  icon_svg?: string | null
+  icon_shell?: boolean | null
+  theme_color?: string | null
   installed_at: string | null
   last_run_at: string | null
 }

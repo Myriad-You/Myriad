@@ -127,18 +127,11 @@ services:
       # one-shot initializer. Do not redirect these to the container layer.
       DATA_DIR: /app/data
       CACHE_DIR: /app/cache
-      # The backend default is loopback-only. Deploy scripts temporarily opt an
-      # unclaimed install into proxy/browser setup, then turn this off when the
-      # durable owner-claim marker is present. Raw Compose users must do that
-      # transition themselves.
-      MYRIAD_ALLOW_REMOTE_BOOTSTRAP: ${MYRIAD_ALLOW_REMOTE_BOOTSTRAP:-false}
-      MYRIAD_BOOTSTRAP_TTL_SECS: ${MYRIAD_BOOTSTRAP_TTL_SECS:-1800}
-      MYRIAD_BOOTSTRAP_TOKEN: ${MYRIAD_BOOTSTRAP_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET}
-      # First-owner passphrase when orchestration already wrote DATABASE_URL.
-      # deploy.sh fills host .env if empty. Empty = create-admin is not gated.
+      # Official compose always writes DATABASE_URL, so setup writes must match
+      # this passphrase. deploy.sh / the generator fill host .env if empty.
       # Never expose the value in the admin UI.
-      MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:-}
+      MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:?Set MYRIAD_SETUP_SECRET in .env}
       # Visitor-hash salt for first-party analytics. Prefer a dedicated random value
       # (openssl rand -hex 32). When empty, backend derives from JWT_SECRET so
       # collect does not 503 on stock compose (ENVIRONMENT=production).
@@ -271,12 +264,15 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   docker-guard:
-    # Separate host-root-equivalent TCB. DOCKER_GUARD_IMAGE and GUARD_* come
-    # from the host-owned guard policy env passed after the updater-writable
-    # deployment .env. The image MUST be an exact trusted repo@sha256 digest.
-    image: ${DOCKER_GUARD_IMAGE:?Pass the host-owned docker-guard.env with an exact repo@sha256 digest}
+    # Writes ./guard-policy/docker-guard.env on first start.
+    image: ${DOCKER_GUARD_IMAGE:?Set DOCKER_GUARD_IMAGE in .env to an exact repo@sha256 digest}
     container_name: myriad-docker-guard
-    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-docker-guard"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        if [ ! -f /guard-policy/docker-guard.env ]; then umask 077; fi
+        exec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard
     environment:
       COMPOSE_PROJECT_NAME: ${GUARD_COMPOSE_PROJECT_NAME:-myriad}
       MYRIAD_DOCKER_NETWORK: ${GUARD_MYRIAD_DOCKER_NETWORK:-myriad-net}
@@ -285,7 +281,7 @@ services:
       DOCKER_GUARD_COMPOSE_DIR: /host/compose
       DOCKER_GUARD_STATE_DIR: /host/state
       DOCKER_GUARD_EXPECTED_IMAGE: ${DOCKER_GUARD_IMAGE}
-      DOCKER_GUARD_HOST_POLICY_PATH: ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}
+      DOCKER_GUARD_HOST_POLICY_PATH: /guard-policy/docker-guard.env
       # Dedicated capability from the host-owned policy file. It is separate
       # from UPDATE_TOKEN and prevents unrelated guard-net peers from invoking
       # the privileged self-update endpoint if network isolation drifts.
@@ -301,6 +297,9 @@ services:
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/state
         target: /host/state
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/guard-policy
+        target: /guard-policy
     networks: [myriad-docker-guard-net]
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
@@ -336,9 +335,8 @@ services:
       UPDATER_COMPOSE_DIR: /host/compose
       DOCKER_HOST: tcp://docker-guard:2375
       DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:?Host Guard self-update token is required}
-      # Second compose env file is mounted read-only from the host TCB policy.
-      # It supplies DOCKER_GUARD_IMAGE/GUARD_* so parsing the full Compose model
-      # never falls back to updater-controlled values.
+      # Guard policy directory is mounted read-only. After first start the file
+      # is ./guard-policy/docker-guard.env; updater cannot rewrite it.
       UPDATER_GUARD_ENV_FILE: /run/secrets/docker-guard.env
       # cosign signature policy: strict (default) | soft | off
       # Strict requires release.json.sig + release.json.pem assets to be present and
@@ -369,8 +367,8 @@ services:
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/pgdata
         target: /host/compose/pgdata
       - type: bind
-        source: ${MYRIAD_GUARD_ENV_FILE:?Host Guard policy path is required}
-        target: /run/secrets/docker-guard.env
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/guard-policy
+        target: /run/secrets
         read_only: true
     # Admin plane for gateway/backend/proxy; guard-net for docker-guard only.
     # Not on myriad-net: frontend/postgres must not share L2 with updater HTTP.

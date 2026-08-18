@@ -31,8 +31,12 @@ pub mod brew_user_states;
 pub mod rsshub_instances;
 
 // Agent 任务系统实体
+pub mod agent_addressee_state;
+pub mod agent_diary;
 pub mod agent_messages;
 pub mod agent_notifications;
+pub mod agent_persona;
+pub mod agent_proactive_messages;
 pub mod agent_sessions;
 pub mod agent_task_presets;
 pub mod agent_tasks;

@@ -63,6 +63,7 @@ type Stage =
   | 'blank'
   | 'loading'
   | 'error'
+  | 'claimed'
   | 'welcome'
   | 'database'
   | 'migrate'
@@ -83,6 +84,7 @@ const STAGE_RANK: Record<Stage, number> = {
   blank: -2,
   loading: -1,
   error: -1,
+  claimed: -1,
   welcome: 0,
   database: 1,
   migrate: 2,
@@ -116,6 +118,7 @@ const SetupWizard: React.FC = () => {
   const [status, setStatus] = useState<SetupStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [setupClaimedClosed, setSetupClaimedClosed] = useState(false)
   const [notice, setNotice] = useState<SetupNotice>(null)
   const [hasEnteredSetup, setHasEnteredSetup] = useState(() => {
     return sessionStorage.getItem('myriad-setup-started') === 'true'
@@ -136,8 +139,6 @@ const SetupWizard: React.FC = () => {
     username: 'postgres',
     password: '',
   })
-  /** 所有安装写操作都需要；对应 BE X-Bootstrap-Token / DATA_DIR/.bootstrap-token */
-  const [bootstrapToken, setBootstrapToken] = useState('')
   const [savingDb, setSavingDb] = useState(false)
   const [migratingDb, setMigratingDb] = useState(false)
   const [dbConfigured, setDbConfigured] = useState(false)
@@ -192,6 +193,7 @@ const SetupWizard: React.FC = () => {
     try {
       setLoading(true)
       setError('')
+      setSetupClaimedClosed(false)
 
       // 先检查健康状态,看是否处于配置模式
       const healthResponse = await fetch(`${API_URL}/health`)
@@ -200,15 +202,33 @@ const SetupWizard: React.FC = () => {
       }
       const healthData = await healthResponse.json()
 
+      const configResponse = await fetch(`${API_URL}/api/setup/config`)
+      if (!configResponse.ok) {
+        throw new Error('Failed to read setup config')
+      }
+      const setupConfig = await configResponse.json()
+      const setupSecretRequired = Boolean(setupConfig.setup_secret_required)
+      const windowOpen = setupConfig.setup_window_open === true
+      const refuseClosedWindow = () => {
+        setSetupClaimedClosed(true)
+        setStatus(null)
+        setLoading(false)
+      }
+
       // 如果处于配置模式(数据库未连接),显示数据库配置界面
       if (
         healthData.mode === 'configuration' ||
         !healthData.database_connected
       ) {
+        if (!windowOpen) {
+          refuseClosedWindow()
+          return
+        }
         setStatus({
           is_setup_required: true,
           has_database: false,
           has_admin_user: false,
+          setup_secret_required: setupSecretRequired,
           missing_configs: ['Database not configured'],
         })
         setDbConfigured(false)
@@ -220,13 +240,17 @@ const SetupWizard: React.FC = () => {
       // 如果数据库已连接,检查详细的设置状态
       const response = await fetch(`${API_URL}/api/setup/status`)
       if (!response.ok) {
-        // 503: PG may be connected while tables are not migrated yet.
-        // Never treat database_connected as has_database (tables ready).
+        // 503: extract::Db 没有句柄。未认领才继续向导；认领后窗口已关，不画写步骤。
         if (response.status === 503) {
+          if (!windowOpen) {
+            refuseClosedWindow()
+            return
+          }
           setStatus({
             is_setup_required: true,
             has_database: false,
             has_admin_user: false,
+            setup_secret_required: setupSecretRequired,
             missing_configs: ['Database tables not initialized'],
           })
           // Connection works → show the DB-configured column; init-database still required
@@ -238,6 +262,10 @@ const SetupWizard: React.FC = () => {
         throw new Error('Failed to check setup status')
       }
       const data = await response.json()
+      if (data.is_setup_required && !windowOpen) {
+        refuseClosedWindow()
+        return
+      }
       setStatus(data)
       // Connection ≠ tables: only mark DB configured when health says connected.
       // Admin form still gated on data.has_database (tables initialized).
@@ -291,6 +319,23 @@ const SetupWizard: React.FC = () => {
     setAtSiteStep(false)
   }
 
+  const setupSecretRequired = Boolean(status?.setup_secret_required)
+  const setupWriteHeaders = (extra: Record<string, string> = {}) => {
+    const headers: Record<string, string> = { ...extra }
+    const secret = adminForm.setupSecret.trim()
+    if (secret) {
+      headers['X-Setup-Secret'] = secret
+    }
+    return headers
+  }
+  const ensureSetupSecret = () => {
+    if (setupSecretRequired && !adminForm.setupSecret.trim()) {
+      setNotice({ tone: 'error', message: t.setup.setupSecretRequired })
+      return false
+    }
+    return true
+  }
+
   const handleSaveDbConfig = async () => {
     const port = Number(dbConfig.port)
     if (
@@ -307,18 +352,17 @@ const SetupWizard: React.FC = () => {
       return
     }
 
+    if (!ensureSetupSecret()) {
+      return
+    }
+
     setNotice(null)
     setSavingDb(true)
 
     try {
-      // 使用新的数据库配置 API（已配置实例需 X-Bootstrap-Token）
-      const headers: Record<string, string> = {
+      const headers = setupWriteHeaders({
         'Content-Type': 'application/json',
-      }
-      const token = bootstrapToken.trim()
-      if (token) {
-        headers['X-Bootstrap-Token'] = token
-      }
+      })
       const response = await fetch(`${API_URL}/api/setup/database-config`, {
         method: 'POST',
         headers,
@@ -332,9 +376,6 @@ const SetupWizard: React.FC = () => {
       })
 
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error(t.setup.bootstrapTokenRequired)
-        }
         throw new Error(
           await getResponseError(response, t.setup.saveConfigFailed),
         )
@@ -418,9 +459,7 @@ const SetupWizard: React.FC = () => {
 
   const handleMigrateDatabase = async () => {
     setNotice(null)
-    const token = bootstrapToken.trim()
-    if (!token) {
-      setNotice({ tone: 'error', message: t.setup.bootstrapTokenRequired })
+    if (!ensureSetupSecret()) {
       return
     }
     setMigratingDb(true)
@@ -428,13 +467,10 @@ const SetupWizard: React.FC = () => {
     try {
       const response = await fetch(`${API_URL}/api/setup/init-database`, {
         method: 'POST',
-        headers: { 'X-Bootstrap-Token': token },
+        headers: setupWriteHeaders(),
       })
 
       if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          throw new Error(t.setup.bootstrapTokenRequired)
-        }
         throw new Error(
           await getResponseError(response, t.setup.dbMigrationFailed),
         )
@@ -452,11 +488,6 @@ const SetupWizard: React.FC = () => {
         message += `\n• ${t.setup.platformsTable}: ${v.platforms_table ? t.setup.yes : t.setup.no}`
         message += `\n• ${t.setup.configurationsTable}: ${v.configurations_table ? t.setup.yes : t.setup.no}`
       }
-      if (result.bootstrap_capability_rotated) {
-        setBootstrapToken('')
-        message += `\n\n${t.setup.bootstrapTokenRotated}`
-      }
-
       setNotice({ tone: 'success', message })
 
       // 重新检查状态以更新 UI
@@ -624,14 +655,7 @@ const SetupWizard: React.FC = () => {
       return
     }
 
-    const token = bootstrapToken.trim()
-    if (!token) {
-      setNotice({ tone: 'error', message: t.setup.bootstrapTokenRequired })
-      return
-    }
-    const setupSecretRequired = Boolean(status?.setup_secret_required)
-    if (setupSecretRequired && !adminForm.setupSecret.trim()) {
-      setNotice({ tone: 'error', message: t.setup.setupSecretRequired })
+    if (!ensureSetupSecret()) {
       return
     }
 
@@ -640,10 +664,9 @@ const SetupWizard: React.FC = () => {
     try {
       const response = await fetch(`${API_URL}/api/setup/create-admin`, {
         method: 'POST',
-        headers: {
+        headers: setupWriteHeaders({
           'Content-Type': 'application/json',
-          'X-Bootstrap-Token': token,
-        },
+        }),
         body: JSON.stringify({
           username: adminForm.username,
           password: adminForm.password,
@@ -694,19 +717,21 @@ const SetupWizard: React.FC = () => {
     ? 'site'
     : loading
       ? 'loading'
-      : error
-        ? 'error'
-        : !status
-          ? 'blank'
-          : !status.is_setup_required
-            ? 'done'
-            : !hasEnteredSetup
-              ? 'welcome'
-              : !dbConfigured
-                ? 'database'
-                : !status.has_database
-                  ? 'migrate'
-                  : 'admin'
+      : setupClaimedClosed
+        ? 'claimed'
+        : error
+          ? 'error'
+          : !status
+            ? 'blank'
+            : !status.is_setup_required
+              ? 'done'
+              : !hasEnteredSetup
+                ? 'welcome'
+                : !dbConfigured
+                  ? 'database'
+                  : !status.has_database
+                    ? 'migrate'
+                    : 'admin'
 
   // 顶栏色层随正文滚动加浓；换步时重新绑定滚动容器
   useTopBarDense(cardRef, paneRef, stage)
@@ -844,6 +869,30 @@ const SetupWizard: React.FC = () => {
                 <Spinner size="md" color="primary" />
                 <p>{t.setup.checkingStatus}</p>
               </div>
+            </div>
+          )}
+
+          {stage === 'claimed' && (
+            <div
+              className="setup-ob__pane is-centered"
+              ref={bindPane}
+              data-dir={enterDir}
+              key="claimed"
+            >
+              <div className="setup-ob-state">
+                <span className="setup-ob-state__glyph is-bad" aria-hidden>
+                  <LuAlertTriangle />
+                </span>
+                <h1>{t.setup.claimedRepairTitle}</h1>
+                <p>{t.setup.claimedRepairDesc}</p>
+              </div>
+              <ActionBar>
+                <PrimaryButton
+                  label={t.setup.retry}
+                  icon={LuRotateCw}
+                  onClick={() => void checkSetupStatus()}
+                />
+              </ActionBar>
             </div>
           )}
 
@@ -1059,20 +1108,27 @@ const SetupWizard: React.FC = () => {
                       autoComplete="off"
                     />
                   </Field>
-                  <Field
-                    label={t.setup.bootstrapToken}
-                    hint={t.setup.bootstrapTokenHint}
-                    wide
-                  >
-                    <TextInput
-                      type="password"
-                      mono
-                      value={bootstrapToken}
-                      onChange={(e) => setBootstrapToken(e.target.value)}
-                      placeholder={t.setup.bootstrapTokenPlaceholder}
-                      autoComplete="off"
-                    />
-                  </Field>
+                  {setupSecretRequired ? (
+                    <Field
+                      label={t.setup.setupSecret}
+                      hint={t.setup.setupSecretHint}
+                      wide
+                    >
+                      <TextInput
+                        type="password"
+                        mono
+                        value={adminForm.setupSecret}
+                        onChange={(e) =>
+                          setAdminForm({
+                            ...adminForm,
+                            setupSecret: e.target.value,
+                          })
+                        }
+                        placeholder={t.setup.setupSecretPlaceholder}
+                        autoComplete="off"
+                      />
+                    </Field>
+                  ) : null}
                 </div>
                 <Note>{t.setup.saveHint}</Note>
               </StepBody>
@@ -1102,19 +1158,26 @@ const SetupWizard: React.FC = () => {
               />
               <StepBody>
                 <Note tone="success">{t.setup.dbConnectionSuccess}</Note>
-                <Field
-                  label={t.setup.bootstrapToken}
-                  hint={t.setup.bootstrapTokenHint}
-                >
-                  <TextInput
-                    type="password"
-                    mono
-                    value={bootstrapToken}
-                    onChange={(e) => setBootstrapToken(e.target.value)}
-                    placeholder={t.setup.bootstrapTokenPlaceholder}
-                    autoComplete="off"
-                  />
-                </Field>
+                {setupSecretRequired ? (
+                  <Field
+                    label={t.setup.setupSecret}
+                    hint={t.setup.setupSecretHint}
+                  >
+                    <TextInput
+                      type="password"
+                      mono
+                      value={adminForm.setupSecret}
+                      onChange={(e) =>
+                        setAdminForm({
+                          ...adminForm,
+                          setupSecret: e.target.value,
+                        })
+                      }
+                      placeholder={t.setup.setupSecretPlaceholder}
+                      autoComplete="off"
+                    />
+                  </Field>
+                ) : null}
               </StepBody>
               <ActionBar>
                 <PrimaryButton
@@ -1147,19 +1210,6 @@ const SetupWizard: React.FC = () => {
                 notes={noticeNode}
               />
               <StepBody>
-                <Field
-                  label={t.setup.bootstrapToken}
-                  hint={t.setup.bootstrapTokenHint}
-                >
-                  <TextInput
-                    type="password"
-                    mono
-                    value={bootstrapToken}
-                    onChange={(e) => setBootstrapToken(e.target.value)}
-                    placeholder={t.setup.bootstrapTokenPlaceholder}
-                    autoComplete="off"
-                  />
-                </Field>
                 <Field label={t.auth.username} hint={t.setup.adminUsernameHint}>
                   <TextInput
                     type="text"

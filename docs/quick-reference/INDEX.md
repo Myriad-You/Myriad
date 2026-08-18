@@ -11,7 +11,7 @@
 | 从源码构建 | [BUILD.md](../development/BUILD.md) |
 | HTTP API 入口 | [API.md](../API.md) |
 | Updater 运维 | [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md) |
-| Setup 破窗 / 安装暗号 | [SETUP_BOOTSTRAP.md](../deployment/SETUP_BOOTSTRAP.md) |
+| Setup 安装暗号 | [SETUP_BOOTSTRAP.md](../deployment/SETUP_BOOTSTRAP.md) |
 | 无 Docker 部署 | [NATIVE_DEPLOYMENT.md](../deployment/NATIVE_DEPLOYMENT.md) |
 | Tapp 开发 | [TAPP_DEVELOPMENT.md](../development/TAPP_DEVELOPMENT.md) |
 
@@ -29,7 +29,7 @@ docs/
 │   ├── EXTERNAL_POSTGRES.md
 │   ├── PORTS.md
 │   ├── UPDATER_SECURITY_BASELINE.md
-│   ├── SETUP_BOOTSTRAP.md           # CONFIG_MODE 引导令牌 + 安装暗号
+│   ├── SETUP_BOOTSTRAP.md           # 安装暗号
 │   ├── NATIVE_DEPLOYMENT.md         # 无 Docker 生产部署
 │   ├── MIGRATION_DOMAIN.md          # 非联邦换域名
 │   ├── FEDERATION_DOMAIN_MOVE.md    # 联邦 Move
@@ -80,7 +80,7 @@ Myriad/
 | [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md) | 更新 / 回滚 / 救援 |
 | [updater-spec.md](../updater-spec.md) | Updater 协议与失败模式 |
 | [UPDATER_SECURITY_BASELINE.md](../deployment/UPDATER_SECURITY_BASELINE.md) | Updater 安全基线 |
-| [SETUP_BOOTSTRAP.md](../deployment/SETUP_BOOTSTRAP.md) | CONFIG_MODE 破窗令牌；编排安装时的所有者暗号 |
+| [SETUP_BOOTSTRAP.md](../deployment/SETUP_BOOTSTRAP.md) | 编排安装时的安装暗号 |
 | [NATIVE_DEPLOYMENT.md](../deployment/NATIVE_DEPLOYMENT.md) | 无 Docker 生产部署 |
 | [MIGRATION_DOMAIN.md](../deployment/MIGRATION_DOMAIN.md) | 换域名（非联邦） |
 | [FEDERATION_DOMAIN_MOVE.md](../deployment/FEDERATION_DOMAIN_MOVE.md) | 联邦域名 Move |

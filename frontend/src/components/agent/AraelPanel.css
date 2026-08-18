@@ -333,6 +333,57 @@ html.dark .arael-msg-list::-webkit-scrollbar-thumb {
   gap: 2px;
 }
 
+.arael-persona-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.arael-persona-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.arael-persona-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.arael-persona-dnd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.arael-persona-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.arael-persona-save,
+.arael-persona-reset {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.arael-persona-save {
+  background: var(--color-primary, #10b981);
+  color: #fff;
+}
+
+.arael-persona-reset,
+.arael-persona-readonly {
+  background: transparent;
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+}
+
 .arael-empty-hero-name {
   margin: 0;
   padding: 0;
@@ -362,7 +413,7 @@ html.dark .arael-msg-list::-webkit-scrollbar-thumb {
 }
 
 .arael-empty-hero-name::after {
-  content: 'Arael';
+  content: attr(data-name);
   position: absolute;
   inset: 0;
   background: linear-gradient(
@@ -1617,6 +1668,18 @@ html.dark .arael-sessions-search {
 html.dark .arael-sessions-search:hover {
   background: rgb(255 255 255 / 10%);
   border-color: rgb(255 255 255 / 14%);
+}
+
+html[data-perf-mode='exlight'] .arael-sessions-search,
+html[data-perf-mode='exlight'] .arael-sessions-search:hover,
+html[data-perf-mode='exlight'] .arael-sessions-search:focus-within {
+  background: rgb(255 255 255 / 96%);
+}
+
+html.dark[data-perf-mode='exlight'] .arael-sessions-search,
+html.dark[data-perf-mode='exlight'] .arael-sessions-search:hover,
+html.dark[data-perf-mode='exlight'] .arael-sessions-search:focus-within {
+  background: rgb(26 26 26 / 96%);
 }
 
 html.dark .arael-sessions-search:focus-within {

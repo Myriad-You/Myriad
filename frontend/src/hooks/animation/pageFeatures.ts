@@ -69,7 +69,7 @@ export const PAGE_FEATURES: Record<string, number> = {
   reports:
     Feature.Visibility | Feature.Interval | Feature.RAF | Feature.DOMBatch,
 
-  // 数字生命自行管理只读轮询与精灵播放；调度器只负责页面可见性。
+  // 退役 /life 路由：只保留页面可见性，不再做精灵轮询。
   life: Feature.Visibility,
 
   // Brew 阅读页：文章列表无限滚动(Intersection)、可见性感知暂停轮询、卡片交错动画(Timeout)

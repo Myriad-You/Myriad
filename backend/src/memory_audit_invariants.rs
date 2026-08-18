@@ -18,6 +18,13 @@ mod tests {
     }
 
     #[test]
+    fn public_federation_limits_route_is_mounted() {
+        let src = include_str!("router/base.rs");
+        assert!(src.contains("/api/federation/public/limits"));
+        assert!(src.contains("federation::limits::public_limits"));
+    }
+
+    #[test]
     fn diagnostics_surfaces_profile_and_thresholds() {
         let src = include_str!("api/diagnostics.rs");
         assert!(src.contains("warning_mb"));
@@ -41,11 +48,11 @@ mod tests {
         );
         assert_eq!(
             crate::services::memory_profile::DEFAULT_DB_MIN_CONNECTIONS,
-            5
+            2
         );
         assert_eq!(
             crate::services::memory_profile::DEFAULT_DB_MAX_CONNECTIONS,
-            20
+            24
         );
     }
 
@@ -67,6 +74,11 @@ mod tests {
     fn image_proxy_uses_read_limited_body() {
         let src = include_str!("api/proxy/image_music_geo.rs");
         assert!(src.contains("read_limited_body"));
+        assert!(
+            src.contains("memory_profile::max_audio_bytes()"),
+            "audio proxy must read the live profile cap, not a local 128 MiB constant"
+        );
+        assert!(!src.contains("const MAX_AUDIO_BYTES"));
         assert!(src.contains("MEDIA_FETCH_CLIENT") || src.contains("media fetch"));
     }
 

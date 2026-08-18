@@ -98,6 +98,15 @@ type NotifTarget =
 
 /** 解析点击落点：任务类通知带 session_id 时跳回对应 Arael 会话（可带 run/task 以 reattach） */
 function resolveTarget(n: AppNotification): NotifTarget {
+  if (n.metadata?.action === 'open_arael') {
+    const sid =
+      typeof n.metadata?.session_id === 'string' ? n.metadata.session_id : ''
+    const runId =
+      typeof n.metadata?.run_id === 'string' ? n.metadata.run_id : undefined
+    const taskId =
+      typeof n.metadata?.task_id === 'string' ? n.metadata.task_id : undefined
+    return { kind: 'session', sessionId: sid, runId, taskId }
+  }
   if (
     n.notification_type === 'task_progress' ||
     n.notification_type === 'task_completed' ||

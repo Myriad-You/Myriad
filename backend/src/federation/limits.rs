@@ -431,6 +431,11 @@ pub async fn buffer_inbox_body(
     Ok((body, permit))
 }
 
+/// GET `/api/federation/public/limits` — live message/media caps (no auth).
+pub async fn public_limits() -> axum::Json<serde_json::Value> {
+    axum::Json(crate::services::memory_profile::public_limits_snapshot())
+}
+
 // ── Live DefaultBodyLimit (memory profile hot-reload) ───────────────────────
 //
 // Axum's `DefaultBodyLimit::max(N)` freezes N when the router is built. Memory

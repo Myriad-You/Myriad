@@ -20,7 +20,7 @@ export interface WidgetLongPressHintProps {
 }
 
 const BASE_CLASS =
-  'absolute bottom-1.5 right-1.5 z-30 w-5 h-5 rounded-md flex items-center justify-center bg-black/15 dark:bg-white/15 backdrop-blur-sm pointer-events-none'
+  'absolute bottom-1.5 right-1.5 z-30 w-5 h-5 rounded-md flex items-center justify-center bg-black/15 dark:bg-white/15 pointer-events-none'
 
 export function WidgetLongPressHint({
   title,

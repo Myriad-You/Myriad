@@ -1,6 +1,5 @@
 use crate::error::{status_json_to_http, HttpError};
 use axum::{
-    extract::ConnectInfo,
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -10,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
 use std::fs;
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use url::Url;
 
@@ -20,7 +18,7 @@ pub struct SetupStatus {
     pub is_setup_required: bool,
     pub has_database: bool,
     pub has_admin_user: bool,
-    /// 编排 / deploy 预置了 `MYRIAD_SETUP_SECRET` 时，创建所有者必须对上。
+    /// 编排 / deploy 预置了 `MYRIAD_SETUP_SECRET` 时，安装写操作必须对上。
     pub setup_secret_required: bool,
     pub missing_configs: Vec<String>,
 }
@@ -94,6 +92,8 @@ pub async fn get_setup_config() -> Result<Json<Value>, HttpError> {
         // PR #4: 公开 registration 开关 + OAuth providers 数量给前端
         "allow_local_registration": config_guard.allow_local_registration,
         "oauth_providers_count": config_guard.oauth_providers.iter().filter(|p| p.enabled).count(),
+        "setup_secret_required": crate::api::setup_bootstrap::setup_secret_is_configured(),
+        "setup_window_open": crate::api::setup_bootstrap::setup_window_is_open(),
     });
 
     Ok(Json(config))
@@ -173,11 +173,27 @@ async fn check_admin_user_exists(db: &DatabaseConnection) -> bool {
     }
 }
 
+/// Optional JSON body so `setup_secret` can travel with header-less clients.
+#[derive(Debug, Default, Deserialize)]
+pub struct SetupSecretBody {
+    #[serde(default)]
+    pub setup_secret: Option<String>,
+}
+
+fn body_setup_secret(body: &Option<Json<SetupSecretBody>>) -> Option<&str> {
+    body.as_ref()
+        .and_then(|Json(value)| value.setup_secret.as_deref())
+}
+
 /// POST /api/setup/init-database
 /// Run non-destructive database migrations during initial configuration.
 pub async fn init_database(
     crate::extract::Db(db): crate::extract::Db,
+    headers: HeaderMap,
+    body: Option<Json<SetupSecretBody>>,
 ) -> Result<Json<Value>, HttpError> {
+    crate::api::setup_bootstrap::require_setup_secret(&headers, body_setup_secret(&body))
+        .map_err(HttpError)?;
     // Setup switches out of CONFIG_MODE as soon as the database can be reached.
     // Keep the recovery migration available until the installation is claimed,
     // then lock it permanently once an administrator exists.
@@ -261,33 +277,20 @@ pub async fn init_database(
 
             // A legacy database may already contain users. `ensure_schema` can
             // promote its durable owner during migration, which claims the
-            // installation just as surely as create-admin does. Otherwise,
-            // consume the database-init secret and mint a distinct owner-claim
-            // capability in the server-local token file.
+            // installation just as surely as create-admin does.
             let installation_claimed = check_admin_user_exists(&db).await;
             if installation_claimed {
-                if let Err(error) = crate::api::setup_bootstrap::consume_bootstrap() {
-                    tracing::error!(%error, "database initialization claimed installation but token cleanup failed");
-                    let _ = crate::api::setup_bootstrap::invalidate_bootstrap_in_memory();
+                if let Err(error) = crate::api::setup_bootstrap::consume_setup() {
+                    tracing::error!(%error, "database initialization claimed installation but setup cleanup failed");
+                    let _ = crate::api::setup_bootstrap::invalidate_setup_in_memory();
                     return Err(status_json_to_http((
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(json!({
-                            "error": "Bootstrap capability cleanup failed",
+                            "error": "Setup window cleanup failed",
                             "message": "数据库已存在所有者，但无法持久化安装关闭状态；当前进程已拒绝继续安装操作，请检查数据目录权限。"
                         })),
                     )));
                 }
-            } else if let Err(error) =
-                crate::api::setup_bootstrap::rotate_bootstrap_after_database_initialization()
-            {
-                tracing::error!(%error, "failed to rotate bootstrap capability after database initialization");
-                return Err(status_json_to_http((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({
-                        "error": "Bootstrap capability rotation failed",
-                        "message": "数据库已初始化，但无法安全轮换创建所有者所需的引导令牌；请检查数据目录权限并重启服务。"
-                    })),
-                )));
             }
 
             // List all tables in the database
@@ -348,7 +351,6 @@ pub async fn init_database(
                 "success": true,
                 "message": message,
                 "recreated": false,
-                "bootstrap_capability_rotated": !installation_claimed,
                 "verification": {
                     "total_tables": total_tables,
                     "users_table": users_exists,
@@ -373,12 +375,14 @@ pub async fn init_database(
 /// POST /api/setup/init-env
 /// Initialize .env file from .env.example
 ///
-/// 保护：CONFIG_MODE + 引导令牌（实例此前已配置过时）。
+/// 保护：CONFIG_MODE；编排预置了安装暗号时还要对上。
 pub async fn initialize_env_file(
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
+    body: Option<Json<SetupSecretBody>>,
 ) -> Result<Json<Value>, HttpError> {
-    crate::api::setup_bootstrap::require_bootstrap(&headers, peer.ip()).map_err(HttpError)?;
+    crate::api::setup_bootstrap::require_setup_window().map_err(HttpError)?;
+    crate::api::setup_bootstrap::require_setup_secret(&headers, body_setup_secret(&body))
+        .map_err(HttpError)?;
 
     // Only allow in CONFIG_MODE
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
@@ -475,18 +479,22 @@ pub struct EnvUpdateRequest {
     pub github_client_id: Option<String>,
     pub github_client_secret: Option<String>,
     pub github_redirect_url: Option<String>,
+    /// 与 `.env` 里 `MYRIAD_SETUP_SECRET` 对暗号。也可改走 `X-Setup-Secret`。
+    #[serde(default)]
+    pub setup_secret: Option<String>,
 }
 
 /// POST /api/setup/update-env
 /// Update .env file with new configuration
 ///
-/// 保护：CONFIG_MODE + 引导令牌（实例此前已配置过时）+ 值语法校验。
+/// 保护：CONFIG_MODE；编排预置了安装暗号时还要对上；值须通过语法校验。
 pub async fn update_env_file(
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(config): Json<EnvUpdateRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    crate::api::setup_bootstrap::require_bootstrap(&headers, peer.ip()).map_err(HttpError)?;
+    crate::api::setup_bootstrap::require_setup_window().map_err(HttpError)?;
+    crate::api::setup_bootstrap::require_setup_secret(&headers, config.setup_secret.as_deref())
+        .map_err(HttpError)?;
 
     // Only allow in CONFIG_MODE
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
@@ -702,6 +710,9 @@ pub struct DatabaseConfigRequest {
     pub username: String,
     pub password: String,
     pub database: String,
+    /// 与 `.env` 里 `MYRIAD_SETUP_SECRET` 对暗号。也可改走 `X-Setup-Secret`。
+    #[serde(default)]
+    pub setup_secret: Option<String>,
 }
 
 fn build_database_url(config: &DatabaseConfigRequest) -> Result<String, String> {
@@ -743,14 +754,15 @@ fn build_database_url(config: &DatabaseConfigRequest) -> Result<String, String> 
 /// Save database configuration to .env file (专门用于配置数据库)
 /// 安全保护：只能在 CONFIG_MODE 下修改数据库配置
 pub async fn save_database_config(
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(config): Json<DatabaseConfigRequest>,
 ) -> Result<Json<Value>, HttpError> {
     // 这是最危险的端点：它能把实例重新指向任意 PostgreSQL。
     // CONFIG_MODE 本身会因为数据库故障自动开启，所以它不足以作为唯一门槛 ——
-    // 已配置过的实例还必须提供 .bootstrap-token / MYRIAD_BOOTSTRAP_TOKEN。
-    crate::api::setup_bootstrap::require_bootstrap(&headers, peer.ip()).map_err(HttpError)?;
+    // 编排预置了安装暗号时必须对上。
+    crate::api::setup_bootstrap::require_setup_window().map_err(HttpError)?;
+    crate::api::setup_bootstrap::require_setup_secret(&headers, config.setup_secret.as_deref())
+        .map_err(HttpError)?;
 
     // P0 安全修复：强制要求 CONFIG_MODE
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
@@ -969,6 +981,7 @@ mod tests {
             username: "setup-user".to_string(),
             password: "p@ss:word".to_string(),
             database: "myriad/main".to_string(),
+            setup_secret: None,
         };
 
         let url = build_database_url(&config).expect("database URL should be valid");
@@ -987,8 +1000,24 @@ mod tests {
             username: "postgres".to_string(),
             password: "password".to_string(),
             database: "myriad".to_string(),
+            setup_secret: None,
         };
 
         assert!(build_database_url(&config).is_err());
+    }
+
+    #[test]
+    fn database_config_request_accepts_setup_secret() {
+        let parsed: DatabaseConfigRequest = serde_json::from_value(serde_json::json!({
+            "host": "db.example.com",
+            "port": 5432,
+            "username": "postgres",
+            "password": "password",
+            "database": "myriad",
+            "setup_secret": "phrase-from-env"
+        }))
+        .expect("request should deserialize");
+        assert_eq!(parsed.setup_secret.as_deref(), Some("phrase-from-env"));
+        assert!(build_database_url(&parsed).is_ok());
     }
 }

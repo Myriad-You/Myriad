@@ -10,6 +10,7 @@ const SECRET_ENV_KEYS: &[&str] = &[
     "JWT_SECRET",
     "POSTGRES_PASSWORD",
     "GITHUB_TOKEN",
+    "MYRIAD_SETUP_SECRET",
     "MYRIAD_BOOTSTRAP_TOKEN",
     "DATABASE_URL",
     "OIDC_CLIENT_SECRET",
@@ -34,7 +35,7 @@ const SECRET_ASSIGNMENT_KEYS: &[&str] = &[
     "api_key",
     "apikey",
     "authorization",
-    "bootstrap_token",
+    "setup_secret",
     "notion_token",
     "openai_api_key",
     "anthropic_api_key",
@@ -57,6 +58,7 @@ pub fn redact_secrets(input: &str) -> String {
     out = redact_pattern(&out, "Bearer ");
     out = redact_pattern(&out, "X-Update-Token:");
     out = redact_pattern(&out, "X-Updater-Gateway-Secret:");
+    out = redact_pattern(&out, "X-Setup-Secret:");
     out = redact_pattern(&out, "X-Bootstrap-Token:");
     out = redact_pattern(&out, "Authorization:");
     for key in SECRET_ASSIGNMENT_KEYS {
@@ -130,7 +132,7 @@ mod tests {
 
     #[test]
     fn redacts_bootstrap_header_pattern() {
-        let r = redact_secrets("header X-Bootstrap-Token: abcdefghijklmnop");
+        let r = redact_secrets("header X-Setup-Secret: abcdefghijklmnop");
         assert!(!r.contains("abcdefghijklmnop"));
         assert!(r.contains("[REDACTED]"));
     }

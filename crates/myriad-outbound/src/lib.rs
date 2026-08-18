@@ -5,6 +5,8 @@
 //! - only `http`/`https`
 //! - no URL credentials
 //! - resolve + pin DNS to public (globally routable) addresses
+//! - mixed DNS: drop non-public records, fail only when none remain
+//! - optional trusted-proxy path skips local DNS pin
 //! - redirects disabled
 //! - response bodies read with an explicit byte cap
 //!
@@ -223,20 +225,9 @@ pub async fn build_public_http_client(
             .collect()
     };
 
-    if addresses.is_empty() {
-        return Err("DNS resolution returned no addresses".to_string());
-    }
-    if !federation_lab_private_outbound_enabled() {
-        if let Some(blocked) = addresses.iter().find(|address| !is_public_ip(address.ip())) {
-            return Err(format!(
-                "Target resolves to a non-public address: {}",
-                blocked.ip()
-            ));
-        }
-    }
+    let mut addresses = select_outbound_addresses(addresses)?;
 
     // Stable order for cache key equality.
-    let mut addresses = addresses;
     addresses.sort_unstable();
 
     if let Some(client) = take_cached_client(host, &addresses, timeout, user_agent) {
@@ -254,6 +245,70 @@ pub async fn build_public_http_client(
         .build()
         .map_err(|error| format!("HTTP client error: {error}"))?;
     store_cached_client(host, addresses, timeout, user_agent, client.clone());
+    Ok((parsed, client))
+}
+
+/// Keep public addresses when DNS returns a mix of routable and poisoned/private
+/// records. Fail only when nothing public remains.
+///
+/// The previous "any non-public address fails the whole request" check broke
+/// declared-API egress in China: polluted A/AAAA answers often include one
+/// loopback/CGN/6to4 record alongside a real Cloudflare/AWS address.
+fn select_outbound_addresses(addresses: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, String> {
+    if addresses.is_empty() {
+        return Err("DNS resolution returned no addresses".to_string());
+    }
+    if federation_lab_private_outbound_enabled() {
+        return Ok(addresses);
+    }
+    let public: Vec<SocketAddr> = addresses
+        .into_iter()
+        .filter(|address| is_public_ip(address.ip()))
+        .collect();
+    if public.is_empty() {
+        return Err("Target resolves to no public addresses".to_string());
+    }
+    Ok(public)
+}
+
+/// Build a client that sends through a trusted egress proxy.
+///
+/// Local DNS pin is skipped: the proxy resolves the hostname. That restores the
+/// China egress path (`http_client` proxy / `HTTP_PROXY`) which
+/// `build_public_http_client` removed when it started failing closed on
+/// polluted local DNS. IP literals are still required to be public.
+pub async fn build_public_http_client_via_proxy(
+    url: &str,
+    timeout: Duration,
+    user_agent: Option<&str>,
+    proxy: reqwest::Proxy,
+) -> Result<(Url, Client), String> {
+    let parsed = Url::parse(url).map_err(|error| format!("Invalid URL: {error}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("Only HTTP and HTTPS URLs are allowed".to_string());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("URL credentials are not allowed".to_string());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "URL has no host".to_string())?;
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if !federation_lab_private_outbound_enabled() && !is_public_ip(ip) {
+            return Err(format!("Target is a non-public address: {ip}"));
+        }
+    }
+
+    let mut builder: ClientBuilder = Client::builder()
+        .timeout(timeout)
+        .redirect(Policy::none())
+        .proxy(proxy);
+    if let Some(user_agent) = user_agent {
+        builder = builder.user_agent(user_agent);
+    }
+    let client = builder
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
     Ok((parsed, client))
 }
 
@@ -319,6 +374,35 @@ mod tests {
     fn accepts_globally_routable_addresses() {
         assert!(is_public_ip("1.1.1.1".parse().unwrap()));
         assert!(is_public_ip("2606:4700:4700::1111".parse().unwrap()));
+    }
+
+    #[test]
+    fn mixed_dns_keeps_public_addresses() {
+        let mixed = vec![
+            "127.0.0.1:443".parse().unwrap(),
+            "1.1.1.1:443".parse().unwrap(),
+            "100.64.0.1:443".parse().unwrap(),
+            "[2606:4700:4700::1111]:443".parse().unwrap(),
+        ];
+        let selected = select_outbound_addresses(mixed).expect("public addrs");
+        let ips: Vec<IpAddr> = selected.into_iter().map(|addr| addr.ip()).collect();
+        assert_eq!(
+            ips,
+            vec![
+                "1.1.1.1".parse::<IpAddr>().unwrap(),
+                "2606:4700:4700::1111".parse::<IpAddr>().unwrap(),
+            ]
+        );
+    }
+
+    #[test]
+    fn all_private_dns_is_rejected() {
+        let private = vec![
+            "127.0.0.1:443".parse().unwrap(),
+            "10.0.0.1:443".parse().unwrap(),
+        ];
+        let error = select_outbound_addresses(private).expect_err("private-only");
+        assert!(error.contains("no public addresses"));
     }
 
     #[tokio::test]

@@ -25,7 +25,7 @@ import type {
   TaskPresetListResponse,
 } from './types'
 
-import { apiService } from '../api'
+import { ApiError, apiService } from '../api'
 import { abortSseSubscriptions, executeSSERequest } from './sseTransport'
 
 /** On-disk MCP server entry (`mcp_servers.json`). */
@@ -56,6 +56,16 @@ export interface McpConfigSnapshot {
   configPath: string
   runtimeServers: McpRuntimeServer[]
   toolCount: number
+}
+
+export interface AgentPersona {
+  name: string
+  portraitAssetId: string | null
+  hasCustomPersona: boolean
+  personality?: string
+  mood?: number
+  activity?: string
+  doNotDisturb?: boolean
 }
 
 function parseMcpRuntimeServers(
@@ -799,6 +809,59 @@ class AgentService {
   /**
    * 创建新会话
    */
+  async getPersonaSignals(): Promise<{
+    reportCount: number
+    tags: Array<{ label: string; source?: string }>
+  } | null> {
+    try {
+      return await apiService.get(`${this.baseUrl}/persona/signals`)
+    } catch {
+      return null
+    }
+  }
+
+  async draftPersona(body: {
+    name: string
+    tags: string[]
+  }): Promise<{ personality: string; source: string } | null> {
+    try {
+      return await apiService.post(`${this.baseUrl}/persona/draft`, body)
+    } catch {
+      return null
+    }
+  }
+
+  async getPersona(): Promise<AgentPersona | null> {
+    try {
+      return await apiService.get(`${this.baseUrl}/persona`)
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'agent_life_disabled') {
+        return null
+      }
+      throw error
+    }
+  }
+
+  async putPersona(body: {
+    name: string
+    personality: string
+    portraitAssetId?: string | null
+  }): Promise<AgentPersona> {
+    return apiService.put(`${this.baseUrl}/persona`, body)
+  }
+
+  async deletePersona(): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/persona`)
+  }
+
+  async putAddressee(body: { doNotDisturb: boolean }): Promise<{
+    mood: number
+    activity: string
+    doNotDisturb: boolean
+  }> {
+    return apiService.put(`${this.baseUrl}/addressee`, body)
+  }
+
   async createSession(): Promise<SessionInfo> {
     return apiService.post<SessionInfo>(`${this.baseUrl}/sessions`)
   }
