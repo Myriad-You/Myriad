@@ -8,6 +8,9 @@ import { fileURLToPath } from 'node:url'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const bin = join(packageRoot, 'bin/myriad-tapp.mjs')
+const packageJson = JSON.parse(
+  await readFile(join(packageRoot, 'package.json'), 'utf8'),
+)
 const root = await mkdtemp(join(tmpdir(), 'myriad-tapp-cli-'))
 const project = join(root, 'starter')
 
@@ -23,10 +26,7 @@ function run(args) {
 }
 
 describe('CLI adapter', () => {
-  it('exposes an npx-inferable package binary', async () => {
-    const packageJson = JSON.parse(
-      await readFile(join(packageRoot, 'package.json'), 'utf8'),
-    )
+  it('exposes an npx-inferable package binary', () => {
     assert.equal(packageJson.bin['tapp-cli'], 'bin/myriad-tapp.mjs')
     assert.deepEqual(packageJson.files, ['bin', 'src', 'README.md'])
     assert.equal(packageJson.publishConfig.access, 'public')
@@ -39,7 +39,7 @@ describe('CLI adapter', () => {
 
     const version = run(['--version'])
     assert.equal(version.status, 0)
-    assert.equal(version.stdout.trim(), '0.1.0')
+    assert.equal(version.stdout.trim(), packageJson.version)
   })
 
   it('documents each command for agents and rejects unsupported options', () => {
