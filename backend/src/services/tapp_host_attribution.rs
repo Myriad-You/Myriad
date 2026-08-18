@@ -419,11 +419,7 @@ mod tests {
         );
         assert_eq!(
             brew_permission("POST", "/api/brew/items/{id}/read"),
-            Some(TappPermission::BrewReadStatus)
-        );
-        assert_eq!(
-            brew_permission("POST", "/api/brew/items/{id}/star"),
-            Some(TappPermission::BrewFavorite)
+            Some(TappPermission::BrewWrite)
         );
         assert_eq!(
             brew_permission("GET", "/api/brew/items/{id}/comments"),
@@ -563,12 +559,8 @@ mod tests {
     #[test]
     fn host_write_methods_are_rate_limited_by_permission_class() {
         assert_eq!(
-            host_attribution_rate_limit_operation("POST", TappPermission::BrewReadStatus),
-            Some("brew.readStatus")
-        );
-        assert_eq!(
-            host_attribution_rate_limit_operation("POST", TappPermission::BrewFavorite),
-            Some("brew.favorite")
+            host_attribution_rate_limit_operation("POST", TappPermission::BrewWrite),
+            Some("brew.write")
         );
         assert_eq!(
             host_attribution_rate_limit_operation("PUT", TappPermission::BrewManage),
@@ -607,7 +599,7 @@ mod tests {
             None
         );
         assert_eq!(
-            host_attribution_rate_limit_operation("HEAD", TappPermission::BrewReadStatus),
+            host_attribution_rate_limit_operation("HEAD", TappPermission::BrewWrite),
             None
         );
         assert_eq!(

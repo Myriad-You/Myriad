@@ -3132,8 +3132,7 @@ export const enUS: TranslationKeys = {
     permReadTappList: 'Read Tapp List',
     permManageTappList: 'Manage Tapp List',
     permReadBrew: 'Read Brew',
-    permReadStatusBrew: 'Change Read Status',
-    permFavoriteBrew: 'Favorite Brew Content',
+    permWriteBrew: 'Write Brew',
     permCommentWriteBrew: 'Write Brew Comments',
     permManageBrew: 'Manage Brew',
     permReadFederation: 'Read Federation Data',
@@ -3184,10 +3183,8 @@ export const enUS: TranslationKeys = {
     permReadTappListDesc: 'Allow reading the installed Tapp list',
     permManageTappListDesc: 'Allow installing, updating, or removing Tapps',
     permReadBrewDesc: 'Allow reading Brew feeds, articles, and comments',
-    permReadStatusBrewDesc:
-      'Allow marking articles read / unread / all read (current user only)',
-    permFavoriteBrewDesc:
-      'Allow starring / unstarring articles (current user only)',
+    permWriteBrewDesc:
+      'Allow changing read status and favorites for the current user',
     permCommentWriteBrewDesc:
       'Allow creating, editing, or deleting Brew comments and replies',
     permManageBrewDesc: 'Allow managing Brew sources and advanced settings',

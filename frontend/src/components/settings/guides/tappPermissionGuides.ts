@@ -246,19 +246,12 @@ const zh: TappPermissionGuides = {
     frontend: 'Brew 模块与应用内阅读视图。',
     notes: '只读订阅数据，不能改已读状态、收藏或写评论。',
   },
-  'brew:readStatus': {
-    what: '允许标记当前用户的已读/未读/全部已读状态。',
+  'brew:write': {
+    what: '允许写入 Brew 数据（如已读、星标等用户状态）。',
     chain:
-      '① 应用更新条目阅读状态。\n② 只改当前用户自己的状态。\n③ Brew 列表筛选与角标可能变化。',
-    frontend: 'Brew 已读状态。',
-    notes: '只影响你自己的阅读状态，不影响共享内容。',
-  },
-  'brew:favorite': {
-    what: '允许收藏/取消收藏当前用户的文章（星标）。',
-    chain:
-      '① 应用更新条目星标。\n② 只改当前用户自己的收藏。\n③ Brew 星标筛选随之变化。',
-    frontend: 'Brew 收藏/星标。',
-    notes: '只影响你自己的收藏，不影响共享内容。',
+      '① 应用更新条目状态。\n② 写入 Brew 存储。\n③ Brew 列表筛选与角标可能变化。',
+    frontend: 'Brew 已读/收藏等状态。',
+    notes: '会改你的阅读状态，确认应用行为符合预期。',
   },
   'brew:commentWrite': {
     what: '允许创建、编辑和删除 Brew 评论与回复。',
@@ -550,19 +543,12 @@ const en: TappPermissionGuides = {
     frontend: 'Brew module and in-app readers.',
     notes: 'Read-only; cannot change read state, favorite, or write comments.',
   },
-  'brew:readStatus': {
-    what: "Allows marking the current user's articles read/unread/all-read.",
+  'brew:write': {
+    what: 'Allows writing Brew data such as read state and stars.',
     chain:
-      "1) App updates item read state.\n2) Changes only the current user's own state.\n3) Filters/badges may change.",
-    frontend: 'Brew read state.',
-    notes: 'Only affects your own reading state, not shared content.',
-  },
-  'brew:favorite': {
-    what: 'Allows starring/unstarring articles for the current user.',
-    chain:
-      "1) App updates item star state.\n2) Changes only the current user's own favorites.\n3) Starred filter updates.",
-    frontend: 'Brew favorites/stars.',
-    notes: 'Only affects your own favorites, not shared content.',
+      '1) App updates item state.\n2) Brew storage is changed.\n3) Filters and badges may update.',
+    frontend: 'Brew read and favorite state.',
+    notes: 'Changes your reading state; verify the app behavior before granting.',
   },
   'brew:commentWrite': {
     what: 'Allows creating, editing, and deleting Brew comments and replies.',
@@ -854,19 +840,12 @@ const ja: TappPermissionGuides = {
     frontend: 'Brew とアプリ内リーダー。',
     notes: '読み取り専用。既読変更・お気に入り・コメント書き込みは不可。',
   },
-  'brew:readStatus': {
-    what: '現在のユーザーの既読/未読/すべて既読を変更できます。',
+  'brew:write': {
+    what: 'Brew のデータ（既読状態やスターなど）を書き込めます。',
     chain:
-      '① 状態更新。\n② 自分の状態だけ変わる。\n③ フィルタやバッジが変わり得る。',
-    frontend: 'Brew 既読状態。',
-    notes: '自分だけの読書状態に影響し、共有内容には影響しません。',
-  },
-  'brew:favorite': {
-    what: '現在のユーザーの記事をスター/スター解除できます。',
-    chain:
-      '① スター更新。\n② 自分のお気に入りだけ変わる。\n③ スター絞り込みが更新。',
-    frontend: 'Brew お気に入り/スター。',
-    notes: '自分だけのお気に入りに影響し、共有内容には影響しません。',
+      '① 項目の状態を更新。\n② Brew ストレージが変わる。\n③ フィルタやバッジが更新されることがあります。',
+    frontend: 'Brew の既読・お気に入り状態。',
+    notes: '読書状態を変更するため、アプリの動作を確認してください。',
   },
   'brew:commentWrite': {
     what: 'Brew コメントと返信の作成・編集・削除ができます。',

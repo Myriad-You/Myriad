@@ -20,10 +20,7 @@
 
 ## TAPP Brew 权限拆分（破坏性变更）
 
-旧权限 `brew:write` 与 `brew:comment` 已从权限枚举移除，声明旧名的 TAPP 会在安装校验与运行授权签发时失败关闭，不会自动映射。
-
-- 将 `brew:write` 按实际动作改为 `brew:readStatus`（已读、未读、全部已读）和/或 `brew:favorite`（收藏、取消收藏）。
-- 评论与回复的读取并入 `brew:read`；创建、更新与删除改用 `brew:commentWrite`。
+`brew:write` 继续覆盖已读/未读/全部已读和收藏等当前用户状态；评论与回复的读取并入 `brew:read`，创建、更新与删除改用 `brew:commentWrite`。
 - `brew:commentWrite` 是 Elevated 权限，普通用户需由站长显式下放，游客不会获得该授予权限。
 
 已安装应用的旧权限串清理与「需重新授权」标记不随本版本提供，由后续升级迁移单独处理。

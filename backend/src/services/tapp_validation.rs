@@ -1523,13 +1523,6 @@ mod tests {
             .unwrap()
         };
 
-        // brew:write → brew:readStatus + brew:favorite
-        let error =
-            validate_tapp_manifest(&manifest(vec!["brew:write"])).unwrap_err();
-        assert!(error.contains("brew:write"), "{error}");
-        assert!(error.contains("brew:readStatus"), "{error}");
-        assert!(error.contains("brew:favorite"), "{error}");
-
         // brew:comment → brew:read + brew:commentWrite
         let error =
             validate_tapp_manifest(&manifest(vec!["brew:comment"])).unwrap_err();
@@ -1541,7 +1534,7 @@ mod tests {
         let error =
             validate_tapp_manifest(&manifest(vec!["legacy:unknown"])).unwrap_err();
         assert!(
-            error.contains("Unknown Tapp permission: legacy:unknown"),
+            error.contains("Unknown Tapp permission 'legacy:unknown'"),
             "{error}"
         );
         assert!(!error.contains("instead"), "{error}");

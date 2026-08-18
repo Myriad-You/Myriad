@@ -961,8 +961,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `analytics:read`     | 读取站点访问统计（聚合；admin 完整 summary，非 admin 仅访客卡片） |
 | `tappList:read`      | 读取 Tapp 列表   |
 | `brew:read`          | 读取 Brew 内容（含评论与回复） |
-| `brew:readStatus`    | 修改已读/未读/全部已读（仅当前用户） |
-| `brew:favorite`      | 收藏/取消收藏文章（仅当前用户） |
+| `brew:write`         | 修改已读/未读/全部已读与收藏（仅当前用户） |
 | `report:read`        | 读取报告         |
 | `media:read`         | 读取媒体状态     |
 | `media:control`      | 控制媒体播放     |
@@ -992,22 +991,20 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `storage:write`      | 写入本地数据存储  |
 | `brew:commentWrite`  | 创建/编辑/删除 Brew 评论与回复 |
 
-`brew:readStatus` 与 `brew:favorite` 描述的是 Tapp 能力，不按宿主用户角色下放。Tapp 仍必须在
-Manifest 中声明并在安装时获授；实际读写始终落在当前会话可访问的 Brew 数据范围内。
+`brew:write` 描述的是 Tapp 能力，不按宿主用户角色下放。Tapp 仍必须在 Manifest 中声明并在
+安装时获授；实际读写始终落在当前会话可访问的 Brew 数据范围内。
 `brew:commentWrite` 属于 elevated，默认仅管理员可用，站长可在「Tapp 权限管理」中下放给普通用户。
 
 “基础”表示不需要管理员额外下放 elevated 权限，不等于匿名访客一定可用。访客没有持久
 用户主体时，部分能力仍可通过签名游客 session 使用（如 `storage:read`、`platform:read`、
-`analytics:read`）。下列能力的真实后端路由仍要求登录：`brew:readStatus`、
-`brew:favorite`、`brew:commentWrite`、`report:read`、`ui:notification` 等。
+`analytics:read`）。下列能力的真实后端路由仍要求登录：`brew:write`、
+`brew:commentWrite`、`report:read`、`ui:notification` 等。
 
 评论读取（`getComments`/`getReplies`）并入 `brew:read`；评论写入（创建/编辑/删除）使用
 `brew:commentWrite`。
 
-> **升级说明（破坏性）**：旧权限名 `brew:write` 与 `brew:comment` 已移除。
-> `brew:write` 拆为 `brew:readStatus`（markRead/markUnread/markAllRead）与 `brew:favorite`
-> （star/unstar）；`brew:comment` 的读半边并入 `brew:read`，写半边为 `brew:commentWrite`。
-> 声明旧名的 manifest 在安装校验时会被明确拒绝，请改写后再安装。
+> **升级说明**：`brew:write` 保留已读状态与收藏操作；`brew:comment` 的读半边并入
+> `brew:read`，写半边为 `brew:commentWrite`。声明 `brew:comment` 的 manifest 在安装校验时会被明确拒绝。
 
 `component:theme`、`shortcut:register`、`scheduler:register`、`speech:tts` 与 `speech:asr`
 也要求持久登录主体，不会下放给匿名访客；管理配置中的旧字段仅为兼容历史配置而保留，

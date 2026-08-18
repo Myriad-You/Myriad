@@ -84,31 +84,31 @@
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/items/{id}/read",
-      "permission": "brew:readStatus"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/items/{id}/unread",
-      "permission": "brew:readStatus"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/items/{id}/star",
-      "permission": "brew:favorite"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/items/{id}/unstar",
-      "permission": "brew:favorite"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",
       "method": "POST",
       "path": "/api/brew/mark-all-read",
-      "permission": "brew:readStatus"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",

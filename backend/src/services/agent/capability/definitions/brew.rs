@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn add_subscription_source_requires_brew_manage() {
         // ADR 0013 / handoff：brew.subscribe 对应真实 host 路由
-        // POST /api/brew/sources（Privileged brew:manage），不得回落到已移除的 brew:write。
+        // POST /api/brew/sources uses privileged brew:manage, not the user-state brew:write.
         let registry = CapabilityRegistry::new();
         let capability = registry
             .get("brew.subscribe")

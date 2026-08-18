@@ -3112,8 +3112,7 @@ export const jaJP: TranslationKeys = {
     permReadTappList: 'Tapp リスト読取',
     permManageTappList: 'Tapp リスト管理',
     permReadBrew: 'Brew 読取',
-    permReadStatusBrew: '既読状態の変更',
-    permFavoriteBrew: 'Brew のお気に入り',
+    permWriteBrew: 'Brew 書込',
     permCommentWriteBrew: 'Brew コメント書込',
     permManageBrew: 'Brew 管理',
     permReadFederation: 'Federation データ読取',
@@ -3164,9 +3163,7 @@ export const jaJP: TranslationKeys = {
     permReadTappListDesc: 'インストール済み Tapp リストの読取を許可',
     permManageTappListDesc: 'Tapp のインストール、更新、削除を許可',
     permReadBrewDesc: 'Brew のフィード、記事、コメントの読取を許可',
-    permReadStatusBrewDesc:
-      '記事を既読/未読/すべて既読にする操作を許可（自分のみ）',
-    permFavoriteBrewDesc: '記事のスター/スター解除を許可（自分のみ）',
+    permWriteBrewDesc: '自分の記事の既読状態とお気に入りの変更を許可',
     permCommentWriteBrewDesc:
       'Brew コメントと返信の作成・編集・削除を許可',
     permManageBrewDesc: 'Brew ソースと詳細設定の管理を許可',

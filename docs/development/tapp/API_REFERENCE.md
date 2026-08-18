@@ -1219,8 +1219,7 @@ await Tapp.tappList.export("com.example.app");
 | 权限 | 典型方法（与 `fixtures/action_permissions.json` / `PERMISSION_MAP` 对齐） |
 | ---- | -------- |
 | `brew:read` | `list`, `get`, `sources`, `categories`, `stats`, `exportOpml`, `getComments`, `getReplies` |
-| `brew:readStatus` | `markRead`, `markUnread`, `markAllRead` |
-| `brew:favorite` | `star`, `unstar` |
+| `brew:write` | `markRead`, `markUnread`, `markAllRead`, `star`, `unstar` |
 | `brew:commentWrite` | `createComment`, `updateComment`, `deleteComment`, `createReply` |
 | `brew:manage` | `discover`, `addSource`, `updateSource`, `deleteSource`, `refreshSource`, `importOpml`, `createCategory`, `deleteCategory` |
 

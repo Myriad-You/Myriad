@@ -207,22 +207,14 @@ describe('Tapp project core', () => {
     await createProject(root, { type: 'page' })
     const manifestPath = join(root, 'manifest.json')
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-    manifest.permissions = ['brew:write', 'brew:comment']
+    manifest.permissions = ['brew:comment']
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 
     const report = await inspectProject(root)
     const diagnostics = report.diagnostics.filter(
       ({ code }) => code === 'unknown-permission',
     )
-    assert.equal(diagnostics.length, 2)
-
-    // brew:write → brew:readStatus + brew:favorite（仍 fail-closed）
-    const write = diagnostics.find(({ message }) =>
-      message.includes('brew:write'),
-    )
-    assert.ok(write, 'brew:write must be rejected')
-    assert.ok(write.message.includes('brew:readStatus'))
-    assert.ok(write.message.includes('brew:favorite'))
+    assert.equal(diagnostics.length, 1)
 
     // brew:comment → brew:read + brew:commentWrite（仍 fail-closed）
     const comment = diagnostics.find(({ message }) =>

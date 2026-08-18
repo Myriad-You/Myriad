@@ -17,7 +17,7 @@
 //!
 //! ### Basic - 默认开放（标注 authenticated 的能力不向游客签发）
 //! - platform:read, analytics:read, tappList:read, brew:read
-//! - brew:readStatus (authenticated), brew:favorite (authenticated)
+//! - brew:write (authenticated), brew:read (guest-safe)
 //! - report:read (authenticated), storage:read (guest-safe)
 //! - ui:notification (authenticated), ui:fullscreen, ui:theme, ui:confirm, ui:openUrl
 //! - media:read, media:control, media:audio, event:subscribe
@@ -47,9 +47,6 @@ pub(crate) fn tapp_permission_replacement_hint(permission: &str) -> Option<&'sta
     match permission {
         "storage" => Some(
             "use 'storage:read' or 'storage:write' instead; update the TAPP Manifest, then update or reinstall the app",
-        ),
-        "brew:write" => Some(
-            "use 'brew:readStatus' (read status) or 'brew:favorite' (star) instead",
         ),
         "brew:comment" => Some(
             "use 'brew:read' (read comments) or 'brew:commentWrite' (write comments) instead",
@@ -126,12 +123,9 @@ pub enum TappPermission {
     TappListRead,
     #[serde(rename = "brew:read")]
     BrewRead,
-    /// 标记当前用户自己的已读/未读/全部已读状态（Basic，需登录主体）。
-    #[serde(rename = "brew:readStatus")]
-    BrewReadStatus,
-    /// 收藏/取消收藏当前用户的文章（Basic，需登录主体）。
-    #[serde(rename = "brew:favorite")]
-    BrewFavorite,
+    /// 修改当前用户自己的阅读状态与收藏（Basic，需登录主体）。
+    #[serde(rename = "brew:write")]
+    BrewWrite,
     #[serde(rename = "report:read")]
     ReportRead,
     #[serde(rename = "storage:read")]
@@ -230,8 +224,7 @@ impl TappPermission {
     fn requires_authenticated_subject(&self) -> bool {
         matches!(
             self,
-            TappPermission::BrewReadStatus
-                | TappPermission::BrewFavorite
+            TappPermission::BrewWrite
                 | TappPermission::BrewCommentWrite
                 | TappPermission::ReportRead
                 | TappPermission::UiNotification
@@ -251,8 +244,7 @@ impl TappPermission {
             | TappPermission::AnalyticsRead
             | TappPermission::TappListRead
             | TappPermission::BrewRead
-            | TappPermission::BrewReadStatus
-            | TappPermission::BrewFavorite
+            | TappPermission::BrewWrite
             | TappPermission::ReportRead
             | TappPermission::StorageRead
             | TappPermission::UiNotification
@@ -306,8 +298,7 @@ impl TappPermission {
             TappPermission::AnalyticsRead => "读取访问统计",
             TappPermission::TappListRead => "读取 Tapp 列表",
             TappPermission::BrewRead => "读取 Brew 内容",
-            TappPermission::BrewReadStatus => "修改 Brew 已读状态",
-            TappPermission::BrewFavorite => "收藏 Brew 内容",
+            TappPermission::BrewWrite => "修改 Brew 阅读状态与收藏",
             TappPermission::BrewCommentWrite => "写 Brew 评论",
             TappPermission::PlatformWrite => "写入平台数据",
             TappPermission::PlatformRegister => "注册新平台",
@@ -374,8 +365,7 @@ impl TappPermission {
             "analytics:read" => Some(TappPermission::AnalyticsRead),
             "tappList:read" => Some(TappPermission::TappListRead),
             "brew:read" => Some(TappPermission::BrewRead),
-            "brew:readStatus" => Some(TappPermission::BrewReadStatus),
-            "brew:favorite" => Some(TappPermission::BrewFavorite),
+            "brew:write" => Some(TappPermission::BrewWrite),
             "platform:write" => Some(TappPermission::PlatformWrite),
             "platform:register" => Some(TappPermission::PlatformRegister),
             "report:read" => Some(TappPermission::ReportRead),
@@ -424,8 +414,7 @@ impl TappPermission {
             TappPermission::AnalyticsRead => "analytics:read",
             TappPermission::TappListRead => "tappList:read",
             TappPermission::BrewRead => "brew:read",
-            TappPermission::BrewReadStatus => "brew:readStatus",
-            TappPermission::BrewFavorite => "brew:favorite",
+            TappPermission::BrewWrite => "brew:write",
             TappPermission::PlatformWrite => "platform:write",
             TappPermission::PlatformRegister => "platform:register",
             TappPermission::ReportRead => "report:read",
@@ -836,8 +825,7 @@ mod tests {
             "media:control".to_string(),
             "event:subscribe".to_string(),
             "widget:register".to_string(),
-            "brew:readStatus".to_string(),
-            "brew:favorite".to_string(),
+            "brew:write".to_string(),
             "brew:commentWrite".to_string(),
             "report:read".to_string(),
             "storage:read".to_string(),
@@ -861,7 +849,7 @@ mod tests {
 
         // Guest-safe: platform:read, analytics:read (visitor-card aggregates only;
         // full admin summary is role-gated in the handler) + storage.
-        // Still excluded: brew:readStatus / brew:favorite / brew:commentWrite,
+        // Still excluded: brew:write / brew:commentWrite,
         // report:read, notifications, speech, etc.
         assert_eq!(
             granted,
@@ -997,16 +985,12 @@ mod tests {
     }
 
     #[test]
-    fn brew_permissions_split_status_favorite_and_comment_write() {
+    fn brew_permissions_keep_write_and_add_comment_write() {
         let defaults = DynamicConfig::default();
 
-        // readStatus / favorite 是 Basic；commentWrite 是 Elevated
+        // brew:write remains Basic and requires a durable login; commentWrite is Elevated.
         assert_eq!(
-            TappPermission::BrewReadStatus.level(),
-            PermissionLevel::Basic
-        );
-        assert_eq!(
-            TappPermission::BrewFavorite.level(),
+            TappPermission::BrewWrite.level(),
             PermissionLevel::Basic
         );
         assert_eq!(
@@ -1014,30 +998,19 @@ mod tests {
             PermissionLevel::Elevated
         );
 
-        // 旧粗权限名已移除，不可解析
-        assert!(TappPermission::from_str("brew:write").is_none());
+        assert!(TappPermission::from_str("brew:write").is_some());
         assert!(TappPermission::from_str("brew:comment").is_none());
 
-        // readStatus / favorite 要求持久登录主体：user 可、guest 不可
+        // brew:write requires a durable login: user can, guest cannot.
         assert!(TappPermissionService::check(
             &defaults,
             UserRole::User,
-            TappPermission::BrewReadStatus
-        ));
-        assert!(TappPermissionService::check(
-            &defaults,
-            UserRole::User,
-            TappPermission::BrewFavorite
+            TappPermission::BrewWrite
         ));
         assert!(!TappPermissionService::check(
             &defaults,
             UserRole::Guest,
-            TappPermission::BrewReadStatus
-        ));
-        assert!(!TappPermissionService::check(
-            &defaults,
-            UserRole::Guest,
-            TappPermission::BrewFavorite
+            TappPermission::BrewWrite
         ));
 
         // commentWrite 默认不下放：user/guest 均不可
@@ -1078,27 +1051,17 @@ mod tests {
     }
 
     #[test]
-    fn brew_grants_do_not_cross_between_status_favorite_and_comments() {
-        // readStatus 授予不连带 favorite / commentWrite
+    fn brew_write_and_comment_write_are_independent() {
         let config = DynamicConfig::default();
         let granted = TappPermissionService::filter_permissions_for_role(
             &config,
             UserRole::User,
-            &["brew:readStatus".to_string()],
+            &["brew:write".to_string()],
         )
         .unwrap();
-        assert_eq!(granted, vec!["brew:readStatus"]);
+        assert_eq!(granted, vec!["brew:write"]);
 
-        // favorite 授予不连带 readStatus / commentWrite
-        let granted = TappPermissionService::filter_permissions_for_role(
-            &config,
-            UserRole::User,
-            &["brew:favorite".to_string()],
-        )
-        .unwrap();
-        assert_eq!(granted, vec!["brew:favorite"]);
-
-        // brew:read 只能读内容与评论，不能改状态、收藏或写评论
+        // brew:read cannot mutate status, favorites, or comments.
         let granted = TappPermissionService::filter_permissions_for_role(
             &config,
             UserRole::User,
@@ -1140,33 +1103,18 @@ mod tests {
 
     #[test]
     fn removed_brew_permission_names_are_rejected_explicitly() {
-        for old in ["brew:write", "brew:comment"] {
-            let error = TappPermissionService::filter_permissions_for_role(
-                &DynamicConfig::default(),
-                UserRole::Admin,
-                &[old.to_string()],
-            )
-            .unwrap_err();
-            assert_eq!(error.permission, old);
-            assert_eq!(error.code(), UNKNOWN_TAPP_PERMISSION_CODE);
-        }
+        let error = TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &["brew:comment".to_string()],
+        )
+        .unwrap_err();
+        assert_eq!(error.permission, "brew:comment");
+        assert_eq!(error.code(), UNKNOWN_TAPP_PERMISSION_CODE);
     }
 
     #[test]
     fn removed_brew_permission_rejections_list_replacements() {
-        // brew:write → brew:readStatus + brew:favorite
-        let error = TappPermissionService::filter_permissions_for_role(
-            &DynamicConfig::default(),
-            UserRole::Admin,
-            &["brew:write".to_string()],
-        )
-        .unwrap_err();
-        let message = error.message();
-        assert!(message.contains("'brew:write'"), "{message}");
-        assert!(message.contains("brew:readStatus"), "{message}");
-        assert!(message.contains("brew:favorite"), "{message}");
-        assert!(!message.contains("brew:commentWrite"), "{message}");
-
         // brew:comment → brew:read + brew:commentWrite
         let error = TappPermissionService::filter_permissions_for_role(
             &DynamicConfig::default(),
@@ -1178,7 +1126,6 @@ mod tests {
         assert!(message.contains("'brew:comment'"), "{message}");
         assert!(message.contains("brew:read"), "{message}");
         assert!(message.contains("brew:commentWrite"), "{message}");
-        assert!(!message.contains("brew:favorite"), "{message}");
 
         // 未知名的提示不改变通用消息形态
         let generic = UnknownTappPermission {

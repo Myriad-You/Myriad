@@ -2795,8 +2795,7 @@ export interface TranslationKeys {
     permReadTappList: string
     permManageTappList: string
     permReadBrew: string
-    permReadStatusBrew: string
-    permFavoriteBrew: string
+    permWriteBrew: string
     permCommentWriteBrew: string
     permManageBrew: string
     permReadFederation: string
@@ -2840,8 +2839,7 @@ export interface TranslationKeys {
     permReadTappListDesc: string
     permManageTappListDesc: string
     permReadBrewDesc: string
-    permReadStatusBrewDesc: string
-    permFavoriteBrewDesc: string
+    permWriteBrewDesc: string
     permCommentWriteBrewDesc: string
     permManageBrewDesc: string
     permReadFederationDesc: string

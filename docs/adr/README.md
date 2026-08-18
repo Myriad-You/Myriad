@@ -14,10 +14,11 @@ ADR 记录的是**已生效的结论**，不是提议。编号是写作顺序，
 ### 权限拆分与定级
 
 - [0010 权限按动作域拆分，老应用自动映射](0010-permission-split-compat-map.md) — **被 0013 取代**
-- [0013 权限拆分不做兼容映射，旧粗权限直接移除](0013-permission-split-no-compat-map.md) — 取代 0010
+- [0013 权限拆分不做兼容映射，旧粗权限直接移除](0013-permission-split-no-compat-map.md) — 取代 0010；Brew 部分被 0022 取代
 - [0018 删除旧权限枚举后，已装应用的历史权限清空并标记需重新授权](0018-legacy-grant-clear-and-requeue.md)
-- [0020 拆分后细权限定级：读 Basic、写 Elevated](0020-split-permission-levels.md)
+- [0020 拆分后细权限定级：读 Basic、写 Elevated](0020-split-permission-levels.md) — Brew 部分被 0022 取代
 - [0021 运行时权限过滤遇到未知权限名：签发路径失败、展示路径标记](0021-unknown-permission-fail-semantics.md)
+- [0022 Brew 保留 write 粗权限，只拆评论写入](0022-brew-write-remains-coarse.md) — 取代 0013 / 0020 的 Brew 部分
 
 ### 宿主密钥
 

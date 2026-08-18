@@ -54,27 +54,27 @@
     {
       "domain": "brew",
       "action": "brewList.markRead",
-      "permission": "brew:readStatus"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",
       "action": "brewList.markUnread",
-      "permission": "brew:readStatus"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",
       "action": "brewList.star",
-      "permission": "brew:favorite"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",
       "action": "brewList.unstar",
-      "permission": "brew:favorite"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",
       "action": "brewList.markAllRead",
-      "permission": "brew:readStatus"
+      "permission": "brew:write"
     },
     {
       "domain": "brew",

@@ -226,14 +226,14 @@ export interface TappSdk {
     getReplies(...args: unknown[]): Promise<unknown> // permission: brew:read
     importOpml(...args: unknown[]): Promise<unknown> // permission: brew:manage
     list(...args: unknown[]): Promise<unknown> // permission: brew:read
-    markAllRead(...args: unknown[]): Promise<unknown> // permission: brew:readStatus
-    markRead(...args: unknown[]): Promise<unknown> // permission: brew:readStatus
-    markUnread(...args: unknown[]): Promise<unknown> // permission: brew:readStatus
+    markAllRead(...args: unknown[]): Promise<unknown> // permission: brew:write
+    markRead(...args: unknown[]): Promise<unknown> // permission: brew:write
+    markUnread(...args: unknown[]): Promise<unknown> // permission: brew:write
     refreshSource(...args: unknown[]): Promise<unknown> // permission: brew:manage
     sources(...args: unknown[]): Promise<unknown> // permission: brew:read
-    star(...args: unknown[]): Promise<unknown> // permission: brew:favorite
+    star(...args: unknown[]): Promise<unknown> // permission: brew:write
     stats(...args: unknown[]): Promise<unknown> // permission: brew:read
-    unstar(...args: unknown[]): Promise<unknown> // permission: brew:favorite
+    unstar(...args: unknown[]): Promise<unknown> // permission: brew:write
     updateComment(...args: unknown[]): Promise<unknown> // permission: brew:commentWrite
     updateSource(...args: unknown[]): Promise<unknown> // permission: brew:manage
   }

@@ -56,8 +56,7 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'tappList:read': 'basic',
   'tappList:manage': 'privileged',
   'brew:read': 'basic',
-  'brew:readStatus': 'basic',
-  'brew:favorite': 'basic',
+  'brew:write': 'basic',
   'brew:commentWrite': 'elevated',
   'brew:manage': 'privileged',
   'federation:read': 'basic',
@@ -145,14 +144,12 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['brewList.discover', 'brew:manage'],
     ['brewList.exportOpml', 'brew:read'],
 
-    // 内容列表权限 — Brew 阅读状态
-    ['brewList.markRead', 'brew:readStatus'],
-    ['brewList.markUnread', 'brew:readStatus'],
-    ['brewList.markAllRead', 'brew:readStatus'],
-
-    // 内容列表权限 — Brew 收藏
-    ['brewList.star', 'brew:favorite'],
-    ['brewList.unstar', 'brew:favorite'],
+    // 内容列表权限 — Brew 写入
+    ['brewList.markRead', 'brew:write'],
+    ['brewList.markUnread', 'brew:write'],
+    ['brewList.markAllRead', 'brew:write'],
+    ['brewList.star', 'brew:write'],
+    ['brewList.unstar', 'brew:write'],
 
     // 内容列表权限 — Brew 评论（读用 brew:read，写用 brew:commentWrite）
     ['brewList.getComments', 'brew:read'],
