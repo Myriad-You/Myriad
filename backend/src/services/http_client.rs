@@ -92,8 +92,8 @@ impl ProxyConfig {
 
 /// Apply dynamic proxy config (URL + NO_PROXY-style bypass) onto a client builder.
 ///
-/// Shared by the global client factory, long-running clients, AiAnalyzer, and
-/// Tencent speech so bypass list behavior stays consistent.
+/// Shared by the global client factory, long-running clients, AiAnalyzer,
+/// Gemini Grounding, and Tencent speech so bypass list behavior stays consistent.
 ///
 /// **MYR-019 fail-closed:** when `should_use_proxy()` is true and the proxy URL
 /// cannot be built, returns `Err` — callers must not fall back to a silent
@@ -241,12 +241,10 @@ pub async fn get_global_client() -> Client {
 /// 图片模型一次请求可能接近两分钟，因此不能复用普通 API 的 30 秒超时；
 /// 代理来源仍与全局动态配置一致。
 ///
-/// 目前由本地未合并的 `image_generation` 提供方使用；主线仍保留符号以免
-/// 下游 WIP 反复分叉，故允许 dead_code。
+/// Used by [`crate::services::image_generation`] for provider round-trips.
 ///
 /// **MYR-019:** if a proxy is configured and cannot be applied, this panics
 /// instead of silently building a direct client.
-#[allow(dead_code)]
 pub async fn get_long_running_client() -> Client {
     // Image + long LLM-backed image APIs regularly exceed 2–3 minutes.
     let request_timeout = Duration::from_secs(360);
@@ -281,6 +279,47 @@ pub async fn get_long_running_client() -> Client {
                 .user_agent("Myriad-ImageGeneration/1.0")
                 .build()
                 .expect("Failed to create direct long-running HTTP client")
+        }
+    }
+}
+
+/// Gemini Grounding outbound client: same proxy / fail-closed policy as
+/// [`crate::services::analyzer::AiAnalyzer`], 60s request timeout, no redirects.
+pub async fn get_gemini_grounding_client() -> Client {
+    let request_timeout = Duration::from_secs(60);
+    let proxy_config = ProxyConfig::from_dynamic_config().await;
+    let builder = Client::builder()
+        .timeout(request_timeout)
+        .connect_timeout(Duration::from_secs(30))
+        .user_agent("Myriad/1.0")
+        .redirect(reqwest::redirect::Policy::none());
+
+    match apply_proxy(builder, &proxy_config).and_then(|b| b.build()) {
+        Ok(client) => client,
+        Err(error) if proxy_is_required(&proxy_config) => {
+            tracing::error!(
+                %error,
+                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                "Gemini Grounding client: configured outbound proxy failed to build; \
+                 refusing silent direct-connect (MYR-019 fail-closed)"
+            );
+            panic!(
+                "Gemini Grounding HTTP client: configured outbound proxy failed to build \
+                 (fail-closed, no direct bypass): {error}"
+            );
+        }
+        Err(error) => {
+            tracing::error!(
+                %error,
+                "Gemini Grounding client build failed with proxy disabled; using direct client"
+            );
+            Client::builder()
+                .timeout(request_timeout)
+                .connect_timeout(Duration::from_secs(30))
+                .user_agent("Myriad/1.0")
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("Failed to create direct Gemini Grounding HTTP client")
         }
     }
 }

@@ -25,7 +25,7 @@ Myriad 自有图标采用接近 emoji 的大图标表达，但不直接复刻系
 
 ### 画布与尺寸
 
-- 彩绘资源统一使用 `512x512` 透明 PNG。
+- 彩绘资源统一使用 `512x512` 透明 WebP。
 - 主体建议占画布宽高约 `72%-86%`，避免贴边，也避免实际页面里显得过小。
 - 四角必须透明，不能残留 chroma key、底色块或半透明脏边。
 - 同一界面内的图标应以“视觉体量”对齐，而不是只按像素尺寸对齐。细长图标可以略放大，厚重图标要适当收敛。
@@ -56,16 +56,16 @@ Myriad 自有图标采用接近 emoji 的大图标表达，但不直接复刻系
 
 | 分组       | token / 语义                                                                                                                                        | 资源路径 / 说明                                                                                                   |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| 天气主图标 | `weather.sunny`, `weather.partlyCloudy`, `weather.cloudy`, `weather.fog`, `weather.drizzle`, `weather.rain`, `weather.snow`, `weather.thunderstorm` | `frontend/public/icons/weather/*.png`                                                                             |
-| 天气指标   | `weather.humidity`, `weather.wind`, `weather.airGood`, `weather.airModerate`, `weather.airPoor`                                                     | `frontend/public/icons/weather/humidity.png`、`wind.png`、`air-*.png`                                             |
-| 问候       | `greeting.sunrise`, `greeting.sunset`, `greeting.night`                                                                                             | `frontend/public/icons/greeting/*.png`；晴天、多云可直接复用天气图标                                              |
-| 右上动态岛 | `dynamic.quote`, `dynamic.music`, `dynamic.musicPaused`                                                                                             | `frontend/public/icons/dynamic/*.png`                                                                             |
-| 控制面板   | `control.animationStandard`, `control.animationLight`, `control.language`, `control.wallpaper`, `control.config`                                    | `frontend/public/icons/control-panel/*.png`；外观入口复用晴天 / 月亮语义                                          |
-| 设置分类   | `platforms`, `data`, `ai`, `ui`, `music`, `oauth`, `network`, `permissions`, `notifications`, `modules`, `advanced`, `about`                        | `frontend/public/icons/config/*.png`；`ui` 复用 `control-panel/config.png`，`music` 复用 `dynamic/music.png`      |
-| 首页小组件 | `widget.welcome`, `widget.library`                                                                                                                  | `frontend/public/icons/widgets/*.png`                                                                             |
-| Tapp       | `tapp.store`, `tapp.package`                                                                                                                        | `frontend/public/icons/tapp/store.png`、`package.png`；运行时 token 为 `myriad:tapp.store`、`myriad:tapp.package` |
-| 状态反馈   | `status.success`, `status.error`, `status.warning`, `status.info`                                                                                   | `frontend/public/icons/status/*.png`；Toast 使用显式 `type` 渲染，文案不再输出 `✓` / `✗` / `⚠` / `ℹ` 这类前缀符号 |
-| 通知来源   | `agent`, `heartbeat`, `mcp`, `brew`, `tapp`, `updater`, `federation`, `system`                                                                      | `frontend/public/icons/notifications/*.png`；仅通知中心、通知设置和通知轮播共用，不替换产品导航图标               |
+| 天气主图标 | `weather.sunny`, `weather.partlyCloudy`, `weather.cloudy`, `weather.fog`, `weather.drizzle`, `weather.rain`, `weather.snow`, `weather.thunderstorm` | `frontend/public/icons/weather/*.webp`                                                                             |
+| 天气指标   | `weather.humidity`, `weather.wind`, `weather.airGood`, `weather.airModerate`, `weather.airPoor`                                                     | `frontend/public/icons/weather/humidity.webp`、`wind.webp`、`air-*.webp`                                             |
+| 问候       | `greeting.sunrise`, `greeting.sunset`, `greeting.night`                                                                                             | `frontend/public/icons/greeting/*.webp`；晴天、多云可直接复用天气图标                                              |
+| 右上动态岛 | `dynamic.quote`, `dynamic.music`, `dynamic.musicPaused`                                                                                             | `frontend/public/icons/dynamic/*.webp`                                                                             |
+| 控制面板   | `control.animationStandard`, `control.animationLight`, `control.language`, `control.wallpaper`, `control.config`                                    | `frontend/public/icons/control-panel/*.webp`；外观入口复用晴天 / 月亮语义                                          |
+| 设置分类   | `platforms`, `data`, `ai`, `ui`, `music`, `oauth`, `network`, `permissions`, `notifications`, `modules`, `advanced`, `about`                        | `frontend/public/icons/config/*.webp`；`ui` 复用 `control-panel/config.webp`，`music` 复用 `dynamic/music.webp`      |
+| 首页小组件 | `widget.welcome`, `widget.library`                                                                                                                  | `frontend/public/icons/widgets/*.webp`                                                                             |
+| Tapp       | `tapp.store`, `tapp.package`                                                                                                                        | `frontend/public/icons/tapp/store.webp`、`package.webp`；运行时 token 为 `myriad:tapp.store`、`myriad:tapp.package` |
+| 状态反馈   | `status.success`, `status.error`, `status.warning`, `status.info`                                                                                   | `frontend/public/icons/status/*.webp`；Toast 使用显式 `type` 渲染，文案不再输出 `✓` / `✗` / `⚠` / `ℹ` 这类前缀符号 |
+| 通知来源   | `agent`, `heartbeat`, `mcp`, `brew`, `tapp`, `updater`, `federation`, `system`                                                                      | `frontend/public/icons/notifications/*.webp`；仅通知中心、通知设置和通知轮播共用，不替换产品导航图标               |
 
 ## 接入规范
 

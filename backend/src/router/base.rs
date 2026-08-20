@@ -23,15 +23,6 @@ pub(super) fn build_config_mode_router() -> Router {
         // Registered without AppState: extract::Db → 503 until DB is wired.
         .route("/api/setup/status", get(api::setup::check_setup_status))
         .route(
-            "/api/setup/init-env",
-            post(api::setup::initialize_env_file)
-                .route_layer(from_fn(require_installation_capability)),
-        )
-        .route(
-            "/api/setup/update-env",
-            post(api::setup::update_env_file).route_layer(from_fn(require_installation_capability)),
-        )
-        .route(
             "/api/setup/database-config",
             post(api::setup::save_database_config)
                 .route_layer(from_fn(require_installation_capability)),
@@ -70,15 +61,6 @@ pub(super) fn build_base_api_router(
         // Setup routes (always available when DB/AppState is wired)
         .route("/api/setup/config", get(api::setup::get_setup_config))
         .route("/api/setup/status", get(api::setup::check_setup_status))
-        .route(
-            "/api/setup/init-env",
-            post(api::setup::initialize_env_file)
-                .route_layer(from_fn(require_installation_capability)),
-        )
-        .route(
-            "/api/setup/update-env",
-            post(api::setup::update_env_file).route_layer(from_fn(require_installation_capability)),
-        )
         .route(
             "/api/setup/database-config",
             post(api::setup::save_database_config)

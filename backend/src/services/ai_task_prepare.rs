@@ -5,11 +5,12 @@
 
 use serde_json::{json, Value};
 
+use crate::services::agent::ai_process_pure::{IMAGE_PROMPT_MAX_CHARS, USER_TEXT_MAX_CHARS};
 use crate::services::json_schema_subset::validate_inline_json_value;
 use crate::services::permission_service::TappPermission;
 use myriad_tapp_contract::manifest::{TappAiOperation, TappAiOutputFormat};
 
-pub const MAX_INPUT_BYTES: usize = 128 * 1024;
+pub const MAX_INPUT_BYTES: usize = 256 * 1024;
 pub const MAX_CONTEXT_BYTES: usize = 128 * 1024;
 pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
 
@@ -109,7 +110,7 @@ pub fn build_operation_prompt(
                 .get("instruction")
                 .and_then(Value::as_str)
                 .unwrap_or("Analyze the supplied data and return the most useful findings.");
-            if instruction.len() > 4_000
+            if instruction.chars().count() > USER_TEXT_MAX_CHARS
                 || myriad_prompt_security::validate_prompt_security(instruction).is_some()
             {
                 return Err(AiTaskLogicError::new(
@@ -141,7 +142,7 @@ pub fn build_operation_prompt(
                 let content = message.get("content").and_then(Value::as_str).unwrap_or("");
                 if !matches!(role, "system" | "user" | "assistant")
                     || content.is_empty()
-                    || content.len() > 10_000
+                    || content.chars().count() > USER_TEXT_MAX_CHARS
                     || myriad_prompt_security::validate_prompt_security(content).is_some()
                 {
                     return Err(AiTaskLogicError::new(
@@ -166,7 +167,7 @@ pub fn assemble_task_prompt(
 ) -> Result<String, AiTaskLogicError> {
     let mut prompt = build_operation_prompt(operation, input)?;
     if operation == TappAiOperation::Image {
-        if prompt.len() > 1_000
+        if prompt.chars().count() > IMAGE_PROMPT_MAX_CHARS
             || myriad_prompt_security::validate_image_prompt_security(&prompt).is_some()
         {
             return Err(AiTaskLogicError::new(
@@ -242,7 +243,7 @@ pub fn normalize_text_result(
 mod tests {
     use super::{
         assemble_task_prompt, build_operation_prompt, normalize_text_result,
-        validate_idempotency_key,
+        validate_idempotency_key, IMAGE_PROMPT_MAX_CHARS,
     };
     use myriad_tapp_contract::manifest::{TappAiOperation, TappAiOutputFormat};
     use serde_json::json;
@@ -322,5 +323,30 @@ mod tests {
         assert!(prompt.contains("ctx"));
         assert!(prompt.contains("Return one valid JSON value only"));
         assert!(prompt.contains("\"type\":\"object\"") || prompt.contains("\"type\": \"object\""));
+    }
+
+    #[test]
+    fn image_prompt_counts_unicode_scalars_not_bytes() {
+        let cjk = "画".repeat(400);
+        assert!(cjk.len() > 1000);
+        let prompt = assemble_task_prompt(
+            TappAiOperation::Image,
+            &json!(cjk),
+            "",
+            TappAiOutputFormat::Image,
+            None,
+        )
+        .unwrap();
+        assert_eq!(prompt.chars().count(), 400);
+
+        let err = assemble_task_prompt(
+            TappAiOperation::Image,
+            &json!("x".repeat(IMAGE_PROMPT_MAX_CHARS + 1)),
+            "",
+            TappAiOutputFormat::Image,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "UNSAFE_AI_TASK_INPUT");
     }
 }

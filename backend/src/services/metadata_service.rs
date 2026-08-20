@@ -1,5 +1,7 @@
 use crate::models::entities::{activity_events, metadata_history, platform_metadata};
-use crate::services::activity_event_service::build_activity_payload;
+use crate::services::activity_event_service::{
+    build_activity_payload, platform_label, ActivityPayload,
+};
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
@@ -320,6 +322,9 @@ impl MetadataService {
         };
 
         let inserted_history = history.insert(&self.db).await?;
+        let life_summary = platform_life_summary(platform_name, &activity);
+        let ingest_imported = activity.event_type == "imported";
+        let ingest_high_value = activity.importance >= 80 && activity.event_type != "suppressed";
 
         let activity_event = activity_events::ActiveModel {
             metadata_history_id: Set(inserted_history.id),
@@ -341,6 +346,14 @@ impl MetadataService {
                 "Failed to persist normalized activity event for history {}: {}",
                 inserted_history.id,
                 error
+            );
+        } else if ingest_imported {
+            crate::services::agent::life::spawn_diary(user_id, life_summary);
+        } else if ingest_high_value {
+            crate::services::agent::life::spawn_ingest(
+                user_id,
+                "agent.life.platform_activity",
+                life_summary,
             );
         }
         tracing::info!(
@@ -603,5 +616,23 @@ impl MetadataService {
         }
 
         Ok(result)
+    }
+}
+
+fn platform_life_summary(platform: &str, activity: &ActivityPayload) -> String {
+    let label = platform_label(platform);
+    if activity.event_type == "imported" {
+        return format!("{label} 完成了首次导入");
+    }
+    let heads: Vec<&str> = activity
+        .changes
+        .iter()
+        .filter_map(|change| change.subject_title.as_deref())
+        .take(3)
+        .collect();
+    if heads.is_empty() {
+        format!("{label}：{}", activity.title)
+    } else {
+        format!("{label}：{}", heads.join("、"))
     }
 }

@@ -154,8 +154,9 @@ Manifest 会经历 Rust 结构的反序列化和再序列化。因此新增 Mani
 - **主体私有 Storage**：`Tapp.storage` 的 `user_id` 是 Runtime Grant subject（持久用户或
   **签名游客 session**）。打开管理员公开安装时，每个 subject 读写自己的
   `user_id + tapp_id` 空间（游客为负 id 命名空间），不会读取站点 owner 数据。
-  Manifest 声明的安装级设置继续存放在安装 owner 命名空间；owner 或管理员可写，
-  能打开该安装的运行者（含游客）可读已保存声明键。宿主内部键不会出现在通用 storage API 中。
+  Manifest 声明的安装级设置、以及安装级共享数据（`Tapp.shared`）继续存放在安装
+  owner 命名空间；owner 或管理员可写，能打开该安装的运行者（含游客）可读。宿主内部键
+  不会出现在通用 storage API 中。
 - 管理员控制面权限不等于普通用户私有安装的运行时访问权。代码、资源、Manifest、授权和
   Runtime Grant 只能解析到规范公开 owner 或当前主体自己的 owner，不能从其他用户同 ID
   记录中任意选择。
@@ -187,14 +188,18 @@ Manifest 会经历 Rust 结构的反序列化和再序列化。因此新增 Mani
 
 ## `core`、`widget`、`page` 三层
 
-`TappCodeStructure` 是宿主加载后的代码结构，不等同于磁盘上一定存在三个文件。
-单体 `main.js` 可以通过标记拆分；模块化 Page 也可以由 `pageModules` 组合。
+每层在包里各自有入口文件，由 Manifest 的 `core` / `page` / `widgets[].entry` 声明；
+层内其余文件由入口用相对路径 `require` 进来。宿主按 mode 只下发相关层的依赖图，
+再把这些文件静态包装成模块工厂注入 iframe。
 
-| 模式     | 执行代码                       | UI 资源                        | 主要宿主                   |
-| -------- | ------------------------------ | ------------------------------ | -------------------------- |
-| Widget   | `core + widget`                | 指定尺寸模板、Widget CSS       | `TappWidgetSandbox`        |
-| Page     | `core + page` 或 `pageModules` | Page HTML、Page CSS、i18n      | `TappPageSandbox`          |
-| Headless | 仅 `core`                      | 不加载 Page/Widget HTML 与 CSS | `TappPageSandbox headless` |
+| 模式     | 执行代码                    | UI 资源                        | 主要宿主                   |
+| -------- | --------------------------- | ------------------------------ | -------------------------- |
+| Widget   | core 入口 + 该 widget 入口  | 指定尺寸模板、Widget CSS       | `TappWidgetSandbox`        |
+| Page     | core 入口 + page 入口       | Page HTML、Page CSS、i18n      | `TappPageSandbox`          |
+| Headless | 仅 core 入口                | 不加载 Page/Widget HTML 与 CSS | `TappPageSandbox headless` |
+
+core 在三种模式下都先执行，模块化不改变这一点；只有后台专属逻辑需要用
+`_TAPP_MODE === 'core'` 自行守卫。
 
 边界约束：
 
@@ -225,16 +230,19 @@ SDK 的 `lifecycle.onDestroy` 同时监听 `pagehide` 与 `beforeunload`，并�
 单个生命周期回调抛错不能阻断其他回调。宿主资源释放仍由 iframe 外部 cleanup 负责，不能把
 授权撤销或服务端取消只寄托在浏览器卸载回调上。
 
-**Storage 与 Settings 分离**：
+**Storage、Settings 与 Shared 分离**：
 
 - 私有 `Tapp.storage` 经 Runtime Grant 挂在 **subject** 命名空间（持久用户或签名游客）；
-  `_settings.` 等为宿主保留前缀，storage API 不可访问。`storage:read` / `platform:read` 均为
-  **guest-safe basic**（与 [REST_API · Widget 与存储](REST_API.md#widget-与存储) 一致）：
+  `_settings.`、`_shared.` 等为宿主保留前缀，storage API 不可访问。`storage:read` /
+  `platform:read` 均为 **guest-safe basic**（与 [REST_API · Widget 与存储](REST_API.md#widget-与存储) 一致）：
   签名游客可获 Grant 与负 id 下持久 storage、以及平台公开缓存读；无签名 session 则无。
 - 安装级 `Tapp.settings` 走专用 REST：`GET` 在 **optional_auth** 上（游客打开公开安装可读
   installation owner 已保存值；未写入回落 Manifest 默认）；`POST` 仅登录且 owner/管理员，
   并校验类型/选项/数值范围。详情页宿主设置**编辑器**仍是控制面：访客不展示写 UI。
-- 两者都不能互相伪装：settings 路由不能当任意 storage 用，storage 也不能读写安装设置。
+- 安装级 `Tapp.shared` 与 settings 同一隔离，但语义是数据仓库：自由 KV、无 Manifest 声明，
+  给公开部署展示站长数据。`GET` 同样 optional_auth；写仅 owner/管理员。
+- 三者都不能互相伪装：settings / shared 路由不能当任意 storage 用，storage 也不能读写
+  `_settings.*` 或 `_shared.*`。
 
 storage 批量读取使用 `storage.getAll` 对应的单次数据库查询，不能退回 `keys + N 次 get`。
 
@@ -432,8 +440,8 @@ sequenceDiagram
 - 每个 Tapp 缓存有独立代际。clear 后的新请求不会复用旧 in-flight promise，旧请求即使
   迟到也必须丢弃结果并按新代际重取；更新完成会发送 `tapp:updated`，标准 Page、多窗口、
   Widget 与 headless iframe 都按新版本重建。
-- Widget HTML 与生成 CSS 都按 `tappId + widgetId + size` 缓存，不能只按尺寸复用；分离模式
-  的原生 styles 与生成/预编译 CSS 分开注入，不能把原生 styles 合并后再重复注入一次。
+- Widget HTML 与生成 CSS 都按 `tappId + widgetId + size` 缓存，不能只按尺寸复用；层声明
+  的作者样式与生成/预编译 CSS 分开注入，不能把作者样式合并后再重复注入一次。
   后端只要返回了分离 CSS（包括合法空文件）就视为权威产物；仅字段缺失时才在浏览器分析
   源码生成 Tailwind CSS，不能用任意长度阈值否定已有产物。
 - 远程商店索引也按 URL 合并在途请求；商店源删除或刷新移除时同步清缓存并中止请求，
@@ -541,7 +549,7 @@ clear 只投影公开列并在 SQL 层排除所有宿主 key。数据库 CHECK �
 这不是任意 endpoint 可引用的全局 secret map。
 
 当前 Tapp storage 按 **当前 subject** 的 `user_id + tapp_id` 隔离，单值上限 1 MiB，总量
-上限 5 MiB；写入在同一事务内加 subject/Tapp advisory lock、计算替换后的 JSONB 字节并
+上限 8 MiB；写入在同一事务内加 subject/Tapp advisory lock、计算替换后的 JSONB 字节并
 upsert，并发副本不能越过总量边界。公开 Tapp 的不同用户互相不可见且都能读写自己的空间。
 安装级设置仍按安装 owner 隔离，并只暴露 Manifest 声明的键。Tapp 不能直接指定另一个 Tapp
 的 key，也不能访问宿主保留键。已实现的

@@ -11,7 +11,6 @@ const PACKAGE_JSON_OBJECT_DIRECTORIES = new Set(contract.rules.packageJsonObject
 const PACKAGE_RESOURCE_FILE_LIMITS = contract.rules.packageResourceFileLimits
 const PACKAGE_RESOURCE_BYTE_LIMITS = contract.rules.packageResourceByteLimits
 const ASSET_DIRECTORY = contract.rules.assetDirectory
-const PAGE_MODULE_DIRECTORY = contract.rules.pageModuleDirectory
 const SAFE_COMPONENT = new RegExp(contract.patterns.safeComponent)
 
 function diagnostic(severity, code, message, file = 'manifest.json', line, column) {
@@ -24,6 +23,29 @@ function isObject(value) {
 
 function arrayValue(value) {
   return Array.isArray(value) ? value : []
+}
+
+export function usesGamePackageLimits(manifest) {
+  const category = manifest?.category
+  if (category !== 'game' && category !== 'developer') return false
+  const protocol = typeof manifest?.game?.protocol === 'string' ? manifest.game.protocol.trim() : ''
+  const hasRuntime = Array.isArray(manifest?.runtimeModules) && manifest.runtimeModules.length > 0
+  return Boolean(protocol || hasRuntime)
+}
+
+export function packageLimitsForManifest(manifest) {
+  const game = usesGamePackageLimits(manifest)
+  return {
+    archiveBytes: game ? contract.limits.gameArchiveBytes : contract.limits.archiveBytes,
+    archiveFiles: game ? contract.limits.gameArchiveFiles : contract.limits.archiveFiles,
+    archiveUncompressedBytes: game
+      ? contract.limits.gameArchiveUncompressedBytes
+      : contract.limits.archiveUncompressedBytes,
+    resourceBytes: game ? contract.limits.gameResourceBytes : contract.limits.resourceBytes,
+    assets: game ? contract.limits.gameAssets : contract.limits.assets,
+    assetBytes: game ? contract.limits.gameAssetBytes : contract.limits.assetBytes,
+    assetsTotalBytes: game ? contract.limits.gameAssetsTotalBytes : contract.limits.assetsTotalBytes,
+  }
 }
 
 function formatBytes(bytes) {
@@ -71,13 +93,18 @@ function resourceDeclarations(manifest) {
   const add = (path, kind, extension) => {
     if (typeof path === 'string' && path) declarations.set(path, { kind, extension })
   }
+  // 层字段是嵌套路径（core.entry / page.template …）
   for (const [field, extensionKey] of Object.entries(MANIFEST_RESOURCE_FIELDS)) {
-    add(manifest[field], field, contract.rules.resourceExtensions[extensionKey])
+    const value = field
+      .split('.')
+      .reduce((node, key) => (isObject(node) ? node[key] : undefined), manifest)
+    add(value, field, contract.rules.resourceExtensions[extensionKey])
   }
-  for (const module of arrayValue(manifest.pageModules)) add(`${PAGE_MODULE_DIRECTORY}/${module}`, 'pageModule', contract.rules.resourceExtensions.pageModule)
   for (const asset of arrayValue(manifest.assets)) add(asset, 'asset')
   for (const widget of arrayValue(manifest.widgets)) {
     if (!isObject(widget)) continue
+    add(widget.entry, `widgetEntry:${widget.id}`, contract.rules.resourceExtensions.widgetEntry)
+    add(widget.styles, `widgetStyles:${widget.id}`, contract.rules.resourceExtensions.widgetStyles)
     for (const path of Object.values(widget.templates || {})) add(path, `widgetTemplate:${widget.id}`, contract.rules.resourceExtensions.widgetTemplate)
   }
   for (const interaction of arrayValue(manifest.agent?.interactions)) {
@@ -91,6 +118,7 @@ export async function validateProjectResources(root, manifest) {
   const declarations = resourceDeclarations(manifest)
   const packagePaths = new Set(['manifest.json'])
   const canonicalRoot = await realpath(root)
+  const limits = packageLimitsForManifest(manifest)
   let assetBytes = 0
 
   for (const [path, metadata] of declarations) {
@@ -120,15 +148,15 @@ export async function validateProjectResources(root, manifest) {
       continue
     }
     packagePaths.add(path)
-    if (info.size > contract.limits.resourceBytes) {
-      diagnostics.push(diagnostic('error', 'resource-too-large', `${path} exceeds ${formatBytes(contract.limits.resourceBytes)}`))
+    if (info.size > limits.resourceBytes) {
+      diagnostics.push(diagnostic('error', 'resource-too-large', `${path} exceeds ${formatBytes(limits.resourceBytes)}`))
     }
     if (metadata.kind === 'asset') {
       assetBytes += info.size
       if (!path.startsWith(`${ASSET_DIRECTORY}/`) || contract.rules.assetForbiddenExtensions.includes(extname(path))) {
         diagnostics.push(diagnostic('error', 'invalid-asset', `Asset must be under ${ASSET_DIRECTORY}/ and cannot be JS/HTML: ${path}`))
       }
-      if (info.size > contract.limits.assetBytes) diagnostics.push(diagnostic('error', 'asset-too-large', `Asset exceeds ${formatBytes(contract.limits.assetBytes)}: ${path}`))
+      if (info.size > limits.assetBytes) diagnostics.push(diagnostic('error', 'asset-too-large', `Asset exceeds ${formatBytes(limits.assetBytes)}: ${path}`))
     }
     if (metadata.kind === 'agentSchema') {
       if (info.size > contract.limits.agentSchemaBytes) diagnostics.push(diagnostic('error', 'agent-schema-too-large', `${path} exceeds ${formatBytes(contract.limits.agentSchemaBytes)}`))
@@ -141,8 +169,8 @@ export async function validateProjectResources(root, manifest) {
     }
   }
 
-  if (arrayValue(manifest.assets).length > contract.limits.assets) diagnostics.push(diagnostic('error', 'too-many-assets', `assets accepts at most ${contract.limits.assets} entries`))
-  if (assetBytes > contract.limits.assetsTotalBytes) diagnostics.push(diagnostic('error', 'assets-too-large', `Declared assets exceed ${formatBytes(contract.limits.assetsTotalBytes)} total`))
+  if (arrayValue(manifest.assets).length > limits.assets) diagnostics.push(diagnostic('error', 'too-many-assets', `assets accepts at most ${limits.assets} entries`))
+  if (assetBytes > limits.assetsTotalBytes) diagnostics.push(diagnostic('error', 'assets-too-large', `Declared assets exceed ${formatBytes(limits.assetsTotalBytes)} total`))
 
   for (const [directory, extension] of Object.entries(PACKAGE_RESOURCE_EXTENSIONS)) {
     const absoluteDirectory = join(root, directory)
@@ -192,7 +220,7 @@ export async function validateProjectResources(root, manifest) {
       }
       const byteLimitKey = PACKAGE_RESOURCE_BYTE_LIMITS[directory]
       const directoryLimit = byteLimitKey ? contract.limits[byteLimitKey] : Number.POSITIVE_INFINITY
-      const byteLimit = Math.min(directoryLimit, contract.limits.resourceBytes)
+      const byteLimit = Math.min(directoryLimit, limits.resourceBytes)
       if (info.size > byteLimit) {
         const code = byteLimit === directoryLimit ? `${directory}-too-large` : 'resource-too-large'
         diagnostics.push(diagnostic('error', code, `${path} exceeds ${formatBytes(byteLimit)}`))

@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use crate::models::entities::tapp_store_sources;
 use crate::services::tapp_store_package::{
     append_store_cache_bust, find_store_app_entry, i18n_downloads, is_invalid_store_source_ref,
-    join_store_file_url, nonempty_map_opt, optional_store_text_downloads, page_module_downloads,
+    join_store_file_url, module_downloads, nonempty_map_opt, optional_store_text_downloads,
     parse_store_preview_descriptor, prepare_store_catalog_base,
     require_download_page_styles_if_declared, require_download_page_template_if_declared,
     resolve_store_source_among, store_app_download_section, store_asset_download_plan,
@@ -283,35 +283,72 @@ pub(super) async fn fetch_from_store(
     }
     let i18n_opt = nonempty_map_opt(i18n_data);
 
-    let mut page_modules_data: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    for entry in page_module_downloads(download) {
-        let pm_url = join_store_file_url(&base_url, &entry.path);
-        if let Ok(resp) = fetch_public_store_url(&pm_url).await {
-            if resp.status().is_success() {
-                if let Ok(content) = resp.text().await {
-                    page_modules_data.insert(entry.key, content);
-                }
-            }
-        }
-    }
-    let page_modules_opt = nonempty_map_opt(page_modules_data);
-
     // Package-static binary assets (manifest.assets → base64 map)
     let package_root = store_package_root(code_path);
     let assets_opt = download_store_package_assets(&base_url, &package_root, &manifest).await?;
 
+    // `download.code` 是 core 入口；`download.modules` 覆盖其余层入口与层内文件，
+    // key 就是包内相对路径。声明的层入口必须齐全，缺了要立刻失败而不是装个半成品。
+    let mut modules: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    if let Some(core_entry) = manifest.core.as_ref().map(|core| core.entry.clone()) {
+        modules.insert(core_entry, code);
+    }
+    for entry in module_downloads(download) {
+        let module_url = join_store_file_url(&base_url, &entry.path);
+        let resp = fetch_public_store_url(&module_url).await.map_err(|e| {
+            tracing::error!(error = %e, "upstream fetch failed");
+            api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
+        })?;
+        if !resp.status().is_success() {
+            return Err(api_http_error(
+                StatusCode::BAD_GATEWAY,
+                format!(
+                    "Failed to fetch module {}: remote returned {}",
+                    entry.key,
+                    resp.status()
+                ),
+            ));
+        }
+        let content = resp.text().await.map_err(|e| {
+            tracing::error!(error = %e, "upstream fetch failed");
+            api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
+        })?;
+        modules.insert(entry.key, content);
+    }
+    for entry in manifest.layer_entries() {
+        if !modules.contains_key(entry) {
+            return Err(api_http_error(
+                StatusCode::BAD_GATEWAY,
+                format!(
+                    "Store index is missing download.modules entry for declared layer entry {entry}"
+                ),
+            ));
+        }
+    }
+
+    // 索引里的 widget_styles 是单份文件，复制给每个声明了 styles 的 widget。
+    let widget_styles_opt = widget_styles_content.and_then(|content| {
+        let styles: std::collections::HashMap<String, String> = manifest
+            .widgets
+            .iter()
+            .flatten()
+            .filter(|widget| widget.styles.is_some())
+            .map(|widget| (widget.id.clone(), content.clone()))
+            .collect();
+        nonempty_map_opt(styles)
+    });
+
     Ok(PreparedTappPackage::from_resources(
         manifest,
         PreparedTappResources {
-            code,
-            styles: styles_content,
-            widget_styles: widget_styles_content,
+            modules,
+            core_styles: styles_content,
+            widget_styles: widget_styles_opt,
             page_styles: page_styles_content,
             page_template: page_template_content,
             widget_templates: widget_templates_opt,
             i18n: i18n_opt,
-            page_modules: page_modules_opt,
             assets: assets_opt,
             ..PreparedTappResources::default()
         },
@@ -393,14 +430,14 @@ mod tests {
     #[test]
     fn package_root_from_code_path() {
         assert_eq!(
-            store_package_root("apps/com.myriad.doudizhu/main.js"),
+            store_package_root("apps/com.myriad.doudizhu/core.js"),
             "apps/com.myriad.doudizhu"
         );
         assert_eq!(
             store_package_root("apps/com.myriad.doudizhu/manifest.json"),
             "apps/com.myriad.doudizhu"
         );
-        assert_eq!(store_package_root("main.js"), "");
+        assert_eq!(store_package_root("core.js"), "");
         assert_eq!(store_package_root("/nested/a/b/c.js"), "nested/a/b");
     }
 

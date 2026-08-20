@@ -9,9 +9,9 @@ import { describe, it } from 'node:test'
 import { storeAssetStorePath, storePackageRoot } from './storePackagePaths.ts'
 
 describe('storePackageRoot', () => {
-  it('returns parent of main.js / manifest.json', () => {
+  it('returns parent of core.js / manifest.json', () => {
     assert.equal(
-      storePackageRoot('apps/com.myriad.doudizhu/main.js'),
+      storePackageRoot('apps/com.myriad.doudizhu/core.js'),
       'apps/com.myriad.doudizhu',
     )
     assert.equal(
@@ -21,7 +21,7 @@ describe('storePackageRoot', () => {
   })
 
   it('handles bare filename and leading slash', () => {
-    assert.equal(storePackageRoot('main.js'), '')
+    assert.equal(storePackageRoot('core.js'), '')
     assert.equal(storePackageRoot('/nested/a/b/c.js'), 'nested/a/b')
   })
 })

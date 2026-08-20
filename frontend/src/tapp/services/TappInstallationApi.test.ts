@@ -3,7 +3,12 @@ import type { RemoteApp, RemoteStoreIndex } from './RemoteStoreService'
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 import RemoteStoreService from './RemoteStoreService.ts'
-import { installFromStore, updateTappFromStore } from './TappInstallationApi.ts'
+import {
+  installFromStore,
+  storeInstallModules,
+  storeWidgetStyles,
+  updateTappFromStore,
+} from './TappInstallationApi.ts'
 
 const originalFetch = globalThis.fetch
 const originalRemoteMethods = {
@@ -130,8 +135,19 @@ describe('Tapp store transport strategy', () => {
       id: 'com.example.fallback',
       name: 'Fallback',
       version: '1.0.0',
-      main: 'main.js',
-      permissions: ['storage:read', 'storage:write'],
+      core: { entry: 'core.js' },
+      widgets: [
+        {
+          id: 'card',
+          name: 'Card',
+          defaultSize: '2x2',
+          sizes: ['2x2'],
+          category: 'utility',
+          entry: 'widget/index.js',
+          styles: 'widget.css',
+        },
+      ],
+      permissions: ['storage:read', 'storage:write', 'widget:register'],
       category: 'utility',
     } as TappManifest
     const app = {
@@ -142,7 +158,12 @@ describe('Tapp store transport strategy', () => {
       author: { name: 'Example' },
       category: 'utility',
       permissions: manifest.permissions,
-      download: { manifest: 'manifest.json', code: 'main.js' },
+      download: {
+        manifest: 'manifest.json',
+        code: 'core.js',
+        modules: { 'widget/index.js': 'widget/index.js' },
+        widget_styles: 'widget.css',
+      },
       size: 4 * 1024 * 1024,
     } as RemoteApp
     const index: RemoteStoreIndex = {
@@ -166,10 +187,13 @@ describe('Tapp store transport strategy', () => {
     RemoteStoreService.fetchStoreIndex = async () => index
     RemoteStoreService.downloadAppPackage = async () => ({
       manifest,
-      code: 'export {}',
+      code: 'module.exports = {};',
+      modules: { 'widget/index.js': 'require("../core.js");' },
+      widgetStyles: '.card{}',
     })
 
     const sources: string[] = []
+    const directBodies: Record<string, unknown>[] = []
     globalThis.fetch = async (_input, init) => {
       const body = requestBody(init)
       sources.push(String(body.source))
@@ -179,6 +203,7 @@ describe('Tapp store transport strategy', () => {
           { status: 502 },
         )
       }
+      directBodies.push(body)
       return Response.json({ success: true, data: { id: manifest.id } })
     }
 
@@ -192,5 +217,77 @@ describe('Tapp store transport strategy', () => {
     )
 
     assert.deepEqual(sources, ['store', 'direct'])
+
+    // 回退路径必须按层入口交付模块，并把作者 CSS 送进 widgetStyles；
+    // 送进 widgetCss（宿主预编译通道）会让声明的 widget.css 落不了盘。
+    const direct = directBodies[0]!
+    assert.deepEqual(direct.modules, {
+      'core.js': 'module.exports = {};',
+      'widget/index.js': 'require("../core.js");',
+    })
+    assert.deepEqual(direct.widgetStyles, { card: '.card{}' })
+    assert.equal('widgetCss' in direct, false)
+  })
+})
+
+describe('store package payload shaping', () => {
+  const layered: TappManifest = {
+    id: 'com.example.layers',
+    name: 'Layered',
+    version: '1.0.0',
+    category: 'utility',
+    permissions: ['widget:register'],
+    core: { entry: 'core.js' },
+    page: { entry: 'page/index.js' },
+    widgets: [
+      {
+        id: 'card',
+        name: 'Card',
+        defaultSize: '2x2',
+        sizes: ['2x2'],
+        category: 'utility',
+        entry: 'widget/index.js',
+        styles: 'widget.css',
+      },
+    ],
+  } as TappManifest
+
+  it('maps download.code onto the declared core entry', () => {
+    const modules = storeInstallModules(layered, 'CORE', {
+      'page/index.js': 'PAGE',
+      'widget/index.js': 'WIDGET',
+    })
+    assert.deepEqual(modules, {
+      'core.js': 'CORE',
+      'page/index.js': 'PAGE',
+      'widget/index.js': 'WIDGET',
+    })
+  })
+
+  /// 索引描述不全时立刻失败，别让用户等完整个下载再看后端拒绝。
+  it('refuses a store index that omits a declared layer entry', () => {
+    assert.throws(
+      () => storeInstallModules(layered, 'CORE', { 'page/index.js': 'PAGE' }),
+      /widget\/index\.js/,
+    )
+  })
+
+  /// 作者样式必须按 widget id 走 widgetStyles，不能混进宿主预编译的 widgetCss。
+  it('spreads the single store widget CSS across widgets declaring styles', () => {
+    assert.deepEqual(storeWidgetStyles(layered, '.card{}'), {
+      card: '.card{}',
+    })
+  })
+
+  it('refuses a store package whose declared widget styles have no content', () => {
+    assert.throws(() => storeWidgetStyles(layered, ''), /card=widget\.css/)
+  })
+
+  it('sends no widget styles when no widget declares any', () => {
+    const noStyles = {
+      ...layered,
+      widgets: [{ ...layered.widgets![0]!, styles: undefined }],
+    } as TappManifest
+    assert.equal(storeWidgetStyles(noStyles, '.card{}'), undefined)
   })
 })

@@ -39,7 +39,6 @@ export interface TranslationKeys {
     home: string
     library: string
     reports: string
-    life: string
     config: string
     login: string
     backToHome: string
@@ -1120,6 +1119,14 @@ export interface TranslationKeys {
     memorySaverGroupDesc: string
     memorySaver: string
     memorySaverHint: string
+    agentLife: string
+    agentLifeHint: string
+    /** Shown on the switch while the Lite tier is off */
+    agentLifeNeedsLite: string
+    /** Shown on the switch while the Pro tier is off */
+    agentLifeNeedsPro: string
+    /** Shown on the switch while both Lite and Pro are off */
+    agentLifeNeedsLiteAndPro: string
     enableProxy: string
     enableProxyHint: string
     proxyUrl: string
@@ -1289,6 +1296,8 @@ export interface TranslationKeys {
     platformStatusUnconfigured: string
     aiProvider: string
     aiProviderHint: string
+    aiLlmTitle: string
+    aiLlmDesc: string
     aiLiteModelTitle: string
     aiLiteModelDesc: string
     aiLiteEnable: string
@@ -1310,9 +1319,30 @@ export interface TranslationKeys {
     imageProviderBadgeGptImage: string
     imageProviderBadgeImageApi: string
     imageProviderBadgeSeedream: string
-    /** AI 页右上角：服务商 / API Key 速查 */
-    aiProvidersQuickAccess: string
-    aiProvidersQuickAccessDesc: string
+    aiVendorsTitle: string
+    aiVendorsDesc: string
+    aiVendorLabel: string
+    aiVendorAdd: string
+    aiVendorAddDesc: string
+    aiVendorEmpty: string
+    aiVendorDisplayName: string
+    aiVendorApiKey: string
+    aiVendorDocs: string
+    aiVendorConfigured: string
+    aiVendorKeyMissing: string
+    aiVendorExpand: string
+    aiVendorCollapse: string
+    aiVendorUsedBy: string
+    aiVendorUsedStandard: string
+    aiVendorUsedLite: string
+    aiVendorUsedPro: string
+    aiVendorUsedImage: string
+    aiVendorUsedSpeech: string
+    aiVendorUsedJoin: string
+    aiVendorCapText: string
+    aiVendorCapImage: string
+    aiVendorCapSpeech: string
+    geminiApiKeyLabel: string
     aiImageTitle: string
     aiImageDesc: string
     speechServiceTitle: string
@@ -1329,8 +1359,18 @@ export interface TranslationKeys {
     tencentRegionChongqing: string
     tencentRegionNanjing: string
     speechTestAvailability: string
+    speechTestTag: string
     speechTestSuccess: string
     speechTestFailed: string
+    speechProvider: string
+    speechProviderTencent: string
+    speechReuseTextCredentials: string
+    speechReuseTextCredentialsDesc: string
+    speechSttModel: string
+    speechTtsModel: string
+    speechTtsVoice: string
+    speechOpenRouterTtsHint: string
+    speechKeyFallbackHint: string
     platformDescGithub: string
     platformDescBilibili: string
     platformDescBangumi: string
@@ -1692,13 +1732,10 @@ export interface TranslationKeys {
     visitorStats: string
     library: string
     dataReport: string
-    digitalLife: string
     multiPlatformAggregation: string
     dualLayerAnalysis: string
-    digitalLifeDesc: string
-    showPersonality: string
+    libraryFeature: string
     platformProfile: string
-    digitalLifeFeature: string
     // Brew 阅读
     brewReading: string
     brewDesc: string
@@ -1818,20 +1855,32 @@ export interface TranslationKeys {
     title: string
   }
 
-  // 数字生命
+  // Agent 设定引导
   life: {
     onboarding: {
-      title: string
-      stepOf: string
+      openPage: string
+      editPage: string
+      setupLabel: string
+      currentPersona: string
+      mood: {
+        floor: string
+        low: string
+        normal: string
+        high: string
+      }
+      moodLine: string
+      activity: {
+        idle: string
+        working: string
+        thinking: string
+        talking: string
+      }
       next: string
       backTo: string
       optional: string
       step1Short: string
       step2Short: string
       step3Short: string
-      step4Short: string
-      step5Short: string
-      step6Short: string
       step1Title: string
       step1Lead: string
       step2Title: string
@@ -1839,35 +1888,23 @@ export interface TranslationKeys {
       step3Title: string
       step3Lead: string
       step3LeadPending: string
-      regeneratePersona: string
-      regeneratingPersona: string
-      regeneratePersonaFailed: string
-      personaNotCompletePending: string
-      personaNotCompleteIncomplete: string
-      personaFieldGenerating: string
-      personaDraftLabel: string
-      step4Title: string
-      step4Lead: string
-      step5Title: string
-      step5Lead: string
-      step6Title: string
-      step6Lead: string
-      loadingAiSignals: string
-      loadSignalsFailed: string
-      reportCount: string
-      aiDistilledMeta: string
-      reportsButFallback: string
       noReports: string
       selectedCount: string
       selectNothingYet: string
-      dragCanvas: string
       skipTags: string
+      dragCanvas: string
+      signalsEmpty: string
+      loadingAiSignals: string
+      loadSignalsFailed: string
+      generationTimeout: string
+      aiDistilledMeta: string
+      reportsButFallback: string
       regenerateSeeds: string
       regeneratingSeeds: string
+      saveFirst: string
       nameLabel: string
       nameHint: string
       namePlaceholder: string
-      /** Step-2 random display name button (Lite AI) */
       randomName: string
       randomNameBusy: string
       randomNameFailed: string
@@ -1879,144 +1916,30 @@ export interface TranslationKeys {
         unspecified: string
       }
       genderRequired: string
-      outfitNeedGender: string
       extraLabel: string
       extraHint: string
       extraPlaceholder: string
-      creating: string
-      createAndContinue: string
-      createFailed: string
-      outfitSuggestTitle: string
-      outfitSuggestLead: string
-      outfitSuggesting: string
-      outfitSuggestAgain: string
-      outfitSuggestFailed: string
-      outfitSuggestEmpty: string
-      roomSuggestTitle: string
-      roomSuggestLead: string
-      roomSuggesting: string
-      roomSuggestAgain: string
-      roomSuggestFailed: string
-      roomSuggestEmpty: string
-      signalsEmpty: string
-      visualsWaitingDesign: string
-      roomMoodHint: string
-      roomPickFirst: string
-      envNotesLabel: string
-      envNotesHint: string
-      envNotesPlaceholder: string
-      designPendingSync: string
-      designPendingSyncHint: string
-      designBgBadge: string
-      designBgNotice: string
-      designPhaseBootstrap: string
-      designPhaseQueued: string
-      designPhaseDesigning: string
-      designPhasePending: string
-      designPhaseReady: string
-      designPhaseFallback: string
-      designPhaseFailed: string
-      designStepBootstrap: string
-      designStepDesign: string
-      designStepReady: string
-      designElapsed: string
-      identityStaleRebuild: string
-      localeGlossHint: string
+      personaGroupCharacter: string
+      regeneratePersona: string
+      regeneratingPersona: string
+      regeneratePersonaFailed: string
+      personaFieldGenerating: string
+      personaDraftLabel: string
       editPersona: string
       doneEditing: string
       cancelEdit: string
-      personaGroupCharacter: string
-      personaGroupLook: string
-      personaGroupRoom: string
       fieldTemperament: string
       fieldLikes: string
       fieldDrives: string
       fieldSocial: string
       fieldVoice: string
       fieldSummary: string
-      fieldOutfit: string
-      fieldHair: string
-      fieldRoomMood: string
-      fieldPaletteMood: string
+      creating: string
+      createAndContinue: string
+      createFailed: string
       saving: string
       saveAndContinue: string
       saveFailed: string
-      characterMaster: string
-      worldMaster: string
-      locked: string
-      needsMaster: string
-      lockedUntilCharacter: string
-      worldNeedsCharacter: string
-      noAssetsBeforePreview: string
-      step5SequenceHint: string
-      firstPreviewBadge: string
-      previewLabel: string
-      awaitingFirstPreview: string
-      readyForFirstPreview: string
-      generatingFirstPreview: string
-      busyPleaseWait: string
-      designCardTitle: string
-      designCardArchetype: string
-      designCardAccessory: string
-      designCardBeforeImage: string
-      advancedPrompt: string
-      planAppearance: string
-      planning: string
-      generateMaster: string
-      generating: string
-      rollAgain: string
-      reviewAsset: string
-      reviewingAsset: string
-      acceptMaster: string
-      redoMaster: string
-      overrideAccept: string
-      overrideReasonPrompt: string
-      accepted: string
-      finishBothFirst: string
-      visualUnavailable: string
-      waitDesignForVisuals: string
-      step6Optional: string
-      actionAssets: string
-      lightingAssets: string
-      noLightingRecipesYet: string
-      furnitureAssets: string
-      assetDone: string
-      assetPending: string
-      selectPending: string
-      selectSomething: string
-      generate: string
-      rollSelected: string
-      batchProgress: string
-      generateFailed: string
-      noRecipesYet: string
-      furnitureDone: string
-      derivedUnavailable: string
-      finish: string
-      missingCharacter: string
-      slotFront: string
-      slotSide: string
-      slotBack: string
-      slotIdle: string
-      slotTalk: string
-      slotHappy: string
-      slotSad: string
-      slotSleep: string
-      slotWalkDown: string
-      slotWalkUp: string
-      slotWalkLeft: string
-      slotWalkRight: string
-      slotSit: string
-      slotStudy: string
-      slotListen: string
-      slotObserve: string
-      slotUse: string
-      slotPat: string
-      slotPoke: string
-      slotGift: string
-      slotWorldDawn: string
-      slotWorldDay: string
-      slotWorldDusk: string
-      slotWorldNight: string
     }
   }
 
@@ -2346,8 +2269,11 @@ export interface TranslationKeys {
     noEnabledPlatforms: string
     noEnabledPlatformsDesc: string
     platformReport: string
-    clickToView: string
     stagePlaying: string
+    stagePaused: string
+    heroStage: string
+    tipNoReports: string
+    tipNoReportsSub: string
     playAllReports: string
     refreshing: string
     refreshCurrentReport: string
@@ -2759,6 +2685,8 @@ export interface TranslationKeys {
     grantedPermissions: string
     reauthorizationRequired: string
     reauthorizationMessage: string
+    packageUnusable: string
+    packageUnusableMessage: string
 
     // 权限标签
     permRegisterWidget: string
@@ -3823,13 +3751,13 @@ export interface TranslationKeys {
       library: string[]
       brew: string[]
       reports: string[]
-      life: string[]
       config: string[]
       tapp: string[]
     }
     generalHints: string[]
     // 空状态
     heroSub: string
+    askArael: string
     recentConversations: string
     noRecentConversations: string
     unnamedConversation: string
@@ -3852,9 +3780,19 @@ export interface TranslationKeys {
     timeHoursAgo: string
     timeDaysAgo: string
     // 管理面板
+    tabPersona: string
     tabHeartbeat: string
     tabSkills: string
     tabMemory: string
+    personaName: string
+    personaPersonality: string
+    personaPersonalityHint: string
+    personaSave: string
+    personaReset: string
+    personaOwnerOnly: string
+    personaDoNotDisturb: string
+    personaLifeOff: string
+    statusNeedLogin: string
     emptyHeartbeat: string
     emptyHeartbeatHint: string
     emptySkills: string

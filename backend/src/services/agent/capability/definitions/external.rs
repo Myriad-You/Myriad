@@ -262,23 +262,30 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "time.info".to_string(),
         name: "时间信息".to_string(),
-        description: "获取当前时间、节假日等信息".to_string(),
+        description: "按 IANA / UTC / local / 固定偏移换算当前墙钟；未知时区失败".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "timezone": { "type": "string" },
-                "format": { "type": "string" }
+                "timezone": {
+                    "type": "string",
+                    "description": "IANA（Asia/Shanghai）、UTC、local、或 +08:00 / UTC+8"
+                }
             }
         }),
         output_schema: json!({
             "type": "object",
             "properties": {
                 "datetime": { "type": "string" },
+                "timestamp": { "type": "integer" },
                 "timezone": { "type": "string" },
                 "weekday": { "type": "string" },
-                "isHoliday": { "type": "boolean" }
+                "year": { "type": "integer" },
+                "month": { "type": "integer" },
+                "day": { "type": "integer" },
+                "hour": { "type": "integer" },
+                "minute": { "type": "integer" }
             }
         }),
         required_permissions: vec![],
@@ -415,7 +422,6 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "summary": { "type": "string" },
-                "interests": { "type": "array" },
                 "activities": { "type": "array" },
                 "platformStats": { "type": "object" }
             }

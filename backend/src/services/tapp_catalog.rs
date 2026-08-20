@@ -26,6 +26,9 @@ pub struct TappListItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locales: Option<serde_json::Value>,
     pub status: String,
+    /// 失败原因。`status = "error"` 时必须能读到，否则列表只显示「出错」而不可诊断。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
     pub installed_at: String,
     pub last_run_at: Option<String>,
     /// 是否为临时安装（普通用户安装的 Tapp）
@@ -53,6 +56,9 @@ pub struct TappDetail {
     pub theme_color: Option<String>,
     pub manifest: serde_json::Value,
     pub status: String,
+    /// 失败原因。`status = "error"` 时必须能读到，否则详情只显示「出错」而不可诊断。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
     pub granted_permissions: Vec<String>,
     #[serde(default)]
     pub needs_reauthorization: bool,
@@ -90,6 +96,38 @@ pub fn install_status_label(status: &tapps::TappStatus) -> String {
     format!("{status:?}").to_lowercase()
 }
 
+/// 不受支持的包结构给用户看的原因。
+pub const UNSUPPORTED_PACKAGE_REASON: &str =
+    "This package predates the layer contract. Reinstall a package that declares core / page / widgets layers.";
+
+/// 已安装记录是否是当前契约之外的旧结构。
+///
+/// 判据只做新字段存在性：不读旧字段、不尝试运行旧格式。放在投影层是为了让原因
+/// 随列表和详情一起出站——用户能否看到原因，不该取决于某次写库是否成功。
+pub fn unsupported_install_reason(manifest: &serde_json::Value) -> Option<&'static str> {
+    let has_layer = manifest.get("core").is_some()
+        || manifest.get("page").is_some()
+        || manifest
+            .get("widgets")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|widgets| !widgets.is_empty());
+    (!has_layer).then_some(UNSUPPORTED_PACKAGE_REASON)
+}
+
+/// 出站的状态与失败原因。不受支持的包结构盖掉库里的状态：它装着，但打不开。
+fn projected_status(tapp: &tapps::Model) -> (String, Option<String>) {
+    match unsupported_install_reason(&tapp.manifest) {
+        Some(reason) => (
+            install_status_label(&tapps::TappStatus::Error),
+            Some(reason.to_string()),
+        ),
+        None => (
+            install_status_label(&tapp.status),
+            tapp.error_message.clone(),
+        ),
+    }
+}
+
 /// Extract `manifest.locales` when it is a JSON object; otherwise `None`.
 pub fn manifest_locales(manifest: &serde_json::Value) -> Option<serde_json::Value> {
     manifest.get("locales").filter(|v| v.is_object()).cloned()
@@ -116,6 +154,7 @@ pub fn tapp_list_item_from_model(
     });
     let icon_svg = icon_svg_from_manifest(&tapp.manifest);
     let locales = manifest_locales(&tapp.manifest);
+    let (status, error_message) = projected_status(&tapp);
     let visibility =
         crate::services::tapp_ownership::normalize_tapp_visibility(&tapp.visibility).to_string();
     TappListItem {
@@ -126,7 +165,8 @@ pub fn tapp_list_item_from_model(
         icon: tapp.icon,
         icon_svg,
         locales,
-        status: install_status_label(&tapp.status),
+        status,
+        error_message,
         installed_at: tapp.installed_at.to_rfc3339(),
         last_run_at: tapp.last_run_at.map(|date| date.to_rfc3339()),
         is_temporary,
@@ -147,6 +187,8 @@ pub fn install_response_list_item(tapp: tapps::Model, is_site_owner_install: boo
     let mut item = tapp_list_item_from_model(tapp, is_temporary, is_admin_tapp);
     item.status = "installed".to_string();
     item.last_run_at = None;
+    // 契约报告 installed，带上残留失败原因会自相矛盾。
+    item.error_message = None;
     item
 }
 
@@ -181,6 +223,7 @@ pub fn tapp_detail_from_model(
             Ok(granted_permissions) => (granted_permissions, false),
             Err(_) => (Vec::new(), true),
         };
+    let (status, error_message) = projected_status(&tapp);
     let visibility =
         crate::services::tapp_ownership::normalize_tapp_visibility(&tapp.visibility).to_string();
     TappDetail {
@@ -191,8 +234,9 @@ pub fn tapp_detail_from_model(
         author: tapp.author,
         icon: tapp.icon,
         theme_color: tapp.theme_color,
+        status,
+        error_message,
         manifest: tapp.manifest,
-        status: install_status_label(&tapp.status),
         granted_permissions,
         needs_reauthorization,
         installed_at: tapp.installed_at.to_rfc3339(),
@@ -226,7 +270,7 @@ mod tests {
                 "id": "com.example.detail",
                 "name": "Detail",
                 "version": "1.0.0",
-                "main": "main.js",
+                "core": { "entry": "main.js" },
                 "iconSvg": "<svg/>",
                 "locales": { "zh-CN": { "name": "详情" } },
                 "permissions": ["storage:read", "brew:write", "ai:generate"]
@@ -248,6 +292,85 @@ mod tests {
     fn catalog_install_flags_private_vs_public() {
         assert_eq!(catalog_install_flags(false), (true, false));
         assert_eq!(catalog_install_flags(true), (false, true));
+    }
+
+    /// 只把状态投影成 error 而不带原因，用户只能看到「出错」，等于没有失效信号。
+    #[test]
+    fn error_reason_reaches_both_list_and_detail_projections() {
+        let mut model = sample_model(json!(["storage:read"]));
+        model.status = tapps::TappStatus::Error;
+        model.error_message = Some("Tapp package is not usable".to_string());
+
+        let item = tapp_list_item_from_model(model.clone(), true, false);
+        assert_eq!(item.status, "error");
+        assert_eq!(
+            item.error_message.as_deref(),
+            Some("Tapp package is not usable")
+        );
+
+        let detail = tapp_detail_from_model(
+            model,
+            UserRole::Admin,
+            true,
+            false,
+            &DynamicConfig::default(),
+        );
+        assert_eq!(detail.status, "error");
+        assert_eq!(
+            detail.error_message.as_deref(),
+            Some("Tapp package is not usable")
+        );
+    }
+
+    /// 不符合层契约的旧安装要在列表和详情里直接投影成可读失败，而不是等某次
+    /// 写库成功、也不是留给用户一个「打不开但不知道为什么」的卡片。
+    #[test]
+    fn unsupported_layout_projects_as_error_with_reason() {
+        let mut model = sample_model(json!(["storage:read"]));
+        model.manifest = json!({ "main": "main.js", "hasPage": true });
+        model.status = tapps::TappStatus::Installed;
+
+        let item = tapp_list_item_from_model(model.clone(), true, false);
+        assert_eq!(item.status, "error");
+        assert_eq!(item.error_message.as_deref(), Some(UNSUPPORTED_PACKAGE_REASON));
+
+        let detail = tapp_detail_from_model(
+            model,
+            UserRole::Admin,
+            true,
+            false,
+            &DynamicConfig::default(),
+        );
+        assert_eq!(detail.status, "error");
+        assert_eq!(
+            detail.error_message.as_deref(),
+            Some(UNSUPPORTED_PACKAGE_REASON)
+        );
+    }
+
+    /// 判据只做新字段存在性：任一层声明即算受支持，纯模板 Page 也算。
+    #[test]
+    fn any_declared_layer_is_supported() {
+        assert!(unsupported_install_reason(&json!({ "core": { "entry": "core.js" } })).is_none());
+        assert!(unsupported_install_reason(&json!({ "page": { "template": "page.html" } })).is_none());
+        assert!(unsupported_install_reason(&json!({
+            "widgets": [{ "id": "card", "entry": "widget.js" }]
+        }))
+        .is_none());
+        assert!(unsupported_install_reason(&json!({ "widgets": [] })).is_some());
+        assert!(unsupported_install_reason(&json!({})).is_some());
+    }
+
+    /// 安装响应固定报告 installed，不能带上上一轮安装的失败原因。
+    #[test]
+    fn install_response_clears_stale_error_reason() {
+        let mut model = sample_model(json!(["storage:read"]));
+        model.status = tapps::TappStatus::Error;
+        model.error_message = Some("stale".to_string());
+
+        let item = install_response_list_item(model, true);
+        assert_eq!(item.status, "installed");
+        assert!(item.error_message.is_none());
     }
 
     #[test]

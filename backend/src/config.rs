@@ -15,8 +15,7 @@ pub enum ModelTier {
 
 /// 单个 OAuth Provider 配置（OIDC / 其他）
 ///
-/// GitHub 仍走 `github_client_id` / `github_client_secret` 平铺字段（内置 provider）。
-/// 这里专门给 OIDC / 未来其他 provider 用。
+/// GitHub 也作为 kind="github" 的条目放进这个列表。
 ///
 /// 详见 [`docs/development/OAUTH.md`](../../docs/development/OAUTH.md)。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -39,6 +38,29 @@ pub struct OAuthProviderEntry {
     /// UI 图标 URL（可选；缺省时前端用默认 OIDC logo）
     #[serde(default)]
     pub icon_url: Option<String>,
+}
+
+/// 一个可复用的 AI 服务商源（同一 kind 可以有多条，用 slug 区分）。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct AiVendorSource {
+    pub slug: String,
+    /// openrouter | openai | openai_compatible | gemini | volcengine | tencent
+    pub kind: String,
+    pub display_name: String,
+    pub enabled: bool,
+    /// 前端预设 id（openrouter / deepseek / groq …），与 kind 独立。
+    #[serde(default)]
+    pub preset: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub secret_id: Option<String>,
+    #[serde(default)]
+    pub secret_key: Option<String>,
+    #[serde(default)]
+    pub region: Option<String>,
 }
 
 /// 解析后的 AI 配置（已根据 tier 确定具体的 provider/key/model）
@@ -305,11 +327,35 @@ pub struct DynamicConfig {
     pub tencent_secret_id: Option<String>,
     pub tencent_secret_key: Option<String>,
     pub tencent_region: Option<String>, // 默认 ap-guangzhou
+    /// 语音服务商：tencent | openai | openrouter
+    pub speech_provider: String,
+    /// 为 true 且专用密钥为空时，沿用 Standard 档文字模型的 OpenAI/OpenRouter 密钥
+    pub speech_reuse_text_credentials: bool,
+    pub speech_openai_api_key: Option<String>,
+    pub speech_openai_base_url: String,
+    pub speech_openrouter_api_key: Option<String>,
+    pub speech_stt_model: String,
+    pub speech_tts_model: String,
+    pub speech_tts_voice: String,
+
+    /// 全站共用的服务商凭据（文字 / 图片 / 语音都从这里取）
+    pub provider_openai_api_key: Option<String>,
+    pub provider_openai_base_url: String,
+    pub provider_openrouter_api_key: Option<String>,
+    pub provider_gemini_api_key: Option<String>,
+    pub provider_volcengine_api_key: Option<String>,
+    pub provider_volcengine_base_url: String,
+    /// 可添加的服务商源列表（OAuth providers 同款：可多家、可同 kind 多源）
+    pub ai_vendor_sources: Vec<AiVendorSource>,
+    pub ai_source: String,
+    pub lite_ai_source: String,
+    pub pro_ai_source: String,
+    pub ai_image_source: String,
+    pub speech_source: String,
 
     // UI 配置
     pub ui_wallpaper_url: Option<String>,
     pub ui_wallpaper_blur: i32,
-    pub ui_wallpaper_parallax: bool,
     // Evocative 壁纸动效
     pub ui_evocative_parallax: bool,
     pub ui_evocative_dynamic_blur: bool,
@@ -321,8 +367,6 @@ pub struct DynamicConfig {
     pub ui_theme: Option<String>,
     pub ui_primary_color: Option<String>,
     pub ui_secondary_color: Option<String>,
-    pub pet_enabled: bool,
-    pub pet_image_url: Option<String>,
 
     /// 第一方访客统计（pageview / engagement / event）是否开启；关闭后服务端拒绝采集
     pub analytics_enabled: bool,
@@ -373,6 +417,9 @@ pub struct DynamicConfig {
     pub ai_image_volcengine_api_key: Option<String>,
     pub ai_image_volcengine_base_url: String,
 
+    /// Agent 生命：设定、状态、主动对话、事件开口。默认关。
+    pub agent_life_enabled: bool,
+
     // 3D 模型生成配置（独立于 AI 图片 Provider）
     pub tripo_enabled: bool,
     pub tripo_api_key: Option<String>,
@@ -387,12 +434,7 @@ pub struct DynamicConfig {
     pub enable_auto_fetch: bool,
     pub fetch_interval_hours: i32,
 
-    // OAuth 配置（GitHub 是内置 provider，仍用平铺字段；其他 provider 走 oauth_providers）
-    pub github_client_id: Option<String>,
-    pub github_client_secret: Option<String>,
-    pub github_redirect_url: String,
-
-    /// 通用 OIDC providers 列表（PR #3）
+    /// OAuth providers（GitHub 为 kind="github"，其余为 OIDC）
     /// 详见 docs/development/OAUTH.md
     pub oauth_providers: Vec<OAuthProviderEntry>,
 
@@ -620,10 +662,30 @@ impl Default for DynamicConfig {
             tencent_secret_id: None,
             tencent_secret_key: None,
             tencent_region: Some("ap-guangzhou".to_string()),
+            speech_provider: "tencent".to_string(),
+            speech_reuse_text_credentials: true,
+            speech_openai_api_key: None,
+            speech_openai_base_url: "https://api.openai.com/v1".to_string(),
+            speech_openrouter_api_key: None,
+            speech_stt_model: String::new(),
+            speech_tts_model: String::new(),
+            speech_tts_voice: String::new(),
+            provider_openai_api_key: None,
+            provider_openai_base_url: "https://api.openai.com/v1".to_string(),
+            provider_openrouter_api_key: None,
+            provider_gemini_api_key: None,
+            provider_volcengine_api_key: None,
+            provider_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3"
+                .to_string(),
+            ai_vendor_sources: Vec::new(),
+            ai_source: String::new(),
+            lite_ai_source: String::new(),
+            pro_ai_source: String::new(),
+            ai_image_source: String::new(),
+            speech_source: String::new(),
 
             ui_wallpaper_url: None,
             ui_wallpaper_blur: 3,
-            ui_wallpaper_parallax: true,
             // Evocative 壁纸动效
             ui_evocative_parallax: true,
             ui_evocative_dynamic_blur: false,
@@ -633,8 +695,6 @@ impl Default for DynamicConfig {
             ui_theme: None,
             ui_primary_color: None,
             ui_secondary_color: None,
-            pet_enabled: true,
-            pet_image_url: None,
 
             analytics_enabled: true,
 
@@ -668,6 +728,7 @@ impl Default for DynamicConfig {
             ai_image_openrouter_api_key: None,
             ai_image_volcengine_api_key: None,
             ai_image_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
+            agent_life_enabled: false,
             // Tripo 3D（低模 Web 角色默认预算）
             tripo_enabled: false,
             tripo_api_key: None,
@@ -679,10 +740,6 @@ impl Default for DynamicConfig {
             tripo_max_download_mb: 64,
             enable_auto_fetch: false,
             fetch_interval_hours: 24,
-
-            github_client_id: None,
-            github_client_secret: None,
-            github_redirect_url: String::new(), // 自动从 base_url 生成
 
             oauth_providers: Vec::new(),
             allow_local_registration: false,
@@ -775,91 +832,406 @@ impl Default for DynamicConfig {
 }
 
 impl DynamicConfig {
+    /// 开关本身：环境变量 `AGENT_LIFE_ENABLED` 覆盖库里的 `agent_life_enabled`。
+    pub fn agent_life_switch_on(&self) -> bool {
+        match std::env::var("AGENT_LIFE_ENABLED") {
+            Ok(value) => matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            ),
+            Err(_) => self.agent_life_enabled,
+        }
+    }
+
+    /// 生命是否真的生效。
+    ///
+    /// 开口走 Lite，设定引导走 Pro。对应档关着时调用会回落到标准模型——同样的量，
+    /// 贵一档——所以两档都没开就不让这个开关生效，而不是让它悄悄花主力模型的钱。
+    /// （档开着但字段留空仍会回落，那是站长自己的选择，不在这里拦。）
+    pub fn agent_life_enabled_resolved(&self) -> bool {
+        self.agent_life_switch_on() && self.lite_enabled && self.pro_enabled
+    }
+
+    /// 开关开着却缺 Lite。用来在日志里说清为什么没生效。
+    pub fn agent_life_needs_lite(&self) -> bool {
+        self.agent_life_switch_on() && !self.lite_enabled
+    }
+
+    /// 开关开着却缺 Pro。设定引导和开关生效都要这一档。
+    pub fn agent_life_needs_pro(&self) -> bool {
+        self.agent_life_switch_on() && !self.pro_enabled
+    }
+
+    pub fn is_openrouter_base(url: &str) -> bool {
+        url.to_ascii_lowercase().contains("openrouter.ai")
+    }
+
+    fn first_nonempty_key(candidates: impl IntoIterator<Item = Option<String>>) -> Option<String> {
+        candidates.into_iter().find_map(|value| {
+            value
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+    }
+
+    fn first_nonempty_url<'a>(candidates: impl IntoIterator<Item = &'a str>) -> String {
+        candidates
+            .into_iter()
+            .map(str::trim)
+            .find(|s| !s.is_empty())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    pub fn shared_openrouter_api_key(&self) -> Option<String> {
+        Self::first_nonempty_key([
+            self.provider_openrouter_api_key.clone(),
+            self.speech_openrouter_api_key.clone(),
+            self.ai_image_openrouter_api_key.clone(),
+            Self::is_openrouter_base(&self.openai_base_url)
+                .then(|| self.openai_api_key.clone())
+                .flatten(),
+            Self::is_openrouter_base(&self.lite_openai_base_url)
+                .then(|| self.lite_openai_api_key.clone())
+                .flatten(),
+            Self::is_openrouter_base(&self.pro_openai_base_url)
+                .then(|| self.pro_openai_api_key.clone())
+                .flatten(),
+        ])
+    }
+
+    pub fn shared_openai_api_key(&self) -> Option<String> {
+        Self::first_nonempty_key([
+            self.provider_openai_api_key.clone(),
+            self.speech_openai_api_key.clone(),
+            self.ai_image_openai_api_key.clone(),
+            (!Self::is_openrouter_base(&self.openai_base_url))
+                .then(|| self.openai_api_key.clone())
+                .flatten(),
+            (!Self::is_openrouter_base(&self.lite_openai_base_url))
+                .then(|| self.lite_openai_api_key.clone())
+                .flatten(),
+            (!Self::is_openrouter_base(&self.pro_openai_base_url))
+                .then(|| self.pro_openai_api_key.clone())
+                .flatten(),
+        ])
+    }
+
+    pub fn shared_openai_base_url(&self) -> String {
+        let from_shared = self.provider_openai_base_url.trim();
+        if !from_shared.is_empty() && !Self::is_openrouter_base(from_shared) {
+            return from_shared.to_string();
+        }
+        for url in [
+            self.speech_openai_base_url.as_str(),
+            self.ai_image_openai_base_url.as_str(),
+            self.openai_base_url.as_str(),
+        ] {
+            if !url.trim().is_empty() && !Self::is_openrouter_base(url) {
+                return url.trim().to_string();
+            }
+        }
+        "https://api.openai.com/v1".to_string()
+    }
+
+    pub fn shared_gemini_api_key(&self) -> Option<String> {
+        Self::first_nonempty_key([
+            self.provider_gemini_api_key.clone(),
+            self.gemini_api_key.clone(),
+            self.lite_gemini_api_key.clone(),
+            self.pro_gemini_api_key.clone(),
+        ])
+    }
+
+    /// Standard 档解析后是否有可用文本 key（含 vendor / 共享库）。
+    pub fn text_ai_available(&self) -> bool {
+        self.resolve_ai_config(ModelTier::Standard)
+            .api_key
+            .as_ref()
+            .is_some_and(|key| !key.trim().is_empty())
+    }
+
+    /// Google Search grounding 只能走 Gemini。
+    ///
+    /// key 用共享 Gemini 库；模型优先当前 Standard 若本身就是 Gemini，
+    /// 否则借各档 `gemini_model`，再落到 grounding 默认型号。
+    pub fn resolve_gemini_grounding(&self) -> Option<(String, String)> {
+        let api_key = self.shared_gemini_api_key()?;
+        let resolved = self.resolve_ai_config(ModelTier::Standard);
+        let model = if resolved.provider == "gemini" && !resolved.model.trim().is_empty() {
+            resolved.model
+        } else {
+            let borrowed = Self::first_nonempty_url([
+                self.gemini_model.as_str(),
+                self.lite_gemini_model.as_str(),
+                self.pro_gemini_model.as_str(),
+            ]);
+            if borrowed.is_empty() {
+                "gemini-3.6-flash".to_string()
+            } else {
+                borrowed
+            }
+        };
+        Some((api_key, model))
+    }
+
+    pub fn shared_volcengine_api_key(&self) -> Option<String> {
+        Self::first_nonempty_key([
+            self.provider_volcengine_api_key.clone(),
+            self.ai_image_volcengine_api_key.clone(),
+        ])
+    }
+
+    pub fn shared_volcengine_base_url(&self) -> String {
+        let url = Self::first_nonempty_url([
+            self.provider_volcengine_base_url.as_str(),
+            self.ai_image_volcengine_base_url.as_str(),
+        ]);
+        if url.is_empty() {
+            "https://ark.cn-beijing.volces.com/api/v3".to_string()
+        } else {
+            url
+        }
+    }
+
+    pub fn vendor_kind_supports(kind: &str, capability: &str) -> bool {
+        match (kind, capability) {
+            ("openrouter" | "openai" | "openai_compatible", "text" | "image" | "speech") => true,
+            ("gemini", "text" | "image" | "speech") => true,
+            ("volcengine", "text" | "image") => true,
+            ("tencent", "speech") => true,
+            _ => false,
+        }
+    }
+
+    pub fn nonempty_opt(value: Option<&String>) -> Option<String> {
+        value
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn synthesize_vendor_sources(&self) -> Vec<AiVendorSource> {
+        let mut sources = Vec::new();
+        if let Some(api_key) = self.shared_openrouter_api_key() {
+            sources.push(AiVendorSource {
+                slug: "openrouter".to_string(),
+                kind: "openrouter".to_string(),
+                display_name: "OpenRouter".to_string(),
+                enabled: true,
+                preset: "openrouter".to_string(),
+                api_key: Some(api_key),
+                base_url: "https://openrouter.ai/api/v1".to_string(),
+                ..AiVendorSource::default()
+            });
+        }
+        if let Some(api_key) = self.shared_openai_api_key() {
+            sources.push(AiVendorSource {
+                slug: "openai".to_string(),
+                kind: "openai".to_string(),
+                display_name: "OpenAI".to_string(),
+                enabled: true,
+                preset: "openai".to_string(),
+                api_key: Some(api_key),
+                base_url: self.shared_openai_base_url(),
+                ..AiVendorSource::default()
+            });
+        }
+        if let Some(api_key) = self.shared_gemini_api_key() {
+            sources.push(AiVendorSource {
+                slug: "gemini".to_string(),
+                kind: "gemini".to_string(),
+                display_name: "Gemini".to_string(),
+                enabled: true,
+                preset: "gemini".to_string(),
+                api_key: Some(api_key),
+                ..AiVendorSource::default()
+            });
+        }
+        if let Some(api_key) = self.shared_volcengine_api_key() {
+            sources.push(AiVendorSource {
+                slug: "volcengine".to_string(),
+                kind: "volcengine".to_string(),
+                display_name: "Volcengine".to_string(),
+                enabled: true,
+                preset: "volcengine".to_string(),
+                api_key: Some(api_key),
+                base_url: self.shared_volcengine_base_url(),
+                ..AiVendorSource::default()
+            });
+        }
+        let tencent_id = Self::nonempty_opt(self.tencent_secret_id.as_ref());
+        let tencent_key = Self::nonempty_opt(self.tencent_secret_key.as_ref());
+        if tencent_id.is_some() || tencent_key.is_some() {
+            sources.push(AiVendorSource {
+                slug: "tencent".to_string(),
+                kind: "tencent".to_string(),
+                display_name: "Tencent Cloud".to_string(),
+                enabled: true,
+                preset: "tencent".to_string(),
+                secret_id: tencent_id,
+                secret_key: tencent_key,
+                region: self.tencent_region.clone(),
+                ..AiVendorSource::default()
+            });
+        }
+        sources
+    }
+
+    pub fn effective_vendor_sources(&self) -> Vec<AiVendorSource> {
+        if self.ai_vendor_sources.is_empty() {
+            self.synthesize_vendor_sources()
+        } else {
+            self.ai_vendor_sources.clone()
+        }
+    }
+
+    pub fn find_vendor_source(&self, slug: &str) -> Option<AiVendorSource> {
+        let slug = slug.trim();
+        if slug.is_empty() {
+            return None;
+        }
+        self.effective_vendor_sources()
+            .into_iter()
+            .find(|source| source.slug == slug)
+    }
+
+    fn inferred_text_source_slug(&self, provider: &str, base_url: &str) -> String {
+        if provider == "gemini" {
+            "gemini".to_string()
+        } else if Self::is_openrouter_base(base_url) {
+            "openrouter".to_string()
+        } else {
+            "openai".to_string()
+        }
+    }
+
+    pub fn resolve_from_vendor_source(
+        &self,
+        source: &AiVendorSource,
+        model: &str,
+    ) -> ResolvedAiConfig {
+        match source.kind.as_str() {
+            "gemini" => ResolvedAiConfig {
+                provider: "gemini".to_string(),
+                api_key: Self::nonempty_opt(source.api_key.as_ref())
+                    .or_else(|| self.shared_gemini_api_key()),
+                model: model.to_string(),
+                base_url: String::new(),
+            },
+            "openrouter" => ResolvedAiConfig {
+                provider: "openai".to_string(),
+                api_key: Self::nonempty_opt(source.api_key.as_ref())
+                    .or_else(|| self.shared_openrouter_api_key()),
+                model: model.to_string(),
+                base_url: if source.base_url.trim().is_empty() {
+                    "https://openrouter.ai/api/v1".to_string()
+                } else {
+                    source.base_url.trim().to_string()
+                },
+            },
+            _ => ResolvedAiConfig {
+                provider: "openai".to_string(),
+                api_key: Self::nonempty_opt(source.api_key.as_ref())
+                    .or_else(|| self.shared_openai_api_key()),
+                model: model.to_string(),
+                base_url: if source.base_url.trim().is_empty() {
+                    self.shared_openai_base_url()
+                } else {
+                    source.base_url.trim().to_string()
+                },
+            },
+        }
+    }
+
+    fn resolve_openai_compatible(&self, model: &str, selected_base: &str) -> ResolvedAiConfig {
+        if Self::is_openrouter_base(selected_base) {
+            ResolvedAiConfig {
+                provider: "openai".to_string(),
+                api_key: self.shared_openrouter_api_key(),
+                model: model.to_string(),
+                base_url: "https://openrouter.ai/api/v1".to_string(),
+            }
+        } else {
+            ResolvedAiConfig {
+                provider: "openai".to_string(),
+                api_key: self.shared_openai_api_key(),
+                model: model.to_string(),
+                base_url: self.shared_openai_base_url(),
+            }
+        }
+    }
+
     /// 根据模型层级解析 AI 配置
     ///
     /// Lite / Pro 仅在对应开关开启时使用独立配置；关闭或字段留空时回退到 Standard。
     pub fn resolve_ai_config(&self, tier: ModelTier) -> ResolvedAiConfig {
         if tier == ModelTier::Lite && self.lite_enabled {
-            return self.resolve_secondary_tier(
+            return self.resolve_tier(
+                &self.lite_ai_source,
                 &self.lite_ai_provider,
-                self.lite_gemini_api_key.clone(),
                 &self.lite_gemini_model,
-                self.lite_openai_api_key.clone(),
                 &self.lite_openai_model,
                 &self.lite_openai_base_url,
             );
         }
         if tier == ModelTier::Pro && self.pro_enabled {
-            return self.resolve_secondary_tier(
+            return self.resolve_tier(
+                &self.pro_ai_source,
                 &self.pro_ai_provider,
-                self.pro_gemini_api_key.clone(),
                 &self.pro_gemini_model,
-                self.pro_openai_api_key.clone(),
                 &self.pro_openai_model,
                 &self.pro_openai_base_url,
             );
         }
 
-        // 标准层级（含 Lite/Pro 关闭时的回退）
-        let provider = &self.ai_provider;
-        let (api_key, model, base_url) = if provider == "openai" {
-            (
-                self.openai_api_key.clone(),
-                self.openai_model.clone(),
-                self.openai_base_url.clone(),
-            )
-        } else {
-            (
-                self.gemini_api_key.clone(),
-                self.gemini_model.clone(),
-                String::new(),
-            )
-        };
-        ResolvedAiConfig {
-            provider: provider.clone(),
-            api_key,
-            model,
-            base_url,
-        }
+        self.resolve_tier(
+            &self.ai_source,
+            &self.ai_provider,
+            &self.gemini_model,
+            &self.openai_model,
+            &self.openai_base_url,
+        )
     }
 
-    fn resolve_secondary_tier(
+    fn resolve_tier(
         &self,
+        source_slug: &str,
         provider: &str,
-        gemini_api_key: Option<String>,
         gemini_model: &str,
-        openai_api_key: Option<String>,
         openai_model: &str,
         openai_base_url: &str,
     ) -> ResolvedAiConfig {
-        if provider == "openai" {
-            ResolvedAiConfig {
-                provider: "openai".to_string(),
-                api_key: openai_api_key
-                    .filter(|key| !key.trim().is_empty())
-                    .or_else(|| self.openai_api_key.clone()),
-                model: if openai_model.trim().is_empty() {
-                    self.openai_model.clone()
-                } else {
-                    openai_model.to_string()
-                },
-                base_url: if openai_base_url.trim().is_empty() {
-                    self.openai_base_url.clone()
-                } else {
-                    openai_base_url.to_string()
-                },
+        let base = if openai_base_url.trim().is_empty() {
+            self.openai_base_url.as_str()
+        } else {
+            openai_base_url
+        };
+        let slug = if source_slug.trim().is_empty() {
+            self.inferred_text_source_slug(provider, base)
+        } else {
+            source_slug.trim().to_string()
+        };
+        let model = if provider == "gemini" {
+            if gemini_model.trim().is_empty() {
+                self.gemini_model.clone()
+            } else {
+                gemini_model.to_string()
             }
+        } else if openai_model.trim().is_empty() {
+            self.openai_model.clone()
+        } else {
+            openai_model.to_string()
+        };
+        if let Some(source) = self.find_vendor_source(&slug) {
+            return self.resolve_from_vendor_source(&source, &model);
+        }
+        if provider == "openai" {
+            self.resolve_openai_compatible(&model, base)
         } else {
             ResolvedAiConfig {
                 provider: "gemini".to_string(),
-                api_key: gemini_api_key
-                    .filter(|key| !key.trim().is_empty())
-                    .or_else(|| self.gemini_api_key.clone()),
-                model: if gemini_model.trim().is_empty() {
-                    self.gemini_model.clone()
-                } else {
-                    gemini_model.to_string()
-                },
+                api_key: self.shared_gemini_api_key(),
+                model,
                 base_url: String::new(),
             }
         }
@@ -898,6 +1270,23 @@ mod tests {
         let cfg = AppConfig::default();
         assert!(!cfg.cors_origins.is_empty());
         assert!(cfg.cors_origins.iter().all(|o| o.contains("localhost")));
+    }
+
+    #[test]
+    fn shared_provider_keys_win_over_legacy_fields() {
+        let config = DynamicConfig {
+            provider_openrouter_api_key: Some("vault-or".to_string()),
+            openai_api_key: Some("legacy-or".to_string()),
+            openai_base_url: "https://openrouter.ai/api/v1".to_string(),
+            provider_openai_api_key: Some("vault-oa".to_string()),
+            ai_image_openai_api_key: Some("image-oa".to_string()),
+            ..DynamicConfig::default()
+        };
+        assert_eq!(config.shared_openrouter_api_key().as_deref(), Some("vault-or"));
+        assert_eq!(config.shared_openai_api_key().as_deref(), Some("vault-oa"));
+        let resolved = config.resolve_ai_config(ModelTier::Standard);
+        assert_eq!(resolved.api_key.as_deref(), Some("vault-or"));
+        assert!(resolved.base_url.contains("openrouter.ai"));
     }
 
     #[test]
@@ -948,5 +1337,36 @@ mod tests {
         assert_eq!(resolved.api_key.as_deref(), Some("std-key"));
         assert_eq!(resolved.model, "std/model");
         assert_eq!(resolved.base_url, "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn text_ai_available_follows_resolved_standard_not_raw_fields() {
+        let missing = DynamicConfig::default();
+        assert!(!missing.text_ai_available());
+
+        let vault_only = DynamicConfig {
+            ai_provider: "openai".to_string(),
+            openai_base_url: "https://api.openai.com/v1".to_string(),
+            provider_openai_api_key: Some("vault-oa".to_string()),
+            ..DynamicConfig::default()
+        };
+        assert!(vault_only.text_ai_available());
+    }
+
+    #[test]
+    fn gemini_grounding_uses_shared_key_even_when_text_tier_is_openai() {
+        let config = DynamicConfig {
+            ai_provider: "openai".to_string(),
+            openai_base_url: "https://api.openai.com/v1".to_string(),
+            gemini_api_key: None,
+            provider_gemini_api_key: Some("vault-gm".to_string()),
+            gemini_model: String::new(),
+            lite_gemini_model: "gemini-lite".to_string(),
+            ..DynamicConfig::default()
+        };
+        let (key, model) = config.resolve_gemini_grounding().expect("shared gemini");
+        assert_eq!(key, "vault-gm");
+        assert_eq!(model, "gemini-lite");
+        assert!(!config.text_ai_available());
     }
 }

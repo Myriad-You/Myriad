@@ -564,6 +564,17 @@ export function generateFullSDK(
       getAll: () => sendRequest('settings', 'getAll', []),
     },
 
+    shared: {
+      get: (k) => { validateStorageKey(k); return sendRequest('shared', 'get', [k]); },
+      set: (k, v) => { validateStorageKey(k); return sendRequest('shared', 'set', [k, v]); },
+      remove: (k) => { validateStorageKey(k); return sendRequest('shared', 'remove', [k]); },
+      keys: () => sendRequest('shared', 'keys', []),
+      getAll: () => sendRequest('shared', 'getAll', []),
+      clear: () => sendRequest('shared', 'clear', []),
+      usage: () => sendRequest('shared', 'usage', []),
+      onChanged: (cb) => addEventListener('sharedChanged', cb),
+    },
+
     ui: {
       setTitle: (t) => sendRequest('ui', 'setTitle', [t]),
       getTheme: () => sendRequest('ui', 'getTheme', []),
@@ -1002,6 +1013,7 @@ export function generateFullSDK(
   Object.freeze(Tapp.storage);
   Object.freeze(Tapp.dataExchange);
   Object.freeze(Tapp.settings);
+  Object.freeze(Tapp.shared);
   Object.freeze(Tapp.ui);
   Object.freeze(Tapp.ui.fullscreen);
   Object.freeze(Tapp.data);
@@ -1633,6 +1645,9 @@ function buildWidgetSdkBody(
       else if (msg.action === 'storageChanged') {
         eventListeners.get('storageChanged')?.forEach(function(cb) { try { cb(msg.payload); } catch(e) {} });
       }
+      else if (msg.action === 'sharedChanged') {
+        eventListeners.get('sharedChanged')?.forEach(function(cb) { try { cb(msg.payload); } catch(e) {} });
+      }
     }
   });
 
@@ -1736,6 +1751,17 @@ function buildWidgetSdkBody(
       get: function(k) { validateStorageKey(k); return sendRequest('settings', 'get', [k]); },
       set: function(k, v) { validateStorageKey(k); return sendRequest('settings', 'set', [k, v]); },
       getAll: function() { return sendRequest('settings', 'getAll', []); }
+    },
+
+    shared: {
+      get: function(k) { validateStorageKey(k); return sendRequest('shared', 'get', [k]); },
+      set: function(k, v) { validateStorageKey(k); return sendRequest('shared', 'set', [k, v]); },
+      remove: function(k) { validateStorageKey(k); return sendRequest('shared', 'remove', [k]); },
+      keys: function() { return sendRequest('shared', 'keys', []); },
+      getAll: function() { return sendRequest('shared', 'getAll', []); },
+      clear: function() { return sendRequest('shared', 'clear', []); },
+      usage: function() { return sendRequest('shared', 'usage', []); },
+      onChanged: function(cb) { return addEventListener('sharedChanged', cb); }
     },
 ${aiNs}${eventNs}${agentNs}${mediaNs}${platformNs}${analyticsNs}${reportNs}
     background: {
@@ -1876,6 +1902,7 @@ ${speechNs}
   Object.freeze(Tapp.storage);
   Object.freeze(Tapp.dataExchange);
   Object.freeze(Tapp.settings);
+  Object.freeze(Tapp.shared);
   Object.freeze(Tapp.background);
   Object.freeze(Tapp.animation);
   Object.freeze(Tapp.ui);

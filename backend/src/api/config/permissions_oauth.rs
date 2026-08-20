@@ -96,26 +96,14 @@ pub struct UpdatePermissionsPayload {
     pub user_perm_federation_post: Option<bool>,
     pub user_perm_federation_channel: Option<bool>,
     pub user_perm_federation_room: Option<bool>,
-    // 游客 elevated 配置；认证绑定字段仅为兼容旧请求，实际强制关闭
+    // 游客 elevated 配置
     pub guest_perm_ai_generate: Option<bool>,
     pub guest_perm_ai_analyze: Option<bool>,
     pub guest_perm_ai_chat: Option<bool>,
     pub guest_perm_ai_image: Option<bool>,
-    #[allow(dead_code)]
-    pub guest_perm_report_write: Option<bool>, // 忽略：强制 false
     pub guest_perm_network_fetch: Option<bool>,
     pub guest_perm_media_control: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
-    pub guest_perm_component_theme: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
-    pub guest_perm_shortcut_register: Option<bool>,
     pub guest_perm_event_publish: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
-    pub guest_perm_scheduler_register: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
-    pub guest_perm_speech_tts: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
-    pub guest_perm_speech_asr: Option<bool>,
     pub guest_perm_storage_write: Option<bool>,
     #[allow(dead_code)] // accepted for compatibility; federation writes need a durable subject
     pub guest_perm_federation_post: Option<bool>,
@@ -141,8 +129,6 @@ mod tapp_permission_payload_tests {
         let payload: UpdatePermissionsPayload = serde_json::from_value(serde_json::json!({
             "user_perm_speech_tts": true,
             "user_perm_speech_asr": false,
-            "guest_perm_speech_tts": false,
-            "guest_perm_speech_asr": true,
             "user_perm_storage_write": true,
             "guest_perm_storage_write": false,
             "user_perm_federation_post": true,
@@ -156,8 +142,6 @@ mod tapp_permission_payload_tests {
 
         assert_eq!(payload.user_perm_speech_tts, Some(true));
         assert_eq!(payload.user_perm_speech_asr, Some(false));
-        assert_eq!(payload.guest_perm_speech_tts, Some(false));
-        assert_eq!(payload.guest_perm_speech_asr, Some(true));
         assert_eq!(payload.user_perm_storage_write, Some(true));
         assert_eq!(payload.guest_perm_storage_write, Some(false));
         assert_eq!(payload.user_perm_federation_post, Some(true));
@@ -339,8 +323,7 @@ pub async fn update_permissions(
 // PR #6: OAuth Providers + 本地注册开关 — 专用端点
 // 详见 docs/development/OAUTH.md
 //
-// GitHub 可以作为 kind="github" 的 provider entry 配置；旧的
-// github_client_id/github_client_secret 字段保留为兼容镜像。
+// GitHub 走 kind="github" 的 provider entry，和 OIDC 一起放在 oauth_providers。
 // 这里集中处理 provider 列表 + 注册开关。
 
 /// GET /api/config/oauth-providers
@@ -355,7 +338,7 @@ pub async fn get_oauth_providers(
 ) -> (StatusCode, Json<Value>) {
     let config = dynamic_config.read().await;
 
-    let mut providers: Vec<Value> = config
+    let providers: Vec<Value> = config
         .oauth_providers
         .iter()
         .map(|p| {
@@ -372,34 +355,6 @@ pub async fn get_oauth_providers(
             })
         })
         .collect();
-
-    // 自动迁移：若 legacy github_client_id 有值但 entries 里没有 slug="github"，
-    // 合成一条只读 entry 展示给前端。客户端首次保存时会写到 oauth_providers。
-    let has_github_entry = config.oauth_providers.iter().any(|p| p.slug == "github");
-    if !has_github_entry {
-        if let (Some(cid), Some(_csec)) = (
-            config.github_client_id.as_ref().filter(|s| !s.is_empty()),
-            config
-                .github_client_secret
-                .as_ref()
-                .filter(|s| !s.is_empty()),
-        ) {
-            providers.insert(
-                0,
-                json!({
-                    "slug": "github",
-                    "kind": "github",
-                    "display_name": "GitHub",
-                    "enabled": true,
-                    "client_id": cid,
-                    "client_secret": "***",
-                    "scopes": Vec::<String>::new(),
-                    "discovery_url": null,
-                    "icon_url": null,
-                }),
-            );
-        }
-    }
 
     (
         StatusCode::OK,
@@ -506,21 +461,10 @@ pub async fn update_oauth_providers(
                     );
                 }
             }
-            // secret 回填：前端送 "***" 表示沿用
+            // secret 回填：前端送 "***" 表示沿用 oauth_providers 里已有的值
             if p.client_secret == "***" || p.client_secret.is_empty() {
                 if let Some(existing) = current.oauth_providers.iter().find(|e| e.slug == p.slug) {
                     p.client_secret = existing.client_secret.clone();
-                } else if p.kind == "github" && p.slug == "github" {
-                    // 从 legacy 字段拿一次作为初值
-                    if let Some(legacy) = current
-                        .github_client_secret
-                        .as_ref()
-                        .filter(|s| !s.is_empty())
-                    {
-                        p.client_secret = legacy.clone();
-                    } else {
-                        p.client_secret.clear();
-                    }
                 } else {
                     p.client_secret.clear();
                 }
@@ -571,20 +515,6 @@ pub async fn update_oauth_providers(
             "tapp_private_install_inactivity_days".to_string(),
             json!(days.clamp(1, 365)),
         );
-    }
-
-    // 兼容镜像：若 entries 里有 slug="github"，同时写到 legacy 平铺字段；
-    // 反之则清空它们，让 registry 不会同时拿到两份冲突的凭证。
-    if let Some(gh) = payload
-        .providers
-        .iter()
-        .find(|p| p.slug == "github" && p.kind == "github")
-    {
-        updates.insert("github_client_id".to_string(), json!(gh.client_id));
-        updates.insert("github_client_secret".to_string(), json!(gh.client_secret));
-    } else {
-        updates.insert("github_client_id".to_string(), json!(""));
-        updates.insert("github_client_secret".to_string(), json!(""));
     }
 
     if let Err(e) = config_service.update_configs(updates).await {

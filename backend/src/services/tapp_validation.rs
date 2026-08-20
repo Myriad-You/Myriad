@@ -33,8 +33,10 @@ pub use myriad_tapp_contract::contract_rules::{
     MAX_DATA_EXCHANGE_ID_LEN, MAX_DATA_EXCHANGE_RESPONSE_BYTES, MAX_DATA_EXCHANGE_SCHEMA_BYTES,
     MAX_RESOURCE_PATH_LEN, MAX_TAPP_ARCHIVE_BYTES, MAX_TAPP_ARCHIVE_FILES,
     MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES, MAX_TAPP_ASSETS, MAX_TAPP_ASSETS_TOTAL_BYTES,
-    MAX_TAPP_ASSET_BYTES, MAX_TAPP_CREDENTIALS, MAX_TAPP_GAME_ASSETS,
+    MAX_TAPP_ASSET_BYTES, MAX_TAPP_CREDENTIALS, MAX_TAPP_GAME_ARCHIVE_BYTES,
+    MAX_TAPP_GAME_ARCHIVE_FILES, MAX_TAPP_GAME_ARCHIVE_UNCOMPRESSED_BYTES, MAX_TAPP_GAME_ASSETS,
     MAX_TAPP_GAME_ASSETS_TOTAL_BYTES, MAX_TAPP_GAME_ASSET_BYTES, MAX_TAPP_GAME_MESSAGE_BYTES,
+    MAX_TAPP_GAME_RESOURCE_BYTES, MAX_TAPP_UPLOAD_BYTES,
     MAX_TAPP_GAME_PLAYERS, MAX_TAPP_GAME_PROTOCOL_LEN, MAX_TAPP_I18N_FILES,
     MAX_TAPP_I18N_RESOURCE_BYTES, MAX_TAPP_RUNTIME_MODULES, MIN_TAPP_GAME_PLAYERS,
     TAPP_RUNTIME_MODULES,
@@ -481,6 +483,69 @@ fn valid_locale_tag(tag: &str) -> bool {
         })
 }
 
+/// 层入口与层内资源路径校验。
+///
+/// 取代旧的 `main` 加一组平铺 styles/pageTemplate 字段：每层自带入口和资源，
+/// 页面存在与否由是否声明 `page` 层决定，不再有能与内容对不上的独立开关。
+fn validate_tapp_layers(manifest: &TappManifest) -> Result<(), String> {
+    let has_widgets = manifest
+        .widgets
+        .as_ref()
+        .is_some_and(|widgets| !widgets.is_empty());
+    if manifest.core.is_none() && manifest.page.is_none() && !has_widgets {
+        return Err("Tapp must declare at least one of core, page or widgets".to_string());
+    }
+
+    if let Some(core) = &manifest.core {
+        validate_resource_path(&core.entry)?;
+        validate_resource_extension(&core.entry, ".js", "core.entry")?;
+        if let Some(styles) = &core.styles {
+            validate_resource_path(styles)?;
+            validate_resource_extension(styles, ".css", "core.styles")?;
+        }
+    } else if manifest
+        .background_requirements
+        .as_ref()
+        .is_some_and(|requirements| !requirements.is_empty())
+    {
+        // 后台常驻只运行 core：没有 core 就没有任何可常驻的代码。
+        return Err("Tapp declaring backgroundRequirements must declare a core layer".to_string());
+    }
+
+    if let Some(page) = &manifest.page {
+        if page.entry.is_none() && page.template.is_none() {
+            return Err("Tapp page layer must declare entry and/or template".to_string());
+        }
+        if let Some(entry) = &page.entry {
+            validate_resource_path(entry)?;
+            validate_resource_extension(entry, ".js", "page.entry")?;
+        }
+        if let Some(template) = &page.template {
+            validate_resource_path(template)?;
+            validate_resource_extension(template, ".html", "page.template")?;
+        }
+        if let Some(styles) = &page.styles {
+            validate_resource_path(styles)?;
+            validate_resource_extension(styles, ".css", "page.styles")?;
+        }
+    }
+
+    if let Some(widgets) = &manifest.widgets {
+        for widget in widgets {
+            if let Some(entry) = &widget.entry {
+                validate_resource_path(entry)?;
+                validate_resource_extension(entry, ".js", "widgets[].entry")?;
+            }
+            if let Some(styles) = &widget.styles {
+                validate_resource_path(styles)?;
+                validate_resource_extension(styles, ".css", "widgets[].styles")?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     validate_tapp_id(&manifest.id)?;
     if manifest.name.trim().is_empty() || manifest.name.len() > 255 {
@@ -557,8 +622,7 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
             validate_http_url(value, field)?;
         }
     }
-    validate_resource_path(&manifest.main)?;
-    validate_resource_extension(&manifest.main, ".js", "main")?;
+    validate_tapp_layers(manifest)?;
     if let Some(required) = manifest.min_system_version.as_deref() {
         let required = parse_system_version(required)?;
         let current = semver::Version::parse(env!("CARGO_PKG_VERSION"))
@@ -599,42 +663,6 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
             return Err(format!("Duplicate Tapp permission: {permission}"));
         }
     }
-    if manifest
-        .css_mode
-        .as_deref()
-        .is_some_and(|mode| !matches!(mode, "unified" | "separated"))
-    {
-        return Err("Tapp cssMode must be unified or separated".to_string());
-    }
-
-    for (field, path, extension) in [
-        ("styles", manifest.styles.as_deref(), ".css"),
-        ("widgetStyles", manifest.widget_styles.as_deref(), ".css"),
-        ("pageStyles", manifest.page_styles.as_deref(), ".css"),
-        ("pageTemplate", manifest.page_template.as_deref(), ".html"),
-    ] {
-        let Some(path) = path else { continue };
-        validate_resource_path(path)?;
-        validate_resource_extension(path, extension, field)?;
-    }
-
-    if let Some(modules) = &manifest.page_modules {
-        if modules.len() > 64 {
-            return Err("Tapp pageModules accepts at most 64 entries".to_string());
-        }
-        let mut seen = std::collections::HashSet::new();
-        for module in modules {
-            if !is_safe_path_component(module)
-                || !module.ends_with(".js")
-                || !seen.insert(module.as_str())
-            {
-                return Err(format!(
-                    "Invalid or duplicate page module filename: {module}; expected a .js file relative to page/"
-                ));
-            }
-        }
-    }
-
     if let Some(modules) = &manifest.runtime_modules {
         if modules.len() > MAX_TAPP_RUNTIME_MODULES {
             return Err(format!(
@@ -1514,7 +1542,7 @@ mod tests {
             "id": "com.example.credential",
             "name": "Credential test",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "category": "utility",
             "permissions": ["network:fetch"],
             "credentials": [{ "key": "wegame", "label": "WeGame API Key" }],
@@ -1658,7 +1686,7 @@ mod tests {
             "id": "com.example.inbound",
             "name": "Inbound only",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "category": "utility",
             "permissions": ["network:fetch"],
             "credentials": [{ "key": "inbound", "label": "Inbound HMAC" }],
@@ -1921,12 +1949,11 @@ mod tests {
             description: None,
             locales: None,
             author: None,
-            main: "main.js".into(),
-            styles: None,
-            widget_styles: None,
-            page_styles: None,
-            page_template: None,
-            css_mode: None,
+            core: Some(myriad_tapp_contract::manifest::TappCoreLayer {
+                entry: "core.js".into(),
+                styles: None,
+            }),
+            page: None,
             permissions: vec!["ui:openUrl".into()],
             icon: None,
             icon_svg: None,
@@ -1935,12 +1962,10 @@ mod tests {
             repository: None,
             min_system_version: None,
             widgets: None,
-            has_page: false,
             background_requirements: None,
             settings: None,
             credentials: None,
             category: Some(TappCategory::Utility),
-            page_modules: None,
             runtime_modules: None,
             game: None,
             apis: None,
@@ -2040,7 +2065,7 @@ mod tests {
             "id": "com.example.permissions",
             "name": "Permissions test",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "category": "utility",
             "permissions": permissions,
         }))
@@ -2104,7 +2129,7 @@ mod tests {
             "id": "com.example.chess",
             "name": "Chess",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "category": "game",
             "permissions": [
                 "game:session",
@@ -2146,7 +2171,7 @@ mod tests {
             "id": "com.example.lab",
             "name": "Lab",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "category": "developer",
             "permissions": [],
             "runtimeModules": ["three"]

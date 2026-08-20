@@ -6,7 +6,7 @@
 #
 # 使用方法:
 #   启动 DB: docker compose -f docker-compose.dev.yml up -d postgres
-#   启动 updater 测试 harness: ./scripts/dev/dev.sh start updater
+#   启动 updater 测试 harness: ./scripts/dev.sh start updater
 #   停止: docker compose -f docker-compose.dev.yml down
 #   日志: docker compose -f docker-compose.dev.yml logs -f
 #
@@ -16,7 +16,7 @@
 # 本文件默认不启动 proxy/updater；updater 通过 profile 按需启动，并暴露到
 # 127.0.0.1:1101 供宿主机 backend 的 /api/admin/updater/* 代理测试。
 # 若要验证真实业务容器替换流程，请使用 docker-compose.yml 配合
-# scripts/docker/deploy.sh。
+# scripts/extra/deploy.sh。
 #
 # pgdata 也使用独立 named volume (postgres_dev_data)，避免污染生产 ./pgdata。
 # ============================================================================

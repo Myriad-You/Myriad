@@ -55,11 +55,13 @@ use store_stats::report_store_stats;
 use lifecycle::{get_recent_tapps, start_tapp, stop_tapp};
 use list_card_sizes::{get_list_card_sizes, put_list_card_sizes};
 pub use myriad_tapp_contract::manifest::*;
-use package_api::{export_tapp, get_tapp_asset, get_tapp_code, get_tapp_resources};
+use package_api::{export_tapp, get_tapp_asset, get_tapp_resources};
 pub(crate) use package_files::*;
 use storage::{
-    clear_storage, delete_storage, get_storage, get_storage_usage, get_tapp_setting,
-    get_tapp_settings, list_storage_entries, list_storage_keys, set_storage, set_tapp_setting,
+    clear_shared, clear_storage, delete_shared, delete_storage, get_shared, get_shared_usage,
+    get_storage, get_storage_usage, get_tapp_setting, get_tapp_settings, list_shared_entries,
+    list_shared_keys, list_storage_entries, list_storage_keys, set_shared, set_storage,
+    set_tapp_setting,
 };
 // Path-stable for manifest_tests / handlers that import via `super::`.
 pub(crate) use storage::validate_sandbox_storage_key;
@@ -105,19 +107,38 @@ pub fn create_tapp_routes(
     use axum::middleware::from_fn_with_state;
     // 需要登录的路由（安装/启停/设置/商店源；不含 storage）
     let authenticated_routes = Router::<crate::state::AppState>::new()
-        .route("/install", post(install_tapp))
-        .route("/install-file", post(install_tapp_file))
+        .route(
+            "/install",
+            post(install_tapp).layer(axum::extract::DefaultBodyLimit::max(
+                crate::services::tapp_validation::MAX_TAPP_UPLOAD_BYTES,
+            )),
+        )
+        .route(
+            "/install-file",
+            post(install_tapp_file).layer(axum::extract::DefaultBodyLimit::max(
+                crate::services::tapp_validation::MAX_TAPP_UPLOAD_BYTES,
+            )),
+        )
         .route("/cleanup-temporary", post(cleanup_temporary_tapps))
         // Write own list card sizes (site owner's row = public layout for guests)
         .route("/list-card-sizes", put(put_list_card_sizes))
         .route("/{tapp_id}", delete(uninstall_tapp))
-        .route("/{tapp_id}/update", post(update_tapp))
+        .route(
+            "/{tapp_id}/update",
+            post(update_tapp).layer(axum::extract::DefaultBodyLimit::max(
+                crate::services::tapp_validation::MAX_TAPP_UPLOAD_BYTES,
+            )),
+        )
         .route("/{tapp_id}/start", post(start_tapp))
         .route("/{tapp_id}/stop", post(stop_tapp))
         .route("/{tapp_id}/widgets", post(register_widget))
         .route("/{tapp_id}/widgets/{widget_id}", delete(unregister_widget))
         // Settings write stays authenticated; GET is optional-auth (public install read).
         .route("/{tapp_id}/settings/{key}", post(set_tapp_setting))
+        // Shared install-level data: owner/admin write, public-install visitors read.
+        .route("/{tapp_id}/shared", delete(clear_shared))
+        .route("/{tapp_id}/shared/{key}", post(set_shared))
+        .route("/{tapp_id}/shared/{key}", delete(delete_shared))
         // Credential values are write-only and installation-manager scoped.
         .route("/{tapp_id}/credentials", get(list_tapp_credential_statuses))
         .route("/{tapp_id}/credentials/{key}", post(put_tapp_credential))
@@ -151,7 +172,6 @@ pub fn create_tapp_routes(
         // Public list layout: guests read site-owner card sizes (no auth required)
         .route("/list-card-sizes", get(get_list_card_sizes))
         .route("/{tapp_id}", get(get_tapp))
-        .route("/{tapp_id}/code", get(get_tapp_code))
         .route("/{tapp_id}/resources", get(get_tapp_resources))
         .route("/{tapp_id}/asset", get(get_tapp_asset))
         .route("/{tapp_id}/export", get(export_tapp))
@@ -180,6 +200,10 @@ pub fn create_tapp_routes(
         )
         .route("/{tapp_id}/settings", get(get_tapp_settings))
         .route("/{tapp_id}/settings/{key}", get(get_tapp_setting))
+        .route("/{tapp_id}/shared", get(list_shared_keys))
+        .route("/{tapp_id}/shared/entries", get(list_shared_entries))
+        .route("/{tapp_id}/shared/usage", get(get_shared_usage))
+        .route("/{tapp_id}/shared/{key}", get(get_shared))
         .route("/{tapp_id}/storage", get(list_storage_keys))
         .route("/{tapp_id}/storage", delete(clear_storage))
         .route("/{tapp_id}/storage/entries", get(list_storage_entries))

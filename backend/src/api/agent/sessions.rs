@@ -65,6 +65,9 @@ pub async fn list_sessions(
     Query(query): Query<SessionListQuery>,
 ) -> Result<Json<Value>, HttpError> {
     let user_id = parse_user_id(&claims)?;
+    if crate::services::agent::life::is_logged_in_addressee(user_id) {
+        crate::services::agent::life::spawn_presence(user_id);
+    }
 
     let sessions = agent_sessions::Entity::find()
         .filter(agent_sessions::Column::UserId.eq(user_id))

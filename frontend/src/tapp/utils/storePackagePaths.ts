@@ -1,11 +1,11 @@
 /**
  * Resolve store-hosted package asset URLs (shared by RemoteStoreService).
  *
- * Package root = parent of main.js / manifest.json on the store host.
+ * Package root = parent of the core entry / manifest.json on the store host.
  * Asset URL relative path = `{packageRoot}/{assetPath}`.
  */
 
-/** Package dir on store host: parent of main.js / manifest.json. */
+/** Package dir on store host: parent of the core entry / manifest.json. */
 export function storePackageRoot(codeOrManifestPath: string): string {
   const path = codeOrManifestPath.trim().replace(/^\/+/, '')
   const i = path.lastIndexOf('/')

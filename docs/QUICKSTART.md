@@ -43,7 +43,7 @@ openssl rand -base64 32  # POSTGRES_PASSWORD
 openssl rand -base64 32  # JWT_SECRET
 ```
 
-`UPDATE_TOKEN` 与 `UPDATER_GATEWAY_SECRET` 可以留空；`scripts/docker/deploy.sh up` 会在首次启动时生成。
+`UPDATE_TOKEN` 与 `UPDATER_GATEWAY_SECRET` 可以留空；`scripts/extra/deploy.sh up` 会在首次启动时生成。
 
 `BASE_URL` 是联邦发现地址的来源。联邦客户端（例如商店应用 Aro）里显示的
 Actor URL 会形如 `https://yourdomain.com/users/<username>`，别人可以用这个
@@ -52,31 +52,27 @@ Actor URL 或 `@<username>@yourdomain.com` 来关注、建频道、邀请进房�
 ### 2. 启动
 
 ```bash
-bash scripts/docker/deploy.sh up
+bash scripts/extra/deploy.sh up
 ```
 
-Windows:
-
-```powershell
-.\scripts\docker\deploy.ps1 up
-```
+Windows 用 WSL / Git Bash 跑同一条命令，或直接 `docker compose up -d`。
 
 打开 `http://localhost`，或 `.env` 中 `HTTP_PORT` 指向的端口。首次访问会进入初始化向导，浏览器里可以直接做完。官方 compose 已经写好数据库，未设置 `MYRIAD_SETUP_SECRET` 会拒绝启动（`deploy.sh up` 会生成）。向导自己填库则不用。详见 [SETUP_BOOTSTRAP.md](deployment/SETUP_BOOTSTRAP.md)。
 
 ### 3. 常用运维命令
 
 ```bash
-bash scripts/docker/deploy.sh status
-bash scripts/docker/deploy.sh logs
-bash scripts/docker/deploy.sh restart
-bash scripts/docker/deploy.sh down
+bash scripts/extra/deploy.sh status
+bash scripts/extra/deploy.sh logs
+bash scripts/extra/deploy.sh restart
+bash scripts/extra/deploy.sh down
 ```
 
 手动切换镜像 tag 时，先编辑 `.env` 里的 `MYRIAD_TAG` / `PROXY_TAG` /
 `UPDATER_TAG`，再执行：
 
 ```bash
-bash scripts/docker/deploy.sh upgrade
+bash scripts/extra/deploy.sh upgrade
 ```
 
 日常更新应从管理员界面执行：`/config` -> `关于` -> `更新管理`。
@@ -88,25 +84,30 @@ bash scripts/docker/deploy.sh upgrade
 默认走本机 PostgreSQL。没有库时先 `db-setup`：
 
 ```bash
-./scripts/dev/dev.sh db-setup          # 本机还没有 myriad 库时
-./scripts/dev/dev.sh start             # 本机 PG + backend:1103 + frontend:1102
-./scripts/dev/dev.sh start --docker    # 改用 docker compose 起 postgres
-./scripts/dev/dev.sh status
+./scripts/dev.sh db-setup          # 本机还没有 myriad 库时
+./scripts/dev.sh                   # 实时 TUI：启动菜单 + 进程 / 数据库 / 日志
+./scripts/dev.sh start             # 本机 PG + backend:1103 + frontend:1102
+./scripts/dev.sh start --docker    # 改用 docker compose 起 postgres
+./scripts/dev.sh doctor            # 工具链、端口、数据库
+./scripts/dev.sh status            # 一次性快照（PID、健康、库大小）
+./scripts/dev.sh logs backend      # 看后台启动写入的 backend.log
 ```
 
 Windows:
 
 ```powershell
-.\scripts\dev\dev.ps1 start
-.\scripts\dev\dev.ps1 status
+.\scripts\dev.ps1 start
+.\scripts\dev.ps1 status
+.\scripts\dev.ps1 doctor
+.\scripts\dev.ps1 db-setup
 ```
 
 前端 dev server 会把 `/api/*`、`/health` 以及联邦公开路径（webfinger、nodeinfo、`/inbox`、`/users/*`、`/media/federation/*`）代理到 `:1103`。
 
-需要在开发 UI 里测试“更新管理”时：`./scripts/dev/dev.sh start all-updater`。
+需要在开发 UI 里测试“更新管理”时：`./scripts/dev.sh start all-updater`。
 
 真实镜像替换、维护模式、`pgdata` 快照和回滚仍应使用生产栈
-`scripts/docker/deploy.sh` 验证。无 Docker 生产部署见 [NATIVE_DEPLOYMENT.md](deployment/NATIVE_DEPLOYMENT.md)。
+`scripts/extra/deploy.sh` 验证。无 Docker 生产部署见 [NATIVE_DEPLOYMENT.md](deployment/NATIVE_DEPLOYMENT.md)。
 
 ## 数据备份
 
@@ -126,7 +127,7 @@ docker compose exec -T postgres psql -U myriad -d myriad < backups/backup_202401
 以下操作会删除应用数据：
 
 ```bash
-bash scripts/docker/deploy.sh down
+bash scripts/extra/deploy.sh down
 docker compose down -v
 rm -rf pgdata state backups
 ```
@@ -134,7 +135,7 @@ rm -rf pgdata state backups
 再次启动：
 
 ```bash
-bash scripts/docker/deploy.sh up
+bash scripts/extra/deploy.sh up
 ```
 
 ## 常见问题
@@ -154,14 +155,14 @@ HTTP_PORT=8080
 然后重启：
 
 ```bash
-bash scripts/docker/deploy.sh restart
+bash scripts/extra/deploy.sh restart
 ```
 
 ### 容器启动失败
 
 ```bash
-bash scripts/docker/deploy.sh status
-bash scripts/docker/deploy.sh logs
+bash scripts/extra/deploy.sh status
+bash scripts/extra/deploy.sh logs
 docker compose config
 ```
 
@@ -212,5 +213,5 @@ CORS_ORIGINS=http://localhost:1102,http://localhost:1103
 - [无 Docker 部署](deployment/NATIVE_DEPLOYMENT.md)
 - [Setup 安装暗号](deployment/SETUP_BOOTSTRAP.md)
 - [端口清单](deployment/PORTS.md)
-- [Updater 运维](UPDATER_QUICKSTART.md)
+- [Updater 运维](deployment/UPDATER_QUICKSTART.md)
 - [README](../README.md)

@@ -30,27 +30,44 @@ export function createStarterTemplate(directory, options = {}) {
     version: '0.1.0',
     description: 'A Myriad Tapp',
     category: 'utility',
-    main: 'main.js',
+    core: { entry: 'core.js', styles: 'styles.css' },
     author: { name: options.author || 'Tapp Developer' },
     permissions: [
       ...(hasPage ? ['ui:notification'] : []),
       ...(hasWidget ? ['widget:register'] : []),
     ],
-    ...(hasPage ? { hasPage: true, pageTemplate: 'page.html' } : {}),
-    ...(hasWidget ? { widgets: [{ id: 'starter', name: 'Starter Widget', defaultSize: '2x2', sizes: ['2x2', '4x2'], templates: { '2x2': 'templates/widget-2x2.html', '4x2': 'templates/widget-4x2.html' } }] } : {}),
-    styles: 'styles.css',
-    cssMode: 'unified',
+    ...(hasPage
+      ? { page: { entry: 'page/index.js', template: 'page.html' } }
+      : {}),
+    ...(hasWidget ? { widgets: [{ id: 'starter', name: 'Starter Widget', defaultSize: '2x2', sizes: ['2x2', '4x2'], entry: 'widget/index.js', templates: { '2x2': 'templates/starter-2x2.html', '4x2': 'templates/starter-4x2.html' } }] } : {}),
   }
-  const page = `// ========== Page Code ==========
+  // core 是共享层：三种模式都先执行它，层入口 require 它拿导出。
+  const core = `module.exports = {
+  appName: 'My Tapp',
+};
+`
+  const page = `var core = require('../core.js');
+
 Tapp.lifecycle.onReady(async function () {
   var root = document.getElementById('tapp-root');
   root.querySelector('[data-action="notify"]').addEventListener('click', function () {
-    Tapp.ui.showNotification({ title: 'My Tapp', message: 'The Page is running.', type: 'success' });
+    Tapp.ui.showNotification({ title: core.appName, message: 'The Page is running.', type: 'success' });
   });
 });
 `
-  const widget = `// ========== Widget Code ==========
-Tapp.widgets['starter'] = { render: function (container, props) { container.innerHTML = '<section class="widget"><strong>My Tapp</strong><span>' + props.size + '</span></section>'; } };
+  const widget = `var core = require('../core.js');
+
+Tapp.widgets['starter'] = { render: function (container, props) { container.innerHTML = '<section class="widget"><strong>' + core.appName + '</strong><span>' + props.size + '</span></section>'; } };
 `
-  return { type, hasPage, hasWidget, manifest, source: `${hasWidget ? widget : ''}${hasWidget && hasPage ? '\n' : ''}${hasPage ? page : ''}` }
+  return {
+    type,
+    hasPage,
+    hasWidget,
+    manifest,
+    modules: {
+      'core.js': core,
+      ...(hasPage ? { 'page/index.js': page } : {}),
+      ...(hasWidget ? { 'widget/index.js': widget } : {}),
+    },
+  }
 }

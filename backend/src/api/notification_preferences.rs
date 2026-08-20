@@ -35,7 +35,7 @@ pub async fn get_notification_preferences(
         "preferences": preferences,
         "catalog": {
             "sources": SOURCE_KEYS,
-            "events": EVENT_DEFINITIONS,
+            "events": EVENT_DEFINITIONS.as_slice(),
         }
     })))
 }

@@ -3,6 +3,7 @@ import type {
   LibrarySourcePreferences,
 } from '../../utils/librarySourcePreferences'
 import type {
+  ConfigurableModuleKey,
   ModuleVisibilityKey,
   ModuleVisibilityLevel,
   ModuleVisibilityPreferences,
@@ -25,7 +26,7 @@ import {
   normalizeLibraryPreferences,
 } from '../../utils/librarySourcePreferences'
 import {
-  MODULE_VISIBILITY_KEYS,
+  CONFIGURABLE_MODULE_KEYS,
   MODULE_VISIBILITY_LEVELS,
   normalizeModuleVisibilityPreferences,
 } from '../../utils/moduleVisibility'
@@ -424,31 +425,24 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
     [],
   )
 
-  const moduleLabels = useMemo<Record<ModuleVisibilityKey, string>>(
+  const moduleLabels = useMemo<Record<ConfigurableModuleKey, string>>(
     () => ({
       library: t.nav.library,
       brew: t.nav.brewReading,
       reports: t.nav.reports,
-      life: t.nav.life,
       tapp: t.nav.tapp,
       agent: t.nav.agent,
     }),
     [t],
   )
 
-  const moduleIcons = useMemo<Record<ModuleVisibilityKey, React.ReactNode>>(
+  const moduleIcons = useMemo<Record<ConfigurableModuleKey, React.ReactNode>>(
     () => ({
       library: (
         <LibrarySubtitleIcon className={MODULE_SETTING_TITLE_ICON_CLASS} />
       ),
       brew: <BrewTitleIcon className={MODULE_SETTING_TITLE_ICON_CLASS} />,
       reports: <ReportsTitleIcon className={MODULE_SETTING_TITLE_ICON_CLASS} />,
-      life: (
-        <MyriadConfigIcon
-          kind="agent"
-          className={MODULE_SETTING_TITLE_ICON_CLASS}
-        />
-      ),
       tapp: <MyriadStoreIcon className={MODULE_SETTING_TITLE_ICON_CLASS} />,
       agent: (
         <MyriadConfigIcon
@@ -599,7 +593,7 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
           minColumnWidth="16rem"
           ariaLabel={t.config.moduleVisibilityTitle}
         >
-          {MODULE_VISIBILITY_KEYS.map((moduleKey) => {
+          {CONFIGURABLE_MODULE_KEYS.map((moduleKey) => {
             const selectedVisibility = visibilityDraft.modules[moduleKey]
             return (
               <SettingGroup

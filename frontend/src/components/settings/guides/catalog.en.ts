@@ -1,9 +1,4 @@
 import type { SettingGuidesCatalog } from './types'
-import {
-  aiProvidersEn,
-  aiProvidersQuickAccessEn,
-} from './catalog.aiProviders.en'
-import { AI_PROVIDER_GUIDE_ORDER } from './catalog.aiProviders.order'
 
 /**
  * English setting guides (plain language + what connects to what)
@@ -532,6 +527,14 @@ export const en: SettingGuidesCatalog = {
   },
 
   ai: {
+    llm: {
+      what: 'The three text-model tiers: Standard for daily work, Lite to save, Pro for hard jobs.',
+      chain:
+        '1) Keys live in Providers above; here you only pick a source and model name.\n2) Standard is the default. Lite / Pro fall back to Standard when off.\n3) Agent life needs both Lite and Pro on.\n4) Permissions and quota still apply.',
+      frontend:
+        'Assistant chat, reports, and background text jobs use these tiers. Send one line in the assistant to test Standard first.',
+      notes: 'Get Standard working before turning on the other two.',
+    },
     standard: {
       what: 'The default smart setup for everyday chat, analysis, and generating reports.',
       chain:
@@ -547,10 +550,18 @@ export const en: SettingGuidesCatalog = {
       frontend: 'Users usually don’t see a separate page — mainly which setup simple background tasks use.',
       notes: 'Can use a different provider than Standard; safer to make sure Standard works first.',
     },
+    agentLife: {
+      what: 'Let Arael speak with the site persona, keep per-person mood and diary, and speak after named events.',
+      chain:
+        '1) Off by default. Off means chat and tasks only — no event listening, no hidden speech, persona unused.\n2) Requires the Lite and Pro tiers above. Missing either keeps this switch off so those calls do not fall back to Standard.\n3) On: the owner’s persona replaces the public soul; mood and diary stay per signed-in person. The setup page (tags, name, persona) runs through Pro.\n4) AGENT_LIFE_ENABLED can override the saved switch, but still needs Lite and Pro.\n5) Autonomic speech stays hidden; valuable events also notify if the person is not chatting.',
+      frontend:
+        'Chat uses this persona. Write it on this item’s secondary settings page. The first-level row shows your mood band and current activity. Guests do not see mood.',
+      notes: 'Only the site owner can write the persona. Diary cannot be deleted. Heartbeat is never blocked by mood.',
+    },
     liteEnable: {
       what: 'Whether to enable the Lite tier.',
       chain:
-        '1) Off = everything falls back to Standard.\n2) On = lite tasks use the Lite setup.\n3) Turning off does not delete what you already filled in.',
+        '1) Off = everything falls back to Standard.\n2) On = lite tasks use the Lite setup.\n3) Turning off does not delete what you already filled in.\n4) Agent life needs Lite and Pro; missing either keeps it off.',
       frontend: 'Indirectly affects which model is used; simple tasks can show cost/speed differences.',
       notes: 'If Standard still doesn’t work, don’t rush to enable Lite.',
     },
@@ -564,7 +575,7 @@ export const en: SettingGuidesCatalog = {
     proEnable: {
       what: 'Whether to enable the high-quality model tier.',
       chain:
-        '1) Off → hard tasks also fall back to Standard.\n2) On → hard tasks may use the high-quality provider/model.\n3) Still limited by permissions and quota; turning off does not delete keys.',
+        '1) Off → hard tasks also fall back to Standard.\n2) On → hard tasks may use the high-quality provider/model. Persona setup (tags, name, persona) also uses this tier.\n3) Still limited by permissions and quota; turning off does not delete keys.',
       frontend: 'Quality on hard assistant/report tasks. Ask the same hard question before/after.',
       notes: 'Keep off if cost-sensitive or Standard is enough.',
     },
@@ -576,11 +587,18 @@ export const en: SettingGuidesCatalog = {
       notes: 'Each provider writes model names differently — follow the on-page hints.',
     },
     speech: {
-      what: 'Account details for cloud voice features such as read-aloud and speech recognition.',
+      what: 'Which provider handles read-aloud and recognition: Tencent Cloud, OpenAI, or OpenRouter.',
       chain:
-        '1) Fill account details correctly → save.\n2) Assistant voice and read-aloud can then connect; use the on-page test to check.\n3) Permissions must also allow the matching voice abilities.\n4) Independent from text-model configuration.',
-      frontend: 'Voice input and read-aloud buttons. Click the on-page test first — simplest check.',
-      notes: 'Insufficient account rights fail the test; not the same secret key set as text AI.',
+        '1) Pick a provider and save. Keys live in Providers above.\n2) The on-page test speaks a short line and transcribes it back.\n3) Assistant TTS/ASR uses this section.\n4) OpenRouter has no official OpenAI TTS listing; transcription still works.',
+      frontend: 'Settings → AI → Speech. Use the on-page test first.',
+      notes: 'Official speech: pick OpenAI. Tencent secrets are under Providers.',
+    },
+    vendors: {
+      what: 'One set of credentials per vendor, shared by the whole site.',
+      chain:
+        '1) Use “Add provider” in the page header to pick a preset. You can add more than one of the same kind.\n2) Each source has its own name, ID, and key.\n3) Text, image, and speech pick from these sources.',
+      frontend: 'Settings → AI → “Add provider” in the section header.',
+      notes: 'You do not re-enter a key when switching models. New keys here win over older per-feature fields.',
     },
     provider: {
       what: 'Which smart-service company to use.',
@@ -610,10 +628,6 @@ export const en: SettingGuidesCatalog = {
       frontend: 'Differences in assistant answer quality and speed.',
       notes: 'Wrong name causes the call to fail; use the name from the provider’s console.',
     },
-    providersQuickAccess: aiProvidersQuickAccessEn,
-    providers: Object.fromEntries(
-      AI_PROVIDER_GUIDE_ORDER.map((id) => [id, aiProvidersEn[id]!]),
-    ) as SettingGuidesCatalog['ai']['providers'],
   },
 
   tripo: {
@@ -622,7 +636,7 @@ export const en: SettingGuidesCatalog = {
       chain:
         '1) Turn enable on, fill the API key (and optional base URL) → save config at the bottom.\n2) Fully independent from “AI configuration” image generation: reference images are only inputs to the 3D pipeline, not the same keys.\n3) Only when enabled and the key is valid may tasks that consume Tripo credits be created.\n4) The key is stored on the server only — never sent to browsers or embedded in model files.\n5) Outbound traffic uses the global proxy under Advanced settings; Tripo does not open a separate network path.',
       frontend:
-        'Settings → 3D & Tripo → “Tripo connection” group.\nDigital Life / 3D task creation entry points (admin).',
+        'Settings → 3D & Tripo → “Tripo connection” group.\n3D task creation entry points (admin).',
       notes: 'Get the key from platform.tripo3d.ai. Turning enable off greys out fields below but keeps what you already filled.',
     },
     enabled: {

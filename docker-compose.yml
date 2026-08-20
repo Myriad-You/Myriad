@@ -18,7 +18,7 @@
 # 直连 backend/frontend 端口和 :latest 镜像的旧布局已移除。
 #
 # ============================================================================
-# 必需变量（deploy.sh / deploy.ps1 会补齐当前布局所需目录、空 UPDATE_TOKEN /
+# 必需变量（scripts/extra/deploy.sh 会补齐当前布局所需目录、空 UPDATE_TOKEN /
 # UPDATER_GATEWAY_SECRET，以及宿主 Guard 策略中的 GUARD_SELF_UPDATE_TOKEN）
 # ============================================================================
 # MYRIAD_TAG             业务镜像版本，由 updater 维护

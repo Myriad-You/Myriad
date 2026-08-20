@@ -4,7 +4,6 @@ import type { WidgetConfig } from '../components/WidgetGrid'
 import {
   FaGithub,
   FaSteam,
-  FaTimes,
   FaXbox,
   FaXTwitter,
   LuGlobe,
@@ -16,7 +15,6 @@ import {
   SiPlaystation,
   SiYoutube,
 } from '@lib/icons'
-
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
@@ -61,9 +59,12 @@ import { notifyRecentActivityUpdated } from '../utils/recentActivity'
 import { REPORT_PLATFORM_IDS } from '../utils/reportCardVisuals'
 import { invalidateLatestReportCache } from '../utils/requestDedup'
 import { hasSessionHint } from '../utils/sessionDetection'
+import ReportsStatusBar from './reports/ReportsStatusBar'
+import { pickReportHook } from './reports/reportsDynamicStatus'
 import {
   REPORT_CARD_FLEX_BASIS,
   REPORT_CAROUSEL_CSS_VARS,
+  REPORT_STRIP_ALIGN_PAD,
 } from './reports/types'
 
 interface PlatformReport {
@@ -412,6 +413,22 @@ export default function Reports() {
     return map
   }, [report?.platform_reports])
 
+  const reportHighlights = useMemo(() => {
+    const items = []
+    for (const platform of visiblePlatforms) {
+      const report = platformReportsMap.get(platform.id)
+      if (!report) continue
+      const hook = pickReportHook(report)
+      if (!hook) continue
+      items.push({
+        platformId: platform.id,
+        platformName: platform.name,
+        hook,
+      })
+    }
+    return items
+  }, [visiblePlatforms, platformReportsMap])
+
   // 稳定的 ReportCardWidget config，避免每次渲染新建对象打破 memo
   const platformWidgetConfigs = useMemo(() => {
     const map: Record<string, WidgetConfig> = {}
@@ -708,6 +725,7 @@ export default function Reports() {
     isAuthenticated,
     hasChecked,
     checkAuth,
+    user,
   } = useAuth()
 
   // 智能检测：如果有登录迹象且未检查过，触发认证检查
@@ -954,213 +972,84 @@ export default function Reports() {
           <div className="flex-1 md:flex-none md:h-[60%] rounded-2xl relative overflow-hidden" />
 
           {/* 下半部分：卡片列表区域 - 移动端/桌面端都在下半部分 */}
-          <div className="md:h-[40%] flex flex-col gap-3 relative justify-end md:justify-start">
-            {/* 平台报告标题 - 绝对定位在整个区域 */}
-            <div
-              className={`absolute left-2 whitespace-nowrap pointer-events-none z-0 ${isStageMode ? 'hidden md:block' : ''}`}
-              style={{
-                top: `calc(25px - ${7.5 * titleFontSize}rem)`,
-                fontFamily: currentFont.family,
-                fontWeight: 700,
-                fontSize: `${6 * titleFontSize}rem`,
-                color: titleColorPrimary,
-                WebkitTextStroke: `0.5px color-mix(in srgb, ${titleColorPrimary} 30%, transparent)`,
-              }}
-            >
-              Character
-            </div>
-            <div className="flex flex-col gap-3 relative z-10">
+          <div className="md:h-[40%] flex flex-col relative justify-end md:justify-start">
+            <div className="flex flex-col relative z-10">
               {platformVisibilityReady && (
                 <>
-                  {/* 平台报告提示条 */}
-                  <motion.div
-                    className={`h-12.5 ${isStageMode ? 'mb-2 md:mb-0' : ''}`}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={
-                      isPageReady
-                        ? { opacity: 1, x: 0 }
-                        : { opacity: 0, x: -20 }
+                  <ReportsStatusBar
+                    isPageReady={isPageReady}
+                    isStageMode={isStageMode}
+                    stagePaused={stagePaused}
+                    stagePlatformId={stageReportData?.platform}
+                    stagePlatformName={
+                      stageReportData?.platform
+                        ? translatedPlatforms.find(
+                            (p) => p.id === stageReportData.platform,
+                          )?.name || stageReportData.platform
+                        : null
                     }
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{
-                      duration: 0.3,
-                      ease: 'easeOut',
-                      delay: isPageReady ? 0.1 : 0,
+                    stagePlatformHero={
+                      stageReportData?.platform === 'netease'
+                        ? 'NetEase'
+                        : PLATFORMS.find(
+                            (p) => p.id === stageReportData?.platform,
+                          )?.name ||
+                          stageReportData?.platform ||
+                          null
+                    }
+                    enabledPlatformCount={visiblePlatforms.length}
+                    reportCount={visiblePlatforms.filter((p) =>
+                      platformReportsMap.has(p.id),
+                    ).length}
+                    hasEnabledPlatforms={hasEnabledPlatforms}
+                    isAdmin={isAdmin}
+                    refreshingStage={refreshingStage}
+                    viewer={
+                      isAuthenticated
+                        ? {
+                            name: user?.display_name || user?.username,
+                            avatarUrl: user?.avatar_url,
+                          }
+                        : null
+                    }
+                    highlights={reportHighlights}
+                    stageCompactHero={isStageMode}
+                    copy={{
+                      heroStage: t.reportsPage.heroStage,
+                      platformReport: t.reportsPage.platformReport,
+                      noEnabledPlatforms: t.reportsPage.noEnabledPlatforms,
+                      stagePlaying: t.reportsPage.stagePlaying,
+                      stagePaused: t.reportsPage.stagePaused,
+                      tipNoReports: t.reportsPage.tipNoReports,
+                      tipNoReportsSub: t.reportsPage.tipNoReportsSub,
                     }}
-                  >
-                    <motion.div
-                      className="w-full md:w-[24%] h-full glass rounded-xl px-4 flex items-center gap-2 shadow-sm"
-                      whileHover={{ scale: 1.02 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      {isStageMode && stageReportData?.platform ? (
-                        // 舞台模式：显示当前播放的平台
-                        <>
-                          <div className="text-base">
-                            {
-                              translatedPlatforms.find(
-                                (p) => p.id === stageReportData.platform,
-                              )?.icon
-                            }
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate text-primary-color">
-                              {translatedPlatforms.find(
-                                (p) => p.id === stageReportData.platform,
-                              )?.name || stageReportData.platform}
-                            </div>
-                            <div className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
-                              {t.reportsPage.stagePlaying}
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        // 正常模式：显示默认提示
-                        <>
-                          <svg
-                            className="w-5 h-5 shrink-0 text-primary-color"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0a4 4 0 004-4v-4a2 2 0 012-2h4a2 2 0 012 2v4a4 4 0 01-4 4h-8z"
-                            />
-                          </svg>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate text-primary-color">
-                              {t.reportsPage.platformReport}
-                            </div>
-                            <div className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
-                              {hasEnabledPlatforms
-                                ? t.reportsPage.clickToView
-                                : t.reportsPage.noEnabledPlatforms}
-                            </div>
-                          </div>
-
-                          {/* 播放全部按钮 */}
-                          {hasEnabledPlatforms && (
-                            <button
-                              onClick={startPlayAll}
-                              className="w-8 h-8 rounded-lg bg-white dark:bg-neutral-800 hover:bg-gray-100 dark:hover:bg-neutral-600 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-all shadow-sm"
-                              title={t.reportsPage.playAllReports}
-                            >
-                              <svg
-                                className="w-4 h-4"
-                                fill="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path d="M8 5v14l11-7z" />
-                              </svg>
-                            </button>
-                          )}
-                        </>
-                      )}
-
-                      {/* 舞台模式控制按钮 - 仅在舞台模式下显示 */}
-                      {isStageMode && (
-                        <div className="flex items-center gap-2 ml-auto">
-                          {/* 刷新按钮 - 仅管理员 */}
-                          {isAdmin && (
-                            <button
-                              onClick={refreshStageReport}
-                              disabled={refreshingStage}
-                              className="w-8 h-8 rounded-lg bg-white dark:bg-neutral-800 hover:bg-gray-100 dark:hover:bg-neutral-600 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                              title={
-                                refreshingStage
-                                  ? t.reportsPage.refreshing
-                                  : t.reportsPage.refreshCurrentReport
-                              }
-                            >
-                              <motion.svg
-                                className="w-4 h-4"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                                animate={
-                                  refreshingStage
-                                    ? { rotate: 360 }
-                                    : { rotate: 0 }
-                                }
-                                transition={
-                                  refreshingStage
-                                    ? {
-                                        repeat: Infinity,
-                                        duration: 1,
-                                        ease: 'linear',
-                                      }
-                                    : { duration: 0 }
-                                }
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                />
-                              </motion.svg>
-                            </button>
-                          )}
-
-                          {/* 播放/暂停按钮 */}
-                          <button
-                            onClick={() => {
-                              // 触发StageMode内部的暂停状态切换
-                              window.dispatchEvent(
-                                new CustomEvent('stage-toggle-pause'),
-                              )
-                            }}
-                            className="w-8 h-8 rounded-lg bg-white dark:bg-neutral-800 hover:bg-gray-100 dark:hover:bg-neutral-600 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-all shadow-sm"
-                            title={
-                              stagePaused
-                                ? t.reportsPage.continuePlay
-                                : t.reportsPage.pause
-                            }
-                          >
-                            {stagePaused ? (
-                              <svg
-                                className="w-4 h-4"
-                                fill="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path d="M8 5v14l11-7z" />
-                              </svg>
-                            ) : (
-                              <svg
-                                className="w-4 h-4"
-                                fill="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
-                              </svg>
-                            )}
-                          </button>
-
-                          {/* 关闭按钮 */}
-                          <button
-                            onClick={closeStageMode}
-                            className="w-8 h-8 rounded-lg bg-white dark:bg-neutral-800 hover:bg-gray-100 dark:hover:bg-neutral-600 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-all shadow-sm"
-                            title={t.reportsPage.closeStage}
-                          >
-                            <FaTimes size={14} />
-                          </button>
-                        </div>
-                      )}
-                    </motion.div>
-                  </motion.div>
+                    actionTitles={{
+                      playAll: t.reportsPage.playAllReports,
+                      refreshing: t.reportsPage.refreshing,
+                      refreshCurrent: t.reportsPage.refreshCurrentReport,
+                      continuePlay: t.reportsPage.continuePlay,
+                      pause: t.reportsPage.pause,
+                      closeStage: t.reportsPage.closeStage,
+                    }}
+                    titleStyle={{
+                      top: `calc(30px - ${7.5 * titleFontSize}rem)`,
+                      fontFamily: currentFont.family,
+                      fontSize: `${6 * titleFontSize}rem`,
+                      color: titleColorPrimary,
+                      webkitTextStroke: `0.5px color-mix(in srgb, ${titleColorPrimary} 30%, transparent)`,
+                    }}
+                    onPlayAll={startPlayAll}
+                    onRefreshStage={refreshStageReport}
+                    onCloseStage={closeStageMode}
+                  />
                   {hasEnabledPlatforms && (
                     <motion.div
                       ref={platformStripScroll.ref}
                       className={`${isStageMode ? 'hidden md:flex' : 'flex'} relative left-1/2 w-dvw max-w-none -translate-x-1/2 gap-4 overflow-x-auto scrollbar-hide snap-x snap-mandatory touch-pan-x pt-8 pb-12 -mt-7 -mb-11 pr-3 xs:pr-4 sm:pr-6 md:pr-8 ${REPORT_CAROUSEL_CSS_VARS} ${platformStripScroll.className}`}
                       style={
                         {
-                          paddingLeft:
-                            'calc(max(var(--report-page-padding), (100dvw - 80rem) / 2) + 0.5rem)',
-                          scrollPaddingLeft:
-                            'calc(max(var(--report-page-padding), (100dvw - 80rem) / 2) + 0.5rem)',
+                          paddingLeft: REPORT_STRIP_ALIGN_PAD,
+                          scrollPaddingLeft: REPORT_STRIP_ALIGN_PAD,
                           ...platformStripScroll.style,
                         } as React.CSSProperties
                       }
@@ -1320,7 +1209,7 @@ export default function Reports() {
               )}
 
               {platformVisibilityReady && !hasEnabledPlatforms && (
-                  <div className="pt-8 pb-12 -mt-7 -mb-11">
+                  <div className="pt-8 pb-12 -mt-7 -mb-11 px-1">
                     <motion.div
                       className="relative rounded-2xl overflow-hidden min-h-55"
                       initial={{ opacity: 0, y: 12 }}

@@ -4,77 +4,47 @@
  * disk-based CLI projects (content still comes from the filesystem).
  */
 
-export const PACKAGE_MARKERS = {
-  widget: '// ========== Widget Code ==========',
-  page: '// ========== Page Code ==========',
-}
-
 export function assetPackagePath(path) {
   return path.startsWith('assets/') ? path : `assets/${path.replace(/^\/+/, '')}`
 }
 
-/**
- * Normalize Manifest defaults the same way Playground packaging does when
- * only on-disk files are available (no in-memory code structure).
- */
-export function normalizeManifestPaths(manifest) {
-  const next = { ...manifest }
-  if (!next.main || !String(next.main).trim()) next.main = 'main.js'
-  if (!next.cssMode) next.cssMode = 'unified'
-  if (next.hasPage === true && !next.pageTemplate && !(next.pageModules && next.pageModules.length)) {
-    next.pageTemplate = 'page.html'
+/** 层入口按固定顺序展开：core、page、各 widget。 */
+export function manifestLayerEntries(manifest) {
+  const entries = []
+  if (manifest?.core?.entry) entries.push(manifest.core.entry)
+  if (manifest?.page?.entry) entries.push(manifest.page.entry)
+  for (const widget of manifest?.widgets || []) {
+    if (widget?.entry) entries.push(widget.entry)
   }
-  if (Array.isArray(next.pageModules) && next.pageModules.length > 0) {
-    next.hasPage = true
-  }
-  return next
+  return entries
 }
 
 /**
  * Expected relative package paths for a disk project after validation.
+ *
+ * 只列 manifest 声明的层入口与层资源。入口 require 进来的文件属于包内实现，
+ * 由安装时扫描登记，不需要作者在 manifest 里逐个声明。
+ *
  * @param {object} options
  * @param {object} options.manifest
  * @param {string[]} [options.extraPaths] existing files already collected
  */
 export function expectedPackagePaths({ manifest, extraPaths = [] }) {
-  const normalized = normalizeManifestPaths(manifest)
-  const paths = new Set(['manifest.json', normalized.main || 'main.js'])
+  const paths = new Set(['manifest.json', ...manifestLayerEntries(manifest)])
 
-  if (normalized.styles) paths.add(normalized.styles)
-  if (normalized.widgetStyles) paths.add(normalized.widgetStyles)
-  if (normalized.pageStyles) paths.add(normalized.pageStyles)
-  if (normalized.pageTemplate) paths.add(normalized.pageTemplate)
+  if (manifest?.core?.styles) paths.add(manifest.core.styles)
+  if (manifest?.page?.styles) paths.add(manifest.page.styles)
+  if (manifest?.page?.template) paths.add(manifest.page.template)
 
-  for (const module of normalized.pageModules || []) {
-    paths.add(`page/${module}`)
-  }
-  for (const asset of normalized.assets || []) {
+  for (const asset of manifest?.assets || []) {
     paths.add(assetPackagePath(asset))
   }
-  for (const widget of normalized.widgets || []) {
-    for (const template of Object.values(widget.templates || {})) {
+  for (const widget of manifest?.widgets || []) {
+    if (widget?.styles) paths.add(widget.styles)
+    for (const template of Object.values(widget?.templates || {})) {
       if (template) paths.add(template)
     }
   }
   for (const path of extraPaths) paths.add(path)
   return [...paths].sort()
-}
-
-/**
- * Compose main.js the same way Playground does for structured code.
- * Disk projects usually already ship a composed main.js; this is for build.
- */
-export function buildMainJs({ core = '', widget = '', page = '', pageModules } = {}) {
-  const hasPageModules = pageModules && Object.keys(pageModules).length > 0
-  if (hasPageModules) {
-    return [
-      core || '',
-      widget ? `\n${PACKAGE_MARKERS.widget}\n${widget}` : '',
-    ].join('')
-  }
-  return [
-    core || '',
-    widget ? `\n${PACKAGE_MARKERS.widget}\n${widget}` : '',
-    page ? `\n${PACKAGE_MARKERS.page}\n${page}` : '',
-  ].join('')
 }

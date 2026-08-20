@@ -56,6 +56,7 @@ export function defaultUiFieldValue(key: string): string {
   if (key === 'music_playlist_id') return ''
   if (key === 'proxy_enabled') return 'false'
   if (key === 'memory_saver_enabled') return 'false'
+  if (key === 'agent_life_enabled') return 'false'
   if (key === 'proxy_url') return ''
   if (key === 'proxy_bypass') return ''
   if (key === 'gemini_base_url') return ''

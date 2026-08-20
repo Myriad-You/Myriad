@@ -4,7 +4,7 @@
  * @version 1.0.0
  */
 
-import type { ExampleTapp, TappCodeStructure } from './types'
+import type { ExampleTapp, TappPlaygroundCode } from './types'
 
 // 页面 HTML 模板
 const PAGE_HTML = `<!-- 背景层 -->
@@ -496,8 +496,8 @@ Tapp.lifecycle.onDestroy(async function() {
 });
 `
 
-// 导出 Tapp 定义
-const codeStructure: TappCodeStructure = {
+// 导出 Tapp 定义。core 是共享层，打包时落到 core.js，page 落到 page/index.js。
+const codeStructure: TappPlaygroundCode = {
   core: CORE_CODE,
   page: PAGE_CODE,
   styles: STYLES,
@@ -521,7 +521,8 @@ export const helloWorldTapp: ExampleTapp = {
       },
     },
     category: 'utility',
-    main: 'index.js',
+    core: { entry: 'core.js', styles: 'styles.css' },
+    page: { entry: 'page/index.js', template: 'page.html' },
     author: {
       name: 'Myriad Team',
       email: 'tapp@myriad.app',
@@ -531,7 +532,6 @@ export const helloWorldTapp: ExampleTapp = {
     iconSvg:
       "<svg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'><path d='M8 6L3 12l5 6M16 6l5 6-5 6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><path d='M14 4l-4 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
     themeColor: '#10B981',
-    hasPage: true,
   },
   code: codeStructure,
   tags: ['official', 'beginner', 'lifecycle', 'storage', 'i18n'],

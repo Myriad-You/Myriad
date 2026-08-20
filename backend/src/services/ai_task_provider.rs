@@ -1,6 +1,6 @@
 //! Provider-side execution for host-governed AI Tasks.
 //!
-//! Text (AiAnalyzer) and image (Pollinations) live here so the HTTP
+//! Text (AiAnalyzer) and image (configured providers) live here so the HTTP
 //! orchestration module does not own outbound provider logic. Task registry,
 //! quota, and local cancel state stay with the caller.
 
@@ -115,10 +115,9 @@ where
     Ok((raw, input_tokens, output_tokens))
 }
 
-/// Run an image provider (currently Pollinations URL construction).
+/// Run the configured image provider and persist the result locally.
 ///
-/// `on_progress` is reserved for providers that poll remote jobs; Pollinations
-/// completes immediately so it is unused today.
+/// `on_progress` is reserved for providers that poll remote jobs.
 /// Result value shape: `{ format: "image", value: { url, width, height }, contextProvenance: [] }`.
 pub async fn run_image_provider<F>(
     config: AiImageConfig,
@@ -130,27 +129,32 @@ pub async fn run_image_provider<F>(
 where
     F: FnMut(u32, u32) + Send,
 {
-    let width = width.clamp(256, 2048);
-    let height = height.clamp(256, 2048);
-    if config.provider == "pollinations" {
-        return Ok(json!({
-            "format": "image",
-            "value": {
-                "url": format!(
-                    "https://image.pollinations.ai/prompt/{}?width={width}&height={height}&model={}&nologo=true&private=true&enhance=true",
-                    urlencoding::encode(prompt),
-                    urlencoding::encode(&config.model),
-                ),
-                "width": width,
-                "height": height,
-            },
-            "contextProvenance": [],
-        }));
-    }
-    Err(ProviderError::new(
-        "AI_PROVIDER_UNAVAILABLE",
-        "Configured image provider is not supported",
-    ))
+    let generated = crate::services::image_generation::generate_image(
+        &crate::services::image_generation::ImageGenerationConfig {
+            provider: config.provider,
+            model: config.model,
+            api_key: config.api_key,
+            base_url: config.base_url,
+        },
+        prompt,
+        width,
+        height,
+        None,
+    )
+    .await
+    .map_err(|error| ProviderError::new("AI_PROVIDER_ERROR", error.to_string()))?;
+    let url = crate::services::image_generation::persist_generated(&generated)
+        .await
+        .map_err(|error| ProviderError::new("AI_PROVIDER_ERROR", error.to_string()))?;
+    Ok(json!({
+        "format": "image",
+        "value": {
+            "url": url,
+            "width": generated.width,
+            "height": generated.height,
+        },
+        "contextProvenance": [],
+    }))
 }
 
 #[cfg(test)]

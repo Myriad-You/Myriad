@@ -11,14 +11,14 @@ Manifest 是 Tapp 的核心配置文件，定义了应用的元数据、权限�
 | `version`                | string   | ✅   | 版本号（语义化版本）               |
 | `description`            | string   | ❌   | 应用描述                           |
 | `locales`                | object   | ❌   | 名称/描述的多语言覆盖（见下文）    |
-| `main`                   | string   | ✅   | 入口文件名                         |
+| `core`                   | object   | ❌   | 共享层 `{entry, styles?}`（见下文） |
+| `page`                   | object   | ❌   | 页面层 `{entry?, template?, styles?}` |
 | `author`                 | object   | ❌   | 作者信息 `{name, email?, url?}`    |
 | `permissions`            | string[] | ❌   | 所需权限列表                       |
 | `icon`                   | string   | ❌   | 图标（emoji 或 URL）               |
 | `iconSvg`                | string   | ❌   | 内联 SVG 图标代码（优先于 icon）   |
 | `themeColor`             | string   | ❌   | 主题色（十六进制，如 #6366f1）     |
 | `widgets`                | object[] | ❌   | 小组件定义                         |
-| `hasPage`                | boolean  | ❌   | 是否有页面模块（可在页面模式运行） |
 | `backgroundRequirements` | string[] | ❌   | 启动后需常驻的 headless core 能力  |
 | `settings`               | object[] | ❌   | 用户可配置的设置项                 |
 | `apis`                   | object   | ❌   | 命名 API 声明（代理+权限校验）     |
@@ -29,12 +29,6 @@ Manifest 是 Tapp 的核心配置文件，定义了应用的元数据、权限�
 | `minSystemVersion`       | string   | ❌   | 最低兼容 Myriad 语义版本           |
 | `homepage`               | string   | ❌   | 应用主页 URL                       |
 | `repository`             | string   | ❌   | 代码仓库 URL                       |
-| `styles`                 | string   | ❌   | 自定义样式文件路径                 |
-| `cssMode`                | string   | ❌   | `unified`（默认）或 `separated`    |
-| `widgetStyles`           | string   | ❌   | Widget 专用 CSS 路径               |
-| `pageStyles`             | string   | ❌   | Page 专用 CSS 路径                 |
-| `pageTemplate`           | string   | ❌   | 页面 HTML 模板路径                 |
-| `pageModules`            | string[] | ❌   | `page/` 模块执行顺序               |
 | `category`               | string   | ✅   | 应用用途分类（稳定 ID）            |
 | `assets`                 | string[] | ❌   | 包内静态资源路径（须在 `assets/` 下） |
 | `openUrls`               | object[] | ❌   | 宿主代开的外链 allowlist（配合 `ui:openUrl`） |
@@ -44,13 +38,13 @@ Manifest 是 Tapp 的核心配置文件，定义了应用的元数据、权限�
 
 所有资源路径都是相对安装根目录的安全路径。`.tapp` 文件安装会保留经过校验的嵌套
 目录，例如 `templates/widget-2x2.html`；direct/store 安装也会把内容写到 Manifest
-声明的位置。绝对路径、隐藏组件和 `..` 会被拒绝。`pageModules` 的每项是 `page/`
-目录内的文件名，不能再次包含目录前缀。`main` 必须是 `.js`，样式路径必须是 `.css`，
+声明的位置。绝对路径、隐藏组件和 `..` 会被拒绝。层入口必须是 `.js`，样式路径必须是 `.css`，
 Page/Widget 模板必须是 `.html`；代码与模板类声明资源必须是安装目录内的普通 UTF-8 文本
 文件。`assets` 允许二进制（贴图、音频、wasm、JSON 关卡等），路径必须位于 `assets/`
-下，且不得使用 `.js` / `.html` 扩展名；默认单文件 ≤ 5 MiB，合计 ≤ 20 MiB，最多 64 项。
+下，且不得使用 `.js` / `.html` 扩展名；默认单文件 ≤ 16 MiB，合计 ≤ 64 MiB，最多 128 项。
 `category` 为 `game` 或 `developer`，并且声明了 `game` 或 `runtimeModules` 时，放宽到
-单文件 12 MiB / 合计 48 MiB / 128 项。资源读取不会跟随安装后插入的符号链接。运行时通过
+单文件 32 MiB / 合计 128 MiB / 256 项。整包 ZIP 对应为普通 64 MiB / 合计 128 MiB，
+游戏档 128 MiB / 合计 256 MiB。资源读取不会跟随安装后插入的符号链接。运行时通过
 `Tapp.assets` 读取，详见 [图形与轻量游戏](GRAPHICS.md)。
 
 ### 游戏会话与宿主 Three（`game` / `runtimeModules`）
@@ -168,7 +162,7 @@ Manifest 采用严格字段校验：未声明字段、拼写错误以及已经�
 | `social`       | 社交、消息与协作           |
 | `utility`      | 无法归入上述用途的通用工具 |
 
-Page、Widget 和 headless core 是运行形态，由 `hasPage`、`widgets` 和
+Page、Widget 和 headless core 是运行形态，由 `page`、`widgets` 和
 `backgroundRequirements` 表达，不得填入 `category`。`demo` 和 `test`
 属于发布阶段，应使用商店标签表达。宿主会把旧值 `tools`、`games`、
 `development`、`music`、`visualization` 等规范为上述 ID；新包应直接使用规范值。
@@ -180,7 +174,7 @@ Page、Widget 和 headless core 是运行形态，由 `hasPage`、`widgets` 和
 
 `version` 必须是语义版本；`themeColor` 使用 `#RRGGBB`；`homepage`、`repository` 和
 作者主页只接受 HTTP(S)。声明 Widget 必须同时声明 `widget:register`；所有 HTTP API
-必须声明 `network:fetch`，内置 AI API 必须声明对应的 `ai:*` 权限。`pageModules` 只接受
+必须声明 `network:fetch`，内置 AI API 必须声明对应的 `ai:*` 权限。层入口只接受
 不重复的 `.js` 文件名。无效声明会在安装或更新时直接拒绝，不留到运行时静默失败。
 
 `minSystemVersion` 使用语义版本。直接安装、商店安装和更新都会由后端与当前 Myriad
@@ -222,7 +216,8 @@ Page、Widget 和 headless core 是运行形态，由 `hasPage`、`widgets` 和
   "version": "1.0.0",
   "description": "一个功能丰富的 Tapp 示例",
   "category": "utility",
-  "main": "index.js",
+  "core": { "entry": "core.js", "styles": "styles.css" },
+  "page": { "entry": "page/index.js", "template": "page.html" },
   "author": {
     "name": "开发者名称",
     "email": "dev@example.com",
@@ -236,7 +231,6 @@ Page、Widget 和 headless core 是运行形态，由 `hasPage`、`widgets` 和
     "platform:read",
     "network:fetch"
   ],
-  "hasPage": true,
   "backgroundRequirements": ["scheduler", "sync"],
   "homepage": "https://example.com",
   "repository": "https://github.com/example/my-tapp",
@@ -260,7 +254,8 @@ Page、Widget 和 headless core 是运行形态，由 `hasPage`、`widgets` 和
       "icon": "📊",
       "defaultSize": "2x2",
       "sizes": ["1x1", "1x2", "2x1", "2x2", "4x2", "4x4"],
-      "category": "utility"
+      "category": "utility",
+      "entry": "widget/index.js"
     }
   ],
   "settings": [
@@ -422,21 +417,28 @@ scheduler/headless core，而不是依赖 Widget 的可见计时器。
 
 ---
 
-## hasPage 配置
+## 层声明
 
-声明应用是否有页面模块。设为 `true` 后，运行中的 Tapp 可以点击打开页面视图。
+包按层组织。`core` 是三层共享层，`page` 是页面层，`widgets[]` 各自一层；每层用
+`entry` 声明自己的 `.js` 入口，用 `styles` 声明自己的作者样式。
 
 ```json
 {
-  "hasPage": true
+  "core": { "entry": "core.js", "styles": "styles.css" },
+  "page": { "entry": "page/index.js", "template": "page.html" }
 }
 ```
 
-### 页面模块的作用
+至少要声明 `core`、`page`、`widgets` 之一。声明了 `backgroundRequirements` 必须有
+`core`——后台常驻只运行 core。
 
-页面模块允许 Tapp 提供完整的页面体验，而不仅仅是小组件。当用户点击运行中的 Tapp 时，会打开一个全屏页面视图。
+声明 `page` 层即表示这个应用有可打开的页面：宿主据此决定卡片能不能点开、Dock 里是否
+列出，不存在独立的开关字段可以和实际内容对不上。`page` 层至少要有 `entry` 或
+`template` 之一。
 
-### 何时声明 `hasPage: true`
+层内想拆多个文件时用相对路径 `require`，不需要在 Manifest 里声明清单。
+
+### 何时声明 `page` 层
 
 - 应用需要提供详细的配置界面
 - 应用需要展示大量数据（如列表、报告、仪表盘）
@@ -445,10 +447,10 @@ scheduler/headless core，而不是依赖 Widget 的可见计时器。
 
 ### 代码结构要求
 
-声明 `hasPage: true` 后，需要在 `PAGE_CODE` 中定义页面渲染逻辑：
+声明 `page` 层后，在 `page.entry` 指向的文件里定义页面渲染逻辑：
 
 ```javascript
-// PAGE_CODE 中
+// page/index.js
 Tapp.pages["my-page"] = {
   render: function (container, locale, isDark, primaryColor) {
     var bgLayer = document.getElementById("tapp-background");
@@ -525,8 +527,9 @@ const allSettings = await Tapp.settings.getAll();
 
 Manifest 设置属于安装级配置：安装 owner 或管理员可修改；能打开该安装的运行者（含游客打开
 **公开**安装）可通过 `Tapp.settings.get` / `getAll` 读取已保存值，未保存则用上表
-`defaultValue`。`Tapp.storage` 是当前登录用户的私有空间，不能使用 `_settings.` 等宿主保留
-前缀访问安装级设置。公开安装请勿把密钥写入 settings。
+`defaultValue`。`Tapp.storage` 是当前登录用户的私有空间，不能使用 `_settings.` / `_shared.`
+等宿主保留前缀访问安装级数据。要给访客看的站长数据用 `Tapp.shared`，不要塞进 settings。
+公开安装请勿把密钥写入 settings 或 shared。
 
 ### 安装级 API 凭据 (`credentials`)
 

@@ -50,7 +50,7 @@ describe('sandboxed fetch (Three FileLoader shape)', () => {
           id: 'com.example.assets',
           name: 'Assets',
           version: '1.0.0',
-          main: 'main.js',
+          core: { entry: 'core.js' },
           permissions: [],
           category: 'utility',
           assets: ['assets/cube.glb'],

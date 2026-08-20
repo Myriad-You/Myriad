@@ -408,7 +408,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         input_schema: json!({
             "type": "object",
             "properties": {
-                "action": { "type": "string", "enum": ["start", "stop", "refresh"] },
+                "action": { "type": "string", "enum": ["start", "stop", "refresh", "status"] },
                 "sourceId": { "type": "integer" }
             },
             "required": ["action"]
@@ -416,13 +416,22 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
+                "success": { "type": "boolean" },
+                "action": { "type": "string" },
                 "status": { "type": "string" },
+                "attempted": { "type": "integer" },
+                "refreshed": { "type": "integer" },
+                "failed": { "type": "integer" },
+                "newItems": { "type": "integer" },
+                "sourceId": { "type": "integer" },
+                "running": { "type": "boolean" },
+                "available": { "type": "boolean" },
                 "message": { "type": "string" }
             }
         }),
         required_permissions: vec!["brew:admin".to_string()],
         requires_ai: false,
-        estimated_duration_ms: Some(1000),
+        estimated_duration_ms: Some(30000),
         requires_confirmation: true,
         confirmation_message: Some("即将控制 Brew 订阅调度器（启动/停止/刷新）".to_string()),
         risk_level: RiskLevel::Medium,

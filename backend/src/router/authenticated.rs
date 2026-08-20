@@ -25,23 +25,6 @@ pub(super) fn build_authenticated_router(
         // Note: /api/config routes are now registered above with wrappers, not here
         // Note: /api/profile/user-info, metadata now registered above with wrappers
         .route("/api/platforms", get(api::platforms::list_platforms))
-        .route("/api/profiles", get(api::platforms::get_profiles))
-        .route(
-            "/api/fetch",
-            post(api::platforms::trigger_fetch).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
-        )
-        .route(
-            "/api/analysis",
-            get(api::analysis::get_analysis)
-                .post(api::analysis::trigger_analysis)
-                .route_layer(from_fn_with_state(
-                    app_state.clone(),
-                    middleware::auth::auth_middleware,
-                )),
-        )
         // Prompt generation -  REQUIRE AUTHENTICATION
         .route(
             "/api/prompt/generate",
@@ -211,7 +194,7 @@ pub(super) fn build_authenticated_router(
             "/api/agent",
             api::agent::create_agent_routes(app_state.clone()),
         )
-        // Digital Life 3D
+        // Tripo 3D
         // Provider operations are admin-only; content-addressed GLB assets
         // remain public so guest home scenes can render them.
         .nest(

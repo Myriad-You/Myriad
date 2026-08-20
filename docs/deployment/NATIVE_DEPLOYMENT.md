@@ -369,8 +369,8 @@ server {
     ssl_certificate     /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
 
-    # .tapp uploads and multipart imports can be large.
-    client_max_body_size 50m;
+    # .tapp uploads (game packages up to 128 MiB) and multipart imports.
+    client_max_body_size 130m;
 
     location / {
         proxy_pass http://127.0.0.1:1103;
@@ -538,9 +538,9 @@ reachable from the internet.
 
 ## See also
 
-- `scripts/dev/dev.sh start` — Docker-free **development** loop
+- `scripts/dev.sh start` — Docker-free **development** loop
   (`cargo run` + `pnpm dev` against a local PostgreSQL; pass `--docker` for
-  compose postgres). `scripts/native/assemble.sh` builds the deploy bundle
+  compose postgres). `scripts/extra/assemble.sh` builds the deploy bundle
   described above.
 - [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) — the containerized topology
 - [SETUP_BOOTSTRAP.md](./SETUP_BOOTSTRAP.md) — setup passphrase

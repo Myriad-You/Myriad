@@ -197,31 +197,6 @@ pub fn tapp_id_from_dir_entry_class(class: &TappDirEntryClass) -> &str {
     }
 }
 
-/// Relative code-path candidates for runtime open, in preference order.
-///
-/// 1. Manifest `main` when present
-/// 2. Legacy stored basename only when it is exactly `main.js` or `index.js`
-/// (and not already covered by `main`)
-pub fn preferred_code_path_candidates(
-    manifest_main: Option<&str>,
-    stored_code_path: &str,
-) -> Vec<String> {
-    let mut candidates = Vec::new();
-    if let Some(main) = manifest_main.filter(|value| !value.is_empty()) {
-        candidates.push(main.to_string());
-    }
-    if let Some(filename) = Path::new(stored_code_path)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .filter(|value| matches!(*value, "main.js" | "index.js"))
-    {
-        if !candidates.iter().any(|path| path == filename) {
-            candidates.push(filename.to_string());
-        }
-    }
-    candidates
-}
-
 /// After canonicalize, ensure the resolved path is exactly `root/relative`.
 ///
 /// Rejects symlink escapes where canonicalize lands outside or renames components.
@@ -503,28 +478,6 @@ mod tests {
                 tapp_id: "x".into()
             }),
             "x"
-        );
-    }
-
-    #[test]
-    fn preferred_code_path_candidates_manifest_first_legacy_fallback() {
-        assert_eq!(
-            preferred_code_path_candidates(Some("src/main.js"), "/data/old/main.js"),
-            vec!["src/main.js".to_string(), "main.js".to_string()]
-        );
-        // Same basename as main → no duplicate fallback.
-        assert_eq!(
-            preferred_code_path_candidates(Some("main.js"), "/data/old/main.js"),
-            vec!["main.js".to_string()]
-        );
-        // Non-legacy stored path → no fallback.
-        assert_eq!(
-            preferred_code_path_candidates(None, "/data/old/custom.js"),
-            Vec::<String>::new()
-        );
-        assert_eq!(
-            preferred_code_path_candidates(None, "/data/old/index.js"),
-            vec!["index.js".to_string()]
         );
     }
 

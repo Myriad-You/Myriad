@@ -94,6 +94,8 @@ export const SettingsButton = React.memo(({
     [disabled, loading, confirm, onClick],
   )
 
+  const showLabel = children != null && children !== false && children !== ''
+
   const classes = [
     'btn-base',
     'settings-btn',
@@ -101,12 +103,11 @@ export const SettingsButton = React.memo(({
     sizeClass(size),
     block ? 'settings-btn--block' : '',
     loading ? 'is-loading' : '',
+    variant === 'danger' && !showLabel ? 'settings-btn--danger-quiet' : '',
     className,
   ]
     .filter(Boolean)
     .join(' ')
-
-  const showLabel = children != null && children !== false && children !== ''
 
   return (
     <button

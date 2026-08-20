@@ -1,8 +1,8 @@
-//! Digital Life 3D provider API.
+//! Tripo 3D provider API.
 //!
 //! Task creation and uploads are admin-only at the router edge. Persisted,
-//! content-addressed GLBs are public because the Digital Life scene can be
-//! rendered for guest visitors without exposing the Tripo credential.
+//! content-addressed GLBs are public so guest home scenes can render them
+//! without exposing the Tripo credential.
 
 use axum::{
     body::Body,

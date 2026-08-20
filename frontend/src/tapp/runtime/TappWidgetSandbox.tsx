@@ -30,7 +30,7 @@ import {
 } from '../utils/iframeResize'
 
 import {
-  getCodeForMode,
+  buildLayerScript,
   getCodeStructureFingerprint,
   getTappRuntimeFingerprint,
 } from './codeStructure'
@@ -76,7 +76,7 @@ import { TappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
 import { widgetPerfMark } from './WidgetLoadPerf'
-import { onTappStorageChange } from './WidgetRuntimeSignals'
+import { onTappSharedChange, onTappStorageChange } from './WidgetRuntimeSignals'
 
 export interface TappWidgetSandboxProps {
   /** Tapp 实例 */
@@ -159,8 +159,8 @@ function generateWidgetHTML(
   const hasHtmlTemplate = !!code.widgetHtml
   const widgetHtmlContent = code.widgetHtml || ''
 
-  // JS 代码 - 混合模式下也会加载
-  const widgetCode = getCodeForMode(code, 'widget')
+  // JS 代码 - 混合模式下也会加载。只装这一个 widget 的入口。
+  const widgetCode = buildLayerScript(code, 'widget', widgetId).source
 
   // 使用安装时预编译的 CSS
   const tailwindCSS = code.widgetCSS || ''
@@ -409,6 +409,26 @@ export const TappWidgetSandbox = memo(
       [tappInstance.id],
     )
 
+    useEffect(
+      () =>
+        onTappSharedChange((change) => {
+          const bridge = bridgeRef.current
+          if (
+            !bridge ||
+            change.tappId !== tappInstance.id ||
+            change.source === bridge
+          ) {
+            return
+          }
+          bridge.emit('sharedChanged', {
+            key: change.key,
+            operation: change.operation,
+          })
+          invalidateRef.current?.('shared-changed')
+        }),
+      [tappInstance.id],
+    )
+
     // 构建媒体状态对象（供 mediaStateChange 事件使用）— 与 Page 共用纯函数
     const buildMediaState = useCallback((detail: Record<string, unknown>) => {
       return buildTappMediaState(detail)
@@ -514,8 +534,8 @@ export const TappWidgetSandbox = memo(
 
     // 内容哈希避免等长代码/CSS 更新继续复用旧 iframe。
     const codeFingerprint = useMemo(
-      () => getCodeStructureFingerprint(code, 'widget'),
-      [code],
+      () => getCodeStructureFingerprint(code, 'widget', widgetId),
+      [code, widgetId],
     )
     const runtimeFingerprint = getTappRuntimeFingerprint(tappInstance)
 

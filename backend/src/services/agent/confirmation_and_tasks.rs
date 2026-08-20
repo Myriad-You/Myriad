@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use super::{
     capability,
     executor,
-    identity,
     response_agent,
     types,
 };
@@ -198,6 +197,7 @@ impl Agent {
                 .generate_response_message_v2(
                     &pending_confirmation.planner_output,
                     &task_state,
+                    pending_confirmation.user_id,
                     None,
                 )
                 .await,
@@ -592,6 +592,7 @@ impl Agent {
         &self,
         _planner_output: &PlannerOutput,
         task_state: &TaskState,
+        user_id: i32,
         progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
     ) -> String {
         if task_state.status == TaskStatus::Failed {
@@ -637,6 +638,7 @@ impl Agent {
                     .unwrap_or("");
                 let ctx = response_agent::ResponseContext {
                     user_request,
+                    user_id,
                     step_outputs,
                     progress_tx,
                 };
@@ -674,7 +676,7 @@ impl Agent {
         data: &Value,
         _planner_output: &PlannerOutput,
     ) -> Option<DataDisplayHint> {
-        // 复用现有的数据结构推断逻辑，但不依赖 ParsedIntent
+        // 复用现有的数据结构推断逻辑
         match data {
             Value::Array(arr) if !arr.is_empty() => {
                 if let Some(Value::Object(obj)) = arr.first() {
@@ -1041,11 +1043,18 @@ impl Agent {
         };
 
         // 加载 Agent 人格
-        let soul = identity::get_identity()
+        let soul = crate::services::agent::identity::get_speaking_soul()
             .await
-            .and_then(|id| id.soul)
             .unwrap_or_default();
         let soul: String = soul.chars().take(2000).collect();
+        let life_block = crate::services::agent::life::speaking_prompt_plain(
+            &crate::services::agent::life::speaking_prompt(request.user_id).await,
+        );
+        let life_prefix = if life_block.is_empty() {
+            String::new()
+        } else {
+            format!("{life_block}\n\n")
+        };
 
         // 构建对话历史
         let history_text = request
@@ -1071,19 +1080,21 @@ impl Agent {
 
         let prompt = if history_text.is_empty() {
             format!(
-                "{soul}\n\n用户对你说：{input}\n\n\
+                "{soul}\n\n{life}用户对你说：{input}\n\n\
                  请以你的角色自然地回复用户。使用用户的语言。保持简短、温暖、自然。\
                  不要输出任何 JSON 或格式标记，只输出纯文本回复。",
                 soul = soul,
+                life = life_prefix,
                 input = request.raw_input,
             )
         } else {
             format!(
-                "{soul}\n\n以下是对话历史：\n{history}\n\n\
+                "{soul}\n\n{life}以下是对话历史：\n{history}\n\n\
                  用户最新消息：{input}\n\n\
                  请以你的角色自然地回复用户。使用用户的语言。保持简短、温暖、自然。\
                  不要输出任何 JSON 或格式标记，只输出纯文本回复。",
                 soul = soul,
+                life = life_prefix,
                 history = history_text,
                 input = request.raw_input,
             )

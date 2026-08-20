@@ -54,11 +54,12 @@ use crate::services::tapp_package_fs::{
     install_generation_matches_micros, install_generation_payload, is_lifecycle_artifact_filename,
     lifecycle_artifact_dir_name, looks_like_tapp_installation_from_markers,
     orphan_tapp_key_if_unowned, parse_tapp_owner_dir_name, plan_tapp_directory_recovery,
-    preferred_code_path_candidates, recovery_artifacts_to_remove_after_promote,
-    recovery_discard_artifact_name, recovery_plan_mutates_live, resource_relative_path,
-    sandbox_path_matches_relative, should_log_filesystem_permission_context,
-    should_preserve_orphan_path, sort_recovery_artifact_paths, RecoveryPlan,
+    recovery_artifacts_to_remove_after_promote, recovery_discard_artifact_name,
+    recovery_plan_mutates_live, resource_relative_path, sandbox_path_matches_relative,
+    should_log_filesystem_permission_context, should_preserve_orphan_path,
+    sort_recovery_artifact_paths, RecoveryPlan,
 };
+use myriad_tapp_contract::contract_rules::ASSET_DIRECTORY;
 
 // Path-stable re-exports for manifest_tests / parent imports.
 pub(crate) use crate::services::tapp_package_fs::{
@@ -735,17 +736,14 @@ pub(crate) fn installed_tapp_dir(tapp: &tapps::Model) -> Result<PathBuf, HttpErr
         .map_err(|_| HttpError(AppError::bad_request("Bad request")))
 }
 
-pub(crate) fn installed_code_path(tapp: &tapps::Model) -> Result<PathBuf, HttpError> {
-    // 新安装遵循 Manifest 的 main。旧安装可能曾把任意入口统一写为根目录
-    // main.js/index.js，因此仅在 Manifest 路径不存在时回退持久化元数据。
-    let root = installed_tapp_dir(tapp)?;
-    let manifest_main = tapp.manifest.get("main").and_then(|value| value.as_str());
-    for relative in preferred_code_path_candidates(manifest_main, &tapp.code_path) {
-        if let Some(path) = regular_resource_path(&root, &relative) {
-            return Ok(path);
-        }
-    }
-    Err(HttpError(AppError::internal("Database error")))
+/// 已安装包的结构不符合当前契约时的失败。
+///
+/// 不能用 5xx：这不是宿主故障，包是装进来的那一刻就长这样。也不能用 404：
+/// 前端把资源接口的 404 当作回退到旧 `/code` 端点的信号
+/// （frontend/src/tapp/services/TappPackageResourceApi.ts:110-116），
+/// 用 404 会让不受支持的包换条路继续进沙箱。
+pub(crate) fn unsupported_package_structure(reason: &str) -> HttpError {
+    HttpError(AppError::conflict("Tapp package is not usable").with_message(reason))
 }
 
 pub(crate) fn resource_path(tapp_dir: &FsPath, relative: &str) -> Option<PathBuf> {
@@ -900,6 +898,93 @@ pub(crate) fn validate_installed_resources(
     }
 
     validate_installed_i18n_resources(tapp_dir)?;
+    validate_installed_package_modules(tapp_dir)?;
+    Ok(())
+}
+
+/// 递归列出安装目录内可被 require 的模块相对路径。
+///
+/// 跳过 `assets/`、不安全的路径分量与符号链接。这里只收集候选文件，层归属
+/// 由 manifest 入口加 require 闭包决定，目录名不参与。分发与安装校验共用这一份
+/// 遍历，避免同一套扫描实现两遍。
+pub(crate) fn collect_package_module_paths(tapp_dir: &FsPath) -> Vec<String> {
+    use crate::services::tapp_validation::is_safe_path_component;
+
+    let mut found = Vec::new();
+    let mut pending = vec![String::new()];
+
+    while let Some(prefix) = pending.pop() {
+        let directory = if prefix.is_empty() {
+            Some(tapp_dir.to_path_buf())
+        } else {
+            regular_resource_directory(tapp_dir, &prefix)
+        };
+        let Some(directory) = directory else { continue };
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            if !is_safe_path_component(&name) || name == ASSET_DIRECTORY {
+                continue;
+            }
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+            let relative = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if file_type.is_dir() {
+                pending.push(relative);
+            } else if file_type.is_file() && name.ends_with(".js") {
+                found.push(relative);
+            }
+        }
+    }
+
+    found.sort();
+    found
+}
+
+/// 包内 `.js` 不需要逐个在 Manifest 里声明，但仍要受检：必须是沙箱内的普通 UTF-8
+/// 文件、不超体积上限，且 `require` 的目标真实存在。
+///
+/// 「扫描登记」是指这一步——不是「随便放什么都不管」。
+pub(crate) fn validate_installed_package_modules(tapp_dir: &FsPath) -> Result<(), String> {
+    use crate::services::tapp_install_resources::{
+        extract_require_requests, require_target_missing, resolve_require_against_modules,
+        validate_text_resource_bytes,
+    };
+
+    let paths = collect_package_module_paths(tapp_dir);
+    let mut sources: Vec<(String, String)> = Vec::with_capacity(paths.len());
+    for relative in paths {
+        let path = regular_resource_path(tapp_dir, &relative)
+            .ok_or_else(|| format!("Tapp module is not an in-sandbox file: {relative}"))?;
+        let bytes =
+            std::fs::read(path).map_err(|_| format!("Failed to read Tapp module: {relative}"))?;
+        validate_text_resource_bytes(&relative, &bytes)?;
+        let source =
+            String::from_utf8(bytes).map_err(|_| "Tapp module must be UTF-8".to_string())?;
+        sources.push((relative, source));
+    }
+
+    let known: std::collections::HashSet<String> =
+        sources.iter().map(|(path, _)| path.clone()).collect();
+    for (relative, source) in &sources {
+        for request in extract_require_requests(source) {
+            resolve_require_against_modules(relative, &request, &known)
+                .ok_or_else(|| require_target_missing(relative, &request))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -953,11 +1038,21 @@ pub(crate) fn archive_entry_path(tapp_dir: &FsPath, entry_name: &str) -> Result<
 pub(crate) fn validate_tapp_archive<R: std::io::Read + std::io::Seek>(
     archive: &mut zip::ZipArchive<R>,
 ) -> Result<(), String> {
+    validate_tapp_archive_with(
+        archive,
+        crate::services::tapp_install_resources::ArchiveBudget::ceiling(),
+    )
+}
+
+pub(crate) fn validate_tapp_archive_with<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    budget: crate::services::tapp_install_resources::ArchiveBudget,
+) -> Result<(), String> {
     use crate::services::tapp_install_resources::{
-        validate_archive_entry, validate_archive_entry_count,
+        validate_archive_entry_count_with, validate_archive_entry_with,
     };
 
-    validate_archive_entry_count(archive.len())?;
+    validate_archive_entry_count_with(archive.len(), budget)?;
 
     let mut total_size = 0_u64;
     let mut paths = std::collections::HashSet::new();
@@ -966,8 +1061,14 @@ pub(crate) fn validate_tapp_archive<R: std::io::Read + std::io::Seek>(
             .by_index(index)
             .map_err(|error| format!("Invalid Tapp archive entry: {error}"))?;
         let name = file.name().trim_end_matches('/');
-        total_size =
-            validate_archive_entry(name, file.is_dir(), file.size(), &mut paths, total_size)?;
+        total_size = validate_archive_entry_with(
+            name,
+            file.is_dir(),
+            file.size(),
+            &mut paths,
+            total_size,
+            budget,
+        )?;
     }
 
     Ok(())

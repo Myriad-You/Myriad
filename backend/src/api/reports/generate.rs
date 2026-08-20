@@ -15,11 +15,11 @@ use tokio::sync::RwLock;
 /// preventing unbounded cost amplification from `join_all` fan-out.
 pub(crate) const MAX_CONCURRENT_PLATFORM_REPORTS: usize = 6;
 
-use crate::config::DynamicConfig;
+use crate::config::{DynamicConfig, ModelTier};
 use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::models::entities::platform_reports;
-use crate::services::analyzer::{AiAnalyzer, AiProvider};
+use crate::services::ai::create_ai_analyzer_for_tier;
 use crate::services::smart_filter::{SmartFilter, SmartFilteredData};
 use myriad_error::AppError;
 
@@ -64,7 +64,6 @@ async fn report_storage_user_id(db: &DatabaseConnection, actor_id: i32) -> i32 {
 /// POST /api/reports/platform
 pub async fn generate_platform_reports(
     State(db): State<DatabaseConnection>,
-    State(dynamic_config): State<Arc<RwLock<DynamicConfig>>>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<GeneratePlatformReportsRequest>,
 ) -> Result<Json<Value>, HttpError> {
@@ -79,8 +78,7 @@ pub async fn generate_platform_reports(
     let user_id = report_storage_user_id(&db, actor_id).await;
 
     let (platform_reports, skipped) =
-        generate_platform_reports_internal(&db, user_id, req.platforms.clone(), dynamic_config)
-            .await;
+        generate_platform_reports_internal(&db, user_id, req.platforms.clone()).await;
 
     // 将跳过原因结构化，便于前端逐平台展示
     let skipped_json: Vec<Value> = skipped
@@ -220,7 +218,6 @@ pub(crate) async fn generate_platform_reports_internal(
     db: &DatabaseConnection,
     user_id: i32,
     platforms: Vec<String>,
-    dynamic_config: Arc<RwLock<DynamicConfig>>,
 ) -> (Vec<PlatformReport>, Vec<(String, String)>) {
     use futures::stream::{self, StreamExt};
 
@@ -231,7 +228,6 @@ pub(crate) async fn generate_platform_reports_internal(
     let results = stream::iter(platforms)
         .map(move |platform| {
             let db_for_task = db_clone.clone();
-            let dynamic_config = dynamic_config.clone();
             let report_settings = report_settings.clone();
             async move {
             tracing::info!("🔄 Processing platform: {}", platform);
@@ -254,7 +250,7 @@ pub(crate) async fn generate_platform_reports_internal(
             // 3. 基于元数据生成平台报告
             tracing::debug!("🤖 Generating AI report for {}", platform);
             let (summary, ai_insights, mut card_visuals) =
-                match generate_ai_report(&metadata, &platform, &dynamic_config).await {
+                match generate_ai_report(&metadata, &platform).await {
                     Ok(res) => {
                         tracing::info!("✅ AI report generated for {}", platform);
                         res
@@ -1320,6 +1316,18 @@ pub(crate) async fn generate_platform_reports_internal(
         MAX_CONCURRENT_PLATFORM_REPORTS,
         skipped.len()
     );
+    if !platform_reports.is_empty() {
+        let names = platform_reports
+            .iter()
+            .map(|report| report.platform.as_str())
+            .collect::<Vec<_>>()
+            .join("、");
+        crate::services::agent::life::spawn_ingest(
+            user_id,
+            "agent.life.report_ready",
+            format!("这个人的报告算完了：{names}"),
+        );
+    }
     (platform_reports, skipped)
 }
 
@@ -1431,7 +1439,7 @@ pub async fn generate_all_reports(
 
     // 2. 生成平台报告 (使用内部函数，避免序列化开销)
     let (platform_reports, skipped) =
-        generate_platform_reports_internal(&db, user_id, enabled_platforms, dynamic_config).await;
+        generate_platform_reports_internal(&db, user_id, enabled_platforms).await;
     let skipped_json: Vec<_> = skipped
         .iter()
         .map(|(platform, reason)| json!({ "platform": platform, "reason": reason }))
@@ -1862,33 +1870,6 @@ pub(crate) fn finalize_public_platform_report(platform: &str, report: Value) -> 
         if let Some(mut visuals) = normalized_visuals {
             // 旧库直链 + 生成后漏代理：读出时统一再规范化
             crate::api::profile::normalize_json_media_urls(&mut visuals);
-            // GitHub / Steam: legacy Chinese labels → stable enums for FE i18n
-            if let Some(vobj) = visuals.as_object_mut() {
-                if platform.eq_ignore_ascii_case("github") {
-                    if let Some(raw) = vobj
-                        .get("contribution_level")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                    {
-                        vobj.insert(
-                            "contribution_level".to_string(),
-                            json!(normalize_github_contribution_level(&raw)),
-                        );
-                    }
-                }
-                if platform.eq_ignore_ascii_case("steam") {
-                    if let Some(raw) = vobj
-                        .get("player_type")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                    {
-                        vobj.insert(
-                            "player_type".to_string(),
-                            json!(normalize_steam_player_type(&raw)),
-                        );
-                    }
-                }
-            }
             obj.insert("card_visuals".to_string(), visuals);
         }
     }
@@ -1976,44 +1957,16 @@ async fn get_platform_data(
 }
 
 /// 辅助函数：调用AI生成报告
-#[allow(dead_code)]
 async fn generate_ai_report(
     metadata: &SmartFilteredData,
     platform: &str,
-    dynamic_config: &std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
 ) -> Result<(String, Vec<String>, Value), String> {
-    // 1. 获取配置（与 AppState.dynamic_config 同 Arc）
-    let config = dynamic_config.read().await;
-
-    // 2. 确定 Provider 和 Key
-    let (provider, api_key, model, base_url) = match config.ai_provider.as_str() {
-        "openai" => (
-            AiProvider::OpenAI,
-            config.openai_api_key.clone(),
-            config.openai_model.clone(),
-            Some(config.openai_base_url.clone()),
-        ),
-        _ => (
-            AiProvider::Gemini,
-            config.gemini_api_key.clone(),
-            config.gemini_model.clone(),
-            None,
-        ),
+    let Some(analyzer) = create_ai_analyzer_for_tier(ModelTier::Standard).await else {
+        tracing::warn!("AI analyzer unavailable for Standard tier. Using mock report.");
+        return generate_mock_report(metadata, platform);
     };
 
-    // 3. 检查 API Key 是否存在
-    if api_key.is_none() || api_key.as_ref().unwrap().is_empty() {
-        tracing::warn!(
-            "AI API key not configured for provider: {}. Using mock report.",
-            config.ai_provider
-        );
-        return generate_mock_report(metadata, platform);
-    }
-
-    // 4. 初始化 Analyzer
-    let analyzer = AiAnalyzer::new(provider, api_key.unwrap(), model, base_url).await;
-
-    // 5. 构建 Prompt
+    // 构建 Prompt
     let (system_prompt, tone_desc, visual_req) = match platform {
         "bilibili" => (
             "你是一个资深二次元评论家，说话幽默风趣，懂各种B站梗。",
@@ -2891,43 +2844,6 @@ pub(crate) fn github_contribution_level(
     }
 }
 
-/// Map legacy Chinese / alternate labels to enum keys (stored reports).
-pub(crate) fn normalize_github_contribution_level(raw: &str) -> &'static str {
-    match raw.trim() {
-        "legendary" | "传奇开发者" | "Legendary" | "Legendary Dev" | "Legendary Developer" => {
-            "legendary"
-        }
-        "veteran" | "资深工程师" | "资深开发者" | "Veteran" | "Veteran Developer" => {
-            "veteran"
-        }
-        "active"
-        | "活跃开发者"
-        | "高级开发者"
-        | "中级开发者"
-        | "Senior"
-        | "Senior Dev"
-        | "Senior Developer"
-        | "Intermediate Developer" => "active",
-        "emerging" | "新兴贡献者" | "初级开发者" | "Beginner" | "Beginner Dev"
-        | "Beginner Developer" => "emerging",
-        other => {
-            let lower = other.to_ascii_lowercase();
-            match lower.as_str() {
-                "legendary" | "veteran" | "active" | "emerging" => {
-                    // re-borrow static
-                    match lower.as_str() {
-                        "legendary" => "legendary",
-                        "veteran" => "veteran",
-                        "active" => "active",
-                        _ => "emerging",
-                    }
-                }
-                _ => "emerging",
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod report_persist_concurrency_tests {
     use super::MAX_CONCURRENT_PLATFORM_REPORTS;
@@ -3050,21 +2966,6 @@ mod finalize_public_report_media_tests {
         assert_eq!(github_contribution_level(0, 0, 50), "active");
         assert_eq!(github_contribution_level(0, 0, 200), "veteran");
         assert_eq!(github_contribution_level(0, 0, 1000), "legendary");
-    }
-
-    #[test]
-    fn normalize_github_contribution_level_maps_legacy_chinese() {
-        assert_eq!(
-            normalize_github_contribution_level("传奇开发者"),
-            "legendary"
-        );
-        assert_eq!(normalize_github_contribution_level("资深工程师"), "veteran");
-        assert_eq!(normalize_github_contribution_level("活跃开发者"), "active");
-        assert_eq!(
-            normalize_github_contribution_level("新兴贡献者"),
-            "emerging"
-        );
-        assert_eq!(normalize_github_contribution_level("veteran"), "veteran");
     }
 
     #[test]

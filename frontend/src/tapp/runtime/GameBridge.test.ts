@@ -49,7 +49,7 @@ describe('Tapp.game share ids', () => {
           id: 'com.example.chess',
           name: 'Chess',
           version: '1.0.0',
-          main: 'main.js',
+          core: { entry: 'core.js' },
           permissions: ['game:session'],
           category: 'game',
           game: { protocol: 'v1' },

@@ -16,7 +16,7 @@
 
 开发者可直接使用浏览器原生 API（`canvas.getContext('2d'|'webgl2')`、Web Audio、
 `requestAnimationFrame`）。宿主 **不** 提供自研 WebGL 引擎封装，也 **不** 内置
-Three.js。需要 Three / 自研引擎时，把库打进包内 `pageModules`（IIFE），当作普通
+Three.js。需要 Three / 自研引擎时，把库放进包内 `page/`（IIFE）并 require，当作普通
 guest 依赖。
 
 ## 包内资源 `manifest.assets`
@@ -35,11 +35,11 @@ guest 依赖。
 
 约束：
 
-- 每包最多 64 个资源；单文件 ≤ 5 MiB；合计 ≤ 20 MiB
+- 每包最多 128 个资源；单文件 ≤ 16 MiB；合计 ≤ 64 MiB
 - 允许二进制；**不允许** `.js` / `.html` 作为 asset 路径
 - 直接安装可在请求体中附带 `assets: { "assets/foo.png": "<base64>" }`
 - `.tapp` 压缩包只需在 zip 内放入对应文件
-- **不要** 把关卡贴图塞进 `Tapp.storage`（那是用户数据，有 5 MiB 硬限）
+- **不要** 把关卡贴图塞进 `Tapp.storage`（那是用户数据，有 8 MiB 硬限）
 
 运行时：
 
@@ -120,15 +120,16 @@ CDN / `unpkg` / `jsdelivr` / `esm.sh` 加载，也不要把 `three` 打进 Myria
 `frontend/scripts/bundle-tapp-three.mjs` 只是可选重建脚本，**不要**在没有把
 `three@0.170` / `esbuild` 装进 frontend 的情况下当构建步骤跑。
 
-也可以继续自己打 IIFE 放进 `pageModules`。沙箱里的 `pageModules` 会按顺序拼成一段经典
-脚本（不是 ES module）：
+也可以继续自己打 IIFE 放进 `page/`，用相对路径 require 进来。沙箱里 core 入口先执行，
+模块按 CommonJS 子集语义加载（不是 ES module）：
 
 1. 用 esbuild / Rollup 把 `three`（以及需要的 addons）打成 **IIFE**，输出到 `page/`。
-2. 在 `manifest.pageModules` 里声明该文件（例如 `scene.js`）。
+2. 在页面入口里 `require('./scene.js')`——层内文件不需要在 Manifest 里声明。
 3. `.js` 不能放进 `manifest.assets`；库源码属于页面模块，贴图 / glTF / wasm 才走
    `assets/`。
-4. 默认合计 20 MiB / 单文件 5 MiB。声明了 `game` 或 `runtimeModules` 的 game/developer
-   包放宽到合计 48 MiB / 单文件 12 MiB / 128 项。
+4. 默认合计 64 MiB / 单文件 16 MiB / 128 项。声明了 `game` 或 `runtimeModules` 的
+   game/developer 包放宽到合计 128 MiB / 单文件 32 MiB / 256 项。整包对应普通
+   64/128 MiB、游戏 128/256 MiB。
 
 ```bash
 # 在 Tapp 项目里（three 只做 devDependency）
@@ -137,9 +138,7 @@ npx esbuild src/scene.js --bundle --format=iife --minify --outfile=page/scene.js
 
 ```json
 {
-  "hasPage": true,
-  "pageTemplate": "page.html",
-  "pageModules": ["scene.js"],
+  "page": { "entry": "page/index.js", "template": "page.html" },
   "assets": ["assets/check.png", "assets/cube.glb"]
 }
 ```

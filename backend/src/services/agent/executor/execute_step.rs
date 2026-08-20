@@ -1,5 +1,6 @@
 // Executor single-step execution
 
+use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 use crate::services::agent::capability::get_registry;
 use crate::services::agent::types::{self, *};
 use serde_json::{json, Value};
@@ -353,7 +354,7 @@ impl Executor {
                         format!(
                             "[{}]: {}",
                             m.role,
-                            m.content.chars().take(200).collect::<String>()
+                            m.content.chars().take(USER_TEXT_MAX_CHARS).collect::<String>()
                         )
                     })
                     .collect();
@@ -400,7 +401,7 @@ impl Executor {
                     out_val.get("reply").and_then(|v| v.as_str())
                 };
                 if let Some(text) = text {
-                    let truncated: String = text.chars().take(1500).collect();
+                    let truncated: String = text.chars().take(USER_TEXT_MAX_CHARS).collect();
                     knowledge_parts.push(format!("[{}] {}", out_id, truncated));
                 }
             }

@@ -206,6 +206,10 @@ pub(crate) async fn update_item_state(
         Ok(Some(state)) => state.is_read,
         _ => false,
     };
+    let was_starred = match &existing {
+        Ok(Some(state)) => state.is_starred,
+        _ => false,
+    };
 
     match existing {
         Ok(Some(state)) => {
@@ -237,6 +241,13 @@ pub(crate) async fn update_item_state(
                             )
                             .await;
                         }
+                    }
+                    if is_starred == Some(true) && !was_starred {
+                        crate::services::agent::life::spawn_ingest(
+                            user_id,
+                            "brew.starred",
+                            format!("把《{}》标了星", item.title),
+                        );
                     }
                     Ok(Json(json!({ "success": true })))
                 }
@@ -275,6 +286,13 @@ pub(crate) async fn update_item_state(
                     // 新记录：如果标记为已读，减少 unread_count
                     if is_read == Some(true) {
                         let _ = update_source_unread_count(db, source_id, -1).await;
+                    }
+                    if is_starred == Some(true) {
+                        crate::services::agent::life::spawn_ingest(
+                            user_id,
+                            "brew.starred",
+                            format!("把《{}》标了星", item.title),
+                        );
                     }
                     Ok(Json(json!({ "success": true })))
                 }

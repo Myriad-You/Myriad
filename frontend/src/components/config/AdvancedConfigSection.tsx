@@ -250,7 +250,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   const isProxyEnabled = getUiFieldValue('proxy_enabled') === 'true'
   const isMemorySaverEnabled =
     getUiFieldValue('memory_saver_enabled') === 'true'
-
   const closeImportConfirm = useCallback(() => {
     setImportConfirmOpen(false)
     setPendingImportData(null)

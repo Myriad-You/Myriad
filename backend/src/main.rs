@@ -320,6 +320,19 @@ async fn run_server() -> anyhow::Result<()> {
                         services::memory_profile::apply_from_saver_flag(
                             dynamic_config.memory_saver_enabled,
                         );
+                        if dynamic_config.agent_life_needs_lite() {
+                            tracing::warn!(
+                                "⚠️  Agent life is switched on but the Lite model is not enabled; \
+                                 life stays off so its calls do not fall back to the standard model"
+                            );
+                        }
+                        if dynamic_config.agent_life_needs_pro() {
+                            tracing::warn!(
+                                "⚠️  Agent life is switched on but the Pro model is not enabled; \
+                                 life stays off so onboarding and gated calls do not fall back \
+                                 to the standard model"
+                            );
+                        }
                         *GLOBAL_DYNAMIC_CONFIG.write().await = dynamic_config;
                         tracing::info!("✅ Dynamic configuration loaded from database");
                     }
@@ -789,8 +802,6 @@ async fn config_mode_middleware(req: Request, next: Next) -> Response {
         "/health",
         "/api/setup/config",
         "/api/setup/status",
-        "/api/setup/init-env",
-        "/api/setup/update-env",
         "/api/setup/database-config", // ✅ 允许配置数据库（有内部认证检查）
         "/api/setup/init-database",
         "/api/setup/create-admin",

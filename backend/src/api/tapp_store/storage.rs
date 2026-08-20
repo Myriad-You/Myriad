@@ -1,4 +1,5 @@
-//! Manifest-declared host settings and subject-private Tapp storage.
+//! Manifest-declared host settings, install-level shared data, and
+//! subject-private Tapp storage.
 //!
 //! Domain validators/IO live in `services::tapp_storage`; this module adapts
 //! them to Axum status codes and owns HTTP handlers.
@@ -236,6 +237,187 @@ pub(super) async fn set_tapp_setting(
         value,
     )
     .await?;
+    Ok(Json(ApiResponse::success(())))
+}
+
+const SHARED_KEY_PREFIX: &str = "_shared.";
+
+/// Read path: real users and signed guests. Public installs resolve to the
+/// site-owner namespace so visitors can read the owner's shared repository.
+async fn authorize_tapp_shared(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    tapp_id: &str,
+) -> Result<TappStorageAccess, HttpError> {
+    validate_tapp_id(tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
+    let subject_id = settings_subject_id(claims)?;
+    let tapp = tapp_common::resolve_accessible_tapp(db, subject_id, tapp_id).await?;
+    Ok(TappStorageAccess::from_owner_and_subject(
+        tapp.user_id,
+        subject_id,
+    ))
+}
+
+/// Write path: durable authenticated users only (not guests).
+async fn authorize_tapp_shared_write(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    tapp_id: &str,
+) -> Result<TappStorageAccess, HttpError> {
+    validate_tapp_id(tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
+    let subject_id = optional_authenticated_user_id(Some(claims))
+        .ok_or_else(|| HttpError(AppError::unauthorized("Unauthorized")))?;
+    let tapp = tapp_common::resolve_accessible_tapp(db, subject_id, tapp_id).await?;
+    Ok(TappStorageAccess::from_owner_and_subject(
+        tapp.user_id,
+        subject_id,
+    ))
+}
+
+fn shared_storage_key(key: &str) -> Result<String, HttpError> {
+    validate_sandbox_storage_key(key).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
+    Ok(format!("{SHARED_KEY_PREFIX}{key}"))
+}
+
+async fn require_shared_write(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    access: TappStorageAccess,
+) -> Result<(), HttpError> {
+    if can_write_installation_settings(access, current_is_admin(claims, db).await) {
+        Ok(())
+    } else {
+        Err(HttpError(AppError::forbidden("Forbidden")))
+    }
+}
+
+pub(super) async fn list_shared_keys(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(tapp_id): Path<String>,
+) -> Result<Json<ApiResponse<Vec<String>>>, HttpError> {
+    let access = authorize_tapp_shared(&db, &claims, &tapp_id).await?;
+    let keys = tapp_storage_entity::Entity::find()
+        .select_only()
+        .column(tapp_storage_entity::Column::Key)
+        .filter(tapp_storage_entity::Column::UserId.eq(access.installation_namespace()))
+        .filter(tapp_storage_entity::Column::TappId.eq(&tapp_id))
+        .filter(tapp_storage_entity::Column::Key.starts_with(SHARED_KEY_PREFIX))
+        .into_tuple::<String>()
+        .all(&db)
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?
+        .into_iter()
+        .filter_map(|key| key.strip_prefix(SHARED_KEY_PREFIX).map(str::to_string))
+        .collect();
+    Ok(Json(ApiResponse::success(keys)))
+}
+
+pub(super) async fn list_shared_entries(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(tapp_id): Path<String>,
+) -> Result<Json<ApiResponse<BTreeMap<String, serde_json::Value>>>, HttpError> {
+    let access = authorize_tapp_shared(&db, &claims, &tapp_id).await?;
+    let values = tapp_storage_entity::Entity::find()
+        .select_only()
+        .column(tapp_storage_entity::Column::Key)
+        .column(tapp_storage_entity::Column::Value)
+        .filter(tapp_storage_entity::Column::UserId.eq(access.installation_namespace()))
+        .filter(tapp_storage_entity::Column::TappId.eq(&tapp_id))
+        .filter(tapp_storage_entity::Column::Key.starts_with(SHARED_KEY_PREFIX))
+        .into_model::<StorageKeyValueRow>()
+        .all(&db)
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?
+        .into_iter()
+        .filter_map(|item| {
+            item.key
+                .strip_prefix(SHARED_KEY_PREFIX)
+                .map(|key| (key.to_string(), item.value))
+        })
+        .collect();
+    Ok(Json(ApiResponse::success(values)))
+}
+
+pub(super) async fn get_shared_usage(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(tapp_id): Path<String>,
+) -> Result<Json<ApiResponse<TappStorageUsage>>, HttpError> {
+    let access = authorize_tapp_shared(&db, &claims, &tapp_id).await?;
+    let used = storage_bytes(&db, access.installation_namespace(), &tapp_id).await? as usize;
+    Ok(Json(ApiResponse::success(TappStorageUsage {
+        used,
+        quota: TAPP_STORAGE_QUOTA_BYTES as usize,
+    })))
+}
+
+pub(super) async fn get_shared(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((tapp_id, key)): Path<(String, String)>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, HttpError> {
+    let storage_key = shared_storage_key(&key)?;
+    let access = authorize_tapp_shared(&db, &claims, &tapp_id).await?;
+    let value =
+        read_storage_value(&db, access.installation_namespace(), &tapp_id, &storage_key).await?;
+    Ok(Json(ApiResponse::success(value)))
+}
+
+pub(super) async fn set_shared(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((tapp_id, key)): Path<(String, String)>,
+    Json(value): Json<serde_json::Value>,
+) -> Result<Json<ApiResponse<()>>, HttpError> {
+    let storage_key = shared_storage_key(&key)?;
+    validate_storage_value_size(&value)?;
+    let access = authorize_tapp_shared_write(&db, &claims, &tapp_id).await?;
+    require_shared_write(&db, &claims, access).await?;
+    write_storage_value(
+        &db,
+        access.installation_namespace(),
+        &tapp_id,
+        &storage_key,
+        value,
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(())))
+}
+
+pub(super) async fn delete_shared(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((tapp_id, key)): Path<(String, String)>,
+) -> Result<Json<ApiResponse<()>>, HttpError> {
+    let storage_key = shared_storage_key(&key)?;
+    let access = authorize_tapp_shared_write(&db, &claims, &tapp_id).await?;
+    require_shared_write(&db, &claims, access).await?;
+    tapp_storage_entity::Entity::delete_many()
+        .filter(tapp_storage_entity::Column::UserId.eq(access.installation_namespace()))
+        .filter(tapp_storage_entity::Column::TappId.eq(&tapp_id))
+        .filter(tapp_storage_entity::Column::Key.eq(&storage_key))
+        .exec(&db)
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?;
+    Ok(Json(ApiResponse::success(())))
+}
+
+pub(super) async fn clear_shared(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(tapp_id): Path<String>,
+) -> Result<Json<ApiResponse<()>>, HttpError> {
+    let access = authorize_tapp_shared_write(&db, &claims, &tapp_id).await?;
+    require_shared_write(&db, &claims, access).await?;
+    tapp_storage_entity::Entity::delete_many()
+        .filter(tapp_storage_entity::Column::UserId.eq(access.installation_namespace()))
+        .filter(tapp_storage_entity::Column::TappId.eq(&tapp_id))
+        .filter(tapp_storage_entity::Column::Key.starts_with(SHARED_KEY_PREFIX))
+        .exec(&db)
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?;
     Ok(Json(ApiResponse::success(())))
 }
 

@@ -222,6 +222,47 @@ impl ImageCacheService {
         Ok(cached_url)
     }
 
+    /// Persist already-downloaded image bytes and return the local serve URL.
+    pub async fn store_bytes(&self, bytes: &[u8], media_type: &str) -> Result<String, String> {
+        if bytes.is_empty() {
+            return Err("generated image is empty".to_string());
+        }
+        if bytes.len() > MAX_IMAGE_SIZE {
+            return Err(format!("Image too large: {} bytes", bytes.len()));
+        }
+        self.ensure_cache_dir().await?;
+        let filename = {
+            let mut hasher = Sha256::new();
+            hasher.update(bytes);
+            hex::encode(hasher.finalize())
+        };
+        let ext = Self::infer_extension("", Some(media_type));
+        let cache_path = self.get_cache_path(&filename, ext);
+        if cache_path.exists() {
+            let subdir = &filename[..2.min(filename.len())];
+            return Ok(format!(
+                "/api/brew/image-cache/{}/{}.{}",
+                subdir, filename, ext
+            ));
+        }
+        if let Some(parent) = cache_path.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create cache subdirectory: {}", e))?;
+        }
+        let mut file = fs::File::create(&cache_path)
+            .await
+            .map_err(|e| format!("Failed to create cache file: {}", e))?;
+        file.write_all(bytes)
+            .await
+            .map_err(|e| format!("Failed to write cache file: {}", e))?;
+        let subdir = &filename[..2.min(filename.len())];
+        Ok(format!(
+            "/api/brew/image-cache/{}/{}.{}",
+            subdir, filename, ext
+        ))
+    }
+
     /// 处理图片 URL - 如果是 Notion 临时 URL 则缓存，否则返回原 URL
     pub async fn process_image_url(&self, url: Option<&str>) -> Option<String> {
         let url = url?;

@@ -81,7 +81,7 @@ pub async fn get_context_app(
 
     let config = dynamic_config.read().await;
     let platforms = get_available_platforms().await;
-    let ai_enabled = config.gemini_api_key.is_some() || config.openai_api_key.is_some();
+    let ai_enabled = config.text_ai_available();
     drop(config);
 
     Ok(Json(context_app_payload(

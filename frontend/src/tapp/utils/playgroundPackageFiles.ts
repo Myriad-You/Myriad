@@ -2,10 +2,11 @@
  * Shared pure package-file map for Playground .tapp export and direct install.
  *
  * Both `exportPlaygroundTapp` (ZIP) and `buildDirectTappRequest` (install JSON)
- * must derive file paths and main.js layout from this builder so export →
+ * must derive file paths and layer layout from this builder so export →
  * install-file and install-from-code stay consistent.
  */
 
+import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
 import type { TappCodeStructure, TappManifest } from '../types'
 
 /** Package entry content: text files as string; binary assets as Uint8Array. */
@@ -18,30 +19,60 @@ export interface PlaygroundPackageFiles {
   files: Record<string, PackageFileContent>
 }
 
-/**
- * Build main.js from structured playground code.
- * With pageModules: core + optional widget (page lives under page/).
- * Without: core + optional widget + optional page (monolithic merge).
- * Always includes core so headless extractCoreCode works after reinstall.
- */
-export function buildPlaygroundMainJs(code: TappCodeStructure): string {
-  const hasPageModules =
-    !!code.pageModules && Object.keys(code.pageModules).length > 0
-  if (hasPageModules) {
-    return [
-      code.core || '',
-      code.widget
-        ? `\n// ========== Widget Code ==========\n${code.widget}`
-        : '',
-    ].join('')
+/** Playground 固定的包内布局。多文件拆分属于另一个议题，不在这里放开。 */
+export const PLAYGROUND_CORE_ENTRY = 'core.js'
+export const PLAYGROUND_STYLES = 'styles.css'
+export const PLAYGROUND_PAGE_ENTRY = 'page/index.js'
+export const PLAYGROUND_PAGE_TEMPLATE = 'page.html'
+export const PLAYGROUND_WIDGET_ENTRY = 'widget/index.js'
+
+/** 包内 `.js` 文件表：相对路径 → 源码。 */
+export function buildPlaygroundModules(
+  code: TappPlaygroundCode,
+): Record<string, string> {
+  const modules: Record<string, string> = {
+    [PLAYGROUND_CORE_ENTRY]: code.core || '',
   }
-  return [
-    code.core || '',
-    code.widget
-      ? `\n// ========== Widget Code ==========\n${code.widget}`
-      : '',
-    code.page ? `\n// ========== Page Code ==========\n${code.page}` : '',
-  ].join('')
+  if (code.page?.trim()) modules[PLAYGROUND_PAGE_ENTRY] = code.page
+  if (code.widget?.trim()) modules[PLAYGROUND_WIDGET_ENTRY] = code.widget
+  return modules
+}
+
+/**
+ * 把编辑态代码投影成运行时模块表，供 Playground 预览与示例应用直接进沙箱。
+ *
+ * 走的是与打包完全相同的布局，预览里跑的东西和装出来的包才是同一份。
+ */
+export function playgroundCodeToRuntime(
+  manifest: Pick<TappManifest, 'widgets'>,
+  code: TappPlaygroundCode,
+): TappCodeStructure {
+  const modules = buildPlaygroundModules(code)
+  // 按真实 widget id 建表：沙箱按 id 取自己那层的入口，编造的 key 会让预览取不到。
+  const widgetEntries =
+    PLAYGROUND_WIDGET_ENTRY in modules
+      ? Object.fromEntries(
+          (manifest.widgets || []).map((widget) => [
+            widget.id,
+            PLAYGROUND_WIDGET_ENTRY,
+          ]),
+        )
+      : {}
+  return {
+    modules,
+    coreEntry: PLAYGROUND_CORE_ENTRY,
+    pageEntry:
+      PLAYGROUND_PAGE_ENTRY in modules ? PLAYGROUND_PAGE_ENTRY : undefined,
+    widgetEntries:
+      Object.keys(widgetEntries).length > 0 ? widgetEntries : undefined,
+    styles: code.styles,
+    widgetHtml: code.widgetHtml,
+    pageHtml: code.pageHtml,
+    widgetCSS: code.widgetCSS,
+    pageCSS: code.pageCSS,
+    i18n: code.i18n,
+    assets: code.assets,
+  }
 }
 
 /**
@@ -50,49 +81,32 @@ export function buildPlaygroundMainJs(code: TappCodeStructure): string {
  */
 export function normalizeManifestForPackage(
   manifest: TappManifest,
-  code: TappCodeStructure,
+  code: TappPlaygroundCode,
 ): TappManifest {
   const next: TappManifest = { ...manifest }
 
-  if (!next.main || !next.main.trim()) {
-    next.main = 'main.js'
+  next.core = {
+    entry: PLAYGROUND_CORE_ENTRY,
+    ...(code.styles ? { styles: PLAYGROUND_STYLES } : {}),
   }
 
-  if (code.styles && !next.styles) {
-    next.styles = 'styles.css'
-  }
-  if (!next.cssMode) {
-    next.cssMode = 'unified'
-  }
-
+  // 页面存在与否由内容决定：有 page 代码或模板才声明 page 层。
   const hasUsablePageHtml = !!(code.pageHtml && code.pageHtml.trim())
-  if (hasUsablePageHtml && !next.pageTemplate) {
-    next.pageTemplate = 'page.html'
+  const hasPageCode = !!(code.page && code.page.trim())
+  if (hasUsablePageHtml || hasPageCode) {
+    next.page = {
+      ...(hasPageCode ? { entry: PLAYGROUND_PAGE_ENTRY } : {}),
+      ...(hasUsablePageHtml ? { template: PLAYGROUND_PAGE_TEMPLATE } : {}),
+    }
+  } else {
+    delete next.page
   }
 
-  const moduleNames = Object.keys(code.pageModules || {})
-  if (moduleNames.length > 0) {
-    const order =
-      code.pageModuleOrder && code.pageModuleOrder.length > 0
-        ? code.pageModuleOrder.filter((name) => moduleNames.includes(name))
-        : next.pageModules?.filter((name) => moduleNames.includes(name)) || []
-    const remaining = moduleNames
-      .filter((name) => !order.includes(name))
-      .sort((a, b) => {
-        if (a === 'index.js') return 1
-        if (b === 'index.js') return -1
-        return a.localeCompare(b)
-      })
-    next.pageModules = [...order, ...remaining]
-    next.hasPage = true
-  } else if (hasUsablePageHtml) {
-    next.hasPage = true
-  } else {
-    // Widget-only / no page content: do not invent page.html or force hasPage.
-    next.hasPage = false
-    if (!hasUsablePageHtml) {
-      delete next.pageTemplate
-    }
+  if (code.widget?.trim() && next.widgets && next.widgets.length > 0) {
+    next.widgets = next.widgets.map((widget) => ({
+      ...widget,
+      entry: PLAYGROUND_WIDGET_ENTRY,
+    }))
   }
 
   if (code.widgetHtml && next.widgets && next.widgets.length > 0) {
@@ -160,31 +174,31 @@ function base64ToBytes(base64: string): Uint8Array {
  *
  * Layout keys (when present in code/manifest):
  * - manifest.json
- * - {manifest.main} (main.js)
- * - {manifest.styles}
- * - {manifest.pageTemplate}
+ * - core.js / page/index.js / widget/index.js（层入口）
+ * - styles.css / page.html
  * - widget template paths from manifest.widgets[].templates
  * - i18n/{lang}.json
- * - page/{filename}
  * - assets/...
  */
 export function buildPlaygroundPackageFiles(
   manifest: TappManifest,
-  code: TappCodeStructure,
+  code: TappPlaygroundCode,
 ): PlaygroundPackageFiles {
   const normalized = normalizeManifestForPackage(manifest, code)
   const files: Record<string, PackageFileContent> = {}
 
   files['manifest.json'] = JSON.stringify(normalized, null, 2)
-  files[normalized.main] = buildPlaygroundMainJs(code)
+  for (const [path, source] of Object.entries(buildPlaygroundModules(code))) {
+    files[path] = source
+  }
 
   if (code.styles) {
-    files[normalized.styles || 'styles.css'] = code.styles
+    files[PLAYGROUND_STYLES] = code.styles
   }
 
   // Omit page.html for widget-only packages (no usable pageHtml).
   if (code.pageHtml && code.pageHtml.trim()) {
-    files[normalized.pageTemplate || 'page.html'] = code.pageHtml
+    files[PLAYGROUND_PAGE_TEMPLATE] = code.pageHtml
   }
 
   if (code.widgetHtml && normalized.widgets && normalized.widgets.length > 0) {
@@ -199,12 +213,6 @@ export function buildPlaygroundPackageFiles(
   if (code.i18n && Object.keys(code.i18n).length > 0) {
     for (const [lang, data] of Object.entries(code.i18n)) {
       files[`i18n/${lang}.json`] = JSON.stringify(data, null, 2)
-    }
-  }
-
-  if (code.pageModules && Object.keys(code.pageModules).length > 0) {
-    for (const [filename, content] of Object.entries(code.pageModules)) {
-      files[`page/${filename}`] = content
     }
   }
 
@@ -226,38 +234,32 @@ export function packageFilesToDirectInstallBody(
   originalAssets?: Record<string, string>,
 ): {
   manifest: TappManifest
-  code: string
-  styles?: string
+  modules: Record<string, string>
+  coreStyles?: string
   pageTemplate?: string
   widgetTemplates?: Record<string, Record<string, string>>
   i18n?: Record<string, unknown>
-  pageModules?: Record<string, string>
   assets?: Record<string, string>
 } {
   const { manifest, files } = pkg
-  const mainContent = files[manifest.main]
-  const code =
-    typeof mainContent === 'string'
-      ? mainContent
-      : new TextDecoder().decode(mainContent)
 
-  const stylesPath = manifest.styles || 'styles.css'
-  const stylesRaw = files[stylesPath]
-  const styles =
-    stylesRaw !== undefined
-      ? typeof stylesRaw === 'string'
-        ? stylesRaw
-        : new TextDecoder().decode(stylesRaw)
-      : undefined
+  const readText = (path: string | undefined): string | undefined => {
+    if (!path) return undefined
+    const raw = files[path]
+    if (raw === undefined) return undefined
+    return typeof raw === 'string' ? raw : new TextDecoder().decode(raw)
+  }
 
-  const pagePath = manifest.pageTemplate || 'page.html'
-  const pageRaw = files[pagePath]
-  const pageTemplate =
-    pageRaw !== undefined
-      ? typeof pageRaw === 'string'
-        ? pageRaw
-        : new TextDecoder().decode(pageRaw)
-      : undefined
+  // 层入口及其依赖：包里的 `.js` 一并送上去，安装时按 manifest 层声明校验。
+  const modules: Record<string, string> = {}
+  for (const [path, content] of Object.entries(files)) {
+    if (!path.endsWith('.js')) continue
+    modules[path] =
+      typeof content === 'string' ? content : new TextDecoder().decode(content)
+  }
+
+  const coreStyles = readText(manifest.core?.styles)
+  const pageTemplate = readText(manifest.page?.template)
 
   let widgetTemplates: Record<string, Record<string, string>> | undefined
   if (manifest.widgets && manifest.widgets.length > 0) {
@@ -296,16 +298,6 @@ export function packageFilesToDirectInstallBody(
     }
   }
 
-  let pageModules: Record<string, string> | undefined
-  for (const [path, content] of Object.entries(files)) {
-    if (!path.startsWith('page/')) continue
-    const filename = path.slice('page/'.length)
-    if (!filename || filename.includes('/')) continue
-    pageModules = pageModules || {}
-    pageModules[filename] =
-      typeof content === 'string' ? content : new TextDecoder().decode(content)
-  }
-
   // Prefer original base64/data-URL asset map for the install API shape.
   const assets =
     originalAssets && Object.keys(originalAssets).length > 0
@@ -314,12 +306,11 @@ export function packageFilesToDirectInstallBody(
 
   return {
     manifest,
-    code,
-    styles,
+    modules,
+    coreStyles,
     pageTemplate,
     widgetTemplates,
     i18n,
-    pageModules,
     assets,
   }
 }

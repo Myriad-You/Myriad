@@ -99,18 +99,16 @@ Content-Type: application/json
 | | 本流程（站点） | 联邦 domain-move |
 | --- | --- | --- |
 | 目标 | 浏览器 / CORS / OAuth / 公网 URL | Actor ID、inbox、签名身份 |
-| 写 `.env` 三键 | 是 | 可能另有约定，不属本 PR |
+| 写 `.env` 三键 | 是 | 可能另有约定，不属本流程 |
 | `federation_*` 表 | **否** | 是 |
 | ActivityPub Move | **否** | 是 |
 
-文档指针（实现到位后）：
-
-- [FEDERATION_DOMAIN_MOVE.md](./FEDERATION_DOMAIN_MOVE.md)（若尚未合入，以联邦 Move PR / 设计为准）
+联邦换域名走 [FEDERATION_DOMAIN_MOVE.md](./FEDERATION_DOMAIN_MOVE.md)。
 
 ## 相关代码
 
 - `backend/src/api/site_domain.rs` — 校验、CORS 合并、Admin API
-- `backend/src/api/config.rs` — 通用保存路径在 `base_url` 变更时适配 FRONTEND_URL / CORS
+- `backend/src/api/config/` — 通用保存路径在 `base_url` 变更时适配 FRONTEND_URL / CORS
 - `frontend/src/components/config/UiConfigSection.tsx` — 站点 URL + 更换域名面板
 - 生产启动：`CORS_ORIGINS` 为空时 panic（见 `backend/src/main.rs`）— 本流程刻意避免写出空 CORS
 

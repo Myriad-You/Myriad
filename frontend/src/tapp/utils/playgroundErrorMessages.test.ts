@@ -145,11 +145,11 @@ describe('mapPlaygroundGenerateError', () => {
   it('maps bad request with detail', () => {
     assert.equal(
       mapPlaygroundGenerateError(
-        'Instruction must contain 1-8000 bytes',
+        'Instruction must contain 1-32680 characters',
         copy,
         { format },
       ),
-      'BAD:Instruction must contain 1-8000 bytes',
+      'BAD:Instruction must contain 1-32680 characters',
     )
   })
 

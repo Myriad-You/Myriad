@@ -61,9 +61,13 @@ myriad-tapp pack .
 management page, choose the install action, and upload that file. The CLI does not
 currently log in to a Myriad server or upload packages itself.
 
+A Playground export uses the same default layer paths (`core.js`, `page/index.js`,
+`widget/index.js`, `templates/{widgetId}-{size}.html`). Unzip the `.tapp` and run
+`myriad-tapp check` before editing extra files.
+
 For Page 3D, prefer `runtimeModules: ["three"]` (category `game` or `developer`)
 so the host injects pinned Three r170 + `GLTFLoader`. You can still bundle a guest
-IIFE under `page/` and list it in `manifest.pageModules`. Put textures and `.glb`
+IIFE under `page/` and `require` it from the page entry. Put textures and `.glb`
 in `manifest.assets` and load them through `Tapp.assets`. The sandbox cannot fetch
 a CDN copy of the engine; `check` warns when page HTML or JS points at `unpkg` /
 `jsdelivr` / `cdnjs` / `esm.sh`. See
@@ -130,7 +134,7 @@ in automation to keep the selected binary explicit.
 - write-only `credentials` declarations and bindings: limits, declared/bound keys,
   fixed absolute HTTPS origins, fixed non-routing headers, and duplicate headers;
 - literal `Tapp.assets.*("path")` references;
-- runtime surface consistency (`hasPage` resources, widgets ↔ `widget:register`);
+- runtime surface consistency (`page` layer resources, widgets ↔ `widget:register`);
 - headless capability profile: actions denied in background core;
 - `manifest.json` size, per-resource byte limits, and `.tapp` entry count and
   package size limits.

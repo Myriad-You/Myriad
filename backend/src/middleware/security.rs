@@ -14,7 +14,7 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
     // Non-hotlink https hosts are used as original URLs in <img src>, so CSP must
     // allow http(s) remote images. We avoid the bare `*` scheme wildcard (which
     // would also permit data-adjacent exotic schemes) while keeping dual-path working.
-    // See docs/guides/SECURITY_HEADERS.md §CSP img-src dual-path.
+    // See docs/deployment/SECURITY_HEADERS.md §CSP img-src dual-path.
     const IMG_SRC: &str = "img-src 'self' data: blob: https: http:";
 
     let csp = if is_production {

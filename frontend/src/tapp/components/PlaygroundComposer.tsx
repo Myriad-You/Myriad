@@ -1401,7 +1401,7 @@ export function PlaygroundComposer({
                 boxShadow: 'none',
                 color: 'var(--text-primary)',
               }}
-              maxLength={8000}
+              maxLength={32680}
             />
 
             {/* Example prompt chips — create / empty instruction only */}

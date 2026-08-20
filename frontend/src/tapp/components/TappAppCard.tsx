@@ -42,6 +42,7 @@ import {
 } from '../../hooks/useAnimationLevel'
 import { PERMISSION_CONFIG } from '../constants/permissions'
 import { PERMISSION_LEVELS } from '../runtime/permissionConfig'
+import { tappHasPage } from '../utils/manifestLayers'
 import { resolveManifestText } from '../utils/manifestLocale'
 import {
   resolveTappCategory,
@@ -589,8 +590,15 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
 
     const categoryId = resolveTappCategory(manifest)
     const needsReauthorization = tapp.needsReauthorization === true
+    // 安装记录被判为 error：包与当前格式不符。给出原因，并且不再当作可打开/可运行的应用。
+    const isUnusable =
+      tapp.installationStatus === 'error' || tapp.status === 'error'
+    const unusableReason = isUnusable
+      ? tapp.error?.trim() || t.tapp.packageUnusableMessage
+      : ''
     const canStartStop =
       !needsReauthorization &&
+      !isUnusable &&
       ((tapp.userRole === 'admin' && tapp.isAdminTapp === true) ||
         (tapp.userRole === 'user' && tapp.isTemporary === true))
     const canUninstall =
@@ -601,7 +609,8 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
       (tapp.userRole === 'user' && tapp.isTemporary === true)
     const category = t.tapp[TAPP_CATEGORY_I18N_KEYS[categoryId]]
 
-    const hasPage = manifest.hasPage === true && !needsReauthorization
+    const hasPage =
+      tappHasPage(manifest) && !needsReauthorization && !isUnusable
     const iconStyle = getTappIconStyle(tapp)
     const accent =
       iconStyle.accentColor ||
@@ -872,18 +881,30 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
                     aria-label={t.tapp.running || 'Running'}
                   />
                 )}
-                {needsReauthorization && (
+                {(isUnusable || needsReauthorization) && (
                   <FaExclamationTriangle
                     className="tapp-app-card__reauth-icon"
-                    title={t.tapp.reauthorizationRequired}
-                    aria-label={t.tapp.reauthorizationRequired}
+                    title={
+                      isUnusable
+                        ? t.tapp.packageUnusable
+                        : t.tapp.reauthorizationRequired
+                    }
+                    aria-label={
+                      isUnusable
+                        ? t.tapp.packageUnusable
+                        : t.tapp.reauthorizationRequired
+                    }
                   />
                 )}
               </div>
               {/* 2x1: category tag + desc; 1x1: rotating subtitle */}
               {isWide ? (
                 <>
-                  {needsReauthorization ? (
+                  {isUnusable ? (
+                    <span className="tapp-app-card__reauth-label">
+                      {t.tapp.packageUnusable}
+                    </span>
+                  ) : needsReauthorization ? (
                     <span className="tapp-app-card__reauth-label">
                       {t.tapp.reauthorizationRequired}
                     </span>
@@ -916,7 +937,12 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
             {/* 2x1 hover: permissions only + dock (no title/desc/icon) */}
             {isWide ? (
               <div className="tapp-app-card__detail-mid tapp-app-card__detail-mid--perms-only">
-                {needsReauthorization ? (
+                {isUnusable ? (
+                  <p className="tapp-app-card__reauth-message">
+                    <FaExclamationTriangle aria-hidden />
+                    <span>{unusableReason}</span>
+                  </p>
+                ) : needsReauthorization ? (
                   <p className="tapp-app-card__reauth-message">
                     <FaExclamationTriangle aria-hidden />
                     <span>{t.tapp.reauthorizationMessage}</span>
@@ -945,7 +971,12 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
                 </header>
 
                 <div className="tapp-app-card__detail-mid">
-                  {needsReauthorization ? (
+                  {isUnusable ? (
+                    <p className="tapp-app-card__reauth-message">
+                      <FaExclamationTriangle aria-hidden />
+                      <span>{unusableReason}</span>
+                    </p>
+                  ) : needsReauthorization ? (
                     <p className="tapp-app-card__reauth-message">
                       <FaExclamationTriangle aria-hidden />
                       <span>{t.tapp.reauthorizationMessage}</span>

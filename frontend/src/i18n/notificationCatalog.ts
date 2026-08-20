@@ -54,7 +54,7 @@ const SOURCE_TEXT: Record<
   'zh-CN': {
     agent: {
       title: 'Arael 任务',
-      description: '任务进度、结果、取消与澄清请求',
+      description: '任务进度、结果、取消、澄清，以及有价值的平台动态',
     },
     heartbeat: {
       title: 'Heartbeat',
@@ -70,7 +70,8 @@ const SOURCE_TEXT: Record<
   'en-US': {
     agent: {
       title: 'Arael Tasks',
-      description: 'Task progress, results, cancellation and clarification',
+      description:
+        'Task progress, results, cancellation, clarification, and notable platform activity',
     },
     heartbeat: {
       title: 'Heartbeat',
@@ -101,7 +102,8 @@ const SOURCE_TEXT: Record<
   'ja-JP': {
     agent: {
       title: 'Arael タスク',
-      description: '進行状況、結果、キャンセル、確認要求',
+      description:
+        '進行状況、結果、キャンセル、確認要求、価値のあるプラットフォームの動き',
     },
     heartbeat: {
       title: 'Heartbeat',
@@ -129,12 +131,14 @@ const EVENT_TEXT: Record<Locale, Record<NotificationEventKey, string>> = {
     'agent.task_failed': '任务失败',
     'agent.task_cancelled': '任务取消',
     'agent.clarification': '等待回答',
+    'agent.life.platform_activity': '平台新动态',
     'heartbeat.succeeded': '定时任务成功',
     'heartbeat.failed': '定时任务失败',
     'mcp.connected': 'MCP 已连接',
     'mcp.disconnected': 'MCP 断开或失败',
     'brew.new_items': '发现新内容',
     'brew.source_error': '订阅源连续失败',
+    'platform.sync.failed': '平台同步失败',
     'tapp.message': '普通消息',
     'tapp.warning': '警告',
     'tapp.error': '错误与任务失败',
@@ -163,12 +167,14 @@ const EVENT_TEXT: Record<Locale, Record<NotificationEventKey, string>> = {
     'agent.task_failed': 'Task failed',
     'agent.task_cancelled': 'Task cancelled',
     'agent.clarification': 'Waiting for an answer',
+    'agent.life.platform_activity': 'Platform activity',
     'heartbeat.succeeded': 'Scheduled task succeeded',
     'heartbeat.failed': 'Scheduled task failed',
     'mcp.connected': 'MCP connected',
     'mcp.disconnected': 'MCP disconnected or failed',
     'brew.new_items': 'New content found',
     'brew.source_error': 'Feed repeatedly failed',
+    'platform.sync.failed': 'Platform sync failed',
     'tapp.message': 'Message',
     'tapp.warning': 'Warning',
     'tapp.error': 'Error or task failure',
@@ -197,12 +203,14 @@ const EVENT_TEXT: Record<Locale, Record<NotificationEventKey, string>> = {
     'agent.task_failed': 'タスク失敗',
     'agent.task_cancelled': 'タスクキャンセル',
     'agent.clarification': '回答待ち',
+    'agent.life.platform_activity': 'プラットフォームの動き',
     'heartbeat.succeeded': '定期タスク成功',
     'heartbeat.failed': '定期タスク失敗',
     'mcp.connected': 'MCP 接続',
     'mcp.disconnected': 'MCP 切断または失敗',
     'brew.new_items': '新着コンテンツ',
     'brew.source_error': 'フィードの連続失敗',
+    'platform.sync.failed': 'プラットフォーム同期失敗',
     'tapp.message': 'メッセージ',
     'tapp.warning': '警告',
     'tapp.error': 'エラーまたはタスク失敗',

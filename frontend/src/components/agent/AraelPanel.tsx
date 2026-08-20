@@ -52,6 +52,7 @@ import {
   isNonTerminalTaskStatus,
 } from '../../services/agent/reattach'
 import { isImeComposing } from '../../utils/ime'
+import { getPublicConfigDeduped } from '../../utils/requestDedup'
 
 import { AraelChatMessage } from './components/AraelChatMessage'
 import { AraelDebugPanel } from './components/AraelDebugPanel'
@@ -77,6 +78,7 @@ function getSmartGreeting(
   pathname: string,
   _historyCount: number,
   arael: TranslationKeys['arael'],
+  displayName = 'Arael',
 ): string {
   const hour = new Date().getHours()
   const g = arael.greeting
@@ -101,13 +103,13 @@ function getSmartGreeting(
   for (const [path, hints] of Object.entries(pageHintsMap)) {
     if (pathname.startsWith(path)) {
       const hint = hints[Math.floor(Math.random() * hints.length)]
-      return `Arael ${timeGreeting}，${hint}`
+      return `${displayName} ${timeGreeting}，${hint}`
     }
   }
 
   const hint =
     arael.generalHints[Math.floor(Math.random() * arael.generalHints.length)]
-  return `Arael ${timeGreeting}，${hint}`
+  return `${displayName} ${timeGreeting}，${hint}`
 }
 
 /** 调试日志条目 */
@@ -183,6 +185,7 @@ export const AraelPanel: React.FC = () => {
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
   const [sessionTitle, setSessionTitle] = useState<string | null>(null)
+  const [personaName, setPersonaName] = useState('Arael')
 
   // 长按检测（提取到 useLongPress hook）
   const { indicator: longPressIndicator } = useLongPress(
@@ -317,15 +320,44 @@ export const AraelPanel: React.FC = () => {
     }
   }, [isAuthenticated])
 
-  useEffect(() => {
-    if (visibility === 'visible' && isAuthenticated) {
-      loadPresets()
+  const loadPersona = useCallback(async () => {
+    try {
+      const publicConfig = await getPublicConfigDeduped()
+      const publicName =
+        typeof publicConfig?.agentPersonaName === 'string'
+          ? publicConfig.agentPersonaName.trim()
+          : ''
+      if (publicName) setPersonaName(publicName)
+    } catch {
+      if (!isAuthenticated) setPersonaName('Arael')
     }
-  }, [visibility, loadPresets, isAuthenticated])
+    if (!isAuthenticated) return
+    try {
+      const persona = await agentService.getPersona()
+      setPersonaName(persona?.name?.trim() || 'Arael')
+    } catch {
+      // Keep the public face if the authenticated persona call fails.
+    }
+  }, [isAuthenticated])
+
+  useEffect(() => {
+    if (visibility === 'visible') {
+      if (isAuthenticated) loadPresets()
+      void loadPersona()
+    }
+  }, [visibility, loadPresets, loadPersona, isAuthenticated])
+
+  useEffect(() => {
+    const onUpdated = () => {
+      void loadPersona()
+    }
+    window.addEventListener('arael-persona-updated', onUpdated)
+    return () => window.removeEventListener('arael-persona-updated', onUpdated)
+  }, [loadPersona])
 
   const smartGreeting = useMemo(
-    () => getSmartGreeting(location.pathname, 0, t.arael),
-    [visibility, location.pathname, t.arael],
+    () => getSmartGreeting(location.pathname, 0, t.arael, personaName),
+    [visibility, location.pathname, t.arael, personaName],
   )
 
   const loadContinueSessions = useCallback(async () => {
@@ -618,8 +650,8 @@ export const AraelPanel: React.FC = () => {
         taskId?: string
       } | null
       const sid = detail?.sessionId
-      if (typeof sid !== 'string' || !sid) return
       setVisibility('visible')
+      if (typeof sid !== 'string' || !sid) return
       void import('../../utils/analyticsEvents').then(
         ({ trackProductEvent, AnalyticsEvents }) => {
           trackProductEvent(AnalyticsEvents.AGENT_OPEN, {
@@ -1895,9 +1927,10 @@ export const AraelPanel: React.FC = () => {
                             type="button"
                             className="arael-empty-hero-name qwitcher-grypen"
                             onClick={handleDebugMultiClick}
-                            aria-label="Arael"
+                            aria-label={personaName}
+                            data-name={personaName}
                           >
-                            Arael
+                            {personaName}
                           </button>
                           <span className="arael-empty-hero-sub">
                             {t.arael.heroSub}

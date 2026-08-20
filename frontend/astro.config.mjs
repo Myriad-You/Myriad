@@ -86,10 +86,9 @@ const BACKEND_TARGET = 'http://127.0.0.1:1103'
 const PLAYGROUND_PROXY_TIMEOUT_MS = 30 * 60 * 1000
 // Federation file-meta downloads / chunk uploads can exceed the default 30s.
 const FEDERATION_TRANSFER_PROXY_TIMEOUT_MS = 10 * 60 * 1000
-// Digital Life onboarding / visuals: a single directional rig is composed
-// from five independently validated image sheets. Provider retries can exceed
-// three minutes, so the proxy must match the 15-minute rig client contract
-// instead of abandoning a still-running backend job.
+// Digital Life 3D + Agent life onboarding (Pro distill / name / draft):
+// backend Pro timeout is 120s and the socket stays idle until the model
+// returns. Default 30s proxy timeout surfaces as "Backend proxy timeout".
 const DIGITAL_LIFE_PROXY_TIMEOUT_MS = 15 * 60 * 1000
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -104,20 +103,43 @@ const HOP_BY_HOP_HEADERS = new Set([
   'host',
 ])
 
+/** Pathname only: drop query, hash, trailing slash, and absolute-URL origin. */
+function requestPathname(urlPath) {
+  const raw = String(urlPath || '').trim()
+  try {
+    const url =
+      raw.startsWith('http://') || raw.startsWith('https://')
+        ? new URL(raw)
+        : new URL(raw, 'http://dev.invalid')
+    return url.pathname.replace(/\/+$/, '') || '/'
+  } catch {
+    const path = (raw.split('?')[0] || '').split('#')[0].replace(/\/+$/, '')
+    return path || '/'
+  }
+}
+
 /** Path-only (no query). Completed transfer byte stream — must not buffer. */
 function isFederationTransferContentPath(urlPath) {
-  const path = (urlPath || '').split('?')[0] || ''
+  const path = requestPathname(urlPath)
   return /^\/api\/federation\/transfers\/[^/]+\/content$/.test(path)
 }
 
 function isDigitalLifeApiPath(urlPath) {
-  const path = (urlPath || '').split('?')[0] || ''
-  return path.startsWith('/api/digital-life/')
+  return requestPathname(urlPath).startsWith('/api/digital-life/')
+}
+
+function isAgentPersonaGenerationPath(urlPath) {
+  const path = requestPathname(urlPath)
+  return (
+    path === '/api/agent/persona/signals' ||
+    path === '/api/agent/persona/draft' ||
+    path === '/api/agent/persona/name'
+  )
 }
 
 /** Long-running federation transfer REST (initiate / list / chunk / cancel / get). */
 function isFederationTransferApiPath(urlPath) {
-  const path = (urlPath || '').split('?')[0] || ''
+  const path = requestPathname(urlPath)
   if (path.startsWith('/api/federation/transfers/')) return true
   return (
     /^\/api\/federation\/channels\/[^/]+\/transfers$/.test(path) ||
@@ -154,6 +176,8 @@ function proxyBackendRequest(targetUrl, method, headers, body, timeoutMs) {
         timeout: timeoutMs,
       },
       (backendRes) => {
+        // Headers arrived: do not keep the idle timer for a small JSON body.
+        backendReq.setTimeout(0)
         const chunks = []
         backendRes.on('data', (chunk) =>
           chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
@@ -170,6 +194,9 @@ function proxyBackendRequest(targetUrl, method, headers, body, timeoutMs) {
       },
     )
 
+    if (timeoutMs > 0) {
+      backendReq.setTimeout(timeoutMs)
+    }
     backendReq.on('timeout', () => {
       backendReq.destroy(new Error('Backend proxy timeout'))
     })
@@ -333,7 +360,7 @@ function isSeoCrawlerUserAgent(ua) {
  * @param {string} [userAgent]
  */
 function isBackendDevProxyPath(urlPath, userAgent) {
-  const path = (urlPath || '').split('?')[0] || ''
+  const path = requestPathname(urlPath)
   if (
     path.startsWith('/api/') ||
     path === '/health' ||
@@ -381,7 +408,7 @@ function backendDevProxyPlugin() {
     // Astro's, so Astro's sec-fetch unshift would still land in front of us.
     configureServer(server) {
       const handler = async (req, res, next) => {
-        const originalUrl = req.url || ''
+        const originalUrl = req.originalUrl || req.url || ''
         const ua = req.headers['user-agent'] || ''
         if (!isBackendDevProxyPath(originalUrl, ua)) {
           next()
@@ -409,12 +436,14 @@ function backendDevProxyPlugin() {
           const hasBody = method !== 'GET' && method !== 'HEAD'
           const body = hasBody ? await readRequestBody(req) : undefined
           const retryable = method === 'GET' || method === 'HEAD'
-          const timeoutMs = originalUrl.startsWith('/api/tapp-playground/')
+          const requestPath = requestPathname(originalUrl)
+          const timeoutMs = requestPath.startsWith('/api/tapp-playground/')
             ? PLAYGROUND_PROXY_TIMEOUT_MS
             : isFederationTransferApiPath(originalUrl) ||
                 isFederationTransferContentPath(originalUrl)
               ? FEDERATION_TRANSFER_PROXY_TIMEOUT_MS
-              : isDigitalLifeApiPath(originalUrl)
+              : isDigitalLifeApiPath(originalUrl) ||
+                  isAgentPersonaGenerationPath(originalUrl)
                 ? DIGITAL_LIFE_PROXY_TIMEOUT_MS
                 : 30000
           // SSE and large transfer downloads must be piped. Buffering a multi-MB

@@ -64,7 +64,7 @@ export const WelcomeWidget = memo(
         {
           title: t.widgets.library,
           description: t.widgets.multiPlatformAggregation,
-          features: [t.widgets.showPersonality],
+          features: [t.widgets.libraryFeature],
           path: '/library',
           color: '#8b5cf6',
         },

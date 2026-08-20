@@ -55,6 +55,8 @@ pub mod enka_assets; // Enka character metadata for Hoyoverse cards
 pub mod fetcher;
 pub mod governed_text; // Governed AI text sink (scheduler + declared-API builtins)
 pub mod http_client; // Shared HTTP client with proxy support
+pub mod gemini_media; // Gemini generateContent image + speech
+pub mod image_generation; // OpenAI / OpenRouter / Volcengine / Gemini image providers
 pub mod memory_profile; // default vs memory-saver process budgets
 pub mod kugou_service; // Kugou lyrics (KRC) supplement
 pub mod metadata_service;
@@ -82,6 +84,8 @@ pub mod tapp_runtime_grant;
 pub mod tapp_ws_ticket; // One-time federation WS tickets
 pub mod tapp_scheduler;
 pub mod tapp_storage;
+pub mod openai_compatible_speech; // OpenAI / OpenRouter file STT + TTS
+pub mod speech_runtime; // Provider resolve + test/status
 pub mod standalone_tts; // Standalone TTS (cache + Tencent) for HTTP + agent
 pub mod tencent_speech_service;
 pub mod tripo; // Tripo v3 3D generation + Web GLB persistence

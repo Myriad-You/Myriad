@@ -17,6 +17,7 @@ import {
   storePackageRoot,
 } from '../utils/storePackagePaths'
 import { parseStorePreview } from '../utils/storePreview'
+import { maxDeclaredAssets } from '../utils/tappPackageLimits'
 
 export {
   storeAssetStorePath,
@@ -120,7 +121,7 @@ export interface RemoteApp {
     /** i18n 翻译文件（lang → 相对路径） */
     i18n?: Record<string, string>
     /** Page 模块（filename → 相对路径） */
-    page_modules?: Record<string, string>
+    modules?: Record<string, string>
   }
   /** 许可证 */
   license?: string
@@ -835,12 +836,13 @@ class RemoteStoreServiceImpl {
     manifest: TappManifest
     code: string
     styles?: string
-    widgetCss?: string
+    /** 作者声明的 widget 层 CSS（`download.widget_styles`），不是宿主预编译产物 */
+    widgetStyles?: string
     pageCss?: string
     pageTemplate?: string
     widgetTemplates?: Record<string, Record<string, string>>
     i18n?: Record<string, unknown>
-    pageModules?: Record<string, string>
+    modules?: Record<string, string>
     /** Package-static assets (manifest path → standard base64) */
     assets?: Record<string, string>
   }> {
@@ -910,7 +912,7 @@ class RemoteStoreServiceImpl {
     })
 
     const indexWithBase = { ...storeIndex, base_url: baseUrl }
-    // Manifest first so we know which package fields are required (pageStyles etc.)
+    // Manifest first so we know which layer resources are required (page.styles etc.)
     const downloadedManifest = await this.downloadManifest(
       app,
       indexWithBase,
@@ -929,11 +931,13 @@ class RemoteStoreServiceImpl {
       )
     }
 
-    const needsPageCss = !!manifest.pageStyles
-    const needsPageTemplate = !!manifest.pageTemplate
-    const needsWidgetCss = !!manifest.widgetStyles
+    const needsPageCss = !!manifest.page?.styles
+    const needsPageTemplate = !!manifest.page?.template
+    const needsWidgetCss = (manifest.widgets ?? []).some(
+      (widget) => !!widget.styles,
+    )
 
-    const [code, styles, widgetCss, pageCss, pageTemplate] = await Promise.all([
+    const [code, styles, widgetStyles, pageCss, pageTemplate] = await Promise.all([
       this.downloadCode(app, indexWithBase, downloadSessionId),
       downloadText(app.download.styles),
       downloadText(
@@ -952,12 +956,12 @@ class RemoteStoreServiceImpl {
 
     if (needsPageCss && !pageCss) {
       throw new Error(
-        'Downloaded package is missing pageStyles content (page.css). Check store download.page_styles.',
+        'Downloaded package is missing page.styles content. Check store download.page_styles.',
       )
     }
     if (needsPageTemplate && !pageTemplate) {
       throw new Error(
-        'Downloaded package is missing pageTemplate content. Check store download.page_template.',
+        'Downloaded package is missing page.template content. Check store download.page_template.',
       )
     }
 
@@ -1004,55 +1008,42 @@ class RemoteStoreServiceImpl {
       if (Object.keys(i18nData).length > 0) i18n = i18nData
     }
 
-    let pageModules: Record<string, string> | undefined
-    if (app.download.page_modules) {
-      const entries = Object.entries(app.download.page_modules)
-      const modules: Record<string, string> = {}
-      const totalPm = entries.length
-      let donePm = 0
-      // Bound concurrency (same idea as assets) + progress for multi-file page packs
+    // `download.modules` 的 key 是包内相对路径，覆盖任意层的入口与层内文件。
+    let modules: Record<string, string> | undefined
+    if (app.download.modules) {
+      const entries = Object.entries(app.download.modules)
+      const downloaded: Record<string, string> = {}
+      const total = entries.length
+      let done = 0
+      // Bound concurrency (same idea as assets) + progress for multi-file packages
       const concurrency = 4
-      let nextPm = 0
+      let next = 0
       const worker = async () => {
-        while (nextPm < entries.length) {
-          const i = nextPm++
-          const [filename, path] = entries[i]!
-          const content = await downloadText(path, `page module ${filename}`)
+        while (next < entries.length) {
+          const index = next++
+          const [relative, path] = entries[index]!
+          const content = await downloadText(path, `module ${relative}`)
           if (!content) {
-            throw new Error(
-              `Failed to download page module ${filename} (${path})`,
-            )
+            throw new Error(`Failed to download module ${relative} (${path})`)
           }
-          modules[filename] = content
-          donePm++
-          // Map page-module downloads into 20–75% of the download bar
-          const frac = totalPm > 0 ? donePm / totalPm : 1
+          downloaded[relative] = content
+          done++
+          // Map module downloads into 20–75% of the download bar
+          const frac = total > 0 ? done / total : 1
           report?.({
             phase: 'download',
             message: 'download',
             percent: clampInstallPercent(20 + frac * 55),
-            detail: filename,
+            detail: relative,
           })
         }
       }
       await Promise.all(
-        Array.from(
-          { length: Math.min(concurrency, Math.max(1, totalPm)) },
-          () => worker(),
+        Array.from({ length: Math.min(concurrency, Math.max(1, total)) }, () =>
+          worker(),
         ),
       )
-      // Manifest may declare pageModules; store index map must cover them all
-      const declared = Array.isArray(manifest.pageModules)
-        ? manifest.pageModules
-        : []
-      for (const name of declared) {
-        if (!modules[name]) {
-          throw new Error(
-            `Store package is missing page module declared in manifest: ${name}`,
-          )
-        }
-      }
-      if (Object.keys(modules).length > 0) pageModules = modules
+      if (Object.keys(downloaded).length > 0) modules = downloaded
     }
 
     // Binary package assets declared in manifest.assets
@@ -1080,12 +1071,12 @@ class RemoteStoreServiceImpl {
       manifest,
       code,
       styles,
-      widgetCss,
+      widgetStyles,
       pageCss,
       pageTemplate,
       widgetTemplates,
       i18n,
-      pageModules,
+      modules,
       assets,
     }
   }
@@ -1107,9 +1098,10 @@ class RemoteStoreServiceImpl {
   ): Promise<Record<string, string> | undefined> {
     const declared = manifest.assets
     if (!declared || declared.length === 0) return undefined
-    if (declared.length > 64) {
+    const maxAssets = maxDeclaredAssets(manifest)
+    if (declared.length > maxAssets) {
       throw new Error(
-        `Tapp assets accepts at most 64 entries (got ${declared.length})`,
+        `Tapp assets accepts at most ${maxAssets} entries (got ${declared.length})`,
       )
     }
 

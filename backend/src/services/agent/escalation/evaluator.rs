@@ -92,9 +92,8 @@ impl ResultEvaluator {
         Self { min_data_count: 1 }
     }
 
-    /// 评估结果（无需 ParsedIntent，仅检测失败模式和数据充足性）
+    /// 评估结果（仅检测失败模式和数据充足性）
     ///
-    /// 用于 Planner 管线的简化评估，不依赖旧的 ParsedIntent 类型。
     /// 生产路径优先 `evaluate_with_context`；本方法供无能力上下文的简化调用与单测。
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn evaluate_result(&self, result: &Value) -> Evaluation {

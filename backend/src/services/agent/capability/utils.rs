@@ -446,7 +446,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
 
         // 音乐播放器
         "music.control" => "【播放器控制】直接控制音乐播放器的当前状态。仅用于纯播放器操作：播放/暂停/下一首/上一首/静音/调音量。注意：用户说'放点音乐'、'找点音乐听'、'播放ACG音乐'等要求搜索音乐内容的，不要用这个，应该用 netease.searchPlaylist + music.playlist",
-        "music.status" => "播放状态查询。用户问'现在放的什么歌'、'当前播放'时使用",
+        "music.status" => "播放状态。向浏览器请求当前播放器状态，后端没有播放器",
         "music.playlist" => "根据歌单ID加载并播放指定歌单。需要先通过 netease.searchPlaylist 获取歌单ID，然后用本能力加载。不要单独使用",
         "netease.searchPlaylist" => "搜索网易云歌单。用户说'放点音乐'、'找点音乐听'、'播放ACG音乐'、'推荐个歌单'时，先用这个搜索，然后配合 music.playlist 播放",
 
@@ -465,7 +465,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
 
         // 报告系统
         "report.create" => "生成报告。用户说'生成报告'、'做个总结报告'时使用",
-        "report.list" => "报告列表。用户说'历史报告'时使用",
+        "report.list" => "报告列表。平台报告读 platform_reports；无 platform 时附带当前用户 Agent report.create 的记录",
 
         // 路由导航
         "router.state" => "路由状态。获取当前页面路由状态，了解用户在哪个页面",
@@ -474,7 +474,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         // 页面交互
         "page.interact" => "页面元素交互。点击按钮、链接、标签页、菜单项等",
         "page.understand" => "页面 UI 智能理解。AI 分析当前页面 UI 并生成操作指令",
-        "page.content" => "页面内容。读取当前页面显示的实际内容",
+        "page.content" => "页面内容。有前端快照则用快照，否则转发 brew.page / tapp.page / platform.read",
 
         // 搜索
         "search.global" => "全局搜索。跨平台搜索内容",
@@ -484,9 +484,10 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "system.metrics" => "系统监控。本进程内存/uptime/任务计数（非完整主机监控）",
         "cache.status" => "缓存状态。获取各平台缓存状态",
         "cache.clear" => "清除缓存。清除指定平台的缓存数据",
-        "config.get" => "获取配置。获取系统配置信息",
-        "setup.status" => "系统设置状态。检查系统初始化和设置状态",
+        "config.get" => "获取配置。AI 为 Standard（enabled/provider/model，不含密钥）；platforms 为接通标志；ui 为公开展示字段",
+        "setup.status" => "系统设置状态。库表与管理员（与 HTTP /api/setup/status 一致，不含 AI 钥）",
         "auth.status" => "认证状态。检查用户认证和权限状态",
+        "permission.check" => "授予权限检查。按当前会话角色；带 tappId 时与该安装批准权限求交",
         "export.data" => "数据导出。导出平台数据为指定格式",
         "image.cache" => "图片缓存。缓存外部图片到本地",
         "proxy.image" => "图片代理。代理获取外链图片",
@@ -528,7 +529,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "rsshub.healthcheck" => "RSSHub 健康检查。探测已配置实例（可指定 instanceId）",
         "hitokoto.get" => "获取一言。获取随机一言/语录",
         "weather.get" => "获取天气。获取天气信息",
-        "time.info" => "时间信息。获取当前时间和日期信息",
+        "time.info" => "时间信息。按 IANA/UTC/local/+08:00 换算墙钟，未知时区失败",
 
         // AI 增强阅读
         "brewlia.annotate" => "AI 文章注释。为文章生成 AI 智能注释和解读",

@@ -6,13 +6,15 @@
 use super::HandlerContext;
 use crate::models::entities::{tapp_storage, tapps};
 use crate::services::agent::resource_create_pure::{
-    extract_html_title, extract_note_content, extract_string_tags, format_bookmark_id,
-    format_note_id, format_reminder_id, format_report_id, generated_tapp_fallback,
-    limit_html_for_title, manifest_permission_strings, normalize_agent_tapp_manifest,
-    note_auto_title, parse_generated_tapp_json, reminder_repeat_or_default, render_report_content,
-    require_nonempty_code, resolve_bookmark_title, truncate_json_for_prompt,
-    AGENT_BOOKMARKS_TAPP_ID, AGENT_NOTES_TAPP_ID, AGENT_REMINDERS_TAPP_ID, AGENT_REPORTS_TAPP_ID,
+    agent_page_require_core_source, extract_html_title, extract_note_content, extract_string_tags,
+    format_bookmark_id, format_note_id, format_reminder_id, format_report_id,
+    generated_tapp_fallback, limit_html_for_title, manifest_permission_strings,
+    normalize_agent_tapp_manifest, note_auto_title, parse_generated_tapp_json,
+    reminder_repeat_or_default, render_report_content, require_nonempty_code,
+    resolve_bookmark_title, truncate_json_for_prompt, AGENT_BOOKMARKS_TAPP_ID, AGENT_NOTES_TAPP_ID,
+    AGENT_REMINDERS_TAPP_ID, AGENT_REPORTS_TAPP_ID,
 };
+use crate::services::tapp_package_read::{installed_core_entry, installed_page_entry};
 use crate::services::data_paths::paths;
 use crate::services::permission_service::{TappPermissionService, UserRole};
 use crate::GLOBAL_DYNAMIC_CONFIG;
@@ -68,14 +70,30 @@ async fn persist_agent_tapp(
     .map_err(|error| format!("{}: {}", error.code(), error.message()))?;
 
     let tapp_dir = paths().tapp_user_dir(ctx.user_id).join(tapp_id);
-    let code_path = tapp_dir.join("main.js");
+    let core_entry = installed_core_entry(&manifest)
+        .ok_or_else(|| "Tapp core.entry is required after normalize".to_string())?;
+    let page_entry = installed_page_entry(&manifest)
+        .ok_or_else(|| "Tapp page.entry is required after normalize".to_string())?;
+    let page_source = agent_page_require_core_source(&page_entry, &core_entry)?;
+    let code_path = tapp_dir.join(&core_entry);
+    let page_path = tapp_dir.join(&page_entry);
     let manifest_path = tapp_dir.join("manifest.json");
-    tokio::fs::create_dir_all(&tapp_dir)
-        .await
-        .map_err(|e| format!("Failed to create Tapp directory: {e}"))?;
+    if let Some(parent) = code_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create Tapp directory: {e}"))?;
+    }
+    if let Some(parent) = page_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create Tapp directory: {e}"))?;
+    }
     tokio::fs::write(&code_path, code)
         .await
-        .map_err(|e| format!("Failed to write Tapp code: {e}"))?;
+        .map_err(|e| format!("Failed to write Tapp core: {e}"))?;
+    tokio::fs::write(&page_path, page_source)
+        .await
+        .map_err(|e| format!("Failed to write Tapp page entry: {e}"))?;
     let manifest_json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| format!("Failed to serialize Tapp manifest: {e}"))?;
     tokio::fs::write(&manifest_path, manifest_json)
@@ -158,7 +176,7 @@ async fn execute_tapp_generate(
 1. 输出浏览器可直接运行的 JavaScript，不要输出需要构建的 TypeScript
 2. 使用全局 Tapp SDK（例如 Tapp.storage、Tapp.pages、Tapp.widgets）
 3. core 只放共享状态和后台逻辑，Page/Widget 只负责视图；需要刷新后自动常驻时在 manifest.backgroundRequirements 声明
-4. manifest 必须包含 permissions，并按需包含 hasPage、widgets、backgroundRequirements
+4. manifest 必须包含 permissions 和 category，按需包含 core / page / widgets / backgroundRequirements。不要写 main、hasPage、cssMode、styles、pageTemplate、pageStyles、widgetStyles、pageModules
 5. 如果有数据输入，将数据内嵌到代码中直接展示
 
 只返回合法 JSON：
@@ -167,10 +185,12 @@ async fn execute_tapp_generate(
     "name": "...",
     "version": "1.0.0",
     "description": "...",
+    "category": "utility",
     "permissions": [],
-    "hasPage": true
+    "core": {{ "entry": "core.js" }},
+    "page": {{ "entry": "page/index.js" }}
   }},
-  "code": "完整 JavaScript 代码"
+  "code": "完整 JavaScript 代码（将写入 core.js；page/index.js 会 require 它）"
 }}"#
     );
 

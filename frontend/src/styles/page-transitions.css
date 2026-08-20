@@ -57,7 +57,7 @@ html.dark {
 /*
  * 主内容区域使用相对定位，为退出动画提供容器。
  * 不要 isolation:isolate —— 那会建 backdrop root，
- * 主内容里的毛玻璃（数字生命设定卡 / 引导卡）就糊不到 #wallpaper。
+ * 主内容里的毛玻璃（设定卡 / 引导卡）就糊不到 #wallpaper。
  *
  * min-height 仅在 Tapp fixed 叠化路由上启用（html[data-tapp-overlay]），
  * 避免全站短页被 100dvh 撑出多余空白。

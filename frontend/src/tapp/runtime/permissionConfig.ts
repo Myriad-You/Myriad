@@ -218,6 +218,13 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['settings.get', 'storage:read'],
     ['settings.set', 'storage:write'],
     ['settings.getAll', 'storage:read'],
+    ['shared.get', 'storage:read'],
+    ['shared.set', 'storage:write'],
+    ['shared.remove', 'storage:write'],
+    ['shared.keys', 'storage:read'],
+    ['shared.getAll', 'storage:read'],
+    ['shared.clear', 'storage:write'],
+    ['shared.usage', 'storage:read'],
 
     // UI 权限
     ['ui.showNotification', 'ui:notification'],

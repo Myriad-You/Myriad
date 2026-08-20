@@ -59,7 +59,7 @@ export interface SettingTitleGuideEntryProps {
   className?: string
   /**
    * 默认 true：仅「显示说明」开启时显示入口。
-   * 设 false 用于页头常驻入口（如 AI「快捷访问」），仍走同一套浮窗指南。
+   * 设 false 用于页头常驻入口（如 AI「添加服务商」），仍走同一套浮窗。
    */
   requireShowDetails?: boolean
   /** 覆盖触发器文案（收起态）；默认「选项指南」 */

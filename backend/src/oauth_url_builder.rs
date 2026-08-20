@@ -83,20 +83,11 @@ impl OAuthUrlBuilder {
         }
 
         let cfg = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
-        let has_legacy_github = cfg.github_client_id.as_ref().is_some_and(|s| !s.is_empty())
-            && cfg
-                .github_client_secret
-                .as_ref()
-                .is_some_and(|s| !s.is_empty());
         let entry_count = cfg.oauth_providers.iter().filter(|p| p.enabled).count();
         drop(cfg);
 
-        if has_legacy_github || entry_count > 0 {
-            tracing::info!(
-                "✅ OAuth providers configured: legacy_github={}, entries={}",
-                has_legacy_github,
-                entry_count
-            );
+        if entry_count > 0 {
+            tracing::info!("✅ OAuth providers configured: entries={}", entry_count);
         } else {
             tracing::debug!("ℹ️  No OAuth providers configured (can be set in Settings > OAuth)");
         }

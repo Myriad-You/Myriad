@@ -1,15 +1,66 @@
 /** Tapp installation, update, uninstall and temporary cleanup operations. */
 
-import type { TappCodeStructure, TappManifest } from '../types'
+import type { TappManifest } from '../types'
 import type { TappListItem } from './TappLifecycleApi'
+import type { TappPlaygroundCode } from './TappPlaygroundService'
 import { API_URL } from '../../config'
 import { getCSRFToken } from '../../utils/csrf'
 import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
+import { tappLayerEntries } from '../utils/manifestLayers'
+
 import {
   buildPlaygroundPackageFiles,
   packageFilesToDirectInstallBody,
 } from '../utils/playgroundPackageFiles'
 import { apiRequest } from './TappHttpClient'
+
+/**
+ * 商店包的模块表：`download.code` 是 core 入口，`download.modules` 覆盖其余层。
+ *
+ * 声明的层入口缺一个就拒绝，别装个打不开的半成品——后端 staging 也会拒，但那时
+ * 用户已经等完了整个下载。
+ */
+export function storeInstallModules(
+  manifest: TappManifest,
+  code: string,
+  downloaded: Record<string, string> | undefined,
+): Record<string, string> {
+  const modules: Record<string, string> = { ...(downloaded || {}) }
+  if (manifest.core?.entry) modules[manifest.core.entry] = code
+  for (const entry of tappLayerEntries(manifest)) {
+    if (!(entry in modules)) {
+      throw new Error(
+        `Store index is missing download.modules entry for declared layer entry ${entry}`,
+      )
+    }
+  }
+  return modules
+}
+
+/**
+ * 把商店索引里那份 `download.widget_styles` 摊给每个声明了 `styles` 的 widget。
+ *
+ * 索引只能描述一份 widget CSS，而作者样式在包里是按 widget 寻址的。注意它必须走
+ * `widgetStyles`（作者样式）而不是 `widgetCss`（宿主预编译 Tailwind）——写错通道会让
+ * 声明的路径落不了盘，装完样式就是空的。
+ */
+export function storeWidgetStyles(
+  manifest: TappManifest,
+  content: string | undefined,
+): Record<string, string> | undefined {
+  const declared = (manifest.widgets ?? []).filter((widget) => widget.styles)
+  if (declared.length === 0) return undefined
+  if (content == null || content === '') {
+    throw new Error(
+      `Store package is missing widget styles for ${declared
+        .map((widget) => `${widget.id}=${widget.styles}`)
+        .join(', ')}`,
+    )
+  }
+  return Object.fromEntries(
+    declared.map((widget) => [widget.id, content] as const),
+  )
+}
 
 interface CompiledCssPayload {
   widgetCss?: string
@@ -23,18 +74,22 @@ export interface InstallTappRequest {
   source: 'direct' | 'store'
   // direct 模式
   manifest?: TappManifest
-  code?: string
-  styles?: string
+  /** 包内 `.js` 文件：相对路径 → 源码，须覆盖每个层入口 */
+  modules?: Record<string, string>
+  /** 作者共享样式（core.styles） */
+  coreStyles?: string
+  /** 作者 Page 样式 */
+  pageStyles?: string
+  /** 作者 Widget 样式：widget id → 内容 */
+  widgetStyles?: Record<string, string>
   pageTemplate?: string
   widgetTemplates?: Record<string, Record<string, string>>
-  /** Widget 专用 CSS */
+  /** 宿主预编译的 Widget Tailwind CSS */
   widgetCss?: string
-  /** Page 专用 CSS */
+  /** 宿主预编译的 Page Tailwind CSS */
   pageCss?: string
   /** i18n 翻译数据 (lang_code → JSON) */
   i18n?: Record<string, unknown>
-  /** Page 模块文件 (filename → code) */
-  pageModules?: Record<string, string>
   /** Package assets (path → base64) */
   assets?: Record<string, string>
   // store 模式
@@ -50,7 +105,7 @@ export interface InstallTappRequest {
  */
 export type DirectInstallPackage = Omit<InstallTappRequest, 'source' | 'storeSource' | 'tappId'> & {
   manifest: TappManifest
-  code: string
+  modules: Record<string, string>
 }
 
 /**
@@ -62,7 +117,7 @@ export type DirectInstallPackage = Omit<InstallTappRequest, 'source' | 'storeSou
  */
 export async function installTapp(
   manifest: TappManifest,
-  code: TappCodeStructure,
+  code: TappPlaygroundCode,
   permissions?: string[],
   compiledCss?: CompiledCssPayload,
 ): Promise<TappListItem> {
@@ -86,7 +141,7 @@ export async function installTapp(
  */
 function buildDirectTappRequest(
   manifest: TappManifest,
-  code: TappCodeStructure,
+  code: TappPlaygroundCode,
   permissions?: string[],
   compiledCss?: CompiledCssPayload,
 ): InstallTappRequest {
@@ -96,12 +151,12 @@ function buildDirectTappRequest(
   const requestBody: InstallTappRequest = {
     source: 'direct',
     manifest: mapped.manifest,
-    code: mapped.code,
+    modules: mapped.modules,
     permissions,
   }
 
-  if (mapped.styles !== undefined) {
-    requestBody.styles = mapped.styles
+  if (mapped.coreStyles !== undefined) {
+    requestBody.coreStyles = mapped.coreStyles
   }
   if (mapped.pageTemplate !== undefined) {
     requestBody.pageTemplate = mapped.pageTemplate
@@ -111,9 +166,6 @@ function buildDirectTappRequest(
   }
   if (mapped.i18n) {
     requestBody.i18n = mapped.i18n
-  }
-  if (mapped.pageModules) {
-    requestBody.pageModules = mapped.pageModules
   }
   if (mapped.assets) {
     requestBody.assets = mapped.assets
@@ -138,9 +190,9 @@ function buildDirectTappRequest(
  */
 export async function installFromCode(
   manifest: TappManifest,
-  code: TappCodeStructure,
+  code: TappPlaygroundCode,
 ): Promise<TappListItem> {
-  // 生成 Widget 专用 CSS
+  // 生成 Widget 专用 CSS（core 是共享层，两个模式都要扫）
   const widgetSources = [
     code.widgetHtml || '',
     code.styles || '',
@@ -155,7 +207,6 @@ export async function installFromCode(
     code.styles || '',
     code.core || '',
     code.page || '',
-    ...Object.values(code.pageModules || {}),
   ].join('\n')
   const pageCss = generateOnDemandTailwindCSS(pageSources)
 
@@ -173,7 +224,7 @@ export async function installFromCode(
  */
 export async function updateTappFromCode(
   manifest: TappManifest,
-  code: TappCodeStructure,
+  code: TappPlaygroundCode,
 ): Promise<TappListItem> {
   const widgetSources = [
     code.widgetHtml || '',
@@ -188,7 +239,6 @@ export async function updateTappFromCode(
     code.styles || '',
     code.core || '',
     code.page || '',
-    ...Object.values(code.pageModules || {}),
   ].join('\n')
   const pageCss = generateOnDemandTailwindCSS(pageSources)
 
@@ -436,17 +486,29 @@ export async function installFromStore(
 export async function installDirect(
   packagePayload: DirectInstallPackage,
 ): Promise<TappListItem> {
-  if (!packagePayload?.manifest || typeof packagePayload.code !== 'string') {
-    throw new Error('Direct install requires manifest and code')
+  if (
+    !packagePayload?.manifest ||
+    !packagePayload.modules ||
+    Object.keys(packagePayload.modules).length === 0
+  ) {
+    throw new Error('Direct install requires manifest and modules')
   }
   const requestBody: InstallTappRequest = {
     source: 'direct',
     manifest: packagePayload.manifest,
-    code: packagePayload.code,
+    modules: packagePayload.modules,
     permissions:
       packagePayload.permissions ?? packagePayload.manifest.permissions,
   }
-  if (packagePayload.styles !== undefined) requestBody.styles = packagePayload.styles
+  if (packagePayload.coreStyles !== undefined) {
+    requestBody.coreStyles = packagePayload.coreStyles
+  }
+  if (packagePayload.pageStyles !== undefined) {
+    requestBody.pageStyles = packagePayload.pageStyles
+  }
+  if (packagePayload.widgetStyles) {
+    requestBody.widgetStyles = packagePayload.widgetStyles
+  }
   if (packagePayload.pageTemplate !== undefined) {
     requestBody.pageTemplate = packagePayload.pageTemplate
   }
@@ -460,9 +522,6 @@ export async function installDirect(
     requestBody.pageCss = packagePayload.pageCss
   }
   if (packagePayload.i18n) requestBody.i18n = packagePayload.i18n
-  if (packagePayload.pageModules) {
-    requestBody.pageModules = packagePayload.pageModules
-  }
   if (packagePayload.assets) requestBody.assets = packagePayload.assets
 
   return apiRequest('/api/tapps/install', {
@@ -492,23 +551,22 @@ export async function buildInstallPackageFromInstalled(
 
   const pkg: DirectInstallPackage = {
     manifest: detail.manifest,
-    code: resources.code || '',
+    modules: resources.modules || {},
     permissions: detail.granted_permissions?.length
       ? detail.granted_permissions
       : detail.manifest.permissions,
   }
-  if (resources.styles) pkg.styles = resources.styles
+  if (resources.coreStyles) pkg.coreStyles = resources.coreStyles
+  if (resources.pageStyles) pkg.pageStyles = resources.pageStyles
+  if (resources.widgetStyles) pkg.widgetStyles = resources.widgetStyles
   if (resources.pageTemplate) pkg.pageTemplate = resources.pageTemplate
   if (resources.widgetTemplates) pkg.widgetTemplates = resources.widgetTemplates
-  // Prefer generated widget/page CSS when present (install API field names).
+  // 宿主预编译产物按安装 API 的字段名传递，与作者层样式分开。
   if (resources.widgetCSS) pkg.widgetCss = resources.widgetCSS
-  else if (resources.widgetStyles) pkg.widgetCss = resources.widgetStyles
   if (resources.pageCSS) pkg.pageCss = resources.pageCSS
-  else if (resources.pageStyles) pkg.pageCss = resources.pageStyles
   if (resources.i18n) pkg.i18n = resources.i18n
-  if (resources.pageModules) pkg.pageModules = resources.pageModules
 
-  if (!pkg.code) {
+  if (Object.keys(pkg.modules).length === 0) {
     return {
       package: null,
       sizeBytes: 0,
@@ -623,27 +681,29 @@ async function installFromStoreViaClient(
     percent: clampInstallPercent(92),
   })
 
+  const modules = storeInstallModules(pkg.manifest, pkg.code, pkg.modules)
+
   const requestBody: InstallTappRequest = {
     source: 'direct',
     manifest: pkg.manifest,
-    code: pkg.code,
+    modules,
     permissions: request.permissions ?? pkg.manifest.permissions,
   }
 
-  if (pkg.styles) requestBody.styles = pkg.styles
+  if (pkg.styles) requestBody.coreStyles = pkg.styles
   if (pkg.pageTemplate) requestBody.pageTemplate = pkg.pageTemplate
   if (pkg.widgetTemplates) requestBody.widgetTemplates = pkg.widgetTemplates
-  if (pkg.widgetCss) requestBody.widgetCss = pkg.widgetCss
-  // Always send pageCss when present — required for cssMode=separated (pageStyles → page.css)
+  // 作者声明了层样式就必须带上内容，宿主预编译顶不了它。
+  const widgetStyles = storeWidgetStyles(pkg.manifest, pkg.widgetStyles)
+  if (widgetStyles) requestBody.widgetStyles = widgetStyles
   if (pkg.pageCss != null && pkg.pageCss !== '') {
-    requestBody.pageCss = pkg.pageCss
-  } else if (pkg.manifest.pageStyles) {
+    requestBody.pageStyles = pkg.pageCss
+  } else if (pkg.manifest.page?.styles) {
     throw new Error(
-      `Client install package is missing pageCss for manifest.pageStyles=${pkg.manifest.pageStyles}`,
+      `Client install package is missing page styles for manifest.page.styles=${pkg.manifest.page.styles}`,
     )
   }
   if (pkg.i18n) requestBody.i18n = pkg.i18n
-  if (pkg.pageModules) requestBody.pageModules = pkg.pageModules
   // Binary package assets (manifest.assets) so Tapp.assets works after store install
   if (pkg.assets && Object.keys(pkg.assets).length > 0) {
     requestBody.assets = pkg.assets
@@ -823,25 +883,27 @@ async function updateFromStoreViaClient(
     percent: clampInstallPercent(92),
   })
 
+  const modules = storeInstallModules(pkg.manifest, pkg.code, pkg.modules)
+
   const body: Record<string, unknown> = {
     source: 'direct',
     manifest: pkg.manifest,
-    code: pkg.code,
+    modules,
     permissions: request.permissions ?? pkg.manifest.permissions,
   }
-  if (pkg.styles) body.styles = pkg.styles
+  if (pkg.styles) body.coreStyles = pkg.styles
   if (pkg.pageTemplate) body.pageTemplate = pkg.pageTemplate
   if (pkg.widgetTemplates) body.widgetTemplates = pkg.widgetTemplates
-  if (pkg.widgetCss) body.widgetCss = pkg.widgetCss
+  const updateWidgetStyles = storeWidgetStyles(pkg.manifest, pkg.widgetStyles)
+  if (updateWidgetStyles) body.widgetStyles = updateWidgetStyles
   if (pkg.pageCss != null && pkg.pageCss !== '') {
-    body.pageCss = pkg.pageCss
-  } else if (pkg.manifest.pageStyles) {
+    body.pageStyles = pkg.pageCss
+  } else if (pkg.manifest.page?.styles) {
     throw new Error(
-      `Client update package is missing pageCss for manifest.pageStyles=${pkg.manifest.pageStyles}`,
+      `Client update package is missing page styles for manifest.page.styles=${pkg.manifest.page.styles}`,
     )
   }
   if (pkg.i18n) body.i18n = pkg.i18n
-  if (pkg.pageModules) body.pageModules = pkg.pageModules
   if (pkg.assets && Object.keys(pkg.assets).length > 0) body.assets = pkg.assets
 
   const result = await apiRequest<TappListItem>(

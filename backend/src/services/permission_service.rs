@@ -111,6 +111,19 @@ impl From<&str> for UserRole {
     }
 }
 
+/// Agent / 会话 `user_id` → TAPP 角色。管理员以当前库角色为准；访客为负 id。
+pub fn role_from_user_id(user_id: i32, is_admin: bool) -> UserRole {
+    if is_admin {
+        UserRole::Admin
+    } else if user_id < 0 {
+        UserRole::Guest
+    } else if user_id > 0 {
+        UserRole::User
+    } else {
+        UserRole::Guest
+    }
+}
+
 /// Tapp 权限（与前端 TappPermission 类型对应）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TappPermission {
@@ -762,6 +775,15 @@ pub struct ElevatedPermissions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn role_from_user_id_maps_admin_user_and_guest() {
+        assert_eq!(role_from_user_id(1, true), UserRole::Admin);
+        assert_eq!(role_from_user_id(0, true), UserRole::Admin);
+        assert_eq!(role_from_user_id(7, false), UserRole::User);
+        assert_eq!(role_from_user_id(-1, false), UserRole::Guest);
+        assert_eq!(role_from_user_id(0, false), UserRole::Guest);
+    }
 
     #[test]
     fn test_admin_has_all_permissions() {

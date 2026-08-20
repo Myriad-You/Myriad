@@ -1,17 +1,23 @@
 pub const MAX_TAPP_ID_LEN: usize = 128;
 pub const MAX_RESOURCE_PATH_LEN: usize = 256;
-pub const MAX_TAPP_ARCHIVE_BYTES: usize = 25 * 1024 * 1024;
-pub const MAX_TAPP_ARCHIVE_FILES: usize = 512;
-pub const MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES: u64 = 100 * 1024 * 1024;
-pub const MAX_TAPP_RESOURCE_BYTES: u64 = 25 * 1024 * 1024;
+pub const MAX_TAPP_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_TAPP_ARCHIVE_FILES: usize = 1024;
+pub const MAX_TAPP_ARCHIVE_UNCOMPRESSED_BYTES: u64 = 128 * 1024 * 1024;
+pub const MAX_TAPP_RESOURCE_BYTES: u64 = 64 * 1024 * 1024;
 /// Declared package assets (textures, audio, wasm, levels). Binary allowed.
-pub const MAX_TAPP_ASSETS: usize = 64;
-pub const MAX_TAPP_ASSET_BYTES: u64 = 5 * 1024 * 1024;
-pub const MAX_TAPP_ASSETS_TOTAL_BYTES: u64 = 20 * 1024 * 1024;
-/// Game / 3D packages that declare `game` or `runtimeModules`.
-pub const MAX_TAPP_GAME_ASSETS: usize = 128;
-pub const MAX_TAPP_GAME_ASSET_BYTES: u64 = 12 * 1024 * 1024;
-pub const MAX_TAPP_GAME_ASSETS_TOTAL_BYTES: u64 = 48 * 1024 * 1024;
+pub const MAX_TAPP_ASSETS: usize = 128;
+pub const MAX_TAPP_ASSET_BYTES: u64 = 16 * 1024 * 1024;
+pub const MAX_TAPP_ASSETS_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+/// Game / developer packages that declare `game` or `runtimeModules`.
+pub const MAX_TAPP_GAME_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
+pub const MAX_TAPP_GAME_ARCHIVE_FILES: usize = 2048;
+pub const MAX_TAPP_GAME_ARCHIVE_UNCOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
+pub const MAX_TAPP_GAME_RESOURCE_BYTES: u64 = 128 * 1024 * 1024;
+pub const MAX_TAPP_GAME_ASSETS: usize = 256;
+pub const MAX_TAPP_GAME_ASSET_BYTES: u64 = 32 * 1024 * 1024;
+pub const MAX_TAPP_GAME_ASSETS_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+/// Multipart `/install-file` ceiling: game ZIP plus framing slack.
+pub const MAX_TAPP_UPLOAD_BYTES: usize = MAX_TAPP_GAME_ARCHIVE_BYTES + 2 * 1024 * 1024;
 pub const MAX_TAPP_RUNTIME_MODULES: usize = 4;
 pub const TAPP_RUNTIME_MODULES: &[&str] = &["three"];
 pub const MAX_TAPP_GAME_PROTOCOL_LEN: usize = 64;
@@ -38,7 +44,6 @@ pub const MAX_HTTP_URL_LEN: usize = 2_048;
 pub const MAX_AUTHOR_EMAIL_LEN: usize = 320;
 pub const MAX_STORAGE_KEY_LEN: usize = 256;
 pub const MAX_TAPP_PERMISSIONS: usize = 64;
-pub const MAX_PAGE_MODULES: usize = 64;
 pub const MAX_BACKGROUND_REQUIREMENTS: usize = 16;
 pub const MAX_TAPP_SETTINGS: usize = 64;
 pub const MAX_TAPP_CREDENTIALS: usize = 16;
@@ -92,7 +97,6 @@ pub const BUILTIN_API_TYPE: &str = "builtin";
 pub const DEFAULT_API_TYPE: &str = "http";
 pub const DEFAULT_HTTP_METHOD: &str = "GET";
 pub const DEFAULT_HTTP_BODY_MODE: &str = "json";
-pub const CSS_MODES: &[&str] = &["unified", "separated"];
 pub const HTTP_URL_SCHEMES: &[&str] = &["http", "https"];
 /// Fixed allow-list enforced identically by the backend installer and the
 /// offline CLI, so `check` results cannot drift from install validation.
@@ -115,12 +119,13 @@ pub const FORBIDDEN_OUTBOUND_HEADERS: &[&str] = &[
     "trailer",
 ];
 pub const RESOURCE_EXTENSIONS: &[(&str, &str)] = &[
-    ("main", ".js"),
-    ("styles", ".css"),
-    ("widgetStyles", ".css"),
+    ("coreEntry", ".js"),
+    ("coreStyles", ".css"),
+    ("pageEntry", ".js"),
     ("pageStyles", ".css"),
     ("pageTemplate", ".html"),
-    ("pageModule", ".js"),
+    ("widgetEntry", ".js"),
+    ("widgetStyles", ".css"),
     ("widgetTemplate", ".html"),
     ("agentSchema", ".json"),
     ("i18n", ".json"),
@@ -133,13 +138,21 @@ pub const PACKAGE_JSON_OBJECT_DIRECTORIES: &[&str] = &["i18n"];
 pub const PACKAGE_RESOURCE_FILE_LIMITS: &[(&str, &str)] = &[("i18n", "i18nFiles")];
 pub const PACKAGE_RESOURCE_BYTE_LIMITS: &[(&str, &str)] = &[("i18n", "i18nResourceBytes")];
 pub const ASSET_DIRECTORY: &str = "assets";
-pub const PAGE_MODULE_DIRECTORY: &str = "page";
+
+/// 官方脚手架的推荐层目录。
+///
+/// 这只是作者布局约定，不决定隔离边界。实际层归属由 manifest 入口及其 require
+/// 闭包决定；入口和依赖可以位于任意安全包内路径。
+pub const PAGE_LAYER_DIRECTORY: &str = "page";
+pub const WIDGET_LAYER_DIRECTORY: &str = "widget";
+/// 层内声明的资源路径：字段路径 → 扩展名规则键。
+/// 每层自带入口与资源，不再有一组平铺的顶层路径字段。
 pub const MANIFEST_RESOURCE_FIELDS: &[(&str, &str)] = &[
-    ("main", "main"),
-    ("styles", "styles"),
-    ("widgetStyles", "widgetStyles"),
-    ("pageStyles", "pageStyles"),
-    ("pageTemplate", "pageTemplate"),
+    ("core.entry", "coreEntry"),
+    ("core.styles", "coreStyles"),
+    ("page.entry", "pageEntry"),
+    ("page.template", "pageTemplate"),
+    ("page.styles", "pageStyles"),
 ];
 pub const AGENT_SCHEMA_FIELDS: &[&str] = &["inputSchema", "resultSchema"];
 pub const URL_FIELDS: &[&str] = &["homepage", "repository"];

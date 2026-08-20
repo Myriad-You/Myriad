@@ -447,6 +447,18 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             columns: vec!["last_used_at".into()],
             is_unique: false,
         },
+        IndexDef {
+            name: "idx_agent_diary_user_created".into(),
+            table: "agent_diary".into(),
+            columns: vec!["user_id".into(), "created_at".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_proactive_user_created".into(),
+            table: "agent_proactive_messages".into(),
+            columns: vec!["user_id".into(), "created_at".into()],
+            is_unique: false,
+        },
         // federation 索引
         IndexDef {
             name: "idx_remote_actors_domain".into(),

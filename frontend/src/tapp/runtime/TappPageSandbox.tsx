@@ -18,7 +18,7 @@ import {
 import { getIsDarkMode } from '../../utils/themeSubscriber'
 import { sendResizeMessage, useIframeResize } from '../utils/iframeResize'
 import {
-  getCodeForMode,
+  buildLayerScript,
   getCodeStructureFingerprint,
   getTappRuntimeFingerprint,
 } from './codeStructure'
@@ -74,7 +74,7 @@ import { onSpaNavigation } from './spaNavigation'
 import { createTappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
-import { onTappStorageChange } from './WidgetRuntimeSignals'
+import { onTappSharedChange, onTappStorageChange } from './WidgetRuntimeSignals'
 
 // 核心模块
 
@@ -152,7 +152,7 @@ function generateHeadlessCoreHTML(
     generateFullSDK(tappInstance, sessionToken, 'headless'),
   )
   // 'background' 模式即返回纯 code.core（无 page/widget UI 代码）
-  const coreCode = escapeSandboxScriptSource(getCodeForMode(code, 'background'))
+  const coreCode = escapeSandboxScriptSource(buildLayerScript(code, 'background').source)
 
   const i18nScript =
     code.i18n && Object.keys(code.i18n).length > 0
@@ -255,40 +255,12 @@ function generatePageHTML(
     pageHtmlContent.includes('id="tapp-content"') ||
     pageHtmlContent.includes("id='tapp-content'")
 
-  // JS 代码 - 混合模式下也会加载
-  // page 模块化：如果有 pageModules，按顺序拼装替代 core+page 标记分割
-  let pageCode: string
-  let loadingMode: 'modular' | 'monolith'
-  let loadedModules: string[] = []
-  if (code.pageModules && Object.keys(code.pageModules).length > 0) {
-    loadingMode = 'modular'
-    // 优先使用 code.pageModuleOrder（从后端资源响应，始终最新），
-    // 其次使用 manifest.pageModules 声明顺序，
-    // 最后按字母序（index.js 最后）
-    const moduleOrder =
-      code.pageModuleOrder || tappInstance.manifest.pageModules
-    const moduleNames =
-      moduleOrder && moduleOrder.length > 0
-        ? moduleOrder.filter((name) => name in code.pageModules!)
-        : Object.keys(code.pageModules).sort((a, b) => {
-            if (a === 'index.js') return 1
-            if (b === 'index.js') return -1
-            return a.localeCompare(b)
-          })
-    loadedModules = moduleNames
-    pageCode = moduleNames
-      .map((name) => `// ===== ${name} =====\n${code.pageModules![name]}`)
-      .join('\n\n')
-  } else {
-    loadingMode = 'monolith'
-    pageCode = getCodeForMode(code, 'page')
-  }
+  // JS 代码 - 混合模式下也会加载。core 先于 page 层执行。
+  const pagePlan = buildLayerScript(code, 'page')
+  const pageCode = pagePlan.source
 
-  // 加载模式标识（用于调试和验证）
-  const loadingModeScript =
-    loadedModules.length > 0
-      ? `window._TAPP_LOADING_MODE = '${loadingMode}';\n    window._TAPP_LOADED_MODULES = ${serializeSandboxScriptValue(loadedModules)};`
-      : `window._TAPP_LOADING_MODE = '${loadingMode}';`
+  // 已装入的模块清单（用于调试和验证）
+  const loadedModulesScript = `window._TAPP_LOADED_MODULES = ${serializeSandboxScriptValue(pagePlan.includedModules)};`
 
   // i18n 注入脚本
   const i18nScript =
@@ -339,7 +311,7 @@ function generatePageHTML(
     window._TAPP_MODE = 'page';
     window._TAPP_LAUNCH_PARAMS = ${serializeSandboxScriptValue(launchParams || {})};
     window._TAPP_HAS_HTML = ${hasHtmlTemplate};
-    ${loadingModeScript}
+    ${loadedModulesScript}
     window._TAPP_LOCALE = ${serializeSandboxScriptValue(locale)};
     window._TAPP_SESSION_TOKEN = ${serializeSandboxScriptValue(sessionToken)};
     ${i18nScript}
@@ -378,8 +350,7 @@ function generatePageHTML(
   <script nonce="${nonce}">
     (function() {
       'use strict';
-      console.log('[Tapp] Loading mode: ' + window._TAPP_LOADING_MODE
-        + (window._TAPP_LOADED_MODULES ? ' (' + window._TAPP_LOADED_MODULES.length + ' modules: ' + window._TAPP_LOADED_MODULES.join(', ') + ')' : ''));
+      console.log('[Tapp] Page modules: ' + (window._TAPP_LOADED_MODULES || []).join(', '));
       try {
         ${escapeSandboxScriptSource(pageCode)}
       } catch (error) {
@@ -492,6 +463,25 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
           return
         }
         bridge.emit('storageChanged', {
+          key: change.key,
+          operation: change.operation,
+        })
+      }),
+    [tappInstance.id],
+  )
+
+  useEffect(
+    () =>
+      onTappSharedChange((change) => {
+        const bridge = bridgeRef.current
+        if (
+          !bridge ||
+          change.tappId !== tappInstance.id ||
+          change.source === bridge
+        ) {
+          return
+        }
+        bridge.emit('sharedChanged', {
           key: change.key,
           operation: change.operation,
         })

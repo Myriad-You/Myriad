@@ -1,7 +1,8 @@
 //! Aggregated expected schema tables.
 use super::types::TableDef;
 use super::{
-    tables_agent, tables_analytics, tables_brew, tables_core, tables_federation, tables_tapp,
+    tables_agent, tables_agent_life, tables_analytics, tables_brew, tables_core,
+    tables_federation, tables_tapp,
 };
 
 pub(crate) fn get_expected_schema() -> Vec<TableDef> {
@@ -9,6 +10,7 @@ pub(crate) fn get_expected_schema() -> Vec<TableDef> {
     tables.extend(tables_tapp::tables());
     tables.extend(tables_brew::tables());
     tables.extend(tables_agent::tables());
+    tables.extend(tables_agent_life::tables());
     tables.extend(tables_federation::tables());
     tables.extend(tables_analytics::tables());
     tables

@@ -225,12 +225,18 @@ pub fn extract_semantic_text(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_default()
 }
 
+/// Shared Unicode-scalar cap for user-authored model text (chat, generate, analyze).
+pub const USER_TEXT_MAX_CHARS: usize = 32680;
+
+/// Cap for user text injected into model prompts (analyze instruction, chat, search).
+pub const SANITIZE_PROMPT_MAX_CHARS: usize = USER_TEXT_MAX_CHARS;
+
 /// Sanitize user text for model prompts (drop control chars except newline, cap length).
 pub fn sanitize_prompt_input(input: &str) -> String {
     input
         .chars()
         .filter(|c| !c.is_control() || *c == '\n')
-        .take(1000)
+        .take(SANITIZE_PROMPT_MAX_CHARS)
         .collect::<String>()
         .trim()
         .to_string()
@@ -267,7 +273,9 @@ pub const DEFAULT_IMAGE_WIDTH: u32 = 1024;
 pub const DEFAULT_IMAGE_HEIGHT: u32 = 1024;
 pub const IMAGE_DIM_MIN: u32 = 256;
 pub const IMAGE_DIM_MAX: u32 = 2048;
-pub const IMAGE_PROMPT_MAX_CHARS: usize = 1000;
+/// Unicode scalar cap. Must stay <= `image_generation::MAX_PROMPT_CHARS` (32680).
+/// Counted with `chars()`, not bytes — CJK prompts are 3 bytes per character.
+pub const IMAGE_PROMPT_MAX_CHARS: usize = USER_TEXT_MAX_CHARS;
 
 /// Clamp a parsed image dimension into the supported range.
 pub fn clamp_image_dim(dim: u32) -> u32 {
@@ -301,7 +309,7 @@ pub fn resolve_image_prompt(params: &HashMap<String, Value>) -> Result<String, S
             })
         })
         .ok_or_else(|| "Missing prompt parameter".to_string())?;
-    if prompt.len() > IMAGE_PROMPT_MAX_CHARS {
+    if prompt.chars().count() > IMAGE_PROMPT_MAX_CHARS {
         return Err(format!(
             "Prompt too long (max {IMAGE_PROMPT_MAX_CHARS} characters)"
         ));
@@ -391,6 +399,11 @@ mod tests {
             resolve_negative_prompt(&params).as_deref(),
             Some("blur")
         );
+        let cjk = "画".repeat(400);
+        assert!(cjk.len() > 1000, "regression: CJK is 3 bytes per char");
+        params.insert("prompt".into(), json!(cjk));
+        assert!(resolve_image_prompt(&params).is_ok());
+
         let too_long = "x".repeat(IMAGE_PROMPT_MAX_CHARS + 1);
         params.insert("prompt".into(), json!(too_long));
         assert!(resolve_image_prompt(&params).unwrap_err().contains("too long"));
@@ -448,7 +461,12 @@ mod tests {
         assert!(!clean.contains('\0'));
         assert!(!clean.contains('\t'));
         assert!(clean.contains('\n'));
-        assert_eq!(sanitize_prompt_input(&"a".repeat(2000)).len(), 1000);
+        assert_eq!(
+            sanitize_prompt_input(&"a".repeat(SANITIZE_PROMPT_MAX_CHARS + 50))
+                .chars()
+                .count(),
+            SANITIZE_PROMPT_MAX_CHARS
+        );
     }
 
     #[test]

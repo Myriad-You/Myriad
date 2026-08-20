@@ -6,9 +6,10 @@ use super::{
     tapp_filesystem_error_status, tapp_setting_value_is_valid, uninstall_post_commit_cleanup_path,
     validate_asset_path, validate_installed_resources, validate_resource_path,
     validate_store_manifest_category, validate_tapp_archive, validate_tapp_id,
-    validate_tapp_manifest, validate_widget_template_contents, widget_template_path,
-    write_install_generation, RegisterWidgetRequest, TappCategory, TappDirStage, TappManifest,
-    TappSettingDef, TappStorageAccess, TappWidgetCategory, TappWidgetDef, WidgetTemplateContents,
+    unsupported_package_structure, validate_tapp_manifest, validate_widget_template_contents,
+    widget_template_path, write_install_generation, RegisterWidgetRequest, TappCategory,
+    TappDirStage, TappManifest, TappSettingDef, TappStorageAccess, TappWidgetCategory,
+    TappWidgetDef, WidgetTemplateContents,
 };
 use crate::models::entities::{tapp_widgets, tapps};
 use crate::services::permission_service::UserRole;
@@ -26,6 +27,36 @@ fn permission_errors_return_actionable_service_unavailable() {
     let message = tapp_filesystem_error_message("create staging", &error);
     assert!(message.contains("storage is not writable"));
     assert!(message.contains("ownership/permissions"));
+}
+
+/// 改键之后旧安装不能再命中任何入口候选——回退已随改键一起删除，否则旧包会
+/// 静默跑起根目录那份 monolith 而不是给出可读失败。
+#[test]
+fn pre_layer_install_resolves_no_entry_candidate() {
+    use crate::services::tapp_package_read::{installed_core_entry, installed_layer_entries};
+
+    let legacy = json!({
+        "id": "com.example.legacy",
+        "main": "main.js",
+        "hasPage": true,
+        "pageModules": ["index.js"]
+    });
+    assert!(installed_core_entry(&legacy).is_none());
+    assert!(installed_layer_entries(&legacy).is_empty());
+}
+
+/// 包结构不符合当前契约不是宿主故障，也不能用 404 表达：前端把资源接口的 404
+/// 当作回退到旧 `/code` 端点的信号，用 404 会让不受支持的包换条路继续进沙箱。
+/// `/code` 端点本身已随契约切换删除。
+#[test]
+fn unsupported_package_structure_is_conflict_not_404_or_5xx() {
+    let error: myriad_error::AppError =
+        unsupported_package_structure("no declared entry file resolved").into();
+    assert_eq!(error.status_u16(), StatusCode::CONFLICT.as_u16());
+    assert!(
+        error.status_u16() < 500,
+        "package shape must not surface as a host failure"
+    );
 }
 
 use crate::services::tapp_lifecycle::{select_uninstall_target, UninstallTarget};
@@ -354,12 +385,12 @@ async fn rollback_restore_failure_preserves_both_generations_for_startup_recover
     let old_manifest = json!({
         "id": "com.example.app",
         "version": "1.0.0",
-        "main": "main.js"
+        "core": { "entry": "main.js" }
     });
     let new_manifest = json!({
         "id": "com.example.app",
         "version": "2.0.0",
-        "main": "main.js"
+        "core": { "entry": "main.js" }
     });
     let old_generation = chrono::Utc::now().fixed_offset();
     let new_generation = old_generation + chrono::Duration::seconds(1);
@@ -431,12 +462,12 @@ async fn ambiguous_database_commit_can_recover_the_preserved_candidate_generatio
     let old_manifest = json!({
         "id": "com.example.app",
         "version": "1.0.0",
-        "main": "main.js"
+        "core": { "entry": "main.js" }
     });
     let new_manifest = json!({
         "id": "com.example.app",
         "version": "2.0.0",
-        "main": "main.js"
+        "core": { "entry": "main.js" }
     });
     let old_generation = chrono::Utc::now().fixed_offset();
     let new_generation = old_generation + chrono::Duration::seconds(1);
@@ -591,6 +622,7 @@ fn installation_settings_allow_owner_or_current_admin_only() {
 fn sandbox_storage_rejects_host_managed_key_prefixes() {
     for key in [
         "_settings.theme",
+        "_shared.posts",
         "_component:theme:midnight",
         "_shortcut:open",
         "_report:weekly",
@@ -606,7 +638,7 @@ fn preserves_background_requirements_during_manifest_round_trip() {
         "id": "com.example.background",
         "name": "Background app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "permissions": ["scheduler:register"],
         "backgroundRequirements": ["scheduler", "sync"]
     }))
@@ -695,12 +727,12 @@ async fn startup_recovery_restores_database_generation_after_interrupted_update(
     let old_manifest = json!({
         "id": "com.example.app",
         "version": "1.0.0",
-        "main": "main.js"
+        "core": { "entry": "main.js" }
     });
     let new_manifest = json!({
         "id": "com.example.app",
         "version": "1.0.0",
-        "main": "main.js"
+        "core": { "entry": "main.js" }
     });
     let old_generation = chrono::Utc::now().fixed_offset();
     let new_generation = old_generation + chrono::Duration::seconds(1);
@@ -763,7 +795,7 @@ fn startup_recovery_can_restore_an_interrupted_recovery_discard() {
     let manifest = json!({
         "id": "com.example.app",
         "version": "1.0.0",
-        "main": "main.js"
+        "core": { "entry": "main.js" }
     });
     let expected_generation = chrono::Utc::now().fixed_offset();
     std::fs::create_dir_all(&live).unwrap();
@@ -830,7 +862,7 @@ fn preserves_and_validates_data_exchange_during_manifest_round_trip() {
         "id": "com.example.exchange",
         "name": "Exchange app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "permissions": ["storage:read"],
         "dataExchange": {
@@ -870,7 +902,7 @@ fn validates_manifest_locales_overrides() {
         "id": "com.example.i18n",
         "name": "我的应用",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "description": "中文描述",
         "locales": {
@@ -887,7 +919,7 @@ fn validates_manifest_locales_overrides() {
         "id": "com.example.i18n",
         "name": "App",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "locales": { "not a tag": { "name": "X" } }
     }))
@@ -899,7 +931,7 @@ fn validates_manifest_locales_overrides() {
         "id": "com.example.i18n",
         "name": "App",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "locales": { "en-US": { "name": "   " } }
     }))
@@ -911,7 +943,7 @@ fn validates_manifest_locales_overrides() {
         "id": "com.example.i18n",
         "name": "App",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "locales": { "en-US": { "name": "X", "unknown": true } }
     }))
@@ -924,7 +956,7 @@ fn preserves_and_validates_ai_contract_during_manifest_round_trip() {
         "id": "com.example.ai",
         "name": "AI app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "ai",
         "permissions": ["ai:generate", "platform:read"],
         "ai": {
@@ -949,7 +981,7 @@ fn ai_builtin_requires_matching_manifest_declaration() {
         "id": "com.example.ai-builtin",
         "name": "AI builtin app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "ai",
         "permissions": ["ai:generate"],
         "apis": {
@@ -980,7 +1012,7 @@ fn rejects_ai_operation_without_matching_permission() {
         "id": "com.example.ai",
         "name": "AI app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "ai",
         "permissions": [],
         "ai": {
@@ -1002,7 +1034,7 @@ fn preserves_and_validates_event_topics() {
         "id": "com.example.player",
         "name": "Event app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "media",
         "permissions": ["event:publish", "event:subscribe"],
         "events": {
@@ -1026,7 +1058,7 @@ fn rejects_event_publish_topic_outside_tapp_namespace() {
         "id": "com.example.player",
         "name": "Event app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "media",
         "permissions": ["event:publish"],
         "events": {
@@ -1044,7 +1076,7 @@ fn preserves_and_validates_agent_manifest() {
         "id": "com.example.reporter",
         "name": "Agent app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "productivity",
         "permissions": [],
         "agent": {
@@ -1071,7 +1103,7 @@ fn rejects_external_data_exchange_schema_references() {
         "id": "com.example.exchange",
         "name": "Exchange app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "data",
         "permissions": [],
         "dataExchange": {
@@ -1093,7 +1125,7 @@ fn preserves_widget_metadata_during_manifest_round_trip() {
         "id": "com.example.widget",
         "name": "Widget app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "permissions": ["widget:register"],
         "widgets": [{
@@ -1150,7 +1182,7 @@ fn rejects_invalid_widget_settings_and_refresh_policy() {
             "id": "com.example.invalid-widget",
             "name": "Invalid widget",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "category": "utility",
             "permissions": ["widget:register"],
             "widgets": [widget]
@@ -1213,7 +1245,7 @@ fn enforces_minimum_system_version_on_install_and_update_validation() {
         "id": "com.example.system-version",
         "name": "System version gate",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "permissions": [],
         "minSystemVersion": env!("CARGO_PKG_VERSION")
@@ -1241,7 +1273,7 @@ fn validates_author_contact_fields() {
             "id": "com.example.author",
             "name": "Author metadata",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "category": "utility",
             "permissions": [],
             "author": author
@@ -1277,7 +1309,7 @@ fn validates_manifest_metadata_and_declared_capability_permissions() {
             "name": "Metadata app",
             "version": "1.0.0-beta.1",
             "description": "Valid metadata",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "category": "utility",
             "permissions": [],
             "themeColor": "#12ABef",
@@ -1312,7 +1344,7 @@ fn validates_manifest_metadata_and_declared_capability_permissions() {
         "id": "com.example.widget-permission",
         "name": "Widget permission",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "permissions": [],
         "widgets": [{
@@ -1329,7 +1361,7 @@ fn validates_manifest_metadata_and_declared_capability_permissions() {
         "id": "com.example.api-permission",
         "name": "API permission",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "permissions": [],
         "apis": {
             "protected": {
@@ -1348,7 +1380,7 @@ fn normalizes_legacy_tapp_categories_and_rejects_unknown_values() {
             "id": "com.example.category",
             "name": "Category contract",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "permissions": []
         });
         if let Some(category) = category {
@@ -1388,7 +1420,7 @@ fn normalizes_and_restricts_widget_categories_across_manifest_and_runtime() {
         "id": "com.example.widget-category",
         "name": "Widget category",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "permissions": ["widget:register"],
         "category": "utility",
@@ -1428,7 +1460,7 @@ fn normalizes_and_restricts_widget_categories_across_manifest_and_runtime() {
         "id": "com.example.invalid-widget-category",
         "name": "Invalid Widget category",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "permissions": ["widget:register"],
         "category": "utility",
         "widgets": [{
@@ -1491,7 +1523,7 @@ fn requires_store_index_and_manifest_categories_to_match() {
         "id": "com.example.store-category",
         "name": "Store category",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "permissions": [],
         "category": "media"
     }))
@@ -1511,7 +1543,7 @@ fn rejects_removed_or_unknown_manifest_fields() {
         "id": "com.example.legacy",
         "name": "Legacy app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "permissions": [],
         "optionalPermissions": ["network:fetch"]
     }));
@@ -1521,7 +1553,7 @@ fn rejects_removed_or_unknown_manifest_fields() {
         "id": "com.example.legacy-widget",
         "name": "Legacy widget",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "permissions": ["widget:register"],
         "widgets": [{
             "id": "summary",
@@ -1537,7 +1569,7 @@ fn rejects_removed_or_unknown_manifest_fields() {
         "id": "com.example.legacy-widget",
         "name": "Legacy widget",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "permissions": ["widget:register"],
         "widgets": [{
             "id": "summary",
@@ -1556,7 +1588,7 @@ fn validates_declared_api_shape_and_inject_aliases() {
         "id": "com.example.api",
         "name": "API app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "developer",
         "permissions": ["network:fetch"],
         "apis": {
@@ -1589,7 +1621,7 @@ fn validates_declared_api_shape_and_inject_aliases() {
         "id": "com.example.api-body-modes",
         "name": "API body modes",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "developer",
         "permissions": ["network:fetch"],
         "apis": {
@@ -1624,7 +1656,7 @@ fn validates_declared_api_shape_and_inject_aliases() {
         "id": "com.example.api-unknown-body-mode",
         "name": "Unknown API body mode",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "permissions": ["network:fetch"],
         "apis": {
             "submit": {
@@ -1708,7 +1740,7 @@ fn validates_declared_api_shape_and_inject_aliases() {
         "id": "com.example.legacy-api",
         "name": "Legacy API",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "permissions": ["network:fetch"],
         "apis": {
             "weather": {
@@ -1748,7 +1780,7 @@ fn rejects_unbounded_widget_manifests() {
         "id": "com.example.too-many-widgets",
         "name": "Too many widgets",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "permissions": ["widget:register"]
     }))
@@ -1763,6 +1795,8 @@ fn rejects_unbounded_widget_manifests() {
                 default_size: "2x2".to_string(),
                 sizes: vec!["2x2".to_string()],
                 category: None,
+                entry: None,
+                styles: None,
                 templates: None,
                 settings: Vec::new(),
                 refresh_policy: None,
@@ -1790,7 +1824,7 @@ fn batch_detail_mapping_applies_current_role_and_brew_capability_rules() {
             "id": "com.example.detail",
             "name": "Detail",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "permissions": ["storage:read", "brew:write", "ai:generate"]
         }),
         status: tapps::TappStatus::Installed,
@@ -1826,11 +1860,10 @@ fn validates_all_declared_install_resources() {
         "id": "com.example.resources",
         "name": "Resources",
         "version": "1.0.0",
-        "main": "src/main.js",
+        "core": { "entry": "src/core.js", "styles": "css/shared.css" },
+        "page": { "entry": "page/index.js" },
         "category": "utility",
         "permissions": [],
-        "styles": "css/shared.css",
-        "pageModules": ["index.js"],
         "widgets": [{
             "id": "summary",
             "name": "Summary",
@@ -1851,7 +1884,7 @@ fn validates_all_declared_install_resources() {
     );
     let root = std::env::temp_dir().join(unique);
     for relative in [
-        "src/main.js",
+        "src/core.js",
         "css/shared.css",
         "page/index.js",
         "templates/summary.html",
@@ -1863,9 +1896,9 @@ fn validates_all_declared_install_resources() {
 
     assert!(validate_installed_resources(&manifest, &root).is_ok());
 
-    std::fs::write(root.join("src/main.js"), [0xff, 0xfe]).unwrap();
+    std::fs::write(root.join("src/core.js"), [0xff, 0xfe]).unwrap();
     assert!(validate_installed_resources(&manifest, &root).is_err());
-    std::fs::write(root.join("src/main.js"), "test").unwrap();
+    std::fs::write(root.join("src/core.js"), "test").unwrap();
 
     #[cfg(unix)]
     {
@@ -1896,7 +1929,7 @@ fn validates_declared_package_assets_allow_binary() {
         "id": "com.example.assets",
         "name": "Assets",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "game",
         "permissions": ["media:audio"],
         "assets": ["assets/pixel.png", "assets/level.json"]
@@ -1930,7 +1963,7 @@ fn validates_agent_schema_and_i18n_contents_at_install_time() {
         "id": "com.example.validated-content",
         "name": "Validated content",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "productivity",
         "permissions": [],
         "agent": {
@@ -2064,37 +2097,46 @@ fn validates_manifest_paths_before_install_or_update() {
         "id": "com.example.safe",
         "name": "Safe app",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "core.js" },
         "category": "utility",
-        "permissions": [],
-        "pageModules": ["state.js"]
+        "permissions": []
     }))
     .unwrap();
     assert!(validate_tapp_manifest(&manifest).is_ok());
 
-    manifest.main = "main.txt".to_string();
+    let core = manifest.core.as_mut().expect("core layer");
+    core.entry = "core.txt".to_string();
     assert!(validate_tapp_manifest(&manifest).is_err());
-    manifest.main = "main.js".to_string();
+    manifest.core.as_mut().unwrap().entry = "core.js".to_string();
 
-    manifest.styles = Some("styles.txt".to_string());
+    manifest.core.as_mut().unwrap().styles = Some("styles.txt".to_string());
     assert!(validate_tapp_manifest(&manifest).is_err());
-    manifest.styles = None;
+    manifest.core.as_mut().unwrap().styles = None;
 
-    manifest.page_template = Some("page.txt".to_string());
+    manifest.page = Some(myriad_tapp_contract::manifest::TappPageLayer {
+        entry: None,
+        template: Some("page.txt".to_string()),
+        styles: None,
+    });
     assert!(validate_tapp_manifest(&manifest).is_err());
 
-    manifest.page_template = Some("../../outside.html".to_string());
+    manifest.page.as_mut().unwrap().template = Some("../../outside.html".to_string());
     assert!(validate_tapp_manifest(&manifest).is_err());
 
-    manifest.page_template = None;
-    manifest.page_modules = Some(vec!["nested/index.js".to_string()]);
+    // 声明了 page 层却既没有 entry 也没有 template：这一层没有任何内容。
+    manifest.page = Some(myriad_tapp_contract::manifest::TappPageLayer {
+        entry: None,
+        template: None,
+        styles: None,
+    });
     assert!(validate_tapp_manifest(&manifest).is_err());
+    manifest.page = None;
 
     let manifest_with_escaping_widget_template: TappManifest = serde_json::from_value(json!({
         "id": "com.example.unsafe-widget",
         "name": "Unsafe widget",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "permissions": [],
         "widgets": [{
@@ -2112,7 +2154,7 @@ fn validates_manifest_paths_before_install_or_update() {
         "id": "com.example.conflicting-widgets",
         "name": "Conflicting widgets",
         "version": "1.0.0",
-        "main": "main.js",
+        "core": { "entry": "main.js" },
         "category": "utility",
         "permissions": ["widget:register"],
         "widgets": [

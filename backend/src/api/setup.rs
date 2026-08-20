@@ -30,35 +30,14 @@ pub async fn check_setup_status(
 ) -> Result<Json<SetupStatus>, HttpError> {
     tracing::info!("Checking setup status");
 
-    // Check if database tables exist
-    let has_database = check_database_tables(&db).await;
-
-    // Check if admin user exists (first user)
-    let has_admin_user = if has_database {
-        check_admin_user_exists(&db).await
-    } else {
-        false
-    };
-
-    // Collect missing configurations
-    let mut missing_configs = Vec::new();
-
-    if !has_database {
-        missing_configs.push("Database tables not initialized".to_string());
-    }
-    if !has_admin_user {
-        missing_configs.push("No admin user registered".to_string());
-    }
-
-    // Setup is only required if database or admin user is missing
-    let is_setup_required = !has_database || !has_admin_user;
+    let progress = inspect_setup_progress(&db).await;
 
     let status = SetupStatus {
-        is_setup_required,
-        has_database,
-        has_admin_user,
+        is_setup_required: progress.is_setup_required,
+        has_database: progress.has_database,
+        has_admin_user: progress.has_admin_user,
         setup_secret_required: crate::api::setup_bootstrap::setup_secret_is_configured(),
-        missing_configs,
+        missing_configs: progress.missing_configs,
     };
 
     tracing::info!("Setup status: {:?}", status);
@@ -77,21 +56,7 @@ pub async fn get_setup_config() -> Result<Json<Value>, HttpError> {
     let config_guard = crate::state::shared_dynamic_config().read().await;
 
     let config = json!({
-        "database_url_set": env::var("DATABASE_URL").is_ok(),
-        "server_host": env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
-        "server_port": env::var("SERVER_PORT").unwrap_or_else(|_| "1103".to_string()),
-        "github_oauth": {
-            "client_id_set": config_guard.github_client_id.is_some(),
-            "client_secret_set": config_guard.github_client_secret.is_some(),
-            "redirect_url": config_guard.github_redirect_url.clone(),
-        },
-        "gemini_api": {
-            "api_key_set": config_guard.gemini_api_key.is_some(),
-            "model": config_guard.gemini_model.clone(),
-        },
-        // PR #4: 公开 registration 开关 + OAuth providers 数量给前端
         "allow_local_registration": config_guard.allow_local_registration,
-        "oauth_providers_count": config_guard.oauth_providers.iter().filter(|p| p.enabled).count(),
         "setup_secret_required": crate::api::setup_bootstrap::setup_secret_is_configured(),
         "setup_window_open": crate::api::setup_bootstrap::setup_window_is_open(),
     });
@@ -100,6 +65,44 @@ pub async fn get_setup_config() -> Result<Json<Value>, HttpError> {
 }
 
 // Helper functions
+
+/// Shared install-progress flags for HTTP `/api/setup/status` and Agent `setup.status`.
+/// AI keys are not part of setup completeness.
+pub(crate) struct SetupProgress {
+    pub has_database: bool,
+    pub has_admin_user: bool,
+    pub is_setup_required: bool,
+    pub missing_configs: Vec<String>,
+}
+
+pub(crate) fn setup_progress_from_flags(
+    has_database: bool,
+    has_admin_user: bool,
+) -> SetupProgress {
+    let mut missing_configs = Vec::new();
+    if !has_database {
+        missing_configs.push("Database tables not initialized".to_string());
+    }
+    if !has_admin_user {
+        missing_configs.push("No admin user registered".to_string());
+    }
+    SetupProgress {
+        has_database,
+        has_admin_user,
+        is_setup_required: !has_database || !has_admin_user,
+        missing_configs,
+    }
+}
+
+pub(crate) async fn inspect_setup_progress(db: &DatabaseConnection) -> SetupProgress {
+    let has_database = check_database_tables(db).await;
+    let has_admin_user = if has_database {
+        check_admin_user_exists(db).await
+    } else {
+        false
+    };
+    setup_progress_from_flags(has_database, has_admin_user)
+}
 
 /// Check if required database tables exist
 async fn check_database_tables(db: &DatabaseConnection) -> bool {
@@ -366,336 +369,6 @@ pub async fn init_database(
                 Json(json!({
                     "error": "Database migration failed",
                     "message": "数据库迁移失败，请检查数据库连接和权限设置"
-                })),
-            )))
-        }
-    }
-}
-
-/// POST /api/setup/init-env
-/// Initialize .env file from .env.example
-///
-/// 保护：CONFIG_MODE；编排预置了安装暗号时还要对上。
-pub async fn initialize_env_file(
-    headers: HeaderMap,
-    body: Option<Json<SetupSecretBody>>,
-) -> Result<Json<Value>, HttpError> {
-    crate::api::setup_bootstrap::require_setup_window().map_err(HttpError)?;
-    crate::api::setup_bootstrap::require_setup_secret(&headers, body_setup_secret(&body))
-        .map_err(HttpError)?;
-
-    // Only allow in CONFIG_MODE
-    let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
-
-    if !config_mode {
-        tracing::error!(
-            "🚨 Environment file initialization REJECTED: Not in CONFIG_MODE (security protection)"
-        );
-        return Err(status_json_to_http((
-            StatusCode::FORBIDDEN,
-            Json(json!({
-                "error": "Operation not allowed",
-                "message": "Environment file initialization is only allowed in CONFIG_MODE. Please restart the application with CONFIG_MODE=true."
-            })),
-        )));
-    }
-
-    tracing::info!("Initializing .env file from .env.example");
-
-    let env_example_path = get_env_example_path();
-    let env_path = get_env_path();
-
-    // Check if .env already exists
-    if env_path.exists() {
-        return Err(status_json_to_http((
-            StatusCode::CONFLICT,
-            Json(json!({
-                "error": ".env file already exists",
-                "message": "Please use the update endpoint to modify existing configuration"
-            })),
-        )));
-    }
-
-    // Check if .env.example exists
-    if !env_example_path.exists() {
-        return Err(status_json_to_http((
-            StatusCode::NOT_FOUND,
-            Json(json!({
-                "error": ".env.example not found",
-                "message": "Template file is missing"
-            })),
-        )));
-    }
-
-    // Copy .env.example to .env
-    match fs::copy(&env_example_path, &env_path) {
-        Ok(_) => {
-            tracing::info!(".env file created successfully");
-            Ok(Json(json!({
-                "success": true,
-                "message": ".env file initialized from template"
-            })))
-        }
-        Err(e) => {
-            tracing::error!("Failed to create .env file: {:?}", e);
-            Err(status_json_to_http((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "error": "Failed to create .env file",
-                    "message": "无法创建配置文件，请检查文件系统权限"
-                })),
-            )))
-        }
-    }
-}
-
-/// Environment configuration update request
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct EnvUpdateRequest {
-    // Core configuration (saved to .env)
-    pub database_url: Option<String>,
-    pub server_host: Option<String>,
-    pub server_port: Option<String>,
-    pub rust_log: Option<String>,
-    pub jwt_secret: Option<String>,
-    pub cors_origins: Option<String>,
-
-    // Application configuration (saved to database) - kept for backward compatibility
-    // These will be migrated to the database automatically
-    pub gemini_api_key: Option<String>,
-    pub gemini_model: Option<String>,
-    pub openai_api_key: Option<String>,
-    pub openai_model: Option<String>,
-    pub openai_base_url: Option<String>,
-    pub ai_provider: Option<String>,
-    pub topic_style: Option<String>,
-    pub github_username: Option<String>,
-    pub github_token: Option<String>,
-    pub bilibili_uid: Option<String>,
-    pub steam_api_key: Option<String>,
-    pub steam_id: Option<String>,
-    pub netease_user_id: Option<String>,
-    pub github_client_id: Option<String>,
-    pub github_client_secret: Option<String>,
-    pub github_redirect_url: Option<String>,
-    /// 与 `.env` 里 `MYRIAD_SETUP_SECRET` 对暗号。也可改走 `X-Setup-Secret`。
-    #[serde(default)]
-    pub setup_secret: Option<String>,
-}
-
-/// POST /api/setup/update-env
-/// Update .env file with new configuration
-///
-/// 保护：CONFIG_MODE；编排预置了安装暗号时还要对上；值须通过语法校验。
-pub async fn update_env_file(
-    headers: HeaderMap,
-    Json(config): Json<EnvUpdateRequest>,
-) -> Result<Json<Value>, HttpError> {
-    crate::api::setup_bootstrap::require_setup_window().map_err(HttpError)?;
-    crate::api::setup_bootstrap::require_setup_secret(&headers, config.setup_secret.as_deref())
-        .map_err(HttpError)?;
-
-    // Only allow in CONFIG_MODE
-    let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
-
-    if !config_mode {
-        tracing::error!(
-            "🚨 Environment file update REJECTED: Not in CONFIG_MODE (security protection)"
-        );
-        return Err(status_json_to_http((
-            StatusCode::FORBIDDEN,
-            Json(json!({
-                "error": "Operation not allowed",
-                "message": "Environment file updates are only allowed in CONFIG_MODE. Please restart the application with CONFIG_MODE=true to modify configuration."
-            })),
-        )));
-    }
-
-    tracing::info!("Updating .env file configuration");
-
-    let env_path = get_env_path();
-
-    // Check if .env exists
-    if !env_path.exists() {
-        return Err(status_json_to_http((
-            StatusCode::NOT_FOUND,
-            Json(json!({
-                "error": ".env file not found",
-                "message": "Please initialize the configuration first"
-            })),
-        )));
-    }
-
-    // Read current .env file
-    let content = match fs::read_to_string(&env_path) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("Failed to read .env file: {:?}", e);
-            return Err(status_json_to_http((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "error": "Failed to read .env file",
-                    "message": "无法读取配置文件，请检查文件是否存在及权限设置"
-                })),
-            )));
-        }
-    };
-
-    // Update configuration values
-    let mut updated_content = content;
-
-    // Helper macro to update env values (only for core config).
-    //
-    // 每个值都先过语法校验：`.env` 是逐行 `KEY=VALUE`，值里的 CR/LF 会凭空
-    // 生成新的一行，等于注入任意环境变量（例如追加一个 `JWT_SECRET=` 或
-    // 攻击者可控的 `RUST_LOG`）。
-    macro_rules! update_env_var {
-        ($field:expr, $key:expr) => {
-            if let Some(value) = $field {
-                crate::api::setup_bootstrap::validate_env_value($key, &value).map_err(|msg| {
-                    tracing::warn!("🚨 Rejected .env update: {}", msg);
-                    (
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({
-                            "error": "Invalid configuration value",
-                            "message": msg,
-                        })),
-                    )
-                })?;
-                updated_content = update_env_variable(&updated_content, $key, &value);
-            }
-        };
-    }
-
-    // Only update core configuration in .env
-    update_env_var!(config.database_url, "DATABASE_URL");
-    update_env_var!(config.server_host, "SERVER_HOST");
-    update_env_var!(config.server_port, "SERVER_PORT");
-    update_env_var!(config.rust_log, "RUST_LOG");
-    update_env_var!(config.jwt_secret, "JWT_SECRET");
-    update_env_var!(config.cors_origins, "CORS_ORIGINS");
-
-    // Write updated content back to .env
-    match fs::write(&env_path, updated_content) {
-        Ok(_) => {
-            tracing::info!(".env file updated successfully");
-
-            // If database is available, save application configs there
-            if let Ok(db) = crate::services::tapp_registry::database().await {
-                use crate::services::config_service::ConfigService;
-                use serde_json::json;
-                use std::collections::HashMap;
-
-                let config_service = ConfigService::new(db);
-                let mut db_updates = HashMap::new();
-
-                // Map application configs to database
-                if let Some(v) = config.ai_provider {
-                    db_updates.insert("ai_provider".to_string(), json!(v));
-                }
-                if let Some(v) = config.gemini_api_key {
-                    db_updates.insert("gemini_api_key".to_string(), json!(v));
-                }
-                if let Some(v) = config.gemini_model {
-                    db_updates.insert("gemini_model".to_string(), json!(v));
-                }
-                if let Some(v) = config.openai_api_key {
-                    db_updates.insert("openai_api_key".to_string(), json!(v));
-                }
-                if let Some(v) = config.openai_model {
-                    db_updates.insert("openai_model".to_string(), json!(v));
-                }
-                if let Some(v) = config.openai_base_url {
-                    db_updates.insert("openai_base_url".to_string(), json!(v));
-                }
-                if let Some(v) = config.topic_style {
-                    db_updates.insert("topic_style".to_string(), json!(v));
-                }
-                if let Some(v) = config.github_username {
-                    db_updates.insert("github_username".to_string(), json!(v));
-                }
-                if let Some(v) = config.github_token {
-                    db_updates.insert("github_token".to_string(), json!(v));
-                }
-                if let Some(v) = config.bilibili_uid {
-                    db_updates.insert("bilibili_uid".to_string(), json!(v));
-                }
-                if let Some(v) = config.steam_api_key {
-                    db_updates.insert("steam_api_key".to_string(), json!(v));
-                }
-                if let Some(v) = config.steam_id {
-                    db_updates.insert("steam_id".to_string(), json!(v));
-                }
-                if let Some(v) = config.netease_user_id {
-                    db_updates.insert("netease_user_id".to_string(), json!(v));
-                }
-                if let Some(v) = config.github_client_id {
-                    db_updates.insert("github_client_id".to_string(), json!(v));
-                }
-                if let Some(v) = config.github_client_secret {
-                    db_updates.insert("github_client_secret".to_string(), json!(v));
-                }
-                if let Some(v) = config.github_redirect_url {
-                    db_updates.insert("github_redirect_url".to_string(), json!(v));
-                }
-
-                if !db_updates.is_empty() {
-                    if let Err(e) = config_service.update_configs(db_updates).await {
-                        tracing::warn!("Failed to update database configs: {}", e);
-                    } else {
-                        // Reload dynamic config (CONFIG_MODE only — no AppState)
-                        if let Ok(new_config) = config_service.load_config().await {
-                            // bootstrap-global: no AppState on config-mode setup router
-                            crate::state::replace_shared_dynamic_config(new_config).await;
-                            crate::services::oauth::registry::REGISTRY.reload().await;
-                            tracing::info!("Dynamic configuration reloaded");
-                        }
-                    }
-                }
-            } else {
-                // Check if we have any app config to save
-                let has_app_config = config.ai_provider.is_some()
-                    || config.gemini_api_key.is_some()
-                    || config.gemini_model.is_some()
-                    || config.openai_api_key.is_some()
-                    || config.openai_model.is_some()
-                    || config.openai_base_url.is_some()
-                    || config.topic_style.is_some()
-                    || config.github_username.is_some()
-                    || config.github_token.is_some()
-                    || config.bilibili_uid.is_some()
-                    || config.steam_api_key.is_some()
-                    || config.steam_id.is_some()
-                    || config.netease_user_id.is_some()
-                    || config.github_client_id.is_some()
-                    || config.github_client_secret.is_some()
-                    || config.github_redirect_url.is_some();
-
-                if has_app_config {
-                    tracing::warn!("⚠️ Application configuration received but Database is not connected. Settings will NOT be saved.");
-                    return Ok(Json(json!({
-                        "success": true,
-                        "message": "Core configuration updated, but application settings could not be saved because the database is not connected.",
-                        "warning": "Application settings (AI keys, etc.) were NOT saved. Please ensure the database is connected and try again.",
-                        "path": env_path.display().to_string()
-                    })));
-                }
-            }
-
-            Ok(Json(json!({
-                "success": true,
-                "message": "Configuration updated successfully.",
-                "path": env_path.display().to_string()
-            })))
-        }
-        Err(e) => {
-            tracing::error!("Failed to write .env file: {:?}", e);
-            Err(status_json_to_http((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "error": "Failed to write .env file",
-                    "message": "无法保存配置文件，请检查文件系统权限"
                 })),
             )))
         }
@@ -1019,5 +692,19 @@ mod tests {
         .expect("request should deserialize");
         assert_eq!(parsed.setup_secret.as_deref(), Some("phrase-from-env"));
         assert!(build_database_url(&parsed).is_ok());
+    }
+
+    #[test]
+    fn setup_progress_requires_database_and_admin_not_ai_keys() {
+        let missing_admin = super::setup_progress_from_flags(true, false);
+        assert!(missing_admin.is_setup_required);
+        assert_eq!(
+            missing_admin.missing_configs,
+            vec!["No admin user registered".to_string()]
+        );
+
+        let ready = super::setup_progress_from_flags(true, true);
+        assert!(!ready.is_setup_required);
+        assert!(ready.missing_configs.is_empty());
     }
 }

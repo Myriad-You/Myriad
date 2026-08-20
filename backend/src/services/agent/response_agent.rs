@@ -9,6 +9,7 @@
 
 use serde_json::Value;
 
+use super::ai_process_pure::USER_TEXT_MAX_CHARS;
 use super::identity;
 use super::types::AgentProgressEvent;
 
@@ -20,6 +21,8 @@ use super::types::AgentProgressEvent;
 pub struct ResponseContext<'a> {
     /// 用户原始请求（让 AI 知道该回答什么）
     pub user_request: &'a str,
+    /// 这一轮对面的人
+    pub user_id: i32,
     /// 成功步骤的结构化 JSON 输出
     pub step_outputs: Vec<StepOutput<'a>>,
     /// 可选的 SSE 进度通道（用于流式推送 token）
@@ -50,7 +53,7 @@ pub async fn generate_final_response(ctx: ResponseContext<'_>) -> String {
             if text.is_empty() {
                 return None;
             }
-            let truncated: String = text.chars().take(3000).collect();
+            let truncated: String = text.chars().take(USER_TEXT_MAX_CHARS).collect();
             Some(format!("[{}] {}", s.step_id, truncated))
         })
         .collect();
@@ -60,7 +63,8 @@ pub async fn generate_final_response(ctx: ResponseContext<'_>) -> String {
     }
 
     // 尝试 AI 生成
-    if let Some(msg) = ai_summarize(ctx.user_request, &step_data, ctx.progress_tx).await {
+    if let Some(msg) = ai_summarize(ctx.user_request, ctx.user_id, &step_data, ctx.progress_tx).await
+    {
         return msg;
     }
 
@@ -147,10 +151,11 @@ pub fn generate_single_step_response(result: &Value) -> Option<String> {
 pub async fn announce_plan(
     user_input: &str,
     step_descriptions: &[String],
+    user_id: i32,
     progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
 ) -> String {
     // 先尝试 AI 生成
-    if let Some(msg) = ai_announce_plan(user_input, step_descriptions, progress_tx).await {
+    if let Some(msg) = ai_announce_plan(user_input, step_descriptions, user_id, progress_tx).await {
         return msg;
     }
     // fallback：模板
@@ -174,6 +179,7 @@ fn plan_announcement_fallback(step_descriptions: &[String]) -> String {
 async fn ai_announce_plan(
     user_input: &str,
     step_descriptions: &[String],
+    user_id: i32,
     progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
 ) -> Option<String> {
     use crate::config::ModelTier;
@@ -181,11 +187,18 @@ async fn ai_announce_plan(
 
     let analyzer = create_ai_analyzer_for_tier(ModelTier::Standard).await?;
 
-    let soul = identity::get_identity()
+    let soul = crate::services::agent::identity::get_speaking_soul()
         .await
-        .and_then(|id| id.soul)
         .unwrap_or_default();
     let soul: String = soul.chars().take(2000).collect();
+    let life = crate::services::agent::life::speaking_prompt_plain(
+        &crate::services::agent::life::speaking_prompt(user_id).await,
+    );
+    let life_prefix = if life.is_empty() {
+        String::new()
+    } else {
+        format!("{life}\n\n")
+    };
 
     let steps_list = step_descriptions
         .iter()
@@ -195,7 +208,7 @@ async fn ai_announce_plan(
         .join("\n");
 
     let prompt = format!(
-        "{soul}\n\n\
+        "{soul}\n\n{life}\
          User: \"{user_input}\"\n\n\
          Your plan:\n{steps_list}\n\n\
          Now tell the user what you're about to do. Rules:\n\
@@ -206,6 +219,7 @@ async fn ai_announce_plan(
          - Do NOT use filler phrases like \"好的\" \"没问题\" \"马上开始\" \"让我来\" at the start.\n\
          - Sound like a real person, not a customer service bot.",
         soul = soul,
+        life = life_prefix,
         user_input = user_input,
         steps_list = steps_list,
     );
@@ -440,6 +454,7 @@ fn extract_step_text(output: &Value) -> String {
 /// AI 汇总（带人格，支持流式）
 async fn ai_summarize(
     user_request: &str,
+    user_id: i32,
     step_data: &[String],
     progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
 ) -> Option<String> {
@@ -456,11 +471,18 @@ async fn ai_summarize(
         }
     };
 
-    let soul = identity::get_identity()
+    let soul = crate::services::agent::identity::get_speaking_soul()
         .await
-        .and_then(|id| id.soul)
         .unwrap_or_default();
     let soul: String = soul.chars().take(2000).collect();
+    let life = crate::services::agent::life::speaking_prompt_plain(
+        &crate::services::agent::life::speaking_prompt(user_id).await,
+    );
+    let life_prefix = if life.is_empty() {
+        String::new()
+    } else {
+        format!("{life}\n\n")
+    };
 
     let steps_text = step_data
         .iter()
@@ -468,7 +490,7 @@ async fn ai_summarize(
         .map(|(i, s)| format!("{}. {}", i + 1, s))
         .collect::<Vec<_>>()
         .join("\n");
-    let steps_text: String = steps_text.chars().take(6000).collect();
+    let steps_text: String = steps_text.chars().take(USER_TEXT_MAX_CHARS).collect();
 
     tracing::debug!(
         steps_count = step_data.len(),
@@ -479,7 +501,7 @@ async fn ai_summarize(
     );
 
     let prompt = format!(
-        "{soul}\n\n\
+        "{soul}\n\n{life}\
          用户的请求：「{user_request}」\n\n\
          你为了回答这个请求，执行了多个步骤，以下是各步骤产出的原始素材：\n\
          {steps_text}\n\n\
@@ -492,6 +514,7 @@ async fn ai_summarize(
          - 不要提及步骤编号、JSON、技术细节\n\
          - 如果生成了图片，在末尾自然地提一下",
         soul = soul,
+        life = life_prefix,
         user_request = user_request,
         steps_text = steps_text,
     );

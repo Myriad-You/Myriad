@@ -13,7 +13,7 @@ import { motionShim as motion } from '@lib/motionShim'
 import React, { useCallback, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
-import { checkSpeechStatus } from '../lib/api'
+import { testSpeechService } from '../lib/api'
 import {
   AboutConfigSection,
   AdvancedConfigSection,
@@ -295,12 +295,46 @@ const ModernConfigForm: React.FC = () => {
       return { success: false, message: 'Config not loaded' }
     }
     try {
-      const result = await checkSpeechStatus()
+      const result = await testSpeechService()
+      if (result.audio) {
+        try {
+          const binary = atob(result.audio)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i += 1) {
+            bytes[i] = binary.charCodeAt(i)
+          }
+          const blob = new Blob([bytes], {
+            type:
+              bytes.length >= 12 &&
+              bytes[0] === 0x52 &&
+              bytes[1] === 0x49 &&
+              bytes[2] === 0x46 &&
+              bytes[3] === 0x46
+                ? 'audio/wav'
+                : 'audio/mpeg',
+          })
+          const url = URL.createObjectURL(blob)
+          const audio = new Audio(url)
+          audio.addEventListener('ended', () => URL.revokeObjectURL(url), {
+            once: true,
+          })
+          void audio.play().catch(() => URL.revokeObjectURL(url))
+        } catch {
+          // Playback is best-effort; the API result still stands.
+        }
+      }
+      if (result.success) {
+        if (result.tts_skipped) {
+          return {
+            success: true,
+            message: result.error || t.config.speechOpenRouterTtsHint,
+          }
+        }
+        return { success: true, message: t.config.speechTestSuccess }
+      }
       return {
-        success: result.available === true,
-        message: result.available
-          ? t.config.speechTestSuccess
-          : result.error || t.config.speechTestFailed,
+        success: false,
+        message: result.error || t.config.speechTestFailed,
       }
     } catch {
       return { success: false, message: t.config.speechTestFailed }
@@ -359,6 +393,8 @@ const ModernConfigForm: React.FC = () => {
           <AiConfigSection
             configFields={config.ai_config.config_fields}
             updateValue={updateAiFieldValue}
+            uiConfigFields={config.ui_config.config_fields}
+            updateUiFieldValue={updateUiFieldValue}
             onSpeechTest={handleSpeechTest}
             {...props}
           />

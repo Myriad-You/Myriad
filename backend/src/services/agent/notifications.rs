@@ -524,22 +524,52 @@ impl NotificationManager {
             "waiting_for_input" => NotificationPriority::High,
             _ => NotificationPriority::Normal,
         };
+        let event_key = match status {
+            "completed" => "agent.task_completed",
+            "failed" => "agent.task_failed",
+            "cancelled" => "agent.task_cancelled",
+            "waiting_for_input" => "agent.clarification",
+            _ => "agent.task_progress",
+        };
+        // Heartbeat already notifies admins via `notify_heartbeat_result`.
+        if user_id == crate::services::agent::SYSTEM_USER_ID {
+            return;
+        }
+        if event_key != "agent.task_progress" {
+            crate::services::agent::life::spawn_ingest(user_id, event_key, body);
+        }
+        if crate::services::agent::life::gates::is_valuable_event(event_key)
+            && !crate::services::agent::life::allow_existing_notify(user_id).await
+        {
+            let _ = self
+                .delete_notification(&format!("agent_run_{}", run_id), user_id)
+                .await;
+            return;
+        }
+        let life_on = crate::services::agent::life::life_enabled().await;
+        let session_id = match session_id {
+            Some(id) if !id.is_empty() => Some(id.to_string()),
+            _ if life_on => {
+                crate::services::agent::life::ingest::latest_session_id_for(user_id).await
+            }
+            _ => None,
+        };
+        let mut metadata = serde_json::json!({
+            "event_key": event_key,
+            "run_id": run_id,
+            "task_id": task_id,
+            "session_id": session_id,
+            "status": status,
+            "progress": progress,
+            "success": success,
+        });
+        // Flag off must look exactly like before: no landing hint of its own,
+        // the panel keeps resolving these by notification type and session id.
+        if life_on {
+            metadata["action"] = serde_json::json!("open_arael");
+        }
         let mut notification = Notification::new(user_id, notification_type, priority, title, body)
-            .with_metadata(serde_json::json!({
-                "event_key": match status {
-                    "completed" => "agent.task_completed",
-                    "failed" => "agent.task_failed",
-                    "cancelled" => "agent.task_cancelled",
-                    "waiting_for_input" => "agent.clarification",
-                    _ => "agent.task_progress",
-                },
-                "run_id": run_id,
-                "task_id": task_id,
-                "session_id": session_id,
-                "status": status,
-                "progress": progress,
-                "success": success,
-            }));
+            .with_metadata(metadata);
         notification.id = format!("agent_run_{}", run_id);
         self.upsert(notification).await;
     }

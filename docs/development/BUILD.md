@@ -199,7 +199,7 @@ This creates:
 2. `target/release/myriad-backend` for the backend binary (workspace root `target/`).
 
 The default production deployment does not run these artifacts directly. It uses
-versioned Docker images through `docker-compose.yml` and `scripts/docker/deploy.sh`.
+versioned Docker images through `docker-compose.yml` and `scripts/extra/deploy.sh`.
 
 ## Database Setup
 
@@ -218,22 +218,13 @@ cargo run -p migration
 
 ### Build Images
 
-```powershell
-# Windows: build all services
-.\scripts\docker\build-and-push.ps1 -All
-
-# Build specific service
-.\scripts\docker\build-and-push.ps1 -BackendOnly
-.\scripts\docker\build-and-push.ps1 -FrontendOnly
-```
+Local verification of a Dockerfile:
 
 ```bash
-# Linux/macOS: build all services
-bash scripts/docker/build-and-push.sh --all
-
-# Build specific service
-bash scripts/docker/build-and-push.sh --backend-only
-bash scripts/docker/build-and-push.sh --frontend-only
+docker build -f docker/Dockerfile.backend -t myriad-backend .
+docker build -f docker/Dockerfile.frontend -t myriad-frontend .
+docker build -f proxy/Dockerfile -t myriad-proxy ./proxy
+docker build -f updater/Dockerfile -t myriad-updater ./updater
 ```
 
 Production releases should normally be built by GitHub Actions `release.yml`
@@ -265,74 +256,13 @@ Dev packaging commit-title flags: `-p` (package) · `-full` (package + force inf
 
 ### Docker Build Options
 
-```powershell
+```bash
 # Build without cache
-.\scripts\docker\build-and-push.ps1 -All -NoBuildCache
+docker build --no-cache -f docker/Dockerfile.backend -t myriad-backend .
 
-# Build with specific Docker file
-docker build -f docker/Dockerfile.backend -t myriad-backend .
-
-# Build and push to registry
-.\scripts\docker\build-and-push.ps1 -All -Push -Username your-registry-user
+# Push a locally tagged image
+docker push your-registry/myriad-backend:tag
 ```
-
-## Optimization Tips
-
-### Backend
-
-1. **Use release profile**
-   ```toml
-   [profile.release]
-   opt-level = 3
-   lto = true
-   codegen-units = 1
-   strip = true
-   ```
-
-2. **Enable CPU features**
-   ```powershell
-   $env:RUSTFLAGS="-C target-cpu=native"
-   cargo build --release
-   ```
-
-3. **Reduce binary size**
-   ```toml
-   [profile.release]
-   opt-level = "z"  # Optimize for size
-   lto = true
-   strip = true
-   ```
-
-### Frontend
-
-1. **Optimize images**
-   - Use WebP format
-   - Compress before adding to `public/`
-
-2. **Code splitting**
-   - Astro automatically splits by page
-   - Use dynamic imports for large components
-
-3. **Minimize JavaScript**
-   - Already done by Vite/Rollup
-   - Check output with `pnpm run build`
-
-## Build Times (Reference)
-
-### Development Machine (Example: Ryzen 7 5800X, 32GB RAM, NVMe SSD)
-
-**Backend:**
-- First build (debug): ~3-5 minutes
-- Incremental build (debug): ~10-30 seconds
-- Release build: ~5-10 minutes
-
-**Frontend:**
-- pnpm install: ~1-2 minutes
-- Development build: ~5-15 seconds
-- Production build: ~30-60 seconds
-
-**Full Docker build:**
-- All services: ~10-15 minutes
 
 ## CI/CD Considerations
 
@@ -357,45 +287,9 @@ docker build -f docker/Dockerfile.backend -t myriad-backend .
 
 ## Troubleshooting
 
-### General Issues
+```bash
+cargo clean
+(cd frontend && rm -rf node_modules dist .astro)
+```
 
-1. **Clean build**
-   ```powershell
-   # Backend
-   cd backend
-   cargo clean
-   
-   # Frontend
-   cd frontend
-   rm -r node_modules dist .astro
-   ```
-
-2. **Update dependencies**
-   ```powershell
-   # Backend
-   cargo update
-   
-   # Frontend
-   pnpm update
-   ```
-
-3. **Check versions**
-   ```powershell
-   rustc --version
-   cargo --version
-   node --version
-   pnpm --version
-   ```
-
-## Next Steps
-
-After building:
-1. Configure `.env` files
-2. Set up database
-3. Run tests: `cargo test` (backend), `pnpm test` (frontend)
-4. Start development: `./scripts/dev/dev.sh start` or `.\scripts\dev\dev.ps1 start`
-   - Default is a locally installed PostgreSQL (`doctor` checks prerequisites,
-     `db-setup` creates the role/database). Pass `--docker` to use compose
-     postgres instead.
-
-For deployment instructions, see [Docker Deployment](../deployment/DOCKER_DEPLOYMENT.md).
+部署见 [DOCKER_DEPLOYMENT.md](../deployment/DOCKER_DEPLOYMENT.md)。

@@ -7,7 +7,7 @@
 
 import type { PlaygroundLastFailedAttempt } from '../components/PlaygroundComposer'
 import type { TappPlaygroundProject } from '../services/TappPlaygroundService'
-import type { TappCodeStructure, TappInstance, WidgetSize } from '../types'
+import type { TappInstance, WidgetSize } from '../types'
 import type {
   PlaygroundSessionsStore,
   PruneStoreMeta,
@@ -42,6 +42,7 @@ import { TappWidgetSandbox } from '../runtime/TappWidgetSandbox'
 import { installFromCode } from '../services/TappApiService'
 import { generatePlaygroundProject } from '../services/TappPlaygroundService'
 import { exportPlaygroundProjectAsTapp } from '../utils/exportPlaygroundTapp'
+import { tappHasPage } from '../utils/manifestLayers'
 import {
   computeLineDiff,
   countDiffChanges,
@@ -51,6 +52,7 @@ import {
   mapPlaygroundGenerateError,
   mapPlaygroundRuntimeError,
 } from '../utils/playgroundErrorMessages'
+import { playgroundCodeToRuntime } from '../utils/playgroundPackageFiles'
 import {
   buildPlaygroundMemoryHistory,
   clearSessionContent,
@@ -86,7 +88,6 @@ type FileId =
   | 'i18n'
   | 'widget'
   | 'widgetHtml'
-  | 'modules'
   | 'assets'
 
 function phaseIndexFromElapsedMs(elapsedMs: number): number {
@@ -119,15 +120,14 @@ function isAbortLikeError(error: unknown): {
 }
 
 const FILE_LABELS: Record<FileId, string> = {
-  page: 'main.js · page',
+  page: 'page/index.js',
   html: 'page.html',
   styles: 'styles.css',
-  core: 'main.js · core',
+  core: 'core.js',
   manifest: 'manifest.json',
   i18n: 'i18n.json',
-  widget: 'main.js · widget',
+  widget: 'widget/index.js',
   widgetHtml: 'widget.html',
-  modules: 'page/modules',
   assets: 'assets',
 }
 
@@ -149,8 +149,6 @@ function fileContents(project: TappPlaygroundProject, file: FileId): string {
       return project.code.widget || ''
     case 'widgetHtml':
       return project.code.widgetHtml || ''
-    case 'modules':
-      return JSON.stringify(project.code.pageModules || {}, null, 2)
     case 'assets':
       return JSON.stringify(
         Object.fromEntries(
@@ -430,7 +428,6 @@ const FILE_LANGUAGE: Record<FileId, string> = {
   styles: 'css',
   manifest: 'json',
   i18n: 'json',
-  modules: 'json',
   assets: 'json',
 }
 
@@ -606,7 +603,7 @@ export function TappPlaygroundPage() {
     !!(project?.code.widget || project?.code.widgetHtml)
   const hasUsablePage =
     !!project &&
-    project.manifest.hasPage === true &&
+    tappHasPage(project.manifest) &&
     !!(project.code.pageHtml && project.code.pageHtml.trim())
   const isWidgetOnly = hasWidgetPreview && !hasUsablePage
   const activeWidget =
@@ -1216,7 +1213,7 @@ export function TappPlaygroundPage() {
       }
       const installed = await installFromCode(
         project.manifest,
-        project.code as TappCodeStructure,
+        project.code,
       )
 
       // Sync runtime so the new install is in installedTapps, then enable it.
@@ -1316,7 +1313,7 @@ export function TappPlaygroundPage() {
     } as const
     let parsedJson: unknown
     const isJsonFile =
-      file === 'manifest' || file === 'i18n' || file === 'modules'
+      file === 'manifest' || file === 'i18n'
     if (isJsonFile) {
       try {
         parsedJson = JSON.parse(text)
@@ -1348,15 +1345,6 @@ export function TappPlaygroundPage() {
               code: {
                 ...revProject.code,
                 i18n: parsedJson as TappPlaygroundProject['code']['i18n'],
-              },
-            }
-          } else if (file === 'modules') {
-            nextProject = {
-              ...revProject,
-              code: {
-                ...revProject.code,
-                pageModules:
-                  parsedJson as TappPlaygroundProject['code']['pageModules'],
               },
             }
           } else {
@@ -1391,23 +1379,20 @@ export function TappPlaygroundPage() {
   }
 
   const files: Array<{ id: FileId; label: string }> = [
-    { id: 'page', label: 'main.js · page' },
-    { id: 'html', label: 'page.html' },
-    { id: 'styles', label: 'styles.css' },
-    { id: 'core', label: 'main.js · core' },
-    { id: 'manifest', label: 'manifest.json' },
-    { id: 'i18n', label: 'i18n.json' },
+    { id: 'page', label: FILE_LABELS.page },
+    { id: 'html', label: FILE_LABELS.html },
+    { id: 'styles', label: FILE_LABELS.styles },
+    { id: 'core', label: FILE_LABELS.core },
+    { id: 'manifest', label: FILE_LABELS.manifest },
+    { id: 'i18n', label: FILE_LABELS.i18n },
     ...(project?.code.widget
-      ? ([{ id: 'widget', label: 'main.js · widget' }] as const)
+      ? ([{ id: 'widget', label: FILE_LABELS.widget }] as const)
       : []),
     ...(project?.code.widgetHtml
-      ? ([{ id: 'widgetHtml', label: 'widget.html' }] as const)
-      : []),
-    ...(Object.keys(project?.code.pageModules || {}).length
-      ? ([{ id: 'modules', label: 'page/modules' }] as const)
+      ? ([{ id: 'widgetHtml', label: FILE_LABELS.widgetHtml }] as const)
       : []),
     ...(Object.keys(project?.code.assets || {}).length
-      ? ([{ id: 'assets', label: 'assets' }] as const)
+      ? ([{ id: 'assets', label: FILE_LABELS.assets }] as const)
       : []),
   ]
 
@@ -1452,7 +1437,7 @@ export function TappPlaygroundPage() {
       {tappInstance && project && hasUsablePage ? (
         <TappPageSandbox
           tappInstance={tappInstance}
-          code={project.code}
+          code={playgroundCodeToRuntime(project.manifest, project.code)}
           previewMode
           onError={handleSandboxError}
           onReady={() => setPreviewError('')}
@@ -1644,7 +1629,7 @@ export function TappPlaygroundPage() {
           <TappWidgetSandbox
             key={`${activeWidget.id}-${activeWidgetSize}`}
             tappInstance={tappInstance}
-            code={project.code as TappCodeStructure}
+            code={playgroundCodeToRuntime(project.manifest, project.code)}
             widgetId={activeWidget.id}
             widgetProps={widgetRenderProps}
             previewMode

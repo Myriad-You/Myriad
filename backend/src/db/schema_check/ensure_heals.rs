@@ -53,6 +53,57 @@ ON CONFLICT (id) DO NOTHING;
 }
 
 /// 近月功能表兜底（`migrations/004` 已 CREATE）。
+pub(crate) async fn ensure_agent_life_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+CREATE TABLE IF NOT EXISTS agent_persona (
+    id VARCHAR(16) PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    personality TEXT NOT NULL DEFAULT '',
+    portrait_asset_id TEXT,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_addressee_state (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    mood DOUBLE PRECISION NOT NULL DEFAULT 70,
+    activity VARCHAR(16) NOT NULL DEFAULT 'idle',
+    do_not_disturb BOOLEAN NOT NULL DEFAULT false,
+    last_user_message_at TIMESTAMPTZ,
+    last_proactive_at TIMESTAMPTZ,
+    last_departure_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_diary (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    source VARCHAR(16) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_diary_user_created
+    ON agent_diary (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_proactive_messages (
+    id BIGSERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(16) NOT NULL,
+    content TEXT NOT NULL,
+    event_key VARCHAR(64),
+    notified BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_proactive_user_created
+    ON agent_proactive_messages (user_id, created_at DESC);
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// 近月功能表兜底（`migrations/004` 已 CREATE）。
 pub(crate) async fn ensure_heartbeat_claims_table(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(
         r#"
@@ -280,7 +331,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_queue_activity_target
 /// 3. If orphans > 0 → warn and **skip** (still no DELETE / SET NULL).
 /// 4. If orphans = 0 → `ALTER TABLE … ADD CONSTRAINT`.
 ///
-/// Operators: run `scripts/dev/federation-fk-orphan-report.sql` on a replica
+/// Operators: run `scripts/extra/federation-fk-orphan-report.sql` on a replica
 /// first. If orphans > 0, decide manually — preferred conservative remediations:
 /// - nullable columns → `SET NULL` (keeps the row)
 /// - dead rows with no business value → `DELETE` only after explicit review
@@ -310,7 +361,7 @@ pub(crate) async fn ensure_federation_foreign_keys(db: &DatabaseConnection) -> R
         tracing::info!(
             "Federation FK heal is report-only \
              (set MYRIAD_FEDERATION_APPLY_FKS=1 to add constraints when orphan-free). \
-             See scripts/dev/federation-fk-orphan-report.sql"
+             See scripts/extra/federation-fk-orphan-report.sql"
         );
     }
 
@@ -547,7 +598,7 @@ LIMIT 1
                 constraint = fk.name,
                 orphans,
                 "Federation FK missing and has orphan rows — not applying \
-                 (heal never deletes). Run scripts/dev/federation-fk-orphan-report.sql; \
+                 (heal never deletes). Run scripts/extra/federation-fk-orphan-report.sql; \
                  prefer SET NULL on nullable columns over DELETE"
             );
             continue;
@@ -780,7 +831,7 @@ BEGIN
         + octet_length(NEW.key)
         + octet_length(NEW.value::text)
         + COALESCE(octet_length(NEW.encrypted_value), 0);
-    IF projected_bytes > 5242880 THEN
+    IF projected_bytes > 8388608 THEN
         RAISE EXCEPTION 'Tapp storage quota exceeded: % bytes', projected_bytes
             USING ERRCODE = '54000';
     END IF;

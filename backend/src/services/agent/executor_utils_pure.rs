@@ -184,7 +184,11 @@ pub fn extract_image_url(output: &Value) -> Option<String> {
         .as_object()
         .and_then(|obj| obj.get("imageUrl"))
         .and_then(|v| v.as_str())
-        .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
+        .filter(|url| {
+            url.starts_with("http://")
+                || url.starts_with("https://")
+                || url.starts_with("/api/")
+        })
         .map(|s| s.to_string())
 }
 
@@ -196,6 +200,7 @@ pub fn summarize_output(output: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_levenshtein_similar() {
@@ -262,6 +267,21 @@ mod tests {
         assert_eq!(normalize_brew_category_filter("友情链接"), "友情链接");
         assert_eq!(normalize_brew_category_filter("技术"), "技术");
         assert_eq!(normalize_brew_category_filter("mine"), "我");
+    }
+
+    #[test]
+    fn extract_image_url_accepts_http_and_local_api_paths() {
+        assert_eq!(
+            extract_image_url(&json!({"imageUrl": "https://x/a.png"})).as_deref(),
+            Some("https://x/a.png")
+        );
+        assert_eq!(
+            extract_image_url(&json!({"imageUrl": "/api/brew/image-cache/ab/abcd.png"}))
+                .as_deref(),
+            Some("/api/brew/image-cache/ab/abcd.png")
+        );
+        assert!(extract_image_url(&json!({"imageUrl": "data:image/png;base64,xx"})).is_none());
+        assert!(extract_image_url(&json!({"imageUrl": "javascript:alert(1)"})).is_none());
     }
 
     #[test]

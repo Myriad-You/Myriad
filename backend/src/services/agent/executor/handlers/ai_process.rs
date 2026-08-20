@@ -9,7 +9,8 @@ use crate::services::agent::ai_process_pure::{
     append_memory_to_system_prompt, capability_needs_conversation_context, capability_needs_memory,
     extract_semantic_text, inject_directive_to_params, inject_steering_to_params,
     merge_system_prompt, resolve_image_dimensions, resolve_image_prompt, sanitize_prompt_input,
-    take_recent_conversation_messages, with_system_guidance,
+    take_recent_conversation_messages, with_system_guidance, IMAGE_PROMPT_MAX_CHARS,
+    USER_TEXT_MAX_CHARS,
 };
 use crate::services::agent::data_read_pure::extract_json_array_from_ai_response;
 use crate::GLOBAL_DYNAMIC_CONFIG;
@@ -153,12 +154,7 @@ async fn execute_ai_summarize(
     params: &HashMap<String, Value>,
     analyzer: &crate::services::analyzer::AiAnalyzer,
 ) -> Result<Value, String> {
-    // schema 声明 "content"，兼容历史 key "input"
-    let input = params
-        .get("content")
-        .or_else(|| params.get("input"))
-        .cloned()
-        .unwrap_or(json!(null));
+    let input = params.get("content").cloned().unwrap_or(json!(null));
     let style = params
         .get("style")
         .and_then(|v| v.as_str())
@@ -184,7 +180,7 @@ async fn execute_ai_summarize(
 
     let input_str = extract_semantic_text(&input);
     // 截断过长的输入，避免 token 溢出
-    let truncated_input: String = input_str.chars().take(8000).collect();
+    let truncated_input: String = input_str.chars().take(USER_TEXT_MAX_CHARS).collect();
     let focus = params
         .get("focus")
         .and_then(|v| v.as_str())
@@ -222,12 +218,7 @@ async fn execute_ai_analyze(
     params: &HashMap<String, Value>,
     analyzer: &crate::services::analyzer::AiAnalyzer,
 ) -> Result<Value, String> {
-    // schema 声明 "data"，兼容历史 key "input"
-    let input = params
-        .get("data")
-        .or_else(|| params.get("input"))
-        .cloned()
-        .unwrap_or(json!(null));
+    let input = params.get("data").cloned().unwrap_or(json!(null));
     let analysis_type = params
         .get("analysisType")
         .and_then(|v| v.as_str())
@@ -236,7 +227,7 @@ async fn execute_ai_analyze(
 
     // 智能提取输入数据的文本内容，避免把原始 JSON 数组丢给 AI
     let input_text = extract_semantic_text(&input);
-    let truncated_input: String = input_text.chars().take(8000).collect();
+    let truncated_input: String = input_text.chars().take(USER_TEXT_MAX_CHARS).collect();
 
     // 当 Planner 提供了具体 instruction 时，instruction 是主要驱动指令，
     // 数据分析模板仅作为无 instruction 时的 fallback。
@@ -317,7 +308,7 @@ async fn execute_ai_recommend(
     let count = params.get("count").and_then(|v| v.as_u64()).unwrap_or(5);
 
     let context_str = serde_json::to_string_pretty(&context).unwrap_or_default();
-    let truncated_context: String = context_str.chars().take(6000).collect();
+    let truncated_context: String = context_str.chars().take(USER_TEXT_MAX_CHARS).collect();
 
     let prefs_str = if preferences != json!({}) {
         format!(
@@ -455,24 +446,10 @@ async fn execute_gemini_grounding_search(
     search_type: &str,
     max_results: usize,
 ) -> Result<(String, Vec<Value>), String> {
-    // 从全局配置读取
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-
-    let api_key = config
-        .gemini_api_key
-        .clone()
-        .ok_or(crate::services::agent::response_agent::api_key_not_configured("Gemini"))?;
-
-    if api_key.is_empty() {
-        return Err(crate::services::agent::response_agent::api_key_not_configured("Gemini"));
-    }
-
-    let model = if config.gemini_model.is_empty() {
-        "gemini-3.6-flash".to_string() // 使用支持 grounding 的模型
-    } else {
-        config.gemini_model.clone()
-    };
-
+    let (api_key, model) = config.resolve_gemini_grounding().ok_or(
+        crate::services::agent::response_agent::api_key_not_configured("Gemini"),
+    )?;
     drop(config);
 
     // 清洗用户输入，防止 Prompt Injection
@@ -522,16 +499,9 @@ async fn execute_gemini_grounding_search(
         }
     });
 
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-        model
-    );
+    let url = crate::services::http_client::GeminiApiUrl::generate_content_url(&model).await;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
+    let client = crate::services::http_client::get_gemini_grounding_client().await;
 
     tracing::info!(
         "Calling Gemini Grounding Search for query length={}",
@@ -647,7 +617,7 @@ async fn execute_brewlia_annotate(
         .as_deref()
         .unwrap_or_else(|| item.summary.as_deref().unwrap_or(""));
     // 截断过长文章，保留核心内容
-    let truncated_content: String = content.chars().take(6000).collect();
+    let truncated_content: String = content.chars().take(USER_TEXT_MAX_CHARS).collect();
 
     let prompt = format!(
         "你是一个专业的阅读理解助手。请为以下文章生成详细的阅读注释。\n\n\
@@ -718,7 +688,7 @@ async fn execute_brewlia_podcast(
         .content
         .as_deref()
         .unwrap_or_else(|| item.summary.as_deref().unwrap_or(""));
-    let truncated_content: String = content.chars().take(6000).collect();
+    let truncated_content: String = content.chars().take(USER_TEXT_MAX_CHARS).collect();
     let author = item.author.as_deref().unwrap_or("未知");
 
     let style_desc = match style {
@@ -882,7 +852,7 @@ async fn execute_smart_filter(
     if let Ok(content) = tokio::fs::read_to_string(&raw_file).await {
         if let Ok(raw_data) = serde_json::from_str::<Value>(&content) {
             let raw_str = serde_json::to_string_pretty(&raw_data).unwrap_or_default();
-            let truncated: String = raw_str.chars().take(5000).collect();
+            let truncated: String = raw_str.chars().take(USER_TEXT_MAX_CHARS).collect();
             // 检查截断是否在 JSON 中间，尝试保持完整性
             let safe_truncated = if truncated.len() < raw_str.len() {
                 format!("{}... (数据已截断)", truncated)
@@ -936,7 +906,7 @@ async fn execute_compare_content(
     if let Ok(content) = tokio::fs::read_to_string(&cache_file).await {
         if let Ok(data) = serde_json::from_str::<Value>(&content) {
             let data_str = serde_json::to_string_pretty(&data).unwrap_or_default();
-            let truncated: String = data_str.chars().take(5000).collect();
+            let truncated: String = data_str.chars().take(USER_TEXT_MAX_CHARS).collect();
 
             let time_range = match (start_date, end_date) {
                 (Some(s), Some(e)) => format!("时间范围：{} 到 {}", s, e),
@@ -1062,7 +1032,7 @@ async fn execute_prompt_generate(
             camera angle (close-up, full body, portrait), atmosphere and mood.\n\
             4. Include quality boosting tags: masterpiece, best quality, highly detailed, sharp focus, etc.\n\
             5. The prompt must be in English. Be as specific and descriptive as possible.\n\
-            6. Maximum 800 characters.\n\n\
+            6. Maximum {IMAGE_PROMPT_MAX_CHARS} characters.\n\n\
             Output ONLY the raw prompt text. No explanations, no markdown, no quotes, no formatting.",
             context_parts.join("\n")
         ),
@@ -1179,30 +1149,31 @@ async fn execute_code_explain(
 
 async fn execute_ai_image(params: &HashMap<String, Value>) -> Result<Value, String> {
     let prompt = resolve_image_prompt(params)?;
-    let prompt = prompt.as_str();
-
-    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let provider = config.ai_image_provider.clone();
-    let model = config.ai_image_model.clone();
-    drop(config);
-
     let (width, height) = resolve_image_dimensions(params);
 
-    match provider.as_str() {
-        "pollinations" => {
-            let encoded_prompt = urlencoding::encode(prompt);
-            let url = format!(
-                "https://image.pollinations.ai/prompt/{}?width={}&height={}&model={}&nologo=true&private=true&enhance=true",
-                encoded_prompt, width, height, model
-            );
+    let dynamic = GLOBAL_DYNAMIC_CONFIG.read().await;
+    let config = crate::services::image_generation::config_from_dynamic(&dynamic)
+        .map_err(|error| error.to_string())?;
+    drop(dynamic);
 
-            Ok(json!({
-                "imageUrl": url,
-                "width": width,
-                "height": height,
-                "provider": "pollinations"
-            }))
-        }
-        _ => Err(format!("Unknown image provider: {}", provider)),
-    }
+    let generated = crate::services::image_generation::generate_image(
+        &config,
+        &prompt,
+        width,
+        height,
+        None,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let image_url = crate::services::image_generation::persist_generated(&generated)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(json!({
+        "imageUrl": image_url,
+        "width": generated.width,
+        "height": generated.height,
+        "provider": config.provider,
+        "prompt": prompt,
+    }))
 }

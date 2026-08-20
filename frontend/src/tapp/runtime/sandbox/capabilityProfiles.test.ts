@@ -10,7 +10,7 @@ const instance: TappInstance = {
     id: 'com.example.profile-test',
     name: 'Profile Test',
     version: '1.0.0',
-    main: 'main.js',
+    core: { entry: 'core.js' },
     permissions: [],
     category: 'utility',
   },

@@ -3,6 +3,7 @@ pub mod escalation;
 pub mod executor;
 pub mod heartbeat;
 pub mod identity;
+pub mod life;
 pub mod intent;
 pub mod mcp;
 pub mod memory;

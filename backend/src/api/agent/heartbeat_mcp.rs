@@ -570,7 +570,7 @@ pub(crate) async fn steer_session(
             )))?;
 
     // 校验指令长度（复用 validate_input 的上限逻辑）
-    if instruction.is_empty() || instruction.len() > MAX_INPUT_LEN {
+    if instruction.is_empty() || instruction.chars().count() > MAX_INPUT_LEN {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "Instruction must be non-empty and within length limits" })),

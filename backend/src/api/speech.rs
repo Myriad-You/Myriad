@@ -1,6 +1,7 @@
 //! 语音服务 API
 //!
-//! 提供腾讯云 TTS（文本转语音）和 ASR（语音转文本）的 HTTP API 接口
+//! 提供 TTS（文本转语音）和 ASR（语音转文本）的 HTTP API。
+//! 服务商由设置里的 `speech_provider` 决定：腾讯云、OpenAI、OpenRouter 或 Gemini。
 
 use axum::{
     extract::{Query, State},
@@ -51,6 +52,8 @@ pub fn create_speech_routes(
         .route("/asr", post(speech_to_text))
         // 服务状态
         .route("/status", get(get_speech_status))
+        // 设置页可用性测试（TTS + 可选 ASR）
+        .route("/test", post(test_speech_service))
         // 可用音色列表
         .route("/voices", get(get_voice_list))
         // 可用引擎列表
@@ -338,6 +341,8 @@ pub struct SpeechStatusResponse {
     pub available: bool,
     pub tts_enabled: bool,
     pub asr_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -637,7 +642,9 @@ pub async fn batch_text_to_speech(Json(request): Json<BatchTtsApiRequest>) -> im
 /// 语音转文本 API
 ///
 /// POST /api/speech/asr
-pub async fn speech_to_text(Json(request): Json<AsrApiRequest>) -> impl IntoResponse {
+pub async fn speech_to_text(
+    Json(request): Json<AsrApiRequest>,
+) -> (StatusCode, Json<AsrApiResponse>) {
     // 验证输入
     if request.audio_data.is_none() && request.url.is_none() {
         return (
@@ -650,6 +657,14 @@ pub async fn speech_to_text(Json(request): Json<AsrApiRequest>) -> impl IntoResp
                 error: Some("必须提供 audio_data 或 url".to_string()),
             }),
         );
+    }
+
+    let provider = crate::services::speech_runtime::configured_provider().await;
+    if !matches!(
+        provider,
+        crate::services::speech_runtime::SpeechProviderKind::Tencent
+    ) {
+        return openai_speech_to_text(request).await;
     }
 
     // 创建服务
@@ -758,27 +773,78 @@ pub async fn speech_to_text(Json(request): Json<AsrApiRequest>) -> impl IntoResp
     }
 }
 
+async fn openai_speech_to_text(request: AsrApiRequest) -> (StatusCode, Json<AsrApiResponse>) {
+    let format = request.format.unwrap_or_else(|| "wav".to_string());
+    let audio = if let Some(audio_data) = request.audio_data {
+        match BASE64.decode(&audio_data) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(AsrApiResponse {
+                        success: false,
+                        text: None,
+                        duration: None,
+                        words: None,
+                        error: Some(format!("无效的Base64音频数据: {e}")),
+                    }),
+                );
+            }
+        }
+    } else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(AsrApiResponse {
+                success: false,
+                text: None,
+                duration: None,
+                words: None,
+                error: Some("请上传音频，暂不支持 URL".to_string()),
+            }),
+        );
+    };
+
+    match crate::services::speech_runtime::transcribe_bytes(audio, &format, None).await {
+        Ok(text) => (
+            StatusCode::OK,
+            Json(AsrApiResponse {
+                success: true,
+                text: Some(text),
+                duration: None,
+                words: None,
+                error: None,
+            }),
+        ),
+        Err(msg) => (
+            StatusCode::BAD_GATEWAY,
+            Json(AsrApiResponse {
+                success: false,
+                text: None,
+                duration: None,
+                words: None,
+                error: Some(msg),
+            }),
+        ),
+    }
+}
+
 /// 获取语音服务状态
 ///
 /// GET /api/speech/status
 pub async fn get_speech_status() -> impl IntoResponse {
-    match TencentSpeechService::new().await {
-        Ok(_) => Json(SpeechStatusResponse {
-            available: true,
-            tts_enabled: true,
-            asr_enabled: true,
-            error: None,
-        }),
-        Err(e) => {
-            let (_, msg) = speech_error_to_response(e);
-            Json(SpeechStatusResponse {
-                available: false,
-                tts_enabled: false,
-                asr_enabled: false,
-                error: Some(msg),
-            })
-        }
-    }
+    let probe = crate::services::speech_runtime::speech_probe().await;
+    Json(SpeechStatusResponse {
+        available: probe.available,
+        tts_enabled: probe.tts_enabled,
+        asr_enabled: probe.asr_enabled,
+        provider: Some(probe.provider),
+        error: probe.error,
+    })
+}
+
+/// POST /api/speech/test
+pub async fn test_speech_service() -> impl IntoResponse {
+    Json(crate::services::speech_runtime::test_speech_roundtrip().await)
 }
 
 /// 获取可用音色列表

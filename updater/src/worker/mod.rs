@@ -494,7 +494,7 @@ impl Worker {
             UpdaterError::Precondition(
                 "BACKEND_IMAGE missing in .env; required for commit-mode and release Docker Hub \
                      image pulls. Add e.g. BACKEND_IMAGE=docker.io/<org>/myriad-backend (no tag) \
-                     or re-run scripts/docker/deploy.sh to bootstrap defaults."
+                     or re-run scripts/extra/deploy.sh to bootstrap defaults."
                     .into(),
             )
         })?;
@@ -505,7 +505,7 @@ impl Worker {
                 UpdaterError::Precondition(
                     "FRONTEND_IMAGE missing in .env; required for commit-mode and release Docker \
                      Hub image pulls. Add e.g. FRONTEND_IMAGE=docker.io/<org>/myriad-frontend \
-                     (no tag) or re-run scripts/docker/deploy.sh to bootstrap defaults."
+                     (no tag) or re-run scripts/extra/deploy.sh to bootstrap defaults."
                         .into(),
                 )
             })?;

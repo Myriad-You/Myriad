@@ -14,7 +14,7 @@
 [![Astro](https://img.shields.io/badge/Astro-7-blueviolet.svg)](frontend/package.json)
 [![React 19](https://img.shields.io/badge/React-19-61dafb.svg)](frontend/package.json)
 
-[快速开始](docs/QUICKSTART.md) · [文档门户](docs/quick-reference/INDEX.md) · [反馈](https://github.com/myriad-you/Myriad/issues)
+[快速开始](docs/QUICKSTART.md) · [文档](docs/INDEX.md) · [反馈](https://github.com/myriad-you/Myriad/issues)
 
 </div>
 
@@ -86,7 +86,7 @@ cp .env.production.example .env
 # BASE_URL / FRONTEND_URL 填你的公网域名（联邦发现依赖 BASE_URL）
 # UPDATE_TOKEN / UPDATER_GATEWAY_SECRET 留空时由 deploy 脚本生成
 
-bash scripts/docker/deploy.sh up          # Windows: .\scripts\docker\deploy.ps1 up
+bash scripts/extra/deploy.sh up
 ```
 
 打开 `http://localhost`（或 `.env` 中的 `HTTP_PORT`），按引导完成初始化。
@@ -102,15 +102,16 @@ host HTTP_PORT → proxy → frontend:1102
 ### 本地开发
 
 ```bash
-./scripts/dev/dev.sh start             # 本机 PostgreSQL，日志打在当前终端
-./scripts/dev/dev.sh start --docker    # Docker postgres + 新开终端
-.\scripts\dev\dev.ps1 start            # Windows
+./scripts/dev.sh                   # 实时 TUI：启动菜单 + 进程 / 数据库 / 日志
+./scripts/dev.sh start             # 本机 PostgreSQL，日志打在当前终端
+./scripts/dev.sh start --docker    # Docker postgres + 新开终端
+.\scripts\dev.ps1 start            # Windows
 ```
 
-后端 `:1103`，前端 `:1102`。没有本机库时先 `./scripts/dev/dev.sh db-setup`。
-需要在开发 UI 里测「更新管理」时：`./scripts/dev/dev.sh start all-updater`。
+后端 `:1103`，前端 `:1102`。没有本机库时先 `./scripts/dev.sh db-setup`。
+`./scripts/dev.sh status` 看快照，`monitor` / 无参数进入可管理的 TUI。
+需要在开发 UI 里测「更新管理」时：`./scripts/dev.sh start all-updater`。
 更多细节见 [快速开始](docs/QUICKSTART.md)。
-
 
 ---
 
@@ -139,7 +140,7 @@ Myriad/
 ├── shared/           跨组件静态配置（如图片代理域名名单）
 ├── docker/           backend / frontend Dockerfile
 ├── docs/             开发、部署与功能文档
-├── scripts/          开发与部署脚本
+├── scripts/          dev.sh / dev.ps1 开发入口；extra/ 部署与手工回归
 ├── release/          release.json 契约与覆盖
 ├── tools/            tapp-cli 等工具
 └── docker-compose*.yml
@@ -151,7 +152,7 @@ Myriad/
 
 | | |
 | --- | --- |
-| [文档门户](docs/quick-reference/INDEX.md) | 总索引 |
+| [文档门户](docs/INDEX.md) | 总索引 |
 | [快速开始](docs/QUICKSTART.md) | 部署与本地开发 |
 | [架构总览](docs/development/ARCHITECTURE.md) | 系统结构 |
 | [构建说明](docs/development/BUILD.md) | 从源码构建 |
@@ -162,7 +163,7 @@ Myriad/
 | [资料库](docs/features/LIBRARY.md) | Library 功能 |
 | [Docker 部署](docs/deployment/DOCKER_DEPLOYMENT.md) | 生产编排细节 |
 | [端口清单](docs/deployment/PORTS.md) | 端口与暴露面 |
-| [Updater 运维](docs/UPDATER_QUICKSTART.md) | 自更新通道 |
+| [Updater 运维](docs/deployment/UPDATER_QUICKSTART.md) | 自更新通道 |
 | [外部 PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md) | 自带库以外的 PG |
 | [无 Docker 部署](docs/deployment/NATIVE_DEPLOYMENT.md) | 本机 PostgreSQL + 二进制 |
 | [Setup 安装暗号](docs/deployment/SETUP_BOOTSTRAP.md) | 编排安装时的安装暗号 |

@@ -3,133 +3,79 @@
 import { API_URL } from '../../config'
 import { apiRequest } from './TappHttpClient'
 
-export async function getTappCode(tappId: string): Promise<string> {
-  const response = await fetch(
-    `${API_URL}/api/tapps/${encodeURIComponent(tappId)}/code`,
-    { method: 'GET', credentials: 'include' },
-  )
-  if (!response.ok) {
-    throw new Error(`Failed to get Tapp code: ${response.status}`)
-  }
-  return response.text()
-}
-
 export interface TappResources {
-  code: string
-  styles?: string
-  widgetStyles?: string
+  /** 包内 `.js` 文件：相对路径 → 源码，只含该 mode 相关层。 */
+  modules: Record<string, string>
+  /** 宿主解析的 require 图；缺失表示旧后端，由前端兼容扫描。 */
+  moduleResolutions?: Record<string, Record<string, string>>
+  coreEntry?: string
+  pageEntry?: string
+  widgetEntries?: Record<string, string>
+  /** 作者样式（层声明）。 */
+  coreStyles?: string
   pageStyles?: string
+  widgetStyles?: Record<string, string>
+  /** 宿主预编译 Tailwind，与作者样式是两条通道。 */
   widgetCSS?: string
   pageCSS?: string
   widgetTemplates?: Record<string, Record<string, string>>
   pageTemplate?: string
-  cssMode?: 'unified' | 'separated'
   i18n?: Record<string, unknown>
-  pageModules?: Record<string, string>
-  pageModuleOrder?: string[]
 }
 
 interface TappResourcesRaw {
-  code: string
-  styles?: string
-  widget_styles?: string
+  modules: Record<string, string>
+  module_resolutions?: Record<string, Record<string, string>>
+  core_entry?: string
+  page_entry?: string
+  widget_entries?: Record<string, string>
+  core_styles?: string
   page_styles?: string
+  widget_styles?: Record<string, string>
   widget_css?: string
   page_css?: string
   widget_templates?: Record<string, Record<string, string>>
   page_template?: string
-  css_mode?: 'unified' | 'separated'
   i18n?: Record<string, unknown>
-  page_modules?: Record<string, string>
-  page_module_order?: string[]
 }
 
 /** Projection of installed package resources. Matches backend `mode` query. */
-export type TappResourceMode = 'full' | 'widget' | 'page'
-
-/**
- * Project a full resources payload down to a widget/page slice (local, no I/O).
- * Used when a full cache entry or code-only 404 fallback can satisfy a narrower request.
- */
-export function projectTappResources(
-  full: TappResources,
-  mode: TappResourceMode,
-): TappResources {
-  if (mode === 'full') return full
-  if (mode === 'widget') {
-    const pageMarker = '// ========== Page Code =========='
-    const pageIdx = full.code.indexOf(pageMarker)
-    return {
-      code: pageIdx === -1 ? full.code : full.code.slice(0, pageIdx).trimEnd(),
-      styles: full.styles,
-      widgetStyles: full.widgetStyles,
-      widgetCSS: full.widgetCSS,
-      widgetTemplates: full.widgetTemplates,
-      cssMode: full.cssMode,
-      i18n: full.i18n,
-    }
-  }
-  // page — strip widget section if present
-  const widgetMarker = '// ========== Widget Code =========='
-  const pageMarker = '// ========== Page Code =========='
-  let code = full.code
-  const widgetIdx = code.indexOf(widgetMarker)
-  if (widgetIdx !== -1) {
-    const pageIdx = code.indexOf(pageMarker, widgetIdx)
-    if (pageIdx !== -1) {
-      code = `${code.slice(0, widgetIdx).trimEnd()}\n\n${code.slice(pageIdx)}`
-    } else {
-      code = code.slice(0, widgetIdx).trimEnd()
-    }
-  }
-  return {
-    code,
-    styles: full.styles,
-    pageStyles: full.pageStyles,
-    pageCSS: full.pageCSS,
-    pageTemplate: full.pageTemplate,
-    cssMode: full.cssMode,
-    i18n: full.i18n,
-    pageModules: full.pageModules,
-    pageModuleOrder: full.pageModuleOrder,
-  }
-}
+export type TappResourceMode = 'full' | 'core' | 'widget' | 'page'
 
 export async function getTappResources(
   tappId: string,
-  options?: { mode?: TappResourceMode },
+  options?: { mode?: TappResourceMode; widgetId?: string },
 ): Promise<TappResources> {
-  const requestedMode: TappResourceMode = options?.mode ?? 'full'
   const mode =
     options?.mode && options.mode !== 'full' ? options.mode : undefined
-  const params = mode ? `?mode=${encodeURIComponent(mode)}` : ''
+  const query = new URLSearchParams()
+  if (mode) query.set('mode', mode)
+  if (options?.widgetId) query.set('widget_id', options.widgetId)
+  const params = query.size > 0 ? `?${query.toString()}` : ''
   const response = await fetch(
     `${API_URL}/api/tapps/${encodeURIComponent(tappId)}/resources${params}`,
     { method: 'GET', credentials: 'include' },
   )
   if (!response.ok) {
-    if (response.status === 404) {
-      // Legacy code-only endpoint returns the full package source — project/strip
-      // for the requested mode so widget/page surfaces never receive foreign slices.
-      const code = await getTappCode(tappId)
-      return projectTappResources({ code }, requestedMode)
-    }
+    // 没有旧端点回退：包结构不符合当前契约时后端返回 409，让它照常抛出，
+    // 不要再换一条路把不受支持的包送进沙箱。
     throw new Error(`Failed to get Tapp resources: ${response.status}`)
   }
   const raw: TappResourcesRaw = await response.json()
   return {
-    code: raw.code,
-    styles: raw.styles,
-    widgetStyles: raw.widget_styles,
+    modules: raw.modules || {},
+    moduleResolutions: raw.module_resolutions,
+    coreEntry: raw.core_entry,
+    pageEntry: raw.page_entry,
+    widgetEntries: raw.widget_entries,
+    coreStyles: raw.core_styles,
     pageStyles: raw.page_styles,
+    widgetStyles: raw.widget_styles,
     widgetCSS: raw.widget_css,
     pageCSS: raw.page_css,
     widgetTemplates: raw.widget_templates,
     pageTemplate: raw.page_template,
-    cssMode: raw.css_mode,
     i18n: raw.i18n,
-    pageModules: raw.page_modules,
-    pageModuleOrder: raw.page_module_order,
   }
 }
 

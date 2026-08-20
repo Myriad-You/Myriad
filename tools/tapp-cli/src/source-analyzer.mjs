@@ -90,7 +90,7 @@ function warnRemoteEngineScript(source, file, diagnostics) {
     diagnostic(
       'warning',
       'remote-engine-script',
-      'Sandbox cannot load engine scripts from a CDN. Bundle Three.js or other WebGL libraries into pageModules as an IIFE.',
+      'Sandbox cannot load engine scripts from a CDN. Bundle Three.js or other WebGL libraries into page/ as an IIFE and require it from the page entry.',
       file,
     ),
   )

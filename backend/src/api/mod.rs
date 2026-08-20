@@ -4,7 +4,6 @@ use serde_json::{json, Value};
 pub mod admin_users;
 pub mod agent;
 pub mod ai_recommend;
-pub mod analysis;
 pub mod analytics;
 pub mod auth;
 pub mod auth_local;
@@ -36,7 +35,7 @@ pub mod seo_policy;
 pub mod setup;
 pub mod setup_bootstrap;
 pub mod site_domain; // BASE_URL / FRONTEND_URL / CORS — not federation Move
-pub mod speech; // Tencent Cloud TTS/ASR
+pub mod speech; // TTS/ASR (Tencent / OpenAI / OpenRouter)
 pub mod steam;
 pub mod system;
 pub mod tapp_playground; // Pro AI temporary Tapp workspace

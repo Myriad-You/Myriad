@@ -218,6 +218,7 @@ export function TappListPage() {
           isTemporary: false,
           isAdminTapp: true,
           visibility: detail.visibility === 'admin' ? 'admin' : 'all',
+          error: detail.error_message,
         }
       })
     },

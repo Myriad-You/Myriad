@@ -130,6 +130,7 @@ export function syncConfigSectionToUrl(section: string): void {
     const url = new URL(window.location.href)
     if (url.searchParams.get('section') === section) return
     url.searchParams.set('section', section)
+    if (section !== 'ai') url.searchParams.delete('page')
     window.history.replaceState(window.history.state, '', url.toString())
   } catch {
     /* ignore */

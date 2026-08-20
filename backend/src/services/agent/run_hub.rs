@@ -140,6 +140,11 @@ impl AgentRun {
         )
     }
 
+    async fn is_executing(&self) -> bool {
+        let state = self.state.lock().await;
+        !state.completed && state.status != "waiting_for_input"
+    }
+
     async fn updated_at(&self) -> chrono::DateTime<Utc> {
         self.state.lock().await.updated_at
     }
@@ -552,6 +557,18 @@ pub async fn create_run(user_id: i32, session_id: Option<String>) -> Arc<AgentRu
     run.publish(AgentProgressEvent::RunStarted { run_id, session_id })
         .await;
     run
+}
+
+/// Run still doing work. `waiting_for_input` is excluded: that run is waiting on
+/// the person, not occupying them. Heartbeat uses SYSTEM_USER_ID.
+pub async fn user_has_executing_run(user_id: i32) -> bool {
+    let runs = AGENT_RUNS.read().await;
+    for run in runs.values() {
+        if run.user_id == user_id && run.is_executing().await {
+            return true;
+        }
+    }
+    false
 }
 
 pub async fn get_run_for_user(run_id: &str, user_id: i32) -> Option<Arc<AgentRun>> {

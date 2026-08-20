@@ -12,6 +12,7 @@ import type { CSSProperties } from 'react'
 import type { TappCodeStructure, TappInstance } from '../types'
 import {
   FaCog,
+  FaComments,
   FaCompress,
   FaExclamationTriangle,
   FaExpand,
@@ -71,9 +72,7 @@ export function TappRunPage() {
   // /tapp/run?multi=true — 无 seed id
   if (!tappId) {
     if (isMultiWindow) {
-      return (
-        <TappWindowManager onBack={() => navigate(TAPP_LIST_PATH)} />
-      )
+      return <TappWindowManager onBack={() => navigate(TAPP_LIST_PATH)} />
     }
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-neutral-900">
@@ -138,12 +137,9 @@ function TappRunPageStandard({
   const closeWindow = useCallback(() => {
     navigate(TAPP_LIST_PATH)
   }, [navigate])
-  const focusWindow = useCallback(
-    (_windowId: string) => {
-      /* single-window: already focused */
-    },
-    [],
-  )
+  const focusWindow = useCallback((_windowId: string) => {
+    /* single-window: already focused */
+  }, [])
   useWindowAgentHandler({
     windowsRef,
     activeWindowIdRef,
@@ -205,14 +201,14 @@ function TappRunPageStandard({
         if (cancelled) return
 
         const tappCode: TappCodeStructure = {
-          core: resources.core,
-          page: resources.page,
+          modules: resources.modules,
+          moduleResolutions: resources.moduleResolutions,
+          coreEntry: resources.coreEntry,
+          pageEntry: resources.pageEntry,
           pageHtml: resources.html,
           styles: resources.styles,
           pageCSS: resources.css,
           i18n: resources.i18n,
-          pageModules: resources.pageModules,
-          pageModuleOrder: resources.pageModuleOrder,
         }
 
         if (!runtime.isRunning(tappId)) {
@@ -519,9 +515,7 @@ function TappRunPageStandard({
                 initial={{ scale: 0.8, rotate: -10 }}
                 animate={{ scale: 1, rotate: 0 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-                whileHover={
-                  noAnimation ? undefined : { scale: 1.1, rotate: 5 }
-                }
+                whileHover={noAnimation ? undefined : { scale: 1.1, rotate: 5 }}
                 whileTap={noAnimation ? undefined : { scale: 0.95 }}
               >
                 <TappIconBadge
@@ -604,6 +598,24 @@ function TappRunPageStandard({
                   <FaTh className="h-3.5 w-3.5" />
                 </motion.button>
               )}
+              <motion.button
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('arael-open-session', {
+                      detail: { sessionId: '' },
+                    }),
+                  )
+                }
+                className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
+                title={t.arael.askArael}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.02 }}
+                whileHover={noAnimation ? undefined : { scale: 1.15 }}
+                whileTap={noAnimation ? undefined : { scale: 0.9 }}
+              >
+                <FaComments className="h-3.5 w-3.5" />
+              </motion.button>
               <motion.button
                 onClick={toggleFullscreen}
                 className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-neutral-700 dark:hover:text-gray-300"
@@ -699,9 +711,7 @@ function TappRunPageStandard({
           <TappPageSandbox
             tappInstance={tapp}
             code={code}
-            onError={(err: Error) =>
-              console.error('[TappRunPage] Error:', err)
-            }
+            onError={(err: Error) => console.error('[TappRunPage] Error:', err)}
             safeInsets={safeInsets}
           />
         </div>

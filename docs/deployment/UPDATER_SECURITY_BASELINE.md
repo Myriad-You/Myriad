@@ -10,11 +10,11 @@ maintainers are not relying on chat history.
 Related:
 
 - [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) — topology and env
-- [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md) — day-to-day update ops
+- [UPDATER_QUICKSTART.md](./UPDATER_QUICKSTART.md) — day-to-day update ops
 - [updater-spec.md](../updater-spec.md) §15 — design-level trust boundary
 - [UPDATER_GATEWAY_THREAT_MODEL.md](./UPDATER_GATEWAY_THREAT_MODEL.md) — exact
   token-bearing gateway capabilities and failure boundaries
-- `bash scripts/docker/deploy.sh doctor` — read-only topology checks
+- `bash scripts/extra/deploy.sh doctor` — read-only topology checks
 
 ---
 
@@ -30,7 +30,7 @@ Related:
 | **Gateway secret** | `UPDATER_GATEWAY_SECRET` (≥32) on backend ↔ updater-gateway; admin-net alone is not enough; the token hop exposes only explicit method/path/query/body capabilities |
 | **Cosign dual-key** | Default `COSIGN_VERIFY=strict`; `off` requires `UPDATER_ALLOW_INSECURE_COSIGN=true` (or alias) |
 | **Audit** | `state/audit.log` (fsync, rotate); actor header from admin JWT when proxied |
-| **Doctor** | `deploy.sh doctor` / `deploy.ps1 doctor` topology + secrets + cosign; optional `--host` scan |
+| **Doctor** | `scripts/extra/deploy.sh doctor` topology + secrets + cosign; optional `--host` scan |
 | **TCB upgrade** | One-click trusted handoff: updater submits tag intent only; Guard fixes the official repository, resolves and verifies the pulled digest, then an exact-digest helper can recreate only Guard/updater/gateway with rollback |
 | **Hygiene** | Secret redaction, stricter rate limits on mutative admin routes, `confirm_risk` for high-risk flags |
 | **Rescue path** | `PROXY_ALLOW_DIRECT_UPDATER=false` by default; direct `/_updater/*` is temporary only |
@@ -50,9 +50,9 @@ Must follow on every production self-hosted install:
    `GUARD_SELF_UPDATE_TOKEN` if empty; do not reuse `UPDATE_TOKEN`.
 2. **Existing installs / topology drift:** remove legacy Guard entries
    (`UPDATE_TOKEN`, `DOCKER_GUARD_ALLOWED_IMAGES`, self-update URL/env-file
-   settings), then run one host-level `bash scripts/docker/deploy.sh upgrade`.
+   settings), then run one host-level `bash scripts/extra/deploy.sh upgrade`.
    The script supplies both `.env` and `./guard-policy/docker-guard.env` to Compose.
-3. **After deploy:** run `bash scripts/docker/deploy.sh doctor` and fix every
+3. **After deploy:** run `bash scripts/extra/deploy.sh doctor` and fix every
    **FAIL** before trusting the stack.
 4. **Protect secrets:** `UPDATE_TOKEN`, `UPDATER_GATEWAY_SECRET`, and the Guard
    policy stay out of the
@@ -64,7 +64,7 @@ Must follow on every production self-hosted install:
    insecure mode (`off` + allow key).
 7. **Do not publish** updater (`1101`), updater-gateway (`1104`), or docker-guard
    (`2375`) ports on the host. Only proxy’s `HTTP_PORT` is public.
-8. **Optional:** `bash scripts/docker/deploy.sh doctor --host` for a non-fatal
+8. **Optional:** `bash scripts/extra/deploy.sh doctor --host` for a non-fatal
    privileged / unexpected `docker.sock` scan after major host changes.
 
 ---

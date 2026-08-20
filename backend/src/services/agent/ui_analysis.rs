@@ -741,9 +741,28 @@ pub fn router_can_go_back(current_path: &str) -> bool {
     current_path != "/" && current_path != "/home"
 }
 
+/// Concatenate declared layer sources for UI analysis. Empty parts are dropped.
+pub fn join_layer_analysis_sources(sources: impl IntoIterator<Item = impl AsRef<str>>) -> String {
+    sources
+        .into_iter()
+        .map(|source| source.as_ref().to_string())
+        .filter(|source| !source.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn joins_nonempty_layer_sources() {
+        assert_eq!(
+            join_layer_analysis_sources(["function core() {}", "", "function page() {}"]),
+            "function core() {}\nfunction page() {}"
+        );
+        assert_eq!(join_layer_analysis_sources(["", "  "]), "");
+    }
 
     #[test]
     fn safe_tapp_id_rejects_traversal() {

@@ -24,6 +24,7 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// **Support floor: product ≥ 0.3.10.** 不再为更旧版本维护逐列「字段对齐」
 /// heal（approved_permissions / engagement 过渡形态 / rate_* 专用 ALTER 等）。
 ///
+/// - 2026.08.19.1: agent life 四表折入 004 + ensure_agent_life_tables
 /// - 2026.08.15.1: federation_inbox_receipts 折入 005；旧无 inbox_scope 表形自愈
 /// - 2026.08.03.2: users 名称/简介文案来源（profile_text_source_kind / profile_text_source_ref）
 /// - 2026.08.03.1: users 画像源选择（avatar_source_kind / avatar_source_ref / avatar_resolved_url / avatar_updated_at）
@@ -38,7 +39,7 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// - 2026.07.21–20: domain_aliases / interactions / heartbeat / policy / filters
 /// - ≤0.3.9 字段对齐（已删，见 git）：approved_permissions 专用 ADD、整表 create 兜底等
 /// Marker for ops/logs + `_schema_versions`. Bump only with real schema/heal work.
-pub const SCHEMA_VERSION: &str = "2026.08.15.1";
+pub const SCHEMA_VERSION: &str = "2026.08.19.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -285,6 +286,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_timeline_unique(db).await?;
     ensure_delivery_queue_unique(db).await?;
     ensure_heartbeat_claims_table(db).await?;
+    ensure_agent_life_tables(db).await?;
     ensure_analytics_tables(db).await?;
     ensure_federation_domain_aliases_table(db).await?;
     ensure_federation_object_interactions_table(db).await?;

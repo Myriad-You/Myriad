@@ -132,6 +132,7 @@ Tapp SDK 把调用转换为请求消息。宿主只接受同时满足以下条�
 | **默认**（绝大多数 API） | JSON 序列化后约 **1 MiB + 64 KiB** envelope | 超限返回 `Payload too large` |
 | `file.download` | 内容 Blob **10 MiB**；`filename` ≤ 1024；可选 `mimeType` ≤ 256 | 不走默认 1 MiB；非法/过大返回 `Invalid or oversized file payload` |
 | `federation.uploadMedia` | raw 媒体按业务 **图片 10 MiB / 视频 50 MiB**；bridge 允许 data URL/base64 字符约 `ceil(50 MiB * 4/3) + 256` | 对齐后端 multipart 路由（body 上限 55 MiB）；字段 `data` 必填字符串 |
+| `tappList.install` / `tappList.getInstallPackage` | JSON 序列化后约 **128 MiB + 512 KiB** | 对齐游戏档整包上限；商店安装只传元数据，不占这笔预算 |
 
 说明：
 
@@ -141,7 +142,7 @@ Tapp SDK 把调用转换为请求消息。宿主只接受同时满足以下条�
   catalog `source`，加 `tappId`），包体不经 Bridge；由后端 REST `source=store` 下载，或宿主
   在失败/大包时浏览器下载后再 REST `source=direct` 安装。
 - **SDK 直接安装**：`source: "direct"` 时 `manifest`/`code`/可选资源会经 Bridge 传到宿主
-  `installDirect`（体积受消息与配额约束，大资源包优先商店或 `install-file`）。
+  `installDirect`（JSON 上限约 128 MiB；base64 资源会膨胀，超大包仍优先商店或 `install-file`）。
 - **`.tapp` 文件上传**：走宿主 `POST /api/tapps/install-file`，不经 sandbox Bridge。
 - Playground 临时预览的 storage 单值同样限制约 1 MiB（内存实现），且**不**提供
   federation handlers。
@@ -214,18 +215,21 @@ container.textContent = userInput;
 
 存储 key 只允许字母、数字、下划线、连字符、点和冒号，长度上限为 256，并拒绝路径
 遍历形式。后端会拒绝超过 1 MiB 的单值，并在事务内对同一当前用户与 Tapp 串行计算
-写入后的总量；超过 5 MiB 会返回 413。数据库触发器执行相同的 5 MiB 硬限制，覆盖其他
+写入后的总量；超过 8 MiB 会返回 413。数据库触发器执行相同的 8 MiB 硬限制，覆盖其他
 内部写入路径；`Tapp.storage.usage()` 返回的 quota 因而也是实际安全边界。
 
 持久 storage 命名空间跟随 Runtime Grant **subject**（持久用户或**签名游客 session**），
 即使运行的是站点公开安装也不会读取安装 owner 的 storage。每个 subject 读写自己的
 `user_id + tapp_id` 空间（游客为负 id）；`storage:read` 为 guest-safe basic，签名游客可获
-Grant 与持久 storage。`_settings.`、`_component:`、`_shortcut:`、`_report:` 是宿主保留
+Grant 与持久 storage。`_settings.`、`_shared.`、`_component:`、`_shortcut:`、`_report:` 是宿主保留
 前缀，不能通过 `Tapp.storage` 读取、写入、列举或清除。
 
 Manifest **安装级 settings** 由 owner / 管理员写入 installation owner 命名空间；通过
 `Tapp.settings` 读取时，凡能打开该安装的 viewer（**含游客打开公开安装**）都能读到已保存
 值。这与 storage 的 subject 隔离不同——公开 Tapp 的配置对访客可见是预期行为。
+
+**安装级 shared** 与 settings 同一隔离、同一读写角色，但键不必在 Manifest 声明，语义是
+站长数据仓库。公开部署把要展示的 owner 数据写入 `Tapp.shared`，不要塞进 settings。
 
 ## 开发检查清单
 

@@ -69,6 +69,27 @@ impl NotificationManager {
         source_name: &str,
         error: &str,
     ) {
+        let summary = format!("{source_name} 连续抓取失败");
+        crate::services::agent::life::spawn_ingest(user_id, "brew.source_error", &summary);
+        if !crate::services::agent::life::allow_existing_notify(user_id).await {
+            return;
+        }
+        // Exactly one click target: with life on the addressee lands in the
+        // conversation, otherwise the old deep link stands. Carrying both would
+        // leave `route` dead, since the panel resolves `action` first.
+        let mut metadata = serde_json::json!({
+            "event_key": "brew.source_error",
+            "source_id": source_id,
+            "status": "failed",
+        });
+        if crate::services::agent::life::life_enabled().await {
+            metadata["action"] = serde_json::json!("open_arael");
+            metadata["session_id"] = serde_json::json!(
+                crate::services::agent::life::ingest::latest_session_id_for(user_id).await
+            );
+        } else {
+            metadata["route"] = serde_json::json!("/brew");
+        }
         let notification = Notification::new(
             user_id,
             NotificationType::BrewSourceError,
@@ -76,16 +97,29 @@ impl NotificationManager {
             format!("{} 连续抓取失败", source_name),
             error,
         )
-        .with_metadata(serde_json::json!({
-            "event_key": "brew.source_error",
-            "route": "/brew",
-            "source_id": source_id,
-            "status": "failed",
-        }));
+        .with_metadata(metadata);
         self.notify(notification).await;
     }
 
     pub async fn notify_platform_sync_error(&self, user_id: i32, platform: &str, error: &str) {
+        let summary = format!("{platform} 自动刷新失败");
+        crate::services::agent::life::spawn_ingest(user_id, "platform.sync.failed", &summary);
+        if !crate::services::agent::life::allow_existing_notify(user_id).await {
+            return;
+        }
+        let mut metadata = serde_json::json!({
+            "event_key": "platform.sync.failed",
+            "platform": platform,
+            "status": "failed",
+        });
+        if crate::services::agent::life::life_enabled().await {
+            metadata["action"] = serde_json::json!("open_arael");
+            metadata["session_id"] = serde_json::json!(
+                crate::services::agent::life::ingest::latest_session_id_for(user_id).await
+            );
+        } else {
+            metadata["route"] = serde_json::json!("/config?section=platforms");
+        }
         let notification = Notification::new(
             user_id,
             NotificationType::SystemInfo,
@@ -93,12 +127,7 @@ impl NotificationManager {
             format!("{} 自动刷新失败", platform),
             error,
         )
-        .with_metadata(serde_json::json!({
-            "event_key": "platform.sync.failed",
-            "route": "/config?section=platforms",
-            "platform": platform,
-            "status": "failed",
-        }));
+        .with_metadata(metadata);
         self.notify(notification).await;
     }
 

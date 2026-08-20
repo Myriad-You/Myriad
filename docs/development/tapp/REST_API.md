@@ -67,8 +67,7 @@ Tapp 管理接口大多返回：
 | GET  | `/api/tapps/store/sources`      | 已启用的商店源                               |
 | GET  | `/api/tapps/list-card-sizes`    | 列表页卡片尺寸/顺序（见下「列表布局」）      |
 | GET  | `/api/tapps/{tappId}`           | Tapp 详情、Manifest、状态和最终授权          |
-| GET  | `/api/tapps/{tappId}/code`      | 主代码文本                                   |
-| GET  | `/api/tapps/{tappId}/resources` | 代码、CSS、HTML、i18n、Page 模块等资源对象   |
+| GET  | `/api/tapps/{tappId}/resources` | 层模块表、层入口、CSS、HTML、i18n 等资源对象 |
 | GET  | `/api/tapps/{tappId}/asset?path=` | Manifest 声明的包内资源（base64）          |
 | GET  | `/api/tapps/{tappId}/export`    | 导出 `.tapp` ZIP                             |
 
@@ -79,7 +78,8 @@ Storage 按当前 **subject**（持久用户或签名游客 session）命名空�
 每个 subject 读写自己的 `user_id + tapp_id` 数据，不会读取站点 owner 的 storage。
 `storage:read` / `platform:read` 可进入访客 Runtime Grant（见下「Widget 与存储」）。
 安装级 Manifest 设置仍由安装 owner 或管理员写入；能打开该安装的运行者（含游客）可读已
-保存的声明键。
+保存的声明键。安装级共享数据（`Tapp.shared`）同样落在 owner 命名空间，语义是数据而不是
+配置：owner / 管理员可写，访客可读同一份站长仓库。
 
 `/details` 是 `TappRuntime` 的启动同步接口。它固定执行管理员集合与当前用户集合查询，
 同 ID 时保留用户私有版本，并对每项应用与单项 `/api/tapps/{tappId}` 相同的动态角色权限过滤，
@@ -89,18 +89,21 @@ Storage 按当前 **subject**（持久用户或签名游客 session）命名空�
 
 ```typescript
 interface TappResources {
-  code: string;
-  styles?: string;
-  widgetStyles?: string;
+  /** 该 mode 相关层依赖图内的 `.js` 文件：相对路径 → 源码 */
+  modules: Record<string, string>;
+  coreEntry?: string;
+  pageEntry?: string;
+  widgetEntries?: Record<string, string>;
+  /** 作者层样式 */
+  coreStyles?: string;
   pageStyles?: string;
+  widgetStyles?: Record<string, string>;
+  /** 宿主预编译 Tailwind，与作者样式是两条通道 */
   widgetCSS?: string;
   pageCSS?: string;
   widgetTemplates?: Record<string, Record<string, string>>;
   pageTemplate?: string;
-  cssMode?: "unified" | "separated";
   i18n?: Record<string, unknown>;
-  pageModules?: Record<string, string>;
-  pageModuleOrder?: string[];
 }
 ```
 
@@ -113,6 +116,10 @@ interface TappResources {
 | GET  | `/api/tapps/recent?limit=10`         | 可选认证：按 **当前 subject**（`tapp_user_activities.user_id`）返回最近运行；`limit` 默认 10（1–50）。游客 subject 无 start 活动，结果为 `[]`。 |
 | GET  | `/api/tapps/{tappId}/settings`       | **读**安装级 Manifest 设置（见下节「Settings 读/写」） |
 | GET  | `/api/tapps/{tappId}/settings/{key}` | **读**单个声明键 |
+| GET  | `/api/tapps/{tappId}/shared`         | **读**安装级共享数据 key 列表 |
+| GET  | `/api/tapps/{tappId}/shared/entries` | **读**全部共享键值 |
+| GET  | `/api/tapps/{tappId}/shared/usage`   | **读** owner 命名空间用量 |
+| GET  | `/api/tapps/{tappId}/shared/{key}`   | **读**单个共享键 |
 
 ### 需要登录的变更路由
 
@@ -125,7 +132,10 @@ interface TappResources {
 | POST   | `/api/tapps/{tappId}/update`         | direct/store 更新，保留用户数据         |
 | POST   | `/api/tapps/{tappId}/start`          | 持久化 owner 自己的 running 状态        |
 | POST   | `/api/tapps/{tappId}/stop`           | 停止 owner 安装并撤销对应 Runtime Grant |
-| DELETE | `/api/tapps/{tappId}?keep_data=true` | 卸载；可选保留存储/设置                 |
+| DELETE | `/api/tapps/{tappId}?keep_data=true` | 卸载；可选保留存储/设置/共享数据        |
+| POST   | `/api/tapps/{tappId}/shared/{key}`   | 写入安装级共享数据（owner/管理员）      |
+| DELETE | `/api/tapps/{tappId}/shared/{key}`   | 删除单个共享键                          |
+| DELETE | `/api/tapps/{tappId}/shared`         | 清空安装级共享数据                      |
 
 ### 列表布局 `/api/tapps/list-card-sizes`
 
@@ -195,17 +205,16 @@ PUT body 只写调用者个人行：`{ "sizes": { "<tappId>": "1x1"|"2x1" }, "or
     "name": "App",
     "version": "1.0.0",
     "category": "utility",
-    "main": "main.js",
+    "core": { "entry": "core.js" },
     "permissions": []
   },
-  "code": "console.log('hello')",
-  "styles": "...",
+  "modules": { "core.js": "console.log('hello')" },
+  "coreStyles": "...",
   "pageTemplate": "...",
   "widgetTemplates": { "clock": { "2x2": "..." } },
   "widgetCss": "...",
   "pageCss": "...",
   "i18n": { "zh-CN": {} },
-  "pageModules": { "index.js": "..." },
   "permissions": []
 }
 ```
@@ -282,6 +291,27 @@ Settings 是 **installation owner** 命名空间上的 Manifest 声明配置，�
 不要把 secrets 放进 host settings：公开安装的 GET 对所有能打开该安装的 visitor（含游客）
 可读。
 
+### Shared 读/写（安装级数据）
+
+`Tapp.shared` 是 **installation owner** 命名空间上的自由 KV，语义是展示/仓库数据，不是
+Manifest 声明配置。公开部署用它存放站长要给访客看的内容。
+
+| 方法 | 路径 | 认证层 | 说明 |
+| ---- | ---- | ------ | ---- |
+| GET | `/api/tapps/{tappId}/shared` | **optional_auth** | 列出共享 key |
+| GET | `/api/tapps/{tappId}/shared/entries` | **optional_auth** | 一次读取全部键值 |
+| GET | `/api/tapps/{tappId}/shared/usage` | **optional_auth** | owner 命名空间用量 |
+| GET | `/api/tapps/{tappId}/shared/{key}` | **optional_auth** | 读取单个键；未写入返回 `null` |
+| POST | `/api/tapps/{tappId}/shared/{key}` | **auth（登录）** | 写入；仅 owner / 当前管理员 |
+| DELETE | `/api/tapps/{tappId}/shared/{key}` | **auth（登录）** | 删除单个键 |
+| DELETE | `/api/tapps/{tappId}/shared` | **auth（登录）** | 只清 `_shared.*`，不动 settings / credentials / 私有 storage |
+
+读路径与 Settings GET 相同：游客打开公开安装可读站主数据。写路径与 Settings POST 相同：
+游客和普通 viewer 403。底层行的 key 为 `_shared.{key}`；通用 storage REST 在 SQL 层排除
+该前缀。
+
+不要把 secrets 放进 shared：访客可读。
+
 ### API 凭据（安装级，只写）
 
 | 方法 | 路径 | 认证层 | 说明 |
@@ -317,7 +347,7 @@ storage 路由要求 optional_auth + Runtime Grant。读取需要 `storage:read`
 需要 `storage:write`。`storage:read` 与 `platform:read` 均为 **guest-safe basic**（见 [MANIFEST · 权限](MANIFEST.md) 与
 `permission_service::requires_authenticated_subject`）：签名游客 session 可作为 subject，
 私有 storage 落在负 id 命名空间下，平台 **读** 走 optional_auth 的公开站点缓存。
-通用 storage 使用当前 subject 命名空间，并拒绝访问 `_settings.`、`_component:`、
+通用 storage 使用当前 subject 命名空间，并拒绝访问 `_settings.`、`_shared.`、`_component:`、
 `_shortcut:`、`_report:` 等宿主保留键。
 
 下列能力的真实后端路由仍要求**持久登录**主体，不会被签入访客 Grant：`report:read`、

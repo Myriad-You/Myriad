@@ -91,10 +91,10 @@ only when the proxy must listen on a non-default host port.
 | backend | `1103` | `cargo run --bin myriad-backend` in `backend/` | Direct API development endpoint. |
 | postgres dev | `5432` | `docker compose -f docker-compose.dev.yml up -d postgres` | Uses the `postgres_dev_data` named volume. |
 | proxy | not started | n/a | Production-only in the normal dev loop. |
-| updater harness | `1101` | `./scripts/dev/dev.sh start updater` or `start all-updater` | Optional direct updater port (legacy). Prefer gateway. |
+| updater harness | `1101` | `./scripts/dev.sh start updater` or `start all-updater` | Optional direct updater port (legacy). Prefer gateway. |
 | updater-gateway harness | `1104` | same as above | Host backend: `MYRIAD_UPDATER_URL=http://127.0.0.1:1104` + `UPDATER_GATEWAY_SECRET` (no `UPDATE_TOKEN`). |
 
 The updater harness is for admin UI/backend proxy development. It uses isolated
 runtime files under `.dev-updater/`. To test the real image replacement flow
 against the production topology, use the production compose stack through
-`scripts/docker/deploy.sh`.
+`scripts/extra/deploy.sh`.

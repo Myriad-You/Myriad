@@ -108,14 +108,15 @@ export function registerTappListHandlers(
           manifest: resolved.manifest as Parameters<
             typeof TappApiService.installDirect
           >[0]['manifest'],
-          code: resolved.code,
-          styles: resolved.styles,
+          modules: resolved.modules,
+          coreStyles: resolved.coreStyles,
+          pageStyles: resolved.pageStyles,
+          widgetStyles: resolved.widgetStyles,
           pageTemplate: resolved.pageTemplate,
           widgetTemplates: resolved.widgetTemplates,
           widgetCss: resolved.widgetCss,
           pageCss: resolved.pageCss,
           i18n: resolved.i18n,
-          pageModules: resolved.pageModules,
           assets: resolved.assets,
           permissions: resolved.permissions,
         })

@@ -11,6 +11,7 @@ import {
   applyFederationLimitsPayload,
   resetFederationLimitsForTests,
 } from './federationLimits.ts'
+import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits.ts'
 import { TappBridge } from './TappBridge.ts'
 
 const instance: TappInstance = {
@@ -19,7 +20,7 @@ const instance: TappInstance = {
     id: 'com.example.sec',
     name: 'Sec',
     version: '1.0.0',
-    main: 'main.js',
+    core: { entry: 'core.js' },
     permissions: [],
     category: 'utility',
   },
@@ -248,6 +249,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
   })
 
   it('keeps install packages on their separate larger budget', () => {
+    assert.equal(TAPP_PACKAGE_PAYLOAD_BYTES, 128 * 1024 * 1024 + 512 * 1024)
     const result = validateRequest('tappList.install', {
       args: [{ archive: 'x'.repeat(5 * 1024 * 1024) }],
     })

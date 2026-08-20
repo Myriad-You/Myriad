@@ -9,7 +9,7 @@ const baseInstance: TappInstance = {
     id: 'com.example.widget-cache',
     name: 'Widget Cache',
     version: '1.0.0',
-    main: 'main.js',
+    core: { entry: 'core.js' },
     permissions: [],
     category: 'utility',
   },

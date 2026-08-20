@@ -283,6 +283,10 @@ export async function getPublicConfigDeduped(): Promise<any> {
   )
 }
 
+export function invalidatePublicConfigCache(): void {
+  clearDedupCache(`${API_URL}/api/config/public`)
+}
+
 /**
  * 获取设置状态（去重）
  * 缓存 1 分钟

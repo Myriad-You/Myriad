@@ -43,6 +43,19 @@ export const MODULE_VISIBILITY_KEYS: ModuleVisibilityKey[] = [
   'agent',
 ]
 
+/**
+ * What settings actually offers. `life` stays in the stored shape above for API
+ * compatibility, but its SPA route is retired — there is no page left to hide.
+ */
+export type ConfigurableModuleKey = Exclude<ModuleVisibilityKey, 'life'>
+export const CONFIGURABLE_MODULE_KEYS: ConfigurableModuleKey[] = [
+  'library',
+  'brew',
+  'reports',
+  'tapp',
+  'agent',
+]
+
 export const MODULE_VISIBILITY_LEVELS: ModuleVisibilityLevel[] = [
   'all',
   'authenticated',
@@ -196,9 +209,6 @@ export function getModuleVisibilityKeyForPath(
   }
   if (pathname === '/reports' || pathname.startsWith('/reports/')) {
     return 'reports'
-  }
-  if (pathname === '/life' || pathname.startsWith('/life/')) {
-    return 'life'
   }
   if (pathname === '/tapp' || pathname.startsWith('/tapp/')) {
     return 'tapp'

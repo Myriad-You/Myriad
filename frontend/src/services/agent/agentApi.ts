@@ -25,8 +25,28 @@ import type {
   TaskPresetListResponse,
 } from './types'
 
-import { apiService } from '../api'
+import { ApiError, apiService } from '../api'
 import { abortSseSubscriptions, executeSSERequest } from './sseTransport'
+
+/** Keep in sync with DIGITAL_LIFE_PROXY_TIMEOUT_MS in frontend/astro.config.mjs */
+const PERSONA_GENERATION_TIMEOUT_MS = 15 * 60 * 1000
+
+const personaGenerationInflight = new Map<string, Promise<unknown>>()
+
+function sharePersonaGeneration<T>(
+  key: string,
+  start: () => Promise<T>,
+): Promise<T> {
+  const existing = personaGenerationInflight.get(key)
+  if (existing) return existing as Promise<T>
+  const promise = start().finally(() => {
+    if (personaGenerationInflight.get(key) === promise) {
+      personaGenerationInflight.delete(key)
+    }
+  })
+  personaGenerationInflight.set(key, promise)
+  return promise
+}
 
 /** On-disk MCP server entry (`mcp_servers.json`). */
 export interface McpServerConfig {
@@ -56,6 +76,16 @@ export interface McpConfigSnapshot {
   configPath: string
   runtimeServers: McpRuntimeServer[]
   toolCount: number
+}
+
+export interface AgentPersona {
+  name: string
+  portraitAssetId: string | null
+  hasCustomPersona: boolean
+  personality?: string
+  mood?: number
+  activity?: string
+  doNotDisturb?: boolean
 }
 
 function parseMcpRuntimeServers(
@@ -794,11 +824,97 @@ class AgentService {
     )
   }
 
+  // 设定引导（词条 / 命名 / 人设稿）
+
+  async getPersonaSignals(body: {
+    language: string
+    regenerate?: boolean
+  }): Promise<{
+    reportCount: number
+    tags: string[]
+    aiDistilled: boolean
+  }> {
+    return sharePersonaGeneration(
+      `signals:${body.language}:${body.regenerate === true}`,
+      () =>
+        apiService.post(
+          `${this.baseUrl}/persona/signals`,
+          {
+            consent: true,
+            language: body.language,
+            regenerate: body.regenerate === true,
+          },
+          { timeout: PERSONA_GENERATION_TIMEOUT_MS },
+        ),
+    )
+  }
+
+  async draftPersona(body: {
+    name: string
+    tags: string[]
+    gender?: string
+    extraRequirements?: string
+    language: string
+  }): Promise<{
+    persona: Record<string, unknown>
+  }> {
+    return sharePersonaGeneration(
+      `draft:${body.language || ''}:${body.name}:${body.gender || ''}:${body.extraRequirements || ''}:${body.tags.join(',')}`,
+      () =>
+        apiService.post(`${this.baseUrl}/persona/draft`, body, {
+          timeout: PERSONA_GENERATION_TIMEOUT_MS,
+        }),
+    )
+  }
+
+  async suggestPersonaName(body: {
+    selectedTags: string[]
+    gender?: string
+    avoidName?: string
+    language: string
+  }): Promise<{ name: string }> {
+    return sharePersonaGeneration(
+      `name:${body.language || ''}:${body.gender || ''}:${body.avoidName || ''}:${body.selectedTags.join(',')}`,
+      () =>
+        apiService.post(`${this.baseUrl}/persona/name`, body, {
+          timeout: PERSONA_GENERATION_TIMEOUT_MS,
+        }),
+    )
+  }
+
+  async getPersona(): Promise<AgentPersona | null> {
+    try {
+      return await apiService.get(`${this.baseUrl}/persona`)
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'agent_life_disabled') {
+        return null
+      }
+      throw error
+    }
+  }
+
+  async putPersona(body: {
+    name: string
+    personality: string
+    portraitAssetId?: string | null
+  }): Promise<AgentPersona> {
+    return apiService.put(`${this.baseUrl}/persona`, body)
+  }
+
+  async deletePersona(): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/persona`)
+  }
+
+  async putAddressee(body: { doNotDisturb: boolean }): Promise<{
+    mood: number
+    activity: string
+    doNotDisturb: boolean
+  }> {
+    return apiService.put(`${this.baseUrl}/addressee`, body)
+  }
+
   // 会话管理
 
-  /**
-   * 创建新会话
-   */
   async createSession(): Promise<SessionInfo> {
     return apiService.post<SessionInfo>(`${this.baseUrl}/sessions`)
   }

@@ -127,7 +127,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "report.list".to_string(),
         name: "报告列表".to_string(),
-        description: "获取历史报告列表".to_string(),
+        description: "列出站点主人的平台报告；无 platform 时附带当前用户 Agent 创建的报告".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({

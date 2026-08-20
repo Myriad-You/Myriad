@@ -7,6 +7,7 @@
 //! - note/bookmark/reminder param projection
 //! - storage id prefixes and auto titles
 
+use crate::services::tapp_validation::{validate_resource_extension, validate_resource_path};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -43,9 +44,23 @@ pub fn generated_tapp_fallback(raw: &str) -> Value {
     })
 }
 
+/// Obsolete top-level keys the layer contract no longer accepts.
+const RETIRED_MANIFEST_FIELDS: &[&str] = &[
+    "main",
+    "hasPage",
+    "cssMode",
+    "styles",
+    "pageTemplate",
+    "pageStyles",
+    "widgetStyles",
+    "pageModules",
+];
+
 /// Normalize agent install/generate manifest fields before persist.
 ///
-/// Sets id/name/main, default version & permissions, optional description/author.
+/// Sets id/name, default version / category / permissions, layer entries,
+/// optional description/author. Drops retired top-level keys so the row
+/// matches the current package contract.
 pub fn normalize_agent_tapp_manifest(
     mut manifest: Value,
     tapp_id: &str,
@@ -56,12 +71,19 @@ pub fn normalize_agent_tapp_manifest(
     let manifest_object = manifest
         .as_object_mut()
         .ok_or_else(|| "Tapp manifest must be an object".to_string())?;
+    for field in RETIRED_MANIFEST_FIELDS {
+        manifest_object.remove(*field);
+    }
     manifest_object.insert("id".to_string(), json!(tapp_id));
     manifest_object.insert("name".to_string(), json!(name));
     manifest_object
         .entry("version".to_string())
         .or_insert_with(|| json!("1.0.0"));
-    manifest_object.insert("main".to_string(), json!("main.js"));
+    manifest_object
+        .entry("category".to_string())
+        .or_insert_with(|| json!("utility"));
+    ensure_layer_entry(manifest_object, "core", "core.js")?;
+    ensure_layer_entry(manifest_object, "page", "page/index.js")?;
     manifest_object
         .entry("permissions".to_string())
         .or_insert_with(|| json!([]));
@@ -72,6 +94,68 @@ pub fn normalize_agent_tapp_manifest(
         .entry("author".to_string())
         .or_insert_with(|| author.clone());
     Ok(manifest)
+}
+
+fn ensure_layer_entry(
+    manifest: &mut serde_json::Map<String, Value>,
+    layer: &str,
+    default_entry: &str,
+) -> Result<String, String> {
+    if !manifest.contains_key(layer) {
+        manifest.insert(layer.to_string(), json!({ "entry": default_entry }));
+    }
+    let object = manifest
+        .get_mut(layer)
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| format!("{layer} must be an object"))?;
+    let path = object
+        .entry("entry".to_string())
+        .or_insert_with(|| json!(default_entry))
+        .as_str()
+        .ok_or_else(|| format!("{layer}.entry must be a string"))?
+        .to_string();
+    validate_resource_path(&path)?;
+    validate_resource_extension(&path, ".js", &format!("{layer}.entry"))?;
+    Ok(path)
+}
+
+/// `require` 字面量：从 `from_module` 所在目录指向 `to_module`。
+///
+/// 与安装期 `resolve_require_target` 同构，只生成相对路径，不猜测默认文件名。
+pub fn relative_require_request(from_module: &str, to_module: &str) -> Result<String, String> {
+    validate_resource_path(from_module)?;
+    validate_resource_path(to_module)?;
+    if from_module == to_module {
+        return Err("page.entry and core.entry must be different files".to_string());
+    }
+    let from_dir: Vec<&str> = match from_module.rsplit_once('/') {
+        Some((dir, _)) => dir.split('/').filter(|part| !part.is_empty()).collect(),
+        None => Vec::new(),
+    };
+    let to_parts: Vec<&str> = to_module.split('/').filter(|part| !part.is_empty()).collect();
+    let to_file = *to_parts
+        .last()
+        .ok_or_else(|| format!("Invalid Tapp resource path: {to_module}"))?;
+    let to_dir = &to_parts[..to_parts.len() - 1];
+    let mut common = 0;
+    while common < from_dir.len() && common < to_dir.len() && from_dir[common] == to_dir[common] {
+        common += 1;
+    }
+    let ups = from_dir.len() - common;
+    let mut segments: Vec<&str> = vec![".."; ups];
+    segments.extend_from_slice(&to_dir[common..]);
+    segments.push(to_file);
+    if ups == 0 {
+        Ok(format!("./{}", segments.join("/")))
+    } else {
+        Ok(segments.join("/"))
+    }
+}
+
+/// Page 入口里那一行：把共享层拉进来。写入路径必须等于声明入口。
+pub fn agent_page_require_core_source(page_entry: &str, core_entry: &str) -> Result<String, String> {
+    let request = relative_require_request(page_entry, core_entry)?;
+    Ok(format!("require('{request}');\n"))
 }
 
 /// Extract permission strings from a manifest object.
@@ -270,7 +354,12 @@ mod tests {
 
         let author = json!({"name": "Agent"});
         let m = normalize_agent_tapp_manifest(
-            json!({ "description": "d" }),
+            json!({
+                "description": "d",
+                "main": "main.js",
+                "hasPage": true,
+                "pageModules": ["index.js"]
+            }),
             "agent.x",
             "App",
             Some("desc"),
@@ -279,7 +368,12 @@ mod tests {
         .unwrap();
         assert_eq!(m["id"], "agent.x");
         assert_eq!(m["name"], "App");
-        assert_eq!(m["main"], "main.js");
+        assert_eq!(m["core"]["entry"], "core.js");
+        assert_eq!(m["page"]["entry"], "page/index.js");
+        assert_eq!(m["category"], "utility");
+        assert!(m.get("main").is_none());
+        assert!(m.get("hasPage").is_none());
+        assert!(m.get("pageModules").is_none());
         assert_eq!(m["version"], "1.0.0");
         assert!(m["permissions"].is_array());
         assert_eq!(m["description"], "desc");
@@ -288,6 +382,62 @@ mod tests {
             "permissions": ["storage:read", 1, "network"]
         }));
         assert_eq!(perms, vec!["storage:read".to_string(), "network".to_string()]);
+    }
+
+    #[test]
+    fn normalize_keeps_declared_layer_entries() {
+        let m = normalize_agent_tapp_manifest(
+            json!({
+                "core": { "entry": "src/core.js", "styles": "styles.css" },
+                "page": { "template": "shell.html" }
+            }),
+            "agent.x",
+            "App",
+            None,
+            &json!({"name": "Agent"}),
+        )
+        .unwrap();
+        assert_eq!(m["core"]["entry"], "src/core.js");
+        assert_eq!(m["core"]["styles"], "styles.css");
+        assert_eq!(m["page"]["entry"], "page/index.js");
+        assert_eq!(m["page"]["template"], "shell.html");
+    }
+
+    #[test]
+    fn normalize_rejects_unsafe_layer_entry() {
+        let err = normalize_agent_tapp_manifest(
+            json!({ "core": { "entry": "../core.js" } }),
+            "agent.x",
+            "App",
+            None,
+            &json!({"name": "Agent"}),
+        )
+        .unwrap_err();
+        assert!(err.contains("Invalid Tapp resource path"));
+    }
+
+    #[test]
+    fn page_require_follows_declared_entries() {
+        use crate::services::tapp_install_resources::resolve_require_target;
+
+        let source = agent_page_require_core_source("page/index.js", "core.js").unwrap();
+        assert_eq!(source, "require('../core.js');\n");
+        assert_eq!(
+            resolve_require_target("page/index.js", "../core.js").as_deref(),
+            Some("core.js")
+        );
+
+        let nested = agent_page_require_core_source("page/app.js", "src/core.js").unwrap();
+        assert_eq!(nested, "require('../src/core.js');\n");
+        assert_eq!(
+            resolve_require_target("page/app.js", "../src/core.js").as_deref(),
+            Some("src/core.js")
+        );
+
+        let siblings = agent_page_require_core_source("src/page.js", "src/core.js").unwrap();
+        assert_eq!(siblings, "require('./core.js');\n");
+        assert!(relative_require_request("core.js", "core.js").is_err());
+        assert!(relative_require_request("../core.js", "page/index.js").is_err());
     }
 
     #[test]

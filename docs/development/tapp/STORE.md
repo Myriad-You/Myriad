@@ -263,20 +263,20 @@ flowchart TB
 
 ### `download` 路径表
 
-路径均相对于 `base_url`（或绝对 `http(s)://`）。商店索引路径是 **仓库级定位**；`manifest.main` 是 **安装目录内** 入口。二者字符串不必相同，但必须指向同一份入口代码。
+路径均相对于 `base_url`（或绝对 `http(s)://`）。商店索引路径是 **仓库级定位**；`core.entry` 是 **安装目录内** 的共享层入口。二者字符串不必相同，但必须指向同一份入口代码。
 
 | 键 | 说明 |
 | -- | ---- |
 | `manifest` | ✅ `manifest.json` |
-| `code` | ✅ 主入口 JS（常见 `main.js`；历史包可为 `index.js`） |
+| `code` | ✅ core 层入口 JS（常见 `core.js`） |
 | `readme` | 可选 README |
-| `styles` | 统一 CSS（`cssMode: unified`） |
+| `styles` | 作者共享样式（`core.styles`） |
 | `widget_styles` | Widget 专用 CSS |
-| `page_styles` | Page 专用 CSS；**Manifest 声明了 `pageStyles` 时索引必须给出且文件必须可下载** |
-| `page_template` | Page HTML；**声明了 `pageTemplate` 时必填** |
+| `page_styles` | Page 层样式；**Manifest 声明了 `page.styles` 时索引必须给出且文件必须可下载** |
+| `page_template` | Page HTML；**声明了 `page.template` 时必填** |
 | `widget_templates` | `widgetId → { size → path }` |
 | `i18n` | `lang → path`（JSON 文件） |
-| `page_modules` | **安装后模块文件名** → 商店相对路径，如 `"index.js": "apps/.../page/index.js"` |
+| `modules` | **包内相对路径** → 商店相对路径，如 `"page/index.js": "apps/.../page/index.js"`；除 core 入口（走 `code`）之外的层入口与层内文件都在这里，声明的层入口缺一个就拒绝安装 |
 
 **二进制 assets 不进 `download` 表。** 安装器根据 `manifest.assets`，用包根（`code` 或 `manifest` 路径的父目录）拼接：
 
@@ -285,7 +285,7 @@ flowchart TB
 # 例: …/apps/com.myriad.doudizhu/assets/felt/table_felt.png
 ```
 
-包根解析见 `storePackageRoot` / `store_package_root`（`main.js` 的父目录）。
+包根解析见 `storePackageRoot` / `store_package_root`（core 入口的父目录）。
 
 ### 分类 ID
 
@@ -297,7 +297,7 @@ flowchart TB
 - `Page` / `Widget` / headless 是运行形态，不是 `category`。
 - 索引 `category` ≠ Manifest `category` → 后端 **拒绝商店安装**。
 - `category` 为 `game` / `developer` 且声明了 `game` 或 `runtimeModules` 时，资源上限
-  放宽到单文件 12 MiB / 合计 48 MiB / 128 项。3D 请用宿主 `runtimeModules: ["three"]`，
+  放宽到单文件 32 MiB / 合计 128 MiB / 256 项；整包 128 MiB / 合计 256 MiB。3D 请用宿主 `runtimeModules: ["three"]`，
   不要把 Three 打进商店包。联机新包用 `Tapp.game`；旧的自定义 `message_type`
   （如 `gomoku.v1`）在未声明 `game` 时仍可走普通房间消息。
 
@@ -319,7 +319,11 @@ flowchart TB
       "permissions": ["storage:read", "storage:write", "widget:register"],
       "download": {
         "manifest": "apps/com.example.notes/manifest.json",
-        "code": "apps/com.example.notes/main.js",
+        "code": "apps/com.example.notes/core.js",
+        "modules": {
+          "page/index.js": "apps/com.example.notes/page/index.js",
+          "widget/index.js": "apps/com.example.notes/widget/index.js"
+        },
         "page_styles": "apps/com.example.notes/page.css",
         "page_template": "apps/com.example.notes/page.html",
         "widget_styles": "apps/com.example.notes/widget.css",
@@ -348,7 +352,7 @@ tapp-store/
 └── apps/
     └── com.example.app/
         ├── manifest.json      # 必需
-        ├── main.js            # 入口（或 index.js，须与 download.code 一致）
+        ├── core.js            # core 层入口（须与 download.code 一致）
         ├── page.html          # 可选
         ├── page.css
         ├── widget.css
@@ -405,7 +409,7 @@ Cookie: …  X-CSRF-Token: …
 1. 按 id / 精确 URL / 规范化 base（去掉尾斜杠与可选 `/index.json`）解析商店源。
 2. 出站客户端拉取 `{base}/index.json`（禁止内网/localhost 等；见出站安全）。
 3. 在 `apps` 中找 `id == tappId`。
-4. 下载 manifest + code + 可选文本资源 + i18n + page_modules。
+4. 下载 manifest + code + 可选文本资源 + i18n + modules。
 5. 校验索引与 Manifest **category** 一致。
 6. 按 `manifest.assets` 下载二进制为 base64 映射（缺一则失败，避免半安装贴图包）。
 7. 进入与 direct 相同的 `PreparedTappPackage` → staging → 原子激活。
@@ -472,7 +476,8 @@ REST 商店安装仍是 body `source: "store"` + `storeSource: catalogRef`（源
 - [ ] 官方仓库：PR 未改 `index.json`；合并后 bot 已对齐 version / category / permissions / download / size
 - [ ] `download.manifest` / `download.code` 可 `GET` 且 200
 - [ ] Manifest 声明的 page/widget 资源在索引中有对应路径（官方由 sync 生成）
-- [ ] `page_modules` 的 **键** 是安装后文件名，值是商店相对路径
+- [ ] `modules` 的 **键** 是包内相对路径（含目录），值是商店相对路径
+- [ ] 每个声明的层入口都能从 `code` 或 `modules` 取到
 - [ ] `manifest.assets` 在 `{packageRoot}/assets/...` 可下载
 - [ ] `minSystemVersion`（若声明）仅在 Manifest 维护
 - [ ] 路径大小写与托管源一致（GitHub raw 区分大小写）
@@ -528,7 +533,7 @@ REST 商店安装仍是 body `source: "store"` + `storeSource: catalogRef`（源
 | category 不匹配 | 索引与 Manifest 分类不一致 | 两边改成同一稳定 ID |
 | 缺 page styles / template | 索引漏 `page_styles` / `page_template` | 补路径；文件必须存在 |
 | 贴图/音频 404 | assets 未声明或路径不在 `assets/` | Manifest `assets` + 仓库文件与包根拼接规则 |
-| 入口 404 | `download.code` 与磁盘文件名不一致 | 对齐 `main.js` / `index.js` |
+| 入口 404 | `download.code` 与 `core.entry` 不是同一份文件 | 对齐 `core.js`（或你声明的 core 入口名）；其余层文件走 `download.modules` |
 | 装了旧版 | 浏览器或中间层缓存 | 强制刷新源；检查 `index` 与文件是否已推送 |
 | 大包无进度 / 卡住 | 未填 `size` 走服务端路径 | 索引填写真实 `size`（≥1MiB 走客户端） |
 
