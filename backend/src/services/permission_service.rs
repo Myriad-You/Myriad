@@ -669,6 +669,9 @@ impl TappPermissionService {
                 speech_tts: config.user_perm_speech_tts,
                 speech_asr: config.user_perm_speech_asr,
                 storage_write: config.user_perm_storage_write,
+                federation_post: config.user_perm_federation_post,
+                federation_channel: config.user_perm_federation_channel,
+                federation_room: config.user_perm_federation_room,
             },
             guest: ElevatedPermissions {
                 ai_generate: config.guest_perm_ai_generate,
@@ -689,6 +692,10 @@ impl TappPermissionService {
                 speech_tts: false,
                 speech_asr: false,
                 storage_write: config.guest_perm_storage_write,
+                // federation 写域不向游客下放：固定 false
+                federation_post: false,
+                federation_channel: false,
+                federation_room: false,
             },
             user_ai_quota: AiQuotaConfig {
                 daily_calls: config.user_ai_daily_calls,
@@ -747,6 +754,9 @@ pub struct ElevatedPermissions {
     pub speech_tts: bool,
     pub speech_asr: bool,
     pub storage_write: bool,
+    pub federation_post: bool,
+    pub federation_channel: bool,
+    pub federation_room: bool,
 }
 
 #[cfg(test)]
@@ -1257,6 +1267,15 @@ mod tests {
             UserRole::Guest,
             TappPermission::FederationRoom
         ));
+
+        // GET 摘要必须带回 user 侧下放值；游客侧固定 false，避免前端 ?? false 把已开开关写回。
+        let effective = TappPermissionService::get_permission_config(&delegated);
+        assert!(effective.user.federation_post);
+        assert!(effective.user.federation_channel);
+        assert!(effective.user.federation_room);
+        assert!(!effective.guest.federation_post);
+        assert!(!effective.guest.federation_channel);
+        assert!(!effective.guest.federation_room);
     }
 
     #[test]

@@ -226,20 +226,20 @@ export const PermissionsConfigSection: React.FC<
     {
       key: 'federation_post',
       code: 'federation:post',
-      label: '发布联邦内容',
-      hint: '允许发布/取消发布内容、创建 Note、上传媒体及管理对外投递',
+      label: t.tapp.permPostFederation,
+      hint: t.tapp.permPostFederationDesc,
     },
     {
       key: 'federation_channel',
       code: 'federation:channel',
-      label: '频道管理',
-      hint: '允许创建、接受、关闭、删除频道及频道 E2E 密钥协商',
+      label: t.tapp.permChannelFederation,
+      hint: t.tapp.permChannelFederationDesc,
     },
     {
       key: 'federation_room',
       code: 'federation:room',
-      label: '房间管理',
-      hint: '允许创建/更新/删除房间、加入/邀请、成员治理、E2E 密钥、贴纸与置顶',
+      label: t.tapp.permRoomFederation,
+      hint: t.tapp.permRoomFederationDesc,
     },
     // 网络（report:write 已仅管理员，不再展示下放开关）
     {
