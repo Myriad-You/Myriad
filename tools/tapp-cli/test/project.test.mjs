@@ -195,7 +195,34 @@ describe('Tapp project core', () => {
     assert.ok(codes.has('unknown-manifest-field'))
     assert.ok(codes.has('undeclared-api'))
     assert.ok(codes.has('missing-permission'))
-    assert.ok(report.permissions.missing.some(({ permission }) => permission === 'storage:write'))
+    assert.ok(
+      report.permissions.missing.some(
+        ({ permission }) => permission === 'storage:write',
+      ),
+    )
+  })
+
+  it('rejects removed brew permission names with replacement hints', async () => {
+    const root = await temporaryDirectory('brew-removed')
+    await createProject(root, { type: 'page' })
+    const manifestPath = join(root, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.permissions = ['brew:comment']
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const report = await inspectProject(root)
+    const diagnostics = report.diagnostics.filter(
+      ({ code }) => code === 'unknown-permission',
+    )
+    assert.equal(diagnostics.length, 1)
+
+    // brew:comment → brew:read + brew:commentWrite（仍 fail-closed）
+    const comment = diagnostics.find(({ message }) =>
+      message.includes('brew:comment'),
+    )
+    assert.ok(comment, 'brew:comment must be rejected')
+    assert.ok(comment.message.includes('brew:read'))
+    assert.ok(comment.message.includes('brew:commentWrite'))
   })
 
   it('rejects retired layer-contract fields as unknown', async () => {

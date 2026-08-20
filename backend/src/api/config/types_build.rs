@@ -1458,17 +1458,6 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                     required: false,
                 },
                 ConfigField {
-                    key: "speech_reuse_text_credentials".to_string(),
-                    label: "Reuse text-model credentials".to_string(),
-                    field_type: "boolean".to_string(),
-                    value: db_config
-                        .as_ref()
-                        .map(|c| c.speech_reuse_text_credentials.to_string())
-                        .unwrap_or_else(|| "true".to_string()),
-                    placeholder: "true".to_string(),
-                    required: false,
-                },
-                ConfigField {
                     key: "speech_stt_model".to_string(),
                     label: "Speech-to-text model".to_string(),
                     field_type: "text".to_string(),
@@ -2546,7 +2535,6 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "speech_openai_base_url",
     "speech_openrouter_api_key",
     "speech_provider",
-    "speech_reuse_text_credentials",
     "speech_stt_model",
     "speech_tts_model",
     "speech_tts_voice",
@@ -4325,10 +4313,6 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
             "tencent_secret_key" => ("tencent_secret_key", JsonValue::String(field.value.clone())),
             "tencent_region" => ("tencent_region", JsonValue::String(field.value.clone())),
             "speech_provider" => ("speech_provider", JsonValue::String(field.value.clone())),
-            "speech_reuse_text_credentials" => (
-                "speech_reuse_text_credentials",
-                JsonValue::Bool(field.value == "true" || field.value == "1"),
-            ),
             "speech_openai_api_key" => (
                 "speech_openai_api_key",
                 JsonValue::String(field.value.clone()),
@@ -4385,7 +4369,6 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
         let allow_empty_speech = matches!(
             field.key.as_str(),
             "speech_provider"
-                | "speech_reuse_text_credentials"
                 | "speech_stt_model"
                 | "speech_tts_model"
                 | "speech_tts_voice"

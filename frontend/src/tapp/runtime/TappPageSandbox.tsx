@@ -743,7 +743,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       const hasBrew =
         hasExact('brew:read') ||
         hasExact('brew:write') ||
-        hasExact('brew:comment') ||
+        hasExact('brew:commentWrite') ||
         hasExact('brew:manage')
       const hasFederation =
         hasExact('federation:read') ||

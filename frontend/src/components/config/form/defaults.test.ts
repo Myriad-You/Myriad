@@ -35,6 +35,10 @@ describe('DEFAULT_PERMISSION_CONFIG', () => {
       DEFAULT_PERMISSION_CONFIG.user_perm_speech_tts,
       DEFAULT_PERMISSION_CONFIG.user_perm_speech_asr,
       DEFAULT_PERMISSION_CONFIG.user_perm_storage_write,
+      DEFAULT_PERMISSION_CONFIG.user_perm_federation_post,
+      DEFAULT_PERMISSION_CONFIG.user_perm_federation_channel,
+      DEFAULT_PERMISSION_CONFIG.user_perm_federation_room,
+      DEFAULT_PERMISSION_CONFIG.user_perm_brew_comment_write,
       DEFAULT_PERMISSION_CONFIG.guest_perm_ai_generate,
       DEFAULT_PERMISSION_CONFIG.guest_perm_ai_analyze,
       DEFAULT_PERMISSION_CONFIG.guest_perm_ai_chat,
@@ -46,6 +50,10 @@ describe('DEFAULT_PERMISSION_CONFIG', () => {
       DEFAULT_PERMISSION_CONFIG.guest_perm_speech_tts,
       DEFAULT_PERMISSION_CONFIG.guest_perm_speech_asr,
       DEFAULT_PERMISSION_CONFIG.guest_perm_storage_write,
+      DEFAULT_PERMISSION_CONFIG.guest_perm_federation_post,
+      DEFAULT_PERMISSION_CONFIG.guest_perm_federation_channel,
+      DEFAULT_PERMISSION_CONFIG.guest_perm_federation_room,
+      DEFAULT_PERMISSION_CONFIG.guest_perm_brew_comment_write,
     ]
     assert.ok(
       closed.every((value) => value === false),

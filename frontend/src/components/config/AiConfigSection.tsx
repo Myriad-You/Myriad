@@ -22,21 +22,23 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { agentService } from '../../services/agent'
+import { invalidatePublicConfigCache } from '../../utils/requestDedup'
 import {
   ADDRESSEE_UPDATED_EVENT,
-  formatVitalsLine,
+  activityKey,
+  moodBand,
 } from '../agent/lifeVitals'
 import PersonaOnboardingPage from '../agent/onboarding/PersonaOnboardingPage'
+import { parseFlattenedPersona } from '../agent/onboarding/onboardingTypes'
 import {
   AutoHeight,
-  ButtonItem,
+  InfoActionCard,
   InputItem,
   ProviderItem,
   SettingGroup,
   SettingsButton,
   SettingSection,
   SettingTitleTag,
-  SwitchItem,
   ToggleSwitch,
   useSettingGuide,
 } from '../settings'
@@ -153,7 +155,7 @@ const ModelTierGroup: React.FC<
 }) => {
   const { t } = useI18n()
   return (
-  <div className={`ai-llm-tier${toggle && !toggle.checked ? ' is-off' : ''}`}>
+  <div className="ai-llm-tier">
     <div className="ai-llm-tier-head">
       <div className="ai-llm-tier-copy">
         <h3 className="ai-llm-tier-title">{title}</h3>
@@ -212,6 +214,12 @@ const ModelTierGroup: React.FC<
     )}
   </div>
   )
+}
+
+function clipCardText(value: string, max = 72): string {
+  const text = value.replace(/\s+/g, ' ').trim()
+  if (text.length <= max) return text
+  return `${text.slice(0, max - 1)}…`
 }
 
 function fieldsForModelTier(
@@ -550,22 +558,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     [updateValue, vendorSources],
   )
 
-  // 与上方 AI 设置共用同一套字段文案（优先后端 label，否则 i18n）
-  const openaiFieldLabels = useMemo(() => {
-    const byKey = (key: string, fallback: string) =>
-      configFields.find((f) => f.key === key)?.label || fallback
-    return {
-      apiKey: byKey('openai_api_key', t.config.openaiApiKeyLabel),
-      baseUrl: byKey('openai_base_url', t.config.openaiBaseUrlLabel),
-      model: t.config.openaiModelLabel,
-    }
-  }, [
-    configFields,
-    t.config.openaiApiKeyLabel,
-    t.config.openaiBaseUrlLabel,
-    t.config.openaiModelLabel,
-  ])
-
   // AI Provider 选项。OpenRouter 默认在前，其次 OpenAI 兼容，最后 Gemini
   const aiProviderOptions: SettingOption<string>[] = useMemo(
     () => [
@@ -674,12 +666,32 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   const o = t.life.onboarding
   const paneKey = personaPage ? 'persona' : 'ai'
   const personaGuide = bindGuide('ai.agentLife', g.ai.agentLife)
-  const lifeOn = agentLifeEnabled && liteEnabled && proEnabled
+  const lifeOn = agentLifeEnabled && proEnabled
   const [savedPersonaName, setSavedPersonaName] = useState('')
   const [hasSavedPersona, setHasSavedPersona] = useState(false)
   const [mood, setMood] = useState(70)
   const [activity, setActivity] = useState('idle')
+  const [personality, setPersonality] = useState('')
+  const [reportCount, setReportCount] = useState(0)
   const [vitalsReady, setVitalsReady] = useState(false)
+  const [personaBusy, setPersonaBusy] = useState(false)
+  const [personaError, setPersonaError] = useState<string | null>(null)
+
+  const handleDeletePersona = useCallback(async () => {
+    setPersonaBusy(true)
+    setPersonaError(null)
+    try {
+      await agentService.deletePersona()
+      invalidatePublicConfigCache()
+      window.dispatchEvent(new CustomEvent('arael-persona-updated'))
+    } catch (error) {
+      setPersonaError(
+        error instanceof Error ? error.message : t.config.agentLifeDeleteFailed,
+      )
+    } finally {
+      setPersonaBusy(false)
+    }
+  }, [t.config.agentLifeDeleteFailed])
 
   useEffect(() => {
     if (!lifeOn) {
@@ -687,6 +699,8 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       setHasSavedPersona(false)
       setMood(70)
       setActivity('idle')
+      setPersonality('')
+      setReportCount(0)
       setVitalsReady(false)
       return
     }
@@ -705,12 +719,18 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           )
           setMood(typeof persona.mood === 'number' ? persona.mood : 70)
           setActivity(persona.activity ?? 'idle')
+          setPersonality(persona.personality?.trim() ?? '')
+          setReportCount(
+            typeof persona.reportCount === 'number' ? persona.reportCount : 0,
+          )
           setVitalsReady(true)
         })
         .catch(() => {
           if (!cancelled) {
             setSavedPersonaName('')
             setHasSavedPersona(false)
+            setPersonality('')
+            setReportCount(0)
             setVitalsReady(false)
           }
         })
@@ -724,14 +744,55 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       window.removeEventListener(ADDRESSEE_UPDATED_EVENT, load)
     }
   }, [lifeOn])
-  const personaGateLead =
-    !liteEnabled && !proEnabled
-      ? t.config.agentLifeNeedsLiteAndPro
-      : !liteEnabled
-        ? t.config.agentLifeNeedsLite
-        : !proEnabled
-          ? t.config.agentLifeNeedsPro
-          : t.config.agentLifeHint
+  const personaGateLead = !proEnabled
+    ? t.config.agentLifeNeedsPro
+    : lifeOn && !liteEnabled
+      ? t.config.agentLifeNeedsLite
+      : t.config.agentLifeHint
+
+  const personaCardFields = useMemo(() => {
+    if (!lifeOn || !hasSavedPersona) return undefined
+    const summary = clipCardText(parseFlattenedPersona(personality).summary, 96)
+    const fields: Array<{
+      key: string
+      label: string
+      value: string
+      copyable: false
+    }> = []
+    if (summary) {
+      fields.push({
+        key: 'summary',
+        label: o.fieldSummary,
+        value: summary,
+        copyable: false,
+      })
+    }
+    fields.push(
+      {
+        key: 'mood',
+        label: t.config.agentLifeMood,
+        value: vitalsReady ? o.mood[moodBand(mood)] : '—',
+        copyable: false,
+      },
+      {
+        key: 'activity',
+        label: t.config.agentLifeActivity,
+        value: vitalsReady ? o.activity[activityKey(activity)] : '—',
+        copyable: false,
+      },
+    )
+    return fields
+  }, [
+    activity,
+    hasSavedPersona,
+    lifeOn,
+    mood,
+    o,
+    personality,
+    t.config.agentLifeActivity,
+    t.config.agentLifeMood,
+    vitalsReady,
+  ])
 
   return (
     <SettingSection
@@ -909,46 +970,71 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         />
       </SettingGroup>
 
-      {/* 开关留在这一级；标题、说明和指南在二级页的 SettingSection 上。 */}
       <SettingGroup
         title={t.config.agentLife}
         icon={<LuSparkles />}
-        guidePath="ai.agentLife"
+        description={personaGateLead}
+        {...bindGuide('ai.agentLife', g.ai.agentLife)}
+        switch={{
+          checked: lifeOn,
+          onChange: (value) =>
+            updateUiFieldValue('agent_life_enabled', value ? 'true' : 'false'),
+          disabled: !proEnabled,
+          ariaLabel: t.config.agentLife,
+        }}
       >
-        <SwitchItem
-          itemKey="agent_life_enabled"
-          label={t.config.agentLife}
-          description={
-            !liteEnabled || !proEnabled
+        <InfoActionCard
+          copyable={false}
+          tone={
+            !proEnabled ? 'warn' : lifeOn && !liteEnabled ? 'info' : lifeOn ? 'default' : 'muted'
+          }
+          title={
+            lifeOn
+              ? hasSavedPersona
+                ? savedPersonaName || 'Arael'
+                : o.setupLabel
+              : undefined
+          }
+          empty={!lifeOn || !hasSavedPersona}
+          emptyText={
+            !proEnabled
               ? personaGateLead
-              : lifeOn && vitalsReady
-                ? formatVitalsLine(o, mood, activity)
-                : undefined
+              : lifeOn && !hasSavedPersona && reportCount < 3
+                ? t.config.agentLifeNeedsReports
+                    .replace('{count}', String(reportCount))
+                    .replace('{need}', '3')
+                : lifeOn
+                  ? t.config.agentLifeEmpty
+                  : t.config.agentLifeHint
           }
-          disabled={!liteEnabled || !proEnabled}
-          value={lifeOn}
-          onChange={(value: boolean) =>
-            updateUiFieldValue('agent_life_enabled', value ? 'true' : 'false')
+          fields={personaCardFields}
+          actions={
+            lifeOn && (hasSavedPersona || reportCount >= 3)
+              ? [
+                  {
+                    key: 'setup',
+                    label: hasSavedPersona ? o.editPage : o.openPage,
+                    onClick: () => openPersonaPage(),
+                    disabled: personaBusy,
+                  },
+                  ...(hasSavedPersona
+                    ? [
+                        {
+                          key: 'delete',
+                          label: t.config.agentLifeDelete,
+                          onClick: () => void handleDeletePersona(),
+                          disabled: personaBusy,
+                          loading: personaBusy,
+                          variant: 'danger' as const,
+                          confirm: t.config.agentLifeDeleteConfirm,
+                        },
+                      ]
+                    : []),
+                ]
+              : undefined
           }
-          layout="horizontal"
+          footer={personaError}
         />
-        {lifeOn ? (
-          <ButtonItem
-            itemKey="agent_life_onboarding"
-            label={o.setupLabel}
-            description={
-              hasSavedPersona
-                ? o.currentPersona.replace(
-                    '{name}',
-                    savedPersonaName || 'Arael',
-                  )
-                : undefined
-            }
-            buttonText={hasSavedPersona ? o.editPage : o.openPage}
-            onClick={openPersonaPage}
-            layout="horizontal"
-          />
-        ) : null}
       </SettingGroup>
 
       {/* 图片生成模型 */}
@@ -974,7 +1060,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
 
         <InputItem
           itemKey="ai_image_model"
-          label={openaiFieldLabels.model}
+          label={t.config.openaiModelLabel}
           value={getFieldValue('ai_image_model', 'openai/gpt-image-2')}
           onChange={(v) => updateValue('ai_image_model', v)}
           placeholder={

@@ -260,10 +260,10 @@ export const PERMISSION_CONFIG: Record<
     labelKey: 'permWriteBrew',
     descriptionKey: 'permWriteBrewDesc',
   },
-  'brew:comment': {
+  'brew:commentWrite': {
     icon: FaComments,
-    labelKey: 'permCommentBrew',
-    descriptionKey: 'permCommentBrewDesc',
+    labelKey: 'permCommentWriteBrew',
+    descriptionKey: 'permCommentWriteBrewDesc',
   },
   'brew:manage': {
     icon: FaCog,

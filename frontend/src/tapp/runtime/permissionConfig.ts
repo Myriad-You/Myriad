@@ -57,7 +57,7 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'tappList:manage': 'privileged',
   'brew:read': 'basic',
   'brew:write': 'basic',
-  'brew:comment': 'basic',
+  'brew:commentWrite': 'elevated',
   'brew:manage': 'privileged',
   'federation:read': 'basic',
   'federation:post': 'elevated',
@@ -151,17 +151,17 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     // 内容列表权限 — Brew 写入
     ['brewList.markRead', 'brew:write'],
     ['brewList.markUnread', 'brew:write'],
+    ['brewList.markAllRead', 'brew:write'],
     ['brewList.star', 'brew:write'],
     ['brewList.unstar', 'brew:write'],
-    ['brewList.markAllRead', 'brew:write'],
 
-    // 内容列表权限 — Brew 评论
-    ['brewList.getComments', 'brew:comment'],
-    ['brewList.createComment', 'brew:comment'],
-    ['brewList.updateComment', 'brew:comment'],
-    ['brewList.deleteComment', 'brew:comment'],
-    ['brewList.getReplies', 'brew:comment'],
-    ['brewList.createReply', 'brew:comment'],
+    // 内容列表权限 — Brew 评论（读用 brew:read，写用 brew:commentWrite）
+    ['brewList.getComments', 'brew:read'],
+    ['brewList.createComment', 'brew:commentWrite'],
+    ['brewList.updateComment', 'brew:commentWrite'],
+    ['brewList.deleteComment', 'brew:commentWrite'],
+    ['brewList.getReplies', 'brew:read'],
+    ['brewList.createReply', 'brew:commentWrite'],
 
     // 内容列表权限 — Brew 管理
     ['brewList.addSource', 'brew:manage'],

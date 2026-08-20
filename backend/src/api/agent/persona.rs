@@ -107,6 +107,40 @@ async fn require_life_enabled() -> Result<(), HttpError> {
     }
 }
 
+async fn report_platform_count(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<usize, HttpError> {
+    life::report_dna::count_report_platforms(db, user_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "[Agent persona] report count failed");
+            HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error" })),
+            ))
+        })
+}
+
+async fn require_persona_reports(
+    db: &DatabaseConnection,
+    user_id: i32,
+) -> Result<usize, HttpError> {
+    let count = report_platform_count(db, user_id).await?;
+    if count < life::report_dna::MIN_PERSONA_REPORTS {
+        return Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Need at least 3 platform reports",
+                "code": "persona_reports_required",
+                "reportCount": count,
+                "required": life::report_dna::MIN_PERSONA_REPORTS,
+            })),
+        )));
+    }
+    Ok(count)
+}
+
 async fn require_site_owner(claims: &Claims, db: &DatabaseConnection) -> Result<i32, HttpError> {
     let user_id = parse_user_id_with_agent_access(claims, db).await?;
     let owner = site_owner_user_id(db).await.map_err(|error| {
@@ -158,6 +192,8 @@ pub async fn get_persona(
         (70.0, "idle".to_string(), false)
     };
 
+    let report_count = report_platform_count(&db, user_id).await.unwrap_or(0);
+
     let Some(persona) = persona else {
         let mut body = json!({
             "name": "Arael",
@@ -166,6 +202,7 @@ pub async fn get_persona(
             "mood": mood,
             "activity": activity,
             "doNotDisturb": do_not_disturb,
+            "reportCount": report_count,
         });
         if is_owner {
             body["name"] = json!("");
@@ -186,6 +223,7 @@ pub async fn get_persona(
         "mood": mood,
         "activity": activity,
         "doNotDisturb": do_not_disturb,
+        "reportCount": report_count,
     });
     if is_owner {
         body["personality"] = json!(persona.personality);
@@ -301,6 +339,7 @@ pub async fn report_signals(
 ) -> Result<Json<Value>, HttpError> {
     require_life_enabled().await?;
     let user_id = require_site_owner(&claims, &db).await?;
+    require_persona_reports(&db, user_id).await?;
     if !request.consent {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
@@ -361,7 +400,8 @@ pub async fn suggest_name(
     Json(body): Json<SuggestNameRequest>,
 ) -> Result<Json<Value>, HttpError> {
     require_life_enabled().await?;
-    let _user_id = require_site_owner(&claims, &db).await?;
+    let user_id = require_site_owner(&claims, &db).await?;
+    require_persona_reports(&db, user_id).await?;
     let language = normalize_signals_language(&body.language);
     let tags = life::report_dna::sanitize_onboarding_tags_for_language(&body.selected_tags, language);
     match life::onboarding_ai::suggest_display_name(
@@ -400,7 +440,8 @@ pub async fn draft_persona(
     Json(body): Json<DraftPersonaRequest>,
 ) -> Result<Json<Value>, HttpError> {
     require_life_enabled().await?;
-    let _user_id = require_site_owner(&claims, &db).await?;
+    let user_id = require_site_owner(&claims, &db).await?;
+    require_persona_reports(&db, user_id).await?;
     let language = normalize_signals_language(&body.language);
     let tags = life::report_dna::sanitize_onboarding_tags_for_language(&body.tags, language);
     let name = body.name.trim();

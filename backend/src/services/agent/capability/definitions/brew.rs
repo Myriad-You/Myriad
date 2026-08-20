@@ -244,7 +244,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "itemCount": { "type": "integer" }
             }
         }),
-        required_permissions: vec!["brew:write".to_string()],
+        required_permissions: vec!["brew:manage".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(5000),
         requires_confirmation: true,
@@ -437,4 +437,20 @@ pub fn register(registry: &mut CapabilityRegistry) {
         risk_level: RiskLevel::Medium,
         ..Default::default()
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::services::agent::capability::CapabilityRegistry;
+
+    #[test]
+    fn add_subscription_source_requires_brew_manage() {
+        // ADR 0013 / handoff：brew.subscribe 对应真实 host 路由
+        // POST /api/brew/sources uses privileged brew:manage, not the user-state brew:write.
+        let registry = CapabilityRegistry::new();
+        let capability = registry
+            .get("brew.subscribe")
+            .expect("brew.subscribe capability must be registered");
+        assert_eq!(capability.required_permissions, vec!["brew:manage"]);
+    }
 }

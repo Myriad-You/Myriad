@@ -530,7 +530,7 @@ export const en: SettingGuidesCatalog = {
     llm: {
       what: 'The three text-model tiers: Standard for daily work, Lite to save, Pro for hard jobs.',
       chain:
-        '1) Keys live in Providers above; here you only pick a source and model name.\n2) Standard is the default. Lite / Pro fall back to Standard when off.\n3) Agent life needs both Lite and Pro on.\n4) Permissions and quota still apply.',
+        '1) Keys live in Providers above; here you only pick a source and model name.\n2) Standard is the default. Pro falls back to Standard when off. Lite jobs stop when Lite is off — they do not fall back.\n3) Agent life needs Pro. Lite only writes proactive lines and mood hints.\n4) Permissions and quota still apply.',
       frontend:
         'Assistant chat, reports, and background text jobs use these tiers. Send one line in the assistant to test Standard first.',
       notes: 'Get Standard working before turning on the other two.',
@@ -553,15 +553,15 @@ export const en: SettingGuidesCatalog = {
     agentLife: {
       what: 'Let Arael speak with the site persona, keep per-person mood and diary, and speak after named events.',
       chain:
-        '1) Off by default. Off means chat and tasks only — no event listening, no hidden speech, persona unused.\n2) Requires the Lite and Pro tiers above. Missing either keeps this switch off so those calls do not fall back to Standard.\n3) On: the owner’s persona replaces the public soul; mood and diary stay per signed-in person. The setup page (tags, name, persona) runs through Pro.\n4) AGENT_LIFE_ENABLED can override the saved switch, but still needs Lite and Pro.\n5) Autonomic speech stays hidden; valuable events also notify if the person is not chatting.',
+        '1) Off by default. Off means chat and tasks only — no event listening, no hidden speech, persona unused.\n2) The switch needs Pro. Chat only injects the persona as system text; it uses the planner/reply tiers.\n3) Lite writes proactive lines and mood hints. Without Lite those stop — they do not fall back to Standard.\n4) On: write the persona on this item’s secondary page. Tags, name, and persona run through Pro.\n5) AGENT_LIFE_ENABLED can override the saved switch, but still needs Pro.\n6) Autonomic speech stays hidden; valuable events also notify if the person is not chatting.',
       frontend:
         'Chat uses this persona. Write it on this item’s secondary settings page. The first-level row shows your mood band and current activity. Guests do not see mood.',
-      notes: 'Only the site owner can write the persona. Diary cannot be deleted. Heartbeat is never blocked by mood.',
+      notes: 'Only the site owner can write the persona. Deleting the persona also clears mood and diary. Heartbeat is never blocked by mood.',
     },
     liteEnable: {
       what: 'Whether to enable the Lite tier.',
       chain:
-        '1) Off = everything falls back to Standard.\n2) On = lite tasks use the Lite setup.\n3) Turning off does not delete what you already filled in.\n4) Agent life needs Lite and Pro; missing either keeps it off.',
+        '1) Off = Lite jobs stop. They do not fall back to Standard.\n2) On = lite tasks use the Lite setup.\n3) Turning off does not delete what you already filled in.\n4) Agent life can turn on without Lite; proactive lines stay short and mood hints stay off.',
       frontend: 'Indirectly affects which model is used; simple tasks can show cost/speed differences.',
       notes: 'If Standard still doesn’t work, don’t rush to enable Lite.',
     },

@@ -653,7 +653,7 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
     for permission in &manifest.permissions {
         if TappPermission::from_str(permission).is_none() {
             // Fail-closed：未知权限不落库、不签发；只有错误提示会带上共享的替代建议
-            // （如已移除的 `storage` → storage:read / storage:write），不创建任何别名。
+            // （如已移除的 storage 与 Brew 粗权限），不创建任何别名。
             return Err(match tapp_permission_replacement_hint(permission) {
                 Some(hint) => format!("Unknown Tapp permission '{permission}'; {hint}"),
                 None => format!("Unknown Tapp permission '{permission}'"),
@@ -1535,6 +1535,45 @@ mod tests {
         assert!(validate_tapp_id("a/b").is_err());
         assert!(validate_tapp_id("../x").is_err());
         assert!(validate_tapp_id(&"a".repeat(MAX_TAPP_ID_LEN + 1)).is_err());
+    }
+
+    #[test]
+    fn removed_brew_permissions_are_rejected_with_replacement_hints() {
+        let manifest = |permissions: Vec<&str>| {
+            serde_json::from_value::<TappManifest>(json!({
+                "id": "com.example.brew-removed",
+                "name": "Brew removed",
+                "version": "1.0.0",
+                "core": { "entry": "main.js" },
+                "category": "utility",
+                "permissions": permissions,
+            }))
+            .unwrap()
+        };
+
+        // brew:comment → brew:read + brew:commentWrite
+        let error =
+            validate_tapp_manifest(&manifest(vec!["brew:comment"])).unwrap_err();
+        assert!(error.contains("brew:comment"), "{error}");
+        assert!(error.contains("brew:read"), "{error}");
+        assert!(error.contains("brew:commentWrite"), "{error}");
+
+        // 普通未知名不带替代提示
+        let error =
+            validate_tapp_manifest(&manifest(vec!["legacy:unknown"])).unwrap_err();
+        assert!(
+            error.contains("Unknown Tapp permission 'legacy:unknown'"),
+            "{error}"
+        );
+        assert!(!error.contains("instead"), "{error}");
+
+        // 重复名保持 duplicate 语义，不附加替代提示
+        let error = validate_tapp_manifest(&manifest(vec!["brew:read", "brew:read"]))
+            .unwrap_err();
+        assert!(
+            error.contains("Duplicate Tapp permission: brew:read"),
+            "{error}"
+        );
     }
 
     fn credential_manifest(endpoint: &str) -> TappManifest {

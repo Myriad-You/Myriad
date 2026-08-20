@@ -14,10 +14,10 @@ const ONBOARDING_AI_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_PERSONA_LIST_ITEMS: usize = 12;
 const MAX_PERSONA_LIST_ITEM_CHARS: usize = 180;
 const MAX_PERSONA_GUIDANCE_CHARS: usize = 800;
-const MIN_SUMMARY_CHARS: usize = 40;
+const MIN_SUMMARY_CHARS: usize = 80;
 const MIN_TEMPERAMENT_ITEMS: usize = 5;
 const MIN_PAIR_ITEMS: usize = 4;
-const MIN_GUIDANCE_CHARS: usize = 20;
+const MIN_GUIDANCE_CHARS: usize = 36;
 
 #[derive(Debug)]
 pub enum OnboardingAiError {
@@ -548,7 +548,7 @@ mod tests {
     #[test]
     fn persona_parser_requires_real_character_content() {
         let parsed = parse_json_object(
-            r#"{"persona":{"summary":"安静但会认真回应对自己重要的事情。想靠近，又把话说得很短。认定谁值得之后，锋会收起来。","temperament":["克制","细心","慢热","嘴硬心软","边界感强"],"likes":["夜里听雨","把桌面重新排好","长时间安静地做事","把一件小事做到位"],"drives":["理解彼此","守住边界","把节奏握在自己手里","对认定的人认真"],"socialStyle":"先听，不抢着说话。熟了之后才会把句子拉长。","speechStyle":"话少，用词干净。对在意的人会把锋收起来，把事说清楚。"}}"#,
+            r#"{"persona":{"summary":"安静但会认真回应对自己重要的事情。想靠近，又把话说得很短。认定谁值得之后，锋会收起来，把事情一件件安排妥。不爱解释自己为什么忽然变软，也不肯把私人节奏交给别人来定。","temperament":["克制","细心","慢热","嘴硬心软","边界感强"],"likes":["夜里听雨","把桌面重新排好","长时间安静地做事","把一件小事做到位"],"drives":["理解彼此","守住边界","把节奏握在自己手里","对认定的人认真"],"socialStyle":"先听，不抢着说话。熟了之后才会把句子拉长，把真正在意的人留在自己定的距离里。","speechStyle":"话少，用词干净。对在意的人会把锋收起来，把事说清楚，也不用漂亮句子掩饰不耐烦。"}}"#,
         )
         .unwrap();
         assert!(persona_draft_is_complete(&parsed));
@@ -561,6 +561,16 @@ mod tests {
             "persona": {
                 "summary": "安静但会认真回应对自己重要的事情。",
                 "temperament": ["克制"]
+            }
+        })));
+        assert!(!persona_draft_is_complete(&json!({
+            "persona": {
+                "summary": "安静但会认真回应对自己重要的事情。想靠近，又把门留一条缝。",
+                "temperament": ["克制","细心","慢热","嘴硬心软","边界感强"],
+                "likes": ["夜里听雨","把桌面重新排好","长时间安静地做事","把一件小事做到位"],
+                "drives": ["理解彼此","守住边界","把节奏握在自己手里","对认定的人认真"],
+                "socialStyle": "先听，不抢着说话。熟了之后才会把句子拉长，把真正在意的人留在自己定的距离里。",
+                "speechStyle": "话少，用词干净。对在意的人会把锋收起来，把事说清楚，也不用漂亮句子掩饰不耐烦。"
             }
         })));
         let english = json!({

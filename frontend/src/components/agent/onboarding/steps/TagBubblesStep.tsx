@@ -11,7 +11,7 @@ import {
 } from '../generationCache'
 import { generationFailureMessage } from '../generationError'
 import BubbleCanvas from '../ui/BubbleCanvas'
-import { ActionBar, GhostButton, PrimaryButton } from '../ui/Chrome'
+import { ActionBar, PrimaryButton } from '../ui/Chrome'
 import { ErrorNote, Working } from '../ui/Feedback'
 
 interface SignalsCache {
@@ -173,7 +173,7 @@ export default function TagBubblesStep({
     (count, label) => count + (tagLabels.has(label) ? 1 : 0),
     0,
   )
-  const canContinue = selectedCount > 0 || reportCount === 0
+  const canContinue = selectedCount > 0
   const blocked = loading || regenerating
   const sourceNote = aiDistilled
     ? o.aiDistilledMeta.replace('{count}', String(reportCount))
@@ -252,13 +252,6 @@ export default function TagBubblesStep({
         </p>
       )}
       <ActionBar>
-        {reportCount === 0 && (
-          <GhostButton
-            label={o.skipTags}
-            disabled={blocked}
-            onClick={onNext}
-          />
-        )}
         <PrimaryButton
           label={o.next}
           disabled={!canContinue || blocked}

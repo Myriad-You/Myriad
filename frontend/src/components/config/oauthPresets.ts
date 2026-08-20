@@ -10,6 +10,7 @@
  * 配置步骤文案见 oauthSetupGuides.ts + i18n（oauthSetup*）。
  */
 
+import type { OAuthProviderEntry } from '../../utils/oauthSettings'
 import { getOAuthIconAsset } from '../../utils/oauthIcons'
 
 export interface OAuthPreset {
@@ -128,4 +129,46 @@ export const OAUTH_PRESETS: OAuthPreset[] = [
 
 export function findPreset(id: string): OAuthPreset | undefined {
   return OAUTH_PRESETS.find((p) => p.id === id)
+}
+
+export function hasOAuthCredential(
+  entry: Pick<OAuthProviderEntry, 'client_id' | 'client_secret'>,
+): boolean {
+  return Boolean(entry.client_id?.trim() && entry.client_secret?.trim())
+}
+
+function uniqueOAuthSlug(
+  base: string,
+  existing: Array<Pick<OAuthProviderEntry, 'slug'>>,
+): string {
+  const seed = base.trim() || 'oidc'
+  if (!existing.some((item) => item.slug === seed)) return seed
+  let index = 2
+  while (existing.some((item) => item.slug === `${seed}-${index}`)) {
+    index += 1
+  }
+  return `${seed}-${index}`
+}
+
+export function entryFromPreset(
+  preset: OAuthPreset,
+  existing: Array<Pick<OAuthProviderEntry, 'slug'>>,
+): OAuthProviderEntry {
+  const seed = preset.defaultSlug || preset.id
+  const slug = uniqueOAuthSlug(seed, existing)
+  const copy =
+    slug === seed ? '' : slug.slice(seed.length).replace(/^-+/, '')
+  return {
+    slug,
+    kind: preset.kind,
+    display_name: copy
+      ? `${preset.display_name} ${copy}`
+      : preset.display_name,
+    enabled: true,
+    client_id: '',
+    client_secret: '',
+    scopes: [...preset.scopes],
+    discovery_url: preset.discovery_url || '',
+    icon_url: preset.icon_url || null,
+  }
 }

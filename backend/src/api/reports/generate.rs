@@ -1,6 +1,6 @@
 // Platform report generation and AI report internals.
 
-use axum::{extract::State, Extension, Json};
+use axum::{extract::State, http::HeaderMap, Extension, Json};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
     QueryOrder, Set, TransactionTrait,
@@ -39,6 +39,9 @@ pub struct PlatformReport {
     #[serde(default)]
     pub card_visuals: Value,
     pub created_at: String,
+    /// Host UI locale at generation time (`zh-CN` / `ja-JP` / `en-US`).
+    #[serde(default)]
+    pub locale: String,
 }
 
 /// User id under which public platform reports are stored.
@@ -65,6 +68,7 @@ async fn report_storage_user_id(db: &DatabaseConnection, actor_id: i32) -> i32 {
 pub async fn generate_platform_reports(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
     Json(req): Json<GeneratePlatformReportsRequest>,
 ) -> Result<Json<Value>, HttpError> {
     tracing::info!("📊 [ENTRY] generate_platform_reports called");
@@ -77,8 +81,10 @@ pub async fn generate_platform_reports(
     })?;
     let user_id = report_storage_user_id(&db, actor_id).await;
 
+    let locale = super::locale::locale_from_headers(&headers);
+    tracing::info!("   Locale: {:?}", locale);
     let (platform_reports, skipped) =
-        generate_platform_reports_internal(&db, user_id, req.platforms.clone()).await;
+        generate_platform_reports_internal(&db, user_id, req.platforms.clone(), locale).await;
 
     // 将跳过原因结构化，便于前端逐平台展示
     let skipped_json: Vec<Value> = skipped
@@ -218,6 +224,7 @@ pub(crate) async fn generate_platform_reports_internal(
     db: &DatabaseConnection,
     user_id: i32,
     platforms: Vec<String>,
+    locale: Option<&str>,
 ) -> (Vec<PlatformReport>, Vec<(String, String)>) {
     use futures::stream::{self, StreamExt};
 
@@ -225,12 +232,19 @@ pub(crate) async fn generate_platform_reports_internal(
     let report_settings = crate::api::config::load_report_settings(db).await;
 
     let db_clone = db.clone();
+    let locale_override = locale.map(|s| super::locale::normalize_report_locale(s).to_string());
     let results = stream::iter(platforms)
         .map(move |platform| {
             let db_for_task = db_clone.clone();
             let report_settings = report_settings.clone();
+            let locale_override = locale_override.clone();
             async move {
             tracing::info!("🔄 Processing platform: {}", platform);
+            let locale = match locale_override.as_deref() {
+                Some(explicit) => explicit.to_string(),
+                None => last_stored_report_locale(&db_for_task, user_id, &platform).await,
+            };
+            tracing::info!("   Report locale for {}: {locale}", platform);
 
             // 1. 获取平台数据 (自动处理缓存回退，支持数据库分片数据)
             let metadata = match get_platform_data(&platform, &db_for_task, user_id).await {
@@ -250,25 +264,19 @@ pub(crate) async fn generate_platform_reports_internal(
             // 3. 基于元数据生成平台报告
             tracing::debug!("🤖 Generating AI report for {}", platform);
             let (summary, ai_insights, mut card_visuals) =
-                match generate_ai_report(&metadata, &platform).await {
+                match generate_ai_report(&metadata, &platform, &locale).await {
                     Ok(res) => {
                         tracing::info!("✅ AI report generated for {}", platform);
                         res
                     }
                     Err(e) => {
                         tracing::warn!(
-                            "⚠️ Failed to generate AI report for {}: {}, using fallback",
+                            "⚠️ Failed to generate AI report for {}: {}, using mock",
                             platform,
                             e
                         );
-                        (
-                            format!(
-                                "{} 在 {} 平台上活跃",
-                                metadata.user_summary.username, metadata.platform
-                            ),
-                            vec![],
-                            json!({}),
-                        )
+                        super::mock::generate_mock_report(&metadata, &platform, &locale)
+                            .unwrap_or_else(|_| (String::new(), vec![], json!({})))
                     }
                 };
 
@@ -929,15 +937,12 @@ pub(crate) async fn generate_platform_reports_internal(
                         {
                             obj.insert(
                                 "gamer_type".to_string(),
-                                json!(if analysis.completed_games >= 5 {
-                                    "全成就猎人"
-                                } else if analysis.average_completion >= 50.0 {
-                                    "深度攻略型"
-                                } else if analysis.gamerscore >= 10_000 {
-                                    "GS 收藏家"
-                                } else {
-                                    "广撒网玩家"
-                                }),
+                                json!(xbox_gamer_type_fallback(
+                                    &locale,
+                                    analysis.completed_games,
+                                    analysis.average_completion,
+                                    analysis.gamerscore
+                                )),
                             );
                         }
                         obj.insert(
@@ -1060,15 +1065,11 @@ pub(crate) async fn generate_platform_reports_internal(
                         {
                             obj.insert(
                                 "hunter_type".to_string(),
-                                json!(if analysis.platinum_count >= 10 {
-                                    "白金收藏家"
-                                } else if analysis.platinum_count > 0 {
-                                    "单机通关派"
-                                } else if analysis.average_progress >= 50.0 {
-                                    "深度奖杯党"
-                                } else {
-                                    "随缘奖杯党"
-                                }),
+                                json!(psn_hunter_type_fallback(
+                                    &locale,
+                                    analysis.platinum_count,
+                                    analysis.average_progress
+                                )),
                             );
                         }
                         obj.insert(
@@ -1137,133 +1138,11 @@ pub(crate) async fn generate_platform_reports_internal(
             }
 
             let mut insights = ai_insights;
-
-            // 如果AI没有生成洞察，使用备用逻辑
             if insights.is_empty() {
-                match &metadata.content_analysis {
-                    crate::services::smart_filter::ContentAnalysis::Bilibili(analysis) => {
-                        insights.push(analysis.video_summary.clone());
-                        if !analysis.anime_analysis.is_empty() {
-                            let top_genre = analysis.anime_analysis[0]
-                                .genres
-                                .iter()
-                                .max_by_key(|entry| entry.1)
-                                .map(|(k, _)| k.as_str())
-                                .unwrap_or("未知");
-                            insights.push(format!("追番偏好：{}", top_genre));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::Steam(analysis) => {
-                        insights.push(analysis.game_summary.clone());
-                        if !analysis.genre_analysis.is_empty() {
-                            insights
-                                .push(format!("最爱类型：{}", analysis.genre_analysis[0].genre));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::GitHub(analysis) => {
-                        insights.push(analysis.repo_summary.clone());
-                        if let Some((lang, _)) = analysis
-                            .language_distribution
-                            .iter()
-                            .max_by_key(|(_, v)| *v)
-                        {
-                            insights.push(format!("主要语言：{}", lang));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::YouTube(analysis) => {
-                        insights.push(analysis.video_summary.clone());
-                        insights.push(format!(
-                            "订阅 {} · 观看 {} · 视频 {}",
-                            analysis.subscriber_count, analysis.view_count, analysis.video_count
-                        ));
-                        if let Some(v) = analysis.recent_videos.first() {
-                            insights.push(format!("最近上传：{}", v.title));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::Netease(analysis) => {
-                        insights.push(analysis.music_summary.clone());
-                        if !analysis.artist_analysis.favorite_artists.is_empty() {
-                            insights.push(format!(
-                                "最爱歌手：{}",
-                                analysis.artist_analysis.favorite_artists.join("、")
-                            ));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::Bangumi(analysis) => {
-                        insights.push(analysis.collection_summary.clone());
-                        if let Some((tag, _)) = analysis
-                            .tag_distribution
-                            .iter()
-                            .max_by_key(|(_, count)| *count)
-                        {
-                            insights.push(format!("常见标签：{}", tag));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::Mal(analysis) => {
-                        insights.push(analysis.collection_summary.clone());
-                        if let Some((tag, _)) = analysis
-                            .tag_distribution
-                            .iter()
-                            .max_by_key(|(_, count)| *count)
-                        {
-                            insights.push(format!("常见题材：{}", tag));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::X(analysis) => {
-                        insights.push(analysis.post_summary.clone());
-                        insights.push(format!(
-                            "互动：获赞 {} · 转推 {} · 评论 {}",
-                            analysis.engagement_stats.total_likes_received,
-                            analysis.engagement_stats.total_retweets_received,
-                            analysis.engagement_stats.total_replies_received
-                        ));
-                        if let Some((lang, _)) = analysis
-                            .language_distribution
-                            .iter()
-                            .max_by_key(|(_, count)| *count)
-                        {
-                            insights.push(format!("主要语言：{}", lang));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::Discord(analysis) => {
-                        insights.push(analysis.community_summary.clone());
-                        insights.push(format!(
-                            "社区：{} 服 · 自建 {} · 管理 {}",
-                            analysis.guild_stats.guild_count,
-                            analysis.guild_stats.owned_guild_count,
-                            analysis.guild_stats.manage_guild_count
-                        ));
-                        if analysis.guild_stats.total_member_reach > 0 {
-                            insights.push(format!(
-                                "社区触达：约 {} 名成员",
-                                analysis.guild_stats.total_member_reach
-                            ));
-                        }
-                        if !analysis.identity_graph.linked_platforms.is_empty() {
-                            insights.push(format!(
-                                "已绑定：{}",
-                                analysis.identity_graph.linked_platforms.join("、")
-                            ));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::Xbox(analysis) => {
-                        insights.push(analysis.gaming_summary.clone());
-                        if let Some(title) = analysis.recent_titles.first() {
-                            insights.push(format!(
-                                "最近在玩：{}（成就 {}/{}）",
-                                title.name, title.achievements_earned, title.achievements_total
-                            ));
-                        }
-                    }
-                    crate::services::smart_filter::ContentAnalysis::Psn(analysis) => {
-                        insights.push(analysis.trophy_summary_text.clone());
-                        if let Some(title) = analysis.recent_titles.first() {
-                            insights.push(format!(
-                                "最近奖杯动态：{}（完成度 {}%）",
-                                title.name, title.progress
-                            ));
-                        }
-                    }
+                if let Ok((_, mock_insights, _)) =
+                    super::mock::generate_mock_report(&metadata, &platform, &locale)
+                {
+                    insights = mock_insights;
                 }
             }
 
@@ -1277,6 +1156,7 @@ pub(crate) async fn generate_platform_reports_internal(
                 insights,
                 card_visuals,
                 created_at: chrono::Utc::now().to_rfc3339(),
+                locale: locale.clone(),
             };
 
             // Persist as soon as this platform finishes (MYR-020 atomic txn).
@@ -1337,6 +1217,7 @@ pub async fn generate_all_reports(
     State(db): State<DatabaseConnection>,
     State(dynamic_config): State<Arc<RwLock<DynamicConfig>>>,
     Extension(claims): Extension<Claims>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, HttpError> {
     let actor_id = claims
         .sub
@@ -1438,8 +1319,9 @@ pub async fn generate_all_reports(
     drop(config);
 
     // 2. 生成平台报告 (使用内部函数，避免序列化开销)
+    let locale = super::locale::locale_from_headers(&headers);
     let (platform_reports, skipped) =
-        generate_platform_reports_internal(&db, user_id, enabled_platforms).await;
+        generate_platform_reports_internal(&db, user_id, enabled_platforms, locale).await;
     let skipped_json: Vec<_> = skipped
         .iter()
         .map(|(platform, reason)| json!({ "platform": platform, "reason": reason }))
@@ -1821,22 +1703,7 @@ fn enrich_stored_platform_report(mut report: Value) -> Value {
 /// Stamp platform + normalize card_visuals so home ReportCard widgets can match
 /// and render stats even when older stored JSON is missing / double-encoded.
 pub(crate) fn finalize_public_platform_report(platform: &str, report: Value) -> Value {
-    // Some historical rows double-encoded the JSON column as a string.
-    let report = match report {
-        Value::String(s) => serde_json::from_str(&s).unwrap_or(Value::String(s)),
-        other => other,
-    };
-    // Unwrap accidental `{ "report": { …PlatformReport } }` envelopes.
-    let report = match &report {
-        Value::Object(map)
-            if map.contains_key("report")
-                && !map.contains_key("card_visuals")
-                && map.get("report").map(|v| v.is_object()).unwrap_or(false) =>
-        {
-            map.get("report").cloned().unwrap_or(report.clone())
-        }
-        _ => report,
-    };
+    let report = super::locale::unwrap_stored_report_json(report);
 
     let mut body = enrich_stored_platform_report(report);
     if let Some(obj) = body.as_object_mut() {
@@ -1960,96 +1827,18 @@ async fn get_platform_data(
 async fn generate_ai_report(
     metadata: &SmartFilteredData,
     platform: &str,
+    locale: &str,
 ) -> Result<(String, Vec<String>, Value), String> {
     let Some(analyzer) = create_ai_analyzer_for_tier(ModelTier::Standard).await else {
         tracing::warn!("AI analyzer unavailable for Standard tier. Using mock report.");
-        return generate_mock_report(metadata, platform);
+        return super::mock::generate_mock_report(metadata, platform, locale);
     };
 
-    // 构建 Prompt
-    let (system_prompt, tone_desc, visual_req) = match platform {
-        "bilibili" => (
-            "你是一个资深二次元评论家，说话幽默风趣，懂各种B站梗。",
-            "用B站用户的口吻，带有二次元浓度，分析用户的追番、看视频习惯。",
-            "card_visuals必须包含 'danmaku' 字段（字符串数组，5-8条简短有趣的弹幕风格评价）。"
-        ),
-        "steam" => (
-            "你是一个硬核游戏玩家，看重'肝度'、'全成就'和'喜加一'。",
-            "用硬核玩家的口吻，分析用户的游戏品味、游玩时长和'剁手'习惯。",
-            "card_visuals必须包含 'player_type' (稳定枚举: hardcore|casual|balanced，勿写中文玩家类型), 'hardcore_score' (0-100数字), 'games_count' (数字，游戏总数量), 'total_playtime' (数字，总游戏时长小时数)。"
-        ),
-        "github" => (
-            "你是一个极客技术大佬，崇尚开源精神，说话严谨但带有技术幽默。",
-            "用技术大佬的口吻，综合评估用户的代码贡献、技术栈深度和开源影响力。特别强调：仓库获得的 star 数量是衡量开发者水平和开源影响力的重要因素，高 star 项目往往代表更强的技术实力和社区认可度，评价时务必重点参考。",
-            "card_visuals必须包含 'contribution_level' (稳定枚举: legendary|veteran|active|emerging，勿写中文等级名), 'languages' (对象数组 {name, percentage})。在判定 contribution_level 时，除了贡献数和仓库数量，务必重点权衡仓库获得的 star 总数——star 越高代表开源影响力越强，应对应更高的等级。注意：不要生成 'total_contributions'、'repos_count' 和 'contribution_calendar' 字段，这些将由系统自动计算。"
-        ),
-        "youtube" => (
-            "你是一个熟悉 YouTube 创作者生态的频道观察者，能从订阅规模、累计观看、上传节奏与最近视频标题/互动里读出频道定位——是教程站、Vlog、评测、剪辑二创，还是长期停更的沉寂号。你只依据公开频道数据下结论，绝不编造不存在的视频、播放量或合作品牌。",
-            "用干净利落、略带互联网锋芒的口吻写频道评语。主线抓三件事：① 体量——订阅/总观看/视频数的量级与匹配度；② 内容气味——从 recent_videos 标题与时长推断题材；③ 活跃度——冷启动/沉寂如实写，不要拔高。硬性要求：数字用原值；summary 与 insights 可稍展开；card_visuals.vibe 与 X 卡同规——一句话人设、严格≤20汉字、首页最多两行、禁止换行与两句堆叠、有锋芒不客套、不带引号；禁止字段名与空话；空频道也给≤20字短评。",
-            "card_visuals必须包含：'vibe'（字符串，一句话频道人设，与 X 卡一致：≤20字，首页 line-clamp-2，禁止换行符，有锋芒不客套，不带引号）；'channel_type'（字符串，≤8字定位标签，如'技术教程'/'生活Vlog'/'冷启动号'/'停更沉寂'/'高播放低订阅'）。徽章材质由系统按订阅数映射 Creator Awards，不要生成 badge_color。订阅/观看/视频列表等由系统写入，一律省略。"
-        ),
-        "netease" => (
-            "你是一个文艺青年/乐评人，感性细腻，喜欢用歌词或诗意的语言表达。",
-            "用文艺感性的口吻，解读用户的听歌品味、情感倾向和深夜听歌习惯。",
-            "card_visuals必须包含 'soul_color' (十六进制颜色), 'mood_keywords' (对象数组，每个对象包含 'tag' 和 'color' 字段，例如 [{\"tag\": \"感性\", \"color\": \"#7B68EE\"}, {\"tag\": \"深夜\", \"color\": \"#FF6B9D\"}])，'level' (数字1-10，根据用户的歌曲数量、歌单数量、听歌品味的广度和深度综合评估，越资深等级越高)。根据每个标签的情感色彩选择合适的颜色。"
-        ),
-        "bangumi" => (
-            "你是一个熟悉动画、漫画、游戏与影像作品的资深 ACG 评论者，能从收藏状态、评分和标签里读出审美轨迹。",
-            "用温和但有洞察力的口吻，分析用户在 Bangumi 上的收藏结构、评分偏好、正在追的作品和长期兴趣。",
-            "card_visuals必须包含 'taste_profile' (字符串), 'status_counts' (对象), 'score_distribution' (对象), 'favorite_tags' (字符串数组), 'top_subjects' (对象数组，字段至少包含 title 和 rate)。"
-        ),
-        "mal" => (
-            "你是一个熟悉国际动画/漫画社区的 MyAnimeList 评论者，能从列表状态、分数和题材标签里读出口味。",
-            "用轻松但有洞察力的口吻，分析用户在 MyAnimeList 上的动画/漫画收藏结构、评分偏好、正在追的作品和长期兴趣。",
-            "card_visuals必须包含 'taste_profile' (字符串), 'status_counts' (对象，done/doing/wish 等), 'score_distribution' (对象), 'favorite_tags' (字符串数组), 'top_subjects' (对象数组，字段至少包含 title 和 rate)。"
-        ),
-        "x" => (
-            "你是一个熟悉社交媒体生态的 X (Twitter) 观察者，擅长从发帖节奏、互动数据、关注对象和话题偏好读出账号人设。关注了谁往往比发了什么更诚实——账号简介和粉丝量级能还原一个人真实的兴趣光谱。你只基于给定数据下结论，从不编造事实。",
-            "用简洁有锋芒的互联网口吻分析这个账号。发帖多时以发帖风格和互动热度为主线；发帖少或为零时把账号当'沉浸观察者'解剖，以关注列表样本（following_sample，含账号简介和粉丝量）为主要证据聚类兴趣圈层。注意区分信号强弱：新闻媒体、连锁品牌/便利店、官方客服、抽奖羊毛号这类人人都会关注的大众功能性账号不体现个人品味，分析人设时应忽略它们，聚焦真正暴露兴趣的账号（创作者、小众领域、垂直社区等）。硬性要求：所有结论必须能在数据里找到出处，引用数字一律用原值不得虚构；summary 和 insights 的正文里禁止出现 following_sample、card_visuals 等字段名或任何技术术语；禁止'很有个性''内容丰富'这类放在谁身上都成立的空话；若关注样本为空，只分析发帖与资料，不得虚构关注对象。",
-            "card_visuals必须包含以下全部字段，无数据时用空数组/空字符串占位，禁止缺字段：'vibe' (字符串，一句话账号人设，≤20字，有锋芒不客套，不要带引号)；'engagement_level' (字符串，如'高互动'/'沉浸观察者'/'脉冲发帖')；'signature_topics' (字符串数组，3-6个话题词，每个≤6字)；'interest_circles' (对象数组，2-4个兴趣圈层，先剔除新闻媒体/连锁品牌/官方客服等无品味信号的大众账号，再对剩余账号聚类：{\"name\": \"圈层名，严格≤6个字（如'国产手游''独立游戏'），具体可感，禁用'其他'\", \"count\": 圈层账号数, \"accounts\": [严格最多3个代表账号的username]}；每个入选账号只归入一个圈层，count 之和不超过样本总数，按 count 降序；样本为空时给 [])；'following_highlights' (对象数组，3-5个最能暴露个人品味的关注对象：{\"username\": \"...\", \"name\": \"显示名\", \"tag\": \"一词标签≤6字\"}；只选创作者/小众领域/垂直社区类账号，禁止选择新闻媒体、连锁品牌、便利店、官方客服等大众账号；username 和 name 必须逐字取自 following_sample 中的真实账号，禁止编造；样本为空时给 [])；'stats' (对象，原样引用数据中的 followers/following/posts/likes_received 数字)。"
-        ),
-        "xbox" => (
-            "你是一个资深 Xbox 成就猎人，看重 Gamerscore、全成就（绿光成就宴）和稀有成就，说话带主机玩家的梗。",
-            "用成就猎人的口吻分析用户的成就习惯：是全成就强迫症还是浅尝辄止型？最近在肝哪部作品？GS 规模与全成就密度如何？注意：Xbox 没有游玩时长数据，一切从成就进度和 Gamerscore 说话；数字字段系统会用实测值覆盖，你重点写准 gamer_type 人设标签。",
-            "card_visuals必须包含 'gamer_type' (字符串，≤8字，如'全成就猎人'/'广撒网玩家'/'剧情通关党'/'GS收藏家'/'周末主机党')。其余数字字段（gamerscore/games_count/completion_rate/hardcore_score/top_titles 等）由系统写入，可省略。"
-        ),
-        "psn" => (
-            "你是一个资深 PlayStation 白金猎人，把白金奖杯视为最高勋章，熟悉奖杯难度梗（如'白金神作'、'3秒白金'）。",
-            "用白金猎人的口吻分析用户的奖杯柜：白金数量成色如何？是专注刷完一部再玩下一部，还是奖杯散落一地？最近哪部作品有奖杯动态？注意：PSN 没有游玩时长数据，一切从奖杯等级和完成度说话；数字字段系统会用实测值覆盖，你重点写准 hunter_type 人设标签。",
-            "card_visuals必须包含 'hunter_type' (字符串，≤8字，如'白金收藏家'/'随缘奖杯党'/'单机通关派'/'深度奖杯党'/'周末主机党')。其余数字字段（trophy_level/platinum_count/hardcore_score/top_titles 等）由系统写入，可省略。"
-        ),
-        "discord" => (
-            "你是一个懂 Discord 社区生态的观察者，擅长从一个人加入的服务器、担任的角色和绑定的第三方账号，读出他在网络社群里的位置与身份。服务器规模、自建/管理数量、账号年龄、跨平台绑定，共同拼出这个人的'社区人格'——是自建社群的主理人、深耕几个圈子的老玩家，还是广泛潜水的观察者。你只依据给定数据下结论，绝不编造服务器名、成员数或绑定关系。",
-            "用干净利落、有洞察力的口吻分析这个 Discord 账号，可带轻幽默，但不要刻薄嘲讽或人身攻击。主线抓三件事：① 角色——自建/管理的服务器揭示 TA 是建设者还是参与者；② 社区触达——加入服务器的总成员规模说明 TA 活跃在大众广场还是垂直小圈；③ 跨平台身份——connections 绑定的 Steam/GitHub/YouTube 等暴露真实兴趣与职业线索。硬性要求：所有结论必须在数据里有出处，成员数/服务器数一律用原值不得虚构；summary 和 insights 正文里禁止出现 card_visuals、guilds_preview、identity_graph 等字段名或技术术语；禁止'很活跃''社交达人'这类放在谁身上都成立的空话；账号无绑定或主要是大型公共服时，如实写成'低调潜水型'，不要拔高。",
-            "card_visuals必须包含以下字段，无数据时用空字符串/空数组占位，禁止缺字段：'role_profile'（字符串，≤8字社区角色定位，如'社群主理人'/'圈子老炮'/'潜水观察者'/'跨平台节点'，须与自建/管理数量相符）；'vibe'（字符串，一句话社区人格，≤20字，具体有趣、不客套、不刻薄，不带引号）；'community_tags'（字符串数组，2-3个刻画 TA 所在圈子气质的短标签，每个≤6字，如'开源社区''二次元''独立游戏'，概览单行展示，须能从服务器名/绑定平台推得，无据可依时给 []）；'guild_takes'（对象数组，针对 guilds_preview / 代表服务器列表的前 5-8 个各写一条点评：{\"name\": \"必须逐字取自数据中的真实服务器名\", \"id\": \"若数据有 id 则原样带上\", \"take\": \"≤16字点评，点出角色/规模/特色/圈层，可轻幽默，禁止刻薄嘲讽与空洞夸奖\"}；只覆盖数据里真实存在的服务器，禁止编造服务器名；无服务器时给 []）。其余结构化字段（stats/guild_stats/identity_graph/connections/library_items/profile 等）由系统写入，一律省略、不要生成。"
-        ),
-        _ => (
-            "你是一个专业的数据分析师，客观理性。",
-            "用专业客观的口吻分析用户数据。",
-            "card_visuals可以是空对象。"
-        ),
-    };
-
-    let data_str = {
-        let full = serde_json::to_string_pretty(metadata).map_err(|e| e.to_string())?;
-        // 截断过长的数据以避免 token 溢出
-        let truncated: String = full.chars().take(12000).collect();
-        if truncated.len() < full.len() {
-            format!("{}\n... (数据已截断，仅显示前 12000 字符)", truncated)
-        } else {
-            truncated
-        }
-    };
-    let full_prompt = format!(
-        "System: {}\nTask: {}\nRequirement: Return ONLY a valid JSON object (no markdown, no code blocks) with the following structure:\n{{\n  \"summary\": \"一段简短的总结(50字以内)\",\n  \"insights\": [\"3-5条详细的洞察分析\"],\n  \"card_visuals\": {{ ...根据以下要求生成: {} }}\n}}\n\nData:\n{}",
-        system_prompt, tone_desc, visual_req, data_str
-    );
+    let data_str = super::prompt_data::serialize_for_report_prompt(metadata)?;
+    let full_prompt = super::prompts::build_report_prompt(platform, &data_str, locale);
+    let schema = super::prompt_data::platform_report_schema();
 
     // 6. 调用 AI（全站费用账本：source=reports，主体记在站长；含管理员触发）
-    let input_data = json!({
-        "prompt": full_prompt
-    });
-
     let admin_id = if let Ok(db) = crate::services::tapp_registry::database().await {
         crate::services::tapp_ownership::get_admin_user_id(&db)
             .await
@@ -2066,7 +1855,9 @@ async fn generate_ai_report(
         task_id: format!("report:{platform}"),
     };
     let ai_result = crate::services::ai_cost_ledger::with_ai_ledger_attribution(attr, async {
-        analyzer.analyze_profile(&input_data).await
+        analyzer
+            .analyze_json("", &full_prompt, "platform_report", Some(&schema))
+            .await
     })
     .await;
 
@@ -2077,717 +1868,42 @@ async fn generate_ai_report(
                 platform,
                 response.len()
             );
-
-            // 尝试解析 JSON
-            // 清理可能的 markdown 标记
-            let clean_json = response
-                .trim()
-                .trim_start_matches("```json")
-                .trim_start_matches("```")
-                .trim_end_matches("```")
-                .trim();
-
-            #[derive(Deserialize)]
-            struct AiResponse {
-                summary: String,
-                insights: Vec<String>,
-                card_visuals: Value,
-            }
-
-            match serde_json::from_str::<AiResponse>(clean_json) {
-                Ok(res) => Ok((res.summary, res.insights, res.card_visuals)),
+            match super::prompt_data::parse_platform_report_json(&response) {
+                Ok(parsed) => Ok(parsed),
                 Err(e) => {
-                    tracing::error!("Failed to parse AI JSON response: {}. Raw: {}", e, response);
-                    // 降级处理：把整个回复当做 summary
-                    Ok((response, vec![], json!({})))
+                    tracing::error!(
+                        "Failed to parse AI report JSON for {}: {}. Using mock.",
+                        platform,
+                        e
+                    );
+                    super::mock::generate_mock_report(metadata, platform, locale)
                 }
             }
         }
         Err(e) => {
             tracing::error!("AI generation failed: {}", e);
-            generate_mock_report(metadata, platform)
+            super::mock::generate_mock_report(metadata, platform, locale)
         }
     }
 }
 
-fn generate_mock_report(
-    metadata: &SmartFilteredData,
-    _platform: &str,
-) -> Result<(String, Vec<String>, Value), String> {
-    // 模拟AI生成的回复
-    let (summary, insights, visuals) = match &metadata.content_analysis {
-        crate::services::smart_filter::ContentAnalysis::Bilibili(analysis) => {
-            let genre_str = if !analysis.anime_analysis.is_empty() {
-                analysis.anime_analysis[0]
-                    .genres
-                    .keys()
-                    .next()
-                    .map(|s| s.as_str())
-                    .unwrap_or("未知")
-            } else {
-                "涉猎广泛"
-            };
-            (
-                format!(
-                    "{}这位更是重量级！{}的大佬。",
-                    metadata.user_summary.username,
-                    metadata.user_summary.level.as_deref().unwrap_or("?")
-                ),
-                vec![
-                    format!("观看偏好：{}", analysis.video_summary),
-                    format!("追番口味：{}", genre_str),
-                    "下次一定：经常忘记投币".to_string(),
-                ],
-                json!({
-                    "danmaku": ["高能预警", "下次一定", "火钳刘明", "AWSL", "泪目", "爷青回"]
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::Steam(analysis) => {
-            let games_count = if analysis.games_count > 0 {
-                analysis.games_count
-            } else {
-                analysis.recent_games.len().max(
-                    analysis
-                        .genre_analysis
-                        .iter()
-                        .map(|g| g.examples.len())
-                        .sum(),
-                )
-            };
-            // playtime_forever is minutes → hours for card UI
-            let total_playtime_minutes = if analysis.total_playtime_minutes > 0 {
-                analysis.total_playtime_minutes
-            } else {
-                analysis
-                    .recent_games
-                    .iter()
-                    .map(|g| g.playtime.max(0))
-                    .sum()
-            };
-            let total_playtime_hours = (total_playtime_minutes.max(0) / 60) as u64;
-
-            (
-                format!(
-                    "检测到高能玩家反应！{}，{}。",
-                    metadata.user_summary.username, analysis.game_summary
-                ),
-                vec![
-                    format!(
-                        "最爱类型：{}",
-                        if !analysis.genre_analysis.is_empty() {
-                            &analysis.genre_analysis[0].genre
-                        } else {
-                            "多"
-                        }
-                    ),
-                    format!(
-                        "最近在玩：{}",
-                        analysis
-                            .recent_games
-                            .first()
-                            .map(|g| g.name.as_str())
-                            .unwrap_or("游戏")
-                    ),
-                    "G胖的微笑由你守护".to_string(),
-                ],
-                json!({
-                    // Stable enum for FE i18n (hardcore/casual/balanced)
-                    "player_type": "hardcore",
-                    "hardcore_score": 85,
-                    "games_count": games_count,
-                    "total_playtime": total_playtime_hours,
-                    "top_genres": analysis.genre_analysis.iter().take(3).map(|g| &g.genre).collect::<Vec<_>>()
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::GitHub(analysis) => {
-            // 使用完整的贡献日历数据计算总提交数（365天的真实数据）
-            let total_contributions = analysis
-                .contribution_calendar
-                .as_ref()
-                .map(|calendar| {
-                    let sum: i64 = calendar.iter().map(|day| day.count).sum();
-                    tracing::info!(
-                        "📊 GitHub total contributions: {} from {} days",
-                        sum,
-                        calendar.len()
-                    );
-                    sum
-                })
-                .unwrap_or(0);
-
-            // star 总数是衡量开发者影响力的重要因素
-            let total_stars: i64 = analysis
-                .recent_repos
-                .iter()
-                .filter_map(|repo| repo.stars.map(|s| s.max(0)))
-                .sum();
-            let repos_count = analysis
-                .public_repos
-                .map(|n| n.max(0) as usize)
-                .unwrap_or(0)
-                .max(analysis.recent_repos.len());
-
-            let contribution_level =
-                github_contribution_level(total_contributions, repos_count, total_stars);
-
-            // 计算语言百分比（按仓库数排序，百分比 clamp）
-            let total_lang_count: usize = analysis.language_distribution.values().sum();
-            let languages = if total_lang_count > 0 {
-                let mut pairs: Vec<_> = analysis.language_distribution.iter().collect();
-                pairs.sort_by(|a, b| b.1.cmp(a.1));
-                pairs
-                    .into_iter()
-                    .take(5)
-                    .map(|(k, v)| {
-                        let percentage = ((*v as f64 / total_lang_count as f64) * 100.0)
-                            .round()
-                            .clamp(0.0, 100.0) as i32;
-                        json!({"name": k, "percentage": percentage})
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                vec![]
-            };
-
-            (
-                format!(
-                    "Scanning profile... Target: {}。Talk is cheap, show me the code。",
-                    metadata.user_summary.username
-                ),
-                vec![
-                    format!(
-                        "主要语言：{}",
-                        analysis
-                            .language_distribution
-                            .keys()
-                            .next()
-                            .map(|s| s.as_str())
-                            .unwrap_or("Unknown")
-                    ),
-                    format!("仓库概况：{}", analysis.repo_summary),
-                    format!("贡献等级：{}", contribution_level),
-                ],
-                json!({
-                    "contribution_level": contribution_level,
-                    "total_contributions": total_contributions,
-                    "repos_count": repos_count,
-                    "total_stars": total_stars,
-                    "languages": languages,
-                    "contribution_calendar": analysis.contribution_calendar
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::YouTube(analysis) => {
-            let library_items: Vec<Value> = analysis
-                .recent_videos
-                .iter()
-                .take(12)
-                .map(|v| {
-                    json!({
-                        "title": v.title,
-                        "type": "video",
-                        "image": v.cover,
-                        "cover": v.cover,
-                        "url": v.url,
-                        "video_id": v.video_id,
-                        "view_count": v.view_count,
-                        "like_count": v.like_count,
-                        "comment_count": v.comment_count,
-                        "published_at": v.published_at,
-                        "duration": v.duration,
-                    })
-                })
-                .collect();
-            let is_empty_channel = analysis.video_count == 0 && analysis.recent_videos.is_empty();
-            let subs = analysis.subscriber_count;
-            let views = analysis.view_count;
-            let vids = analysis.video_count;
-            // Rough views-per-video for mock 评语 tone (not shown as a metric field)
-            let vpv = if vids > 0 { views / vids } else { 0 };
-            let (vibe, channel_type, summary, insights) = if is_empty_channel {
-                (
-                    "冷启动空壳频道".to_string(),
-                    "冷启动号".to_string(),
-                    format!(
-                        "「{}」已挂上公开频道，但上传区还是一片空白——人设比内容先到位。",
-                        metadata.user_summary.username
-                    ),
-                    vec![
-                        analysis.video_summary.clone(),
-                        "不是抓取失败：频道资料能读到，只是公开视频数为 0。".to_string(),
-                        "有第一支公开片再同步，评语才会从「空壳」变成「有气味」。".to_string(),
-                    ],
-                )
-            } else {
-                let latest = analysis
-                    .recent_videos
-                    .first()
-                    .map(|v| v.title.as_str())
-                    .unwrap_or("（无标题样本）");
-                let type_guess = if vpv >= 50_000 {
-                    "高播放密度"
-                } else if vids >= 50 && subs < 1_000 {
-                    "长尾堆量"
-                } else if vids <= 5 {
-                    "精品少更"
-                } else {
-                    "稳定更新"
-                };
-                (
-                    // Match X / AI prompt: vibe ≤20 汉字
-                    format!("{}·{}", type_guess, metadata.user_summary.username)
-                        .chars()
-                        .take(20)
-                        .collect::<String>(),
-                    type_guess.to_string(),
-                    format!(
-                        "「{}」：{} 订阅 / {} 支片 / 均播约 {}——公开区已经有可闻的内容气味。",
-                        metadata.user_summary.username, subs, vids, vpv
-                    ),
-                    vec![
-                        analysis.video_summary.clone(),
-                        format!(
-                            "体量：订阅 {} · 累计观看 {} · 视频 {}（均播约 {}）。",
-                            subs, views, vids, vpv
-                        ),
-                        format!("最近上传《{}》——标题是当前题材的直接证据。", latest),
-                        "评语来自本地 mock（未配置 AI）：重生成后会换成模型口吻。".to_string(),
-                    ],
-                )
-            };
-            (
-                summary,
-                insights,
-                json!({
-                    "vibe": vibe,
-                    "channel_type": channel_type,
-                    "subscriber_count": analysis.subscriber_count,
-                    "view_count": analysis.view_count,
-                    "video_count": analysis.video_count,
-                    "video_summary": analysis.video_summary,
-                    "channel_title": metadata.user_summary.username,
-                    "channel_id": metadata.user_summary.user_id,
-                    "avatar": analysis.avatar,
-                    "channel_url": analysis.channel_url,
-                    "custom_url": analysis.custom_url,
-                    "is_empty_channel": is_empty_channel,
-                    "library_items": library_items,
-                    "recent_videos": analysis.recent_videos,
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::Netease(analysis) => {
-            // 根据歌曲数量估算等级（1-10）
-            let song_count = analysis.recent_songs.len();
-            let artist_count = analysis.artist_analysis.favorite_artists.len();
-            let genre_diversity = analysis.artist_analysis.genre_analysis.len();
-
-            // 综合评分：歌曲数量 + 艺术家多样性 + 风格多样性
-            let level = ((song_count / 50).min(4)
-                + (artist_count / 10).min(3)
-                + (genre_diversity / 2).min(3))
-            .clamp(1, 10);
-
-            (
-                format!(
-                    "夜深了，{}。愿音乐永远是你的避风港。",
-                    metadata.user_summary.username
-                ),
-                vec![
-                    format!("听歌品味：{}", analysis.music_summary),
-                    format!(
-                        "最爱风格：{}",
-                        if !analysis.artist_analysis.genre_analysis.is_empty() {
-                            &analysis.artist_analysis.genre_analysis[0].genre
-                        } else {
-                            "流行"
-                        }
-                    ),
-                    "深夜emo时刻".to_string(),
-                ],
-                json!({
-                    "soul_color": "#7B68EE",
-                    "mood_keywords": [
-                        {"tag": "感性", "color": "#7B68EE"},
-                        {"tag": "深夜", "color": "#FF6B9D"},
-                        {"tag": "治愈", "color": "#4ECDC4"},
-                        {"tag": "怀旧", "color": "#FFB347"}
-                    ],
-                    "level": level
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::Bangumi(analysis) => {
-            let done = analysis
-                .collection_type_distribution
-                .get("done")
-                .copied()
-                .unwrap_or_default();
-            let doing = analysis
-                .collection_type_distribution
-                .get("doing")
-                .copied()
-                .unwrap_or_default();
-            let top_title = analysis
-                .top_rated_subjects
-                .first()
-                .map(|item| item.title.as_str())
-                .unwrap_or("收藏作品");
-            let favorite_tags = analysis
-                .tag_distribution
-                .iter()
-                .take(6)
-                .map(|(tag, _)| tag.clone())
-                .collect::<Vec<_>>();
-
-            (
-                format!(
-                    "{} 的 Bangumi 书架透露出稳定的审美坐标。",
-                    metadata.user_summary.username
-                ),
-                vec![
-                    format!("收藏概况：{}", analysis.collection_summary),
-                    format!("完成 {} 部，正在进行 {} 部", done, doing),
-                    format!("高分代表作：{}", top_title),
-                ],
-                json!({
-                    "taste_profile": "细腻的 ACG 收藏家",
-                    "status_counts": anime_status_counts_five(&analysis.collection_type_distribution),
-                    "subject_type_distribution": analysis.subject_type_distribution,
-                    "favorite_tags": favorite_tags,
-                    "top_subjects": analysis.top_rated_subjects.iter().take(5).collect::<Vec<_>>()
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::Mal(analysis) => {
-            let done = analysis
-                .collection_type_distribution
-                .get("done")
-                .copied()
-                .unwrap_or_default();
-            let doing = analysis
-                .collection_type_distribution
-                .get("doing")
-                .copied()
-                .unwrap_or_default();
-            let top_title = analysis
-                .top_rated_subjects
-                .first()
-                .map(|item| item.title.as_str())
-                .unwrap_or("listed title");
-            let favorite_tags = analysis
-                .tag_distribution
-                .iter()
-                .take(6)
-                .map(|(tag, _)| tag.clone())
-                .collect::<Vec<_>>();
-
-            (
-                format!(
-                    "{} 的 MyAnimeList 列表勾勒出清晰的二次元轨迹。",
-                    metadata.user_summary.username
-                ),
-                vec![
-                    format!("收藏概况：{}", analysis.collection_summary),
-                    format!("完成 {} 部，正在进行 {} 部", done, doing),
-                    format!("高分代表作：{}", top_title),
-                ],
-                json!({
-                    "taste_profile": "MAL 列表收藏家",
-                    "status_counts": anime_status_counts_five(&analysis.collection_type_distribution),
-                    "collection_type_distribution": analysis.collection_type_distribution,
-                    "subject_type_distribution": analysis.subject_type_distribution,
-                    "favorite_tags": favorite_tags,
-                    "top_subjects": analysis.top_rated_subjects.iter().take(5).collect::<Vec<_>>(),
-                    "mean_score": analysis.mean_score,
-                    "days_watched": analysis.days_watched
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::X(analysis) => {
-            let top_text = analysis
-                .top_posts
-                .first()
-                .map(|p| p.text.chars().take(40).collect::<String>())
-                .unwrap_or_else(|| "暂无热帖".to_string());
-            (
-                format!(
-                    "@{} 的时间线像一场持续在线的数字独白。",
-                    metadata.user_summary.username
-                ),
-                vec![
-                    analysis.post_summary.clone(),
-                    format!(
-                        "互动火力：获赞 {} · 转推 {}",
-                        analysis.engagement_stats.total_likes_received,
-                        analysis.engagement_stats.total_retweets_received
-                    ),
-                    format!("代表帖：{}", top_text),
-                ],
-                json!({
-                    "vibe": "在线观察者",
-                    "engagement_level": if analysis.engagement_stats.total_likes_received > 1000 {
-                        "高互动"
-                    } else if analysis.engagement_stats.total_posts > 20 {
-                        "活跃发帖"
-                    } else {
-                        "低调输出"
-                    },
-                    "signature_topics": ["互联网", "日常", "观点"],
-                    "stats": {
-                        "followers": metadata.user_summary.stats.follower_count,
-                        "following": metadata.user_summary.stats.following_count,
-                        "posts": analysis.engagement_stats.total_posts,
-                        "likes_received": analysis.engagement_stats.total_likes_received,
-                    },
-                    "top_posts": analysis.top_posts.iter().take(5).collect::<Vec<_>>(),
-                    "library_items": analysis.top_posts.iter().take(8).map(|p| json!({
-                        "title": p.text.chars().take(80).collect::<String>(),
-                        "type": "post",
-                    })).collect::<Vec<_>>(),
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::Discord(analysis) => {
-            let gs = &analysis.guild_stats;
-            let top_guild = analysis
-                .guilds_preview
-                .first()
-                .map(|g| g.name.as_str())
-                .unwrap_or("社区");
-            let linked = if analysis.identity_graph.linked_platforms.is_empty() {
-                "暂无公开绑定".to_string()
-            } else {
-                analysis.identity_graph.linked_platforms.join("、")
-            };
-            // 角色定位：自建 > 管理 > 触达规模 > 潜水
-            let role_profile = if gs.owned_guild_count > 0 {
-                "社群主理人"
-            } else if gs.admin_guild_count > 0 {
-                "社区管理员"
-            } else if gs.manage_guild_count > 0 {
-                "社区协作者"
-            } else if gs.total_member_reach >= 100_000 {
-                "社区广场党"
-            } else if !analysis.identity_graph.linked_platforms.is_empty() {
-                "跨平台节点"
-            } else {
-                "潜水观察者"
-            };
-            // 社区标签：绑定平台名做兜底标签（AI 缺席时的占位；概览单行最多 3 个）
-            let community_tags: Vec<String> = analysis
-                .identity_graph
-                .linked_platforms
-                .iter()
-                .take(3)
-                .cloned()
-                .collect();
-            // 详情面服务器锐评：按角色/规模写模板，保证无 AI 时 UI 仍有内容
-            let guild_takes: Vec<Value> = analysis
-                .guilds_preview
-                .iter()
-                .take(8)
-                .map(|g| {
-                    json!({
-                        "name": g.name,
-                        "id": g.id,
-                        "take": discord_fallback_guild_take(g),
-                    })
-                })
-                .collect();
-
-            let mut insights = vec![
-                analysis.community_summary.clone(),
-                format!(
-                    "服务器：{} 个（自建 {} · 管理 {}）",
-                    gs.guild_count, gs.owned_guild_count, gs.manage_guild_count
-                ),
-                format!("代表服务器：{}", top_guild),
-                format!("绑定平台：{}", linked),
-            ];
-            if gs.total_member_reach > 0 {
-                insights.push(format!(
-                    "社区触达：约 {} 名成员（在线 {}）",
-                    gs.total_member_reach, gs.total_online_reach
-                ));
-            }
-            if !analysis.profile.badges.is_empty() {
-                insights.push(format!("账号徽章：{}", analysis.profile.badges.join("、")));
-            }
-
-            (
-                format!(
-                    "{} 在 Discord 上留下清晰的社区足迹与跨平台身份线。",
-                    metadata.user_summary.username
-                ),
-                insights,
-                json!({
-                    "vibe": "社区节点",
-                    "role_profile": role_profile,
-                    "community_tags": community_tags,
-                    "guild_takes": guild_takes,
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::Xbox(analysis) => {
-            let top_title = analysis
-                .top_completed_titles
-                .first()
-                .map(|t| t.name.as_str())
-                .unwrap_or("暂无作品");
-            let gamertag = analysis
-                .display_gamertag
-                .clone()
-                .unwrap_or_else(|| metadata.user_summary.username.clone());
-            let mut library_items: Vec<Value> = Vec::new();
-            for t in analysis
-                .top_completed_titles
-                .iter()
-                .chain(analysis.recent_titles.iter())
-            {
-                if library_items.len() >= 12 {
-                    break;
-                }
-                if t.display_image.is_none() {
-                    continue;
-                }
-                let title = t.name.as_str();
-                if library_items
-                    .iter()
-                    .any(|x| x.get("title").and_then(|v| v.as_str()) == Some(title))
-                {
-                    continue;
-                }
-                library_items.push(json!({
-                    "title": t.name,
-                    "type": "game",
-                    "cover": t.display_image,
-                    "progress": t.progress.round(),
-                    "achievements_earned": t.achievements_earned,
-                    "achievements_total": t.achievements_total,
-                    "gamerscore": t.gamerscore_earned,
-                }));
-            }
-            (
-                format!("{} 的 Xbox 成就柜写满了绿色的勋章。", gamertag),
-                vec![
-                    analysis.gaming_summary.clone(),
-                    format!("完成度最高：{}", top_title),
-                ],
-                json!({
-                    "gamer_type": if analysis.completed_games >= 5 {
-                        "全成就猎人"
-                    } else if analysis.average_completion >= 50.0 {
-                        "深度攻略型"
-                    } else if analysis.gamerscore >= 10_000 {
-                        "GS 收藏家"
-                    } else {
-                        "广撒网玩家"
-                    },
-                    "gamertag": gamertag,
-                    "avatar": analysis.avatar,
-                    "account_tier": analysis.account_tier,
-                    "gamerscore": analysis.gamerscore,
-                    "games_count": analysis.games_count,
-                    "achievement_games": analysis.achievement_games,
-                    "completed_games": analysis.completed_games,
-                    "completion_rate": analysis.average_completion.round(),
-                    "total_achievements": analysis.total_achievements_earned,
-                    "total_achievements_available": analysis.total_achievements_available,
-                    "hardcore_score": analysis.hardcore_score,
-                    "top_titles": analysis.top_completed_titles.iter().take(6).map(|t| json!({
-                        "name": t.name,
-                        "progress": t.progress.round(),
-                        "gamerscore": t.gamerscore_earned,
-                        "image": t.display_image,
-                    })).collect::<Vec<_>>(),
-                    "library_items": library_items,
-                }),
-            )
-        }
-        crate::services::smart_filter::ContentAnalysis::Psn(analysis) => {
-            let top_title = analysis
-                .top_completed_titles
-                .first()
-                .map(|t| t.name.as_str())
-                .unwrap_or("暂无作品");
-            let online_id = analysis
-                .display_online_id
-                .clone()
-                .unwrap_or_else(|| metadata.user_summary.username.clone());
-            let mut library_items: Vec<Value> = Vec::new();
-            for t in analysis
-                .top_completed_titles
-                .iter()
-                .chain(analysis.recent_titles.iter())
-            {
-                if library_items.len() >= 12 {
-                    break;
-                }
-                if t.icon_url.is_none() {
-                    continue;
-                }
-                let title = t.name.as_str();
-                if library_items
-                    .iter()
-                    .any(|x| x.get("title").and_then(|v| v.as_str()) == Some(title))
-                {
-                    continue;
-                }
-                library_items.push(json!({
-                    "title": t.name,
-                    "type": "game",
-                    "cover": t.icon_url.as_ref().map(|u| SmartFilter::normalize_https_media_url(u)),
-                    "progress": t.progress,
-                    "platinum": t.earned_platinum > 0,
-                    "platform": t.platform,
-                }));
-            }
-            (
-                format!("{} 的 PSN 奖杯柜闪着白金的光。", online_id),
-                vec![
-                    analysis.trophy_summary_text.clone(),
-                    format!("完成度最高：{}", top_title),
-                ],
-                json!({
-                    "hunter_type": if analysis.platinum_count >= 10 {
-                        "白金收藏家"
-                    } else if analysis.platinum_count > 0 {
-                        "单机通关派"
-                    } else if analysis.average_progress >= 50.0 {
-                        "深度奖杯党"
-                    } else {
-                        "随缘奖杯党"
-                    },
-                    "online_id": online_id,
-                    "avatar": analysis.avatar,
-                    "is_plus": analysis.is_plus,
-                    "trophy_level": analysis.trophy_level,
-                    "platinum_count": analysis.platinum_count,
-                    "gold_count": analysis.gold_count,
-                    "silver_count": analysis.silver_count,
-                    "bronze_count": analysis.bronze_count,
-                    "total_trophies": analysis.total_trophies,
-                    "games_count": analysis.games_count,
-                    "completed_games": analysis.completed_games,
-                    "completion_rate": analysis.average_progress.round(),
-                    "hardcore_score": analysis.hardcore_score,
-                    "top_titles": analysis.top_completed_titles.iter().take(6).map(|t| json!({
-                        "name": t.name,
-                        "progress": t.progress,
-                        "platinum": t.earned_platinum > 0,
-                        "platform": t.platform,
-                        "image": t.icon_url.as_ref().map(|u| SmartFilter::normalize_https_media_url(u)),
-                    })).collect::<Vec<_>>(),
-                    "library_items": library_items,
-                }),
-            )
-        }
-    };
-
-    Ok((summary, insights, visuals))
+async fn last_stored_report_locale(
+    db: &DatabaseConnection,
+    user_id: i32,
+    platform: &str,
+) -> String {
+    let row = platform_reports::Entity::find()
+        .filter(platform_reports::Column::UserId.eq(user_id))
+        .filter(platform_reports::Column::Platform.eq(platform))
+        .order_by_desc(platform_reports::Column::CreatedAt)
+        .one(db)
+        .await
+        .ok()
+        .flatten();
+    row.and_then(|r| {
+        super::locale::locale_from_stored_report(&r.report).map(str::to_string)
+    })
+    .unwrap_or_else(|| super::locale::DEFAULT_AUTO_REGEN_LOCALE.to_string())
 }
 
 /// Bangumi/MAL `status_counts`: always emit five keys (0 when absent).
@@ -2822,6 +1938,37 @@ pub(crate) fn normalize_steam_player_type(raw: &str) -> &'static str {
         "casual"
     } else {
         "balanced"
+    }
+}
+
+fn xbox_gamer_type_fallback(
+    locale: &str,
+    completed: usize,
+    avg: f64,
+    gs: i64,
+) -> &'static str {
+    use super::locale::pick;
+    if completed >= 5 {
+        pick(locale, "全成就猎人", "実績コンプ勢", "Completion hunter")
+    } else if avg >= 50.0 {
+        pick(locale, "深度攻略型", "攻略勢", "Deep completer")
+    } else if gs >= 10_000 {
+        pick(locale, "GS收藏家", "GSコレクター", "GS collector")
+    } else {
+        pick(locale, "广撒网玩家", "広く浅く", "Wide net")
+    }
+}
+
+fn psn_hunter_type_fallback(locale: &str, platinum: i64, avg: f64) -> &'static str {
+    use super::locale::pick;
+    if platinum >= 10 {
+        pick(locale, "白金收藏家", "プラチナ収集家", "Platinum collector")
+    } else if platinum > 0 {
+        pick(locale, "单机通关派", "単機クリア派", "Story completer")
+    } else if avg >= 50.0 {
+        pick(locale, "深度奖杯党", "トロフィー勢", "Trophy hunter")
+    } else {
+        pick(locale, "随缘奖杯党", "気まま勢", "Casual trophies")
     }
 }
 

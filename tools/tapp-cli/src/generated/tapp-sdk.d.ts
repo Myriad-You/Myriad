@@ -214,16 +214,16 @@ export interface TappSdk {
     addSource(...args: unknown[]): Promise<unknown> // permission: brew:manage
     categories(...args: unknown[]): Promise<unknown> // permission: brew:read
     createCategory(...args: unknown[]): Promise<unknown> // permission: brew:manage
-    createComment(...args: unknown[]): Promise<unknown> // permission: brew:comment
-    createReply(...args: unknown[]): Promise<unknown> // permission: brew:comment
+    createComment(...args: unknown[]): Promise<unknown> // permission: brew:commentWrite
+    createReply(...args: unknown[]): Promise<unknown> // permission: brew:commentWrite
     deleteCategory(...args: unknown[]): Promise<unknown> // permission: brew:manage
-    deleteComment(...args: unknown[]): Promise<unknown> // permission: brew:comment
+    deleteComment(...args: unknown[]): Promise<unknown> // permission: brew:commentWrite
     deleteSource(...args: unknown[]): Promise<unknown> // permission: brew:manage
     discover(...args: unknown[]): Promise<unknown> // permission: brew:manage
     exportOpml(...args: unknown[]): Promise<unknown> // permission: brew:read
     get(...args: unknown[]): Promise<unknown> // permission: brew:read
-    getComments(...args: unknown[]): Promise<unknown> // permission: brew:comment
-    getReplies(...args: unknown[]): Promise<unknown> // permission: brew:comment
+    getComments(...args: unknown[]): Promise<unknown> // permission: brew:read
+    getReplies(...args: unknown[]): Promise<unknown> // permission: brew:read
     importOpml(...args: unknown[]): Promise<unknown> // permission: brew:manage
     list(...args: unknown[]): Promise<unknown> // permission: brew:read
     markAllRead(...args: unknown[]): Promise<unknown> // permission: brew:write
@@ -234,7 +234,7 @@ export interface TappSdk {
     star(...args: unknown[]): Promise<unknown> // permission: brew:write
     stats(...args: unknown[]): Promise<unknown> // permission: brew:read
     unstar(...args: unknown[]): Promise<unknown> // permission: brew:write
-    updateComment(...args: unknown[]): Promise<unknown> // permission: brew:comment
+    updateComment(...args: unknown[]): Promise<unknown> // permission: brew:commentWrite
     updateSource(...args: unknown[]): Promise<unknown> // permission: brew:manage
   }
   component: {

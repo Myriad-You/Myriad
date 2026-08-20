@@ -242,7 +242,7 @@ pub struct XAnalysis {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_avatar: Option<String>,
     pub engagement_stats: XEngagementStats,
-    // following 字段放在 posts 前面：prompt 会按 12000 字符截断，
+    // following 字段放在 posts 前面：打包按 16k 字符预算收紧，
     // 关注列表对兴趣分析的信号比推文正文更强，优先保留
     #[serde(default)]
     pub following_summary: String,

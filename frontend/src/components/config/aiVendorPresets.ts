@@ -37,7 +37,7 @@ export interface AiVendorPreset {
   defaultVoice?: string
 }
 
-/** 添加服务商浮窗里的预设；腾讯云语音在原快捷访问清单之外。 */
+/** 添加服务商浮窗里的预设。 */
 export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
   {
     id: 'openrouter',
@@ -421,7 +421,7 @@ export function sourceFromPreset(
   }
 }
 
-export function uniqueVendorSlug(
+function uniqueVendorSlug(
   base: string,
   existing: AiVendorSource[],
 ): string {
@@ -432,13 +432,6 @@ export function uniqueVendorSlug(
     index += 1
   }
   return `${seed}-${index}`
-}
-
-export function defaultModelForKind(
-  kind: string,
-  capability: AiVendorCapability,
-): { stt?: string; tts?: string; voice?: string; text?: string; image?: string } {
-  return defaultModelsForSource({ kind }, capability)
 }
 
 export function defaultModelsForSource(

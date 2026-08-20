@@ -39,7 +39,7 @@ export interface SettingSectionProps extends SettingSectionConfig {
   headerActions?: ReactNode
   /**
    * 常驻区插槽：夹在「重置本页」与「显示说明」之间。
-   * 仅个别页需要（如 AI 配置的服务商快捷访问）；其它页勿传。
+   * 仅个别页需要（如 AI 添加服务商、第三方登录添加方式）；其它页勿传。
    */
   headerBetweenPinned?: ReactNode
   /**

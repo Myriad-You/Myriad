@@ -29,7 +29,7 @@ fn spawn_report_auto_regen(db: DatabaseConnection, user_id: i32, platforms: Vec<
     tokio::spawn(async move {
         tracing::info!("♻️ Auto-regenerating expired reports: {:?}", to_run);
         let (_reports, skipped) =
-            generate_platform_reports_internal(&db, user_id, to_run.clone()).await;
+            generate_platform_reports_internal(&db, user_id, to_run.clone(), None).await;
         if !skipped.is_empty() {
             tracing::warn!("♻️ Auto-regen skipped some platforms: {:?}", skipped);
         }

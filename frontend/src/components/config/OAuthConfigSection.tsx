@@ -1,10 +1,8 @@
 /**
- * OAuth 配置区块（重构版）
+ * OAuth 配置区块
  *
- * 设计：
- * - 右上角页级动作：「添加登录方式」→ preset 选择器
- * - 列表：已配置的 providers 卡片（GitHub 也是其中一种，kind="github"）
- * - 选 preset 后自动填 discovery/scopes/icon，用户只补 client_id/secret
+ * 添加入口与 AI 服务商同款：标题栏 CheckboxCard + 预设浮窗。
+ * 卡片未填凭证时展开并显示 SetupFlow；配好后收起。
  *
  * 详见 docs/development/OAUTH.md + oauthPresets.ts
  */
@@ -17,8 +15,9 @@ import {
   FaGithub,
   FaPlus,
   FaTrash,
+  LuBookOpen,
 } from '@lib/icons'
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useI18n } from '../../contexts/I18nContext'
 import {
@@ -28,17 +27,28 @@ import {
 import OAuthIconImage from '../OAuthIconImage'
 import {
   CheckboxCard,
+  CollapseRegion,
   InputItem,
   SettingsButton,
   SettingSection,
   SettingTitleGuideEntry,
+  SettingTitleTag,
   SetupFlow,
   ToggleSwitch,
   useSettingGuide,
 } from '../settings'
 import { Spinner } from '../Spinner'
-import { findPreset, OAUTH_PRESETS } from './oauthPresets'
-import { getOAuthSetupGuideForEntry } from './oauthSetupGuides'
+import {
+  entryFromPreset,
+  findPreset,
+  hasOAuthCredential,
+  OAUTH_PRESETS,
+} from './oauthPresets'
+import {
+  getOAuthSetupGuideForEntry,
+  resolveOAuthPresetId,
+} from './oauthSetupGuides'
+import './AiVendorAdd.css'
 
 interface ConfigField {
   key: string
@@ -56,12 +66,62 @@ interface OAuthConfigSectionProps {
   onProvidersChange: (providers: OAuthProviderEntry[]) => void
 }
 
-function openPresetPicker(
-  setPicker: React.Dispatch<React.SetStateAction<boolean>>,
-  iconUrls: Array<string | null | undefined>,
-) {
-  preloadOAuthIcons(iconUrls)
-  setPicker(true)
+function availableOAuthPresets(providers: OAuthProviderEntry[]) {
+  const hasGithub = providers.some(
+    (provider) => provider.slug === 'github' && provider.kind === 'github',
+  )
+  return OAUTH_PRESETS.filter((preset) => !(preset.id === 'github' && hasGithub))
+}
+
+export function OAuthAddTrigger({
+  providers,
+  onProvidersChange,
+}: {
+  providers: OAuthProviderEntry[]
+  onProvidersChange: (providers: OAuthProviderEntry[]) => void
+}) {
+  const { t } = useI18n()
+  const presets = useMemo(() => availableOAuthPresets(providers), [providers])
+
+  const addFromPreset = useCallback(
+    (presetId: string) => {
+      const preset = findPreset(presetId)
+      if (!preset) return
+      onProvidersChange([...providers, entryFromPreset(preset, providers)])
+    },
+    [onProvidersChange, providers],
+  )
+
+  return (
+    <SettingTitleGuideEntry
+      title={t.config.oauthAddLoginMethod}
+      requireShowDetails={false}
+      className="ai-vendor-add-entry"
+      panelClassName="ai-vendor-add-float"
+      guide={
+        <OAuthPresetGrid
+          presets={presets}
+          providers={providers}
+          onPick={addFromPreset}
+        />
+      }
+      renderTrigger={({ open, closing, toggle, ariaLabel }) => (
+        <CheckboxCard
+          variant="switch"
+          label={t.config.oauthAddLoginMethod}
+          description={t.config.oauthPickPreset}
+          icon={<FaPlus />}
+          showIndicator={false}
+          checked={open || closing}
+          onChange={() => toggle()}
+          title={t.config.oauthPickPreset}
+          aria-label={ariaLabel}
+          aria-expanded={open}
+          className="ai-vendor-add-toggle settings-help-toggle"
+        />
+      )}
+    />
+  )
 }
 
 export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
@@ -77,75 +137,17 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
   const { t } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
 
-  const getFieldValue = useCallback(
-    (key: string) => {
-      return configFields.find((f) => f.key === key)?.value || ''
-    },
-    [configFields],
-  )
-
-  const baseUrl = getFieldValue('base_url').replace(/\/$/, '')
-
-  // providers + 开关
-  // 选 preset 的弹层状态
-  const [picker, setPicker] = useState(false)
+  const baseUrl = (
+    configFields.find((field) => field.key === 'base_url')?.value || ''
+  ).replace(/\/$/, '')
 
   const updateProvider = (idx: number, patch: Partial<OAuthProviderEntry>) => {
     onProvidersChange(
-      providers.map((p, i) => (i === idx ? { ...p, ...patch } : p)),
+      providers.map((provider, i) =>
+        i === idx ? { ...provider, ...patch } : provider,
+      ),
     )
   }
-  const removeProvider = (idx: number) => {
-    onProvidersChange(providers.filter((_, i) => i !== idx))
-  }
-
-  const addFromPreset = (presetId: string) => {
-    const preset = findPreset(presetId)
-    if (!preset) return
-    // 生成唯一 slug
-    let slug = preset.defaultSlug || preset.id
-    if (slug && providers.some((p) => p.slug === slug)) {
-      let n = 2
-      while (providers.some((p) => p.slug === `${slug}-${n}`)) n++
-      slug = `${slug}-${n}`
-    }
-    const entry: OAuthProviderEntry = {
-      slug,
-      kind: preset.kind,
-      display_name: preset.display_name,
-      enabled: true,
-      client_id: '',
-      client_secret: '',
-      scopes: [...preset.scopes],
-      discovery_url: preset.discovery_url || '',
-      icon_url: preset.icon_url || null,
-    }
-    onProvidersChange([...providers, entry])
-    setPicker(false)
-  }
-
-  // 可用 preset = 全部 - 已用 GitHub 的（一个实例足够）
-  const availablePresets = useMemo(() => {
-    const hasGithub = providers.some(
-      (p) => p.slug === 'github' && p.kind === 'github',
-    )
-    return OAUTH_PRESETS.filter((p) => !(p.id === 'github' && hasGithub))
-  }, [providers])
-
-  const handleOpenPicker = useCallback(() => {
-    openPresetPicker(
-      setPicker,
-      availablePresets.map((preset) => preset.icon_url),
-    )
-  }, [availablePresets])
-
-  const handleTogglePicker = useCallback(() => {
-    if (picker) {
-      setPicker(false)
-      return
-    }
-    handleOpenPicker()
-  }, [handleOpenPicker, picker])
 
   return (
     <SettingSection
@@ -171,57 +173,35 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
       {...bindGuide('oauth.section', g.oauth.section)}
       detailTone={!baseUrl ? 'warning' : 'default'}
       sectionId={sectionId}
-      headerActions={
-        <CheckboxCard
-          variant="action"
-          tone="primary"
-          label={t.config.oauthAddLoginMethod}
-          description={t.config.oauthPickPreset}
-          icon={<FaPlus />}
-          checked={picker}
-          onChange={() => handleTogglePicker()}
-          title={t.config.oauthPickPreset}
-          className="setting-section-header-action"
-          aria-expanded={picker}
+      headerBetweenPinned={
+        <OAuthAddTrigger
+          providers={providers}
+          onProvidersChange={onProvidersChange}
         />
       }
     >
-      {/* 登录方式列表（与 SettingSection 标题重复，不再套一层子分类） */}
       <div className="oidc-section">
-        {picker && (
-          <PresetPicker
-            presets={availablePresets}
-            onPick={addFromPreset}
-            onClose={() => setPicker(false)}
-            t={t}
-          />
-        )}
-
         {loading && (
           <div className="oidc-loading flex justify-center" role="status">
             <Spinner size="sm" color="primary" />
           </div>
         )}
 
-        {!loading && providers.length === 0 && !picker && (
-          <button
-            type="button"
-            className="oidc-empty oidc-empty-clickable"
-            onClick={handleOpenPicker}
-          >
-            <FaPlus />
+        {!loading && providers.length === 0 && (
+          <div className="oidc-empty ai-vendor-empty">
             <span>{t.config.oauthProvidersEmpty}</span>
-          </button>
+          </div>
         )}
 
-        {providers.map((p, idx) => (
+        {providers.map((entry, idx) => (
           <ProviderCard
-            key={`${p.slug}-${idx}`}
-            entry={p}
+            key={`${entry.slug}-${idx}`}
+            entry={entry}
             baseUrl={baseUrl}
             onChange={(patch) => updateProvider(idx, patch)}
-            onRemove={() => removeProvider(idx)}
-            t={t}
+            onRemove={() =>
+              onProvidersChange(providers.filter((_, i) => i !== idx))
+            }
           />
         ))}
       </div>
@@ -231,26 +211,92 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
 
 export default OAuthConfigSection
 
-// Subcomponents
+function OAuthPresetGrid({
+  presets,
+  providers,
+  onPick,
+}: {
+  presets: typeof OAUTH_PRESETS
+  providers: OAuthProviderEntry[]
+  onPick: (id: string) => void
+}) {
+  const { t } = useI18n()
 
-interface ProviderCardProps {
-  entry: OAuthProviderEntry
-  baseUrl: string
-  onChange: (patch: Partial<OAuthProviderEntry>) => void
-  onRemove: () => void
-  t: any
+  useEffect(() => {
+    preloadOAuthIcons(presets.map((preset) => preset.icon_url))
+  }, [presets])
+
+  return (
+    <div className="oidc-preset-grid">
+      {presets.map((preset) => {
+        const used = providers.some(
+          (provider) => resolveOAuthPresetId(provider) === preset.id,
+        )
+        const kindHint = preset.kind === 'oidc' ? 'OIDC' : 'GitHub'
+        const usedHint = used ? t.config.oauthAdded : ''
+        return (
+          <button
+            key={preset.id}
+            type="button"
+            className="oidc-preset-card"
+            onClick={() => onPick(preset.id)}
+            title={[preset.display_name, kindHint, usedHint]
+              .filter(Boolean)
+              .join(' · ')}
+          >
+            <OAuthPresetIcon preset={preset} />
+            <span className="oidc-preset-name">{preset.display_name}</span>
+            <span className="ai-vendor-preset-caps">{kindHint}</span>
+            {usedHint ? (
+              <span className="ai-vendor-preset-used">{usedHint}</span>
+            ) : null}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
-const ProviderCard: React.FC<ProviderCardProps> = ({
+function OAuthPresetIcon({ preset }: { preset: (typeof OAUTH_PRESETS)[number] }) {
+  if (preset.id === 'github') {
+    return <FaGithub className="oidc-preset-icon" />
+  }
+  if (preset.icon_url) {
+    return (
+      <OAuthIconImage
+        src={normalizeOAuthIconUrl(preset.icon_url) ?? preset.icon_url}
+        size={20}
+        className="oidc-preset-icon"
+        fetchPriority="low"
+      />
+    )
+  }
+  return (
+    <span className="oidc-preset-icon oidc-preset-icon-placeholder">
+      {preset.display_name[0]}
+    </span>
+  )
+}
+
+function ProviderCard({
   entry,
   baseUrl,
   onChange,
   onRemove,
-  t,
-}) => {
+}: {
+  entry: OAuthProviderEntry
+  baseUrl: string
+  onChange: (patch: Partial<OAuthProviderEntry>) => void
+  onRemove: () => void
+}) {
+  const { t } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
-  const providerGuideBinding = bindGuide('oauth.provider', g.oauth.provider)
-  const providerGuide = providerGuideBinding.guide
+  const providerGuide = bindGuide('oauth.provider', g.oauth.provider).guide
+  const configured = hasOAuthCredential(entry)
+  const title =
+    entry.display_name || entry.slug || t.config.oidcNewProvider
+  const preset = findPreset(resolveOAuthPresetId(entry))
+  const [open, setOpen] = useState(!configured)
   const [copied, setCopied] = useState(false)
   const [copiedData, setCopiedData] = useState(false)
   const callbackUrl =
@@ -290,30 +336,57 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
   return (
     <div
       data-guide-path="oauth.provider"
-      className={`oidc-provider-card has-guide-anchor${entry.enabled ? '' : ' disabled'}`}
+      className={`oidc-provider-card ai-vendor-card has-guide-anchor${
+        open ? ' is-open' : ''
+      }${entry.enabled ? '' : ' disabled'}`}
     >
-      <div className="oidc-provider-header">
-        <span className="oidc-provider-title">
+      <div className="oidc-provider-header ai-vendor-card-header">
+        <button
+          type="button"
+          className="ai-vendor-card-hit"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-label={(open
+            ? t.config.collapseGroupAria
+            : t.config.expandGroupAria
+          ).replace('{title}', title)}
+        />
+        <div className="oidc-provider-title">
           <ProviderIcon entry={entry} />
-          <span className="oidc-provider-title-text">
-            {entry.display_name || entry.slug || t.config.oidcNewProvider}
-            <SettingTitleGuideEntry
-              title={
-                entry.display_name || entry.slug || t.config.oidcNewProvider
-              }
-              guide={providerGuide}
-            />
-          </span>
-        </span>
-        <div className="oidc-provider-actions">
-          <div
-            className="oidc-enable-toggle"
-            role="presentation"
-            onClick={() => onChange({ enabled: !entry.enabled })}
-          >
-            <span className="oidc-enable-toggle-label">
-              {t.config.oidcEnabled}
+          <span className="oidc-provider-title-text">{title}</span>
+          <span className="ai-vendor-card-tags">
+            <span className="ai-vendor-card-control">
+              <SettingTitleGuideEntry title={title} guide={providerGuide} />
             </span>
+            <SettingTitleTag
+              variant="muted"
+              className={configured ? undefined : 'ai-vendor-card-status-missing'}
+            >
+              {configured
+                ? t.config.oauthConfigured
+                : t.config.oauthCredsMissing}
+            </SettingTitleTag>
+            {preset?.docs_url ? (
+              <span className="ai-vendor-card-control">
+                <SettingTitleTag
+                  variant="muted"
+                  icon={<LuBookOpen />}
+                  title={t.config.oauthDocs}
+                  onClick={() =>
+                    window.open(preset.docs_url, '_blank', 'noopener,noreferrer')
+                  }
+                >
+                  {t.config.oauthDocs}
+                </SettingTitleTag>
+              </span>
+            ) : null}
+            <SettingTitleTag variant="muted">
+              {open ? t.config.oauthCollapse : t.config.oauthExpand}
+            </SettingTitleTag>
+          </span>
+        </div>
+        <div className="oidc-provider-actions">
+          <div className="oidc-enable-toggle">
             <ToggleSwitch
               checked={entry.enabled}
               onChange={(checked) => onChange({ enabled: checked })}
@@ -330,91 +403,96 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
         </div>
       </div>
 
-      <SetupFlow
-        title={setupGuide.title}
-        optionalLabel={setupGuide.optionalLabel}
-        steps={setupGuide.steps}
-        className="oidc-provider-setup-flow"
-      />
+      <CollapseRegion open={open}>
+        <div className="ai-vendor-card-body">
+          {!configured ? (
+            <SetupFlow
+              title={setupGuide.title}
+              optionalLabel={setupGuide.optionalLabel}
+              steps={setupGuide.steps}
+              className="oidc-provider-setup-flow ai-vendor-setup-flow"
+            />
+          ) : null}
 
-      {/* 回调 URL — 用户复制粘到 provider 后台 */}
-      {callbackUrl && (
-        <div className="oidc-callback-row">
-          <span className="oidc-callback-label">
-            {t.config.currentCallbackUrl}
-          </span>
-          <code className="inline-code callback-url-code">{callbackUrl}</code>
-          <button
-            type="button"
-            className="copy-btn"
-            onClick={copy}
-            title={copied ? t.common.copied : t.common.copy}
-          >
-            {copied ? <FaCheck /> : <FaClipboard />}
-          </button>
-        </div>
-      )}
-      {/* Discord 数据平台一键授权 callback（与登录 callback 分开登记） */}
-      {discordDataCallbackUrl && (
-        <div className="oidc-callback-row">
-          <span className="oidc-callback-label">
-            {t.config.discordDataCallbackUrl}
-          </span>
-          <code className="inline-code callback-url-code">
-            {discordDataCallbackUrl}
-          </code>
-          <button
-            type="button"
-            className="copy-btn"
-            onClick={copyDataCallback}
-            title={copiedData ? t.common.copied : t.common.copy}
-          >
-            {copiedData ? <FaCheck /> : <FaClipboard />}
-          </button>
-        </div>
-      )}
+          {callbackUrl && (
+            <div className="oidc-callback-row">
+              <span className="oidc-callback-label">
+                {t.config.currentCallbackUrl}
+              </span>
+              <code className="inline-code callback-url-code">{callbackUrl}</code>
+              <button
+                type="button"
+                className="copy-btn"
+                onClick={() => {
+                  void copy()
+                }}
+                title={copied ? t.common.copied : t.common.copy}
+              >
+                {copied ? <FaCheck /> : <FaClipboard />}
+              </button>
+            </div>
+          )}
+          {discordDataCallbackUrl && (
+            <div className="oidc-callback-row">
+              <span className="oidc-callback-label">
+                {t.config.discordDataCallbackUrl}
+              </span>
+              <code className="inline-code callback-url-code">
+                {discordDataCallbackUrl}
+              </code>
+              <button
+                type="button"
+                className="copy-btn"
+                onClick={() => {
+                  void copyDataCallback()
+                }}
+                title={copiedData ? t.common.copied : t.common.copy}
+              >
+                {copiedData ? <FaCheck /> : <FaClipboard />}
+              </button>
+            </div>
+          )}
 
-      <div className="oidc-provider-fields">
-        {/* 必填：client_id / client_secret */}
-        <InputItem
-          itemKey={`provider-${entry.slug}-client-id`}
-          label={t.config.oidcClientIdLabel}
-          required
-          value={entry.client_id}
-          onChange={(v) => onChange({ client_id: v })}
-          placeholder=""
-          layout="vertical"
-        />
-        <InputItem
-          itemKey={`provider-${entry.slug}-client-secret`}
-          label={t.config.oidcClientSecretLabel}
-          required
-          value={entry.client_secret}
-          onChange={(v) => onChange({ client_secret: v })}
-          placeholder={t.config.oidcClientSecretPlaceholder}
-          inputType="password"
-          autoSelectOnMask
-          layout="vertical"
-        />
-
-        {/* OIDC 额外字段：discovery_url（必填） */}
-        {entry.kind === 'oidc' && (
-          <div className="full-width">
+          <div className="oidc-provider-fields">
             <InputItem
-              itemKey={`provider-${entry.slug}-discovery`}
-              label={t.config.oidcDiscoveryLabel}
+              itemKey={`provider-${entry.slug}-client-id`}
+              label={t.config.oidcClientIdLabel}
               required
-              value={entry.discovery_url || ''}
-              onChange={(v) => onChange({ discovery_url: v })}
-              placeholder={t.config.oidcDiscoveryPlaceholder}
+              value={entry.client_id}
+              onChange={(value) => onChange({ client_id: value })}
+              placeholder=""
               layout="vertical"
             />
-          </div>
-        )}
+            <InputItem
+              itemKey={`provider-${entry.slug}-client-secret`}
+              label={t.config.oidcClientSecretLabel}
+              required
+              value={entry.client_secret}
+              onChange={(value) => onChange({ client_secret: value })}
+              placeholder={t.config.oidcClientSecretPlaceholder}
+              inputType="password"
+              autoSelectOnMask
+              layout="vertical"
+            />
 
-        {/* 高级（折叠） */}
-        <AdvancedFields entry={entry} onChange={onChange} t={t} />
-      </div>
+            {entry.kind === 'oidc' && (
+              <div className="full-width">
+                <InputItem
+                  itemKey={`provider-${entry.slug}-discovery`}
+                  label={t.config.oidcDiscoveryLabel}
+                  required
+                  value={entry.discovery_url || ''}
+                  onChange={(value) => onChange({ discovery_url: value })}
+                  placeholder={t.config.oidcDiscoveryPlaceholder}
+                  layout="vertical"
+                />
+              </div>
+            )}
+
+            <AdvancedFields entry={entry} onChange={onChange} />
+          </div>
+        </div>
+      </CollapseRegion>
     </div>
   )
 }
@@ -441,17 +519,14 @@ const ProviderIcon: React.FC<{ entry: OAuthProviderEntry }> = ({ entry }) => {
   )
 }
 
-interface AdvancedFieldsProps {
-  entry: OAuthProviderEntry
-  onChange: (patch: Partial<OAuthProviderEntry>) => void
-  t: any
-}
-
-const AdvancedFields: React.FC<AdvancedFieldsProps> = ({
+function AdvancedFields({
   entry,
   onChange,
-  t,
-}) => {
+}: {
+  entry: OAuthProviderEntry
+  onChange: (patch: Partial<OAuthProviderEntry>) => void
+}) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   return (
     <div className="full-width oidc-advanced">
@@ -460,7 +535,7 @@ const AdvancedFields: React.FC<AdvancedFieldsProps> = ({
         className="oidc-advanced-toggle"
         aria-expanded={open}
         aria-controls={`oidc-advanced-${entry.slug}`}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((value) => !value)}
       >
         {open ? '▼' : '▶'} {t.config.oauthAdvanced}
       </button>
@@ -473,7 +548,7 @@ const AdvancedFields: React.FC<AdvancedFieldsProps> = ({
             itemKey={`provider-${entry.slug}-slug`}
             label={t.config.oidcSlugLabel}
             value={entry.slug}
-            onChange={(v) => onChange({ slug: v })}
+            onChange={(value) => onChange({ slug: value })}
             placeholder={t.config.oidcSlugPlaceholder}
             layout="vertical"
           />
@@ -481,7 +556,7 @@ const AdvancedFields: React.FC<AdvancedFieldsProps> = ({
             itemKey={`provider-${entry.slug}-display`}
             label={t.config.oidcDisplayNameLabel}
             value={entry.display_name}
-            onChange={(v) => onChange({ display_name: v })}
+            onChange={(value) => onChange({ display_name: value })}
             placeholder={t.config.oidcDisplayNamePlaceholder}
             layout="vertical"
           />
@@ -490,8 +565,8 @@ const AdvancedFields: React.FC<AdvancedFieldsProps> = ({
               itemKey={`provider-${entry.slug}-scopes`}
               label={t.config.oidcScopesLabel}
               value={entry.scopes.join(' ')}
-              onChange={(v) =>
-                onChange({ scopes: v.split(/\s+/).filter(Boolean) })
+              onChange={(value) =>
+                onChange({ scopes: value.split(/\s+/).filter(Boolean) })
               }
               placeholder={t.config.oidcScopesPlaceholder}
               layout="vertical"
@@ -501,71 +576,12 @@ const AdvancedFields: React.FC<AdvancedFieldsProps> = ({
             itemKey={`provider-${entry.slug}-icon`}
             label={t.config.oidcIconLabel}
             value={entry.icon_url || ''}
-            onChange={(v) => onChange({ icon_url: v })}
+            onChange={(value) => onChange({ icon_url: value })}
             placeholder={t.config.oidcIconPlaceholder}
             layout="vertical"
           />
         </div>
       )}
-    </div>
-  )
-}
-
-interface PresetPickerProps {
-  presets: typeof OAUTH_PRESETS
-  onPick: (id: string) => void
-  onClose: () => void
-  t: any
-}
-
-const PresetPicker: React.FC<PresetPickerProps> = ({
-  presets,
-  onPick,
-  onClose,
-  t,
-}) => {
-  return (
-    <div className="oidc-preset-picker">
-      <div className="oidc-preset-picker-header">
-        <span>{t.config.oauthPickPreset}</span>
-        <button
-          type="button"
-          className="oidc-preset-picker-close"
-          onClick={onClose}
-          aria-label={t.common.close}
-        >
-          ✕
-        </button>
-      </div>
-      <div className="oidc-preset-grid">
-        {presets.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            className="oidc-preset-card"
-            onClick={() => onPick(p.id)}
-          >
-            {p.id === 'github' ? (
-              <FaGithub className="oidc-preset-icon" />
-            ) : p.icon_url ? (
-              <OAuthIconImage
-                src={normalizeOAuthIconUrl(p.icon_url) ?? p.icon_url}
-                size={20}
-                className="oidc-preset-icon"
-                fetchPriority="low"
-              />
-            ) : (
-              <span className="oidc-preset-icon oidc-preset-icon-placeholder">
-                {p.display_name[0]}
-              </span>
-            )}
-            <span className="oidc-preset-name">{p.display_name}</span>
-            {p.kind === 'oidc' && (
-              <span className="oidc-preset-badge">OIDC</span>
-            )}
-          </button>
-        ))}
-      </div>
     </div>
   )
 }

@@ -19,6 +19,7 @@ import {
   SettingsButton,
   SettingTitleGuideEntry,
   SettingTitleTag,
+  SetupFlow,
   ToggleSwitch,
 } from '../settings'
 import type { AiVendorCapability } from './aiVendorPresets'
@@ -47,6 +48,7 @@ import {
   VolcengineMark,
   ZhipuMark,
 } from './vendorIcons'
+import { getVendorSetupGuide } from './vendorSetupGuides'
 import './AiVendorAdd.css'
 
 export function VendorKindIcon({
@@ -303,6 +305,19 @@ export const AiVendorSources: React.FC<AiVendorSourcesProps> = ({
   )
 }
 
+function VendorSetupSteps({ source }: { source: AiVendorSource }) {
+  const { t } = useI18n()
+  const guide = getVendorSetupGuide(source, t.config)
+  if (!guide) return null
+  return (
+    <SetupFlow
+      title={guide.title}
+      steps={guide.steps}
+      className="ai-vendor-setup-flow"
+    />
+  )
+}
+
 function hasVendorCredential(source: AiVendorSource): boolean {
   if (source.kind === 'tencent') {
     return Boolean(source.secret_id?.trim() || source.secret_key?.trim())
@@ -416,6 +431,9 @@ function VendorCard({
 
       <CollapseRegion open={open}>
         <div className="ai-vendor-card-body">
+          {!configured ? (
+            <VendorSetupSteps source={source} />
+          ) : null}
           <InputItem
             itemKey={`${source.slug}-name`}
             label={t.config.aiVendorDisplayName}
@@ -495,5 +513,3 @@ function VendorCard({
     </div>
   )
 }
-
-export default AiVendorSources

@@ -1,4 +1,4 @@
-//! Per-addressee diary notes. No delete path.
+//! Per-addressee diary notes. Wiped only when the site persona is deleted.
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};

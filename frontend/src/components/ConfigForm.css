@@ -2208,7 +2208,7 @@ html.dark .platform-status-dot.is-unconfigured {
   gap: var(--settings-gap-group, 1.25rem);
 }
 
-/* 接入平台内 · 自动刷新：纯文本分区（无图标） */
+/* 大语言模型档位：标准 / Lite / Pro */
 .ai-llm-tier {
   display: flex;
   flex-direction: column;

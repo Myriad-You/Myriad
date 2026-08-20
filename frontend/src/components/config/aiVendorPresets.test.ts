@@ -9,7 +9,7 @@ import {
 } from './aiVendorPresets'
 
 describe('AI vendor presets', () => {
-  it('keeps the former quick-access vendors plus Tencent Cloud speech', () => {
+  it('lists the vendor picker presets', () => {
     assert.deepEqual(
       AI_VENDOR_PRESETS.map((item) => item.id),
       [

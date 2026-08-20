@@ -89,7 +89,7 @@ pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
         "storage.set" | "storage.clear" => (180, 60),
         // Host-proxied brew mutations (grant-bearing only).
         "brew.write" => (90, 60),
-        "brew.comment" => (90, 60),
+        "brew.commentWrite" => (90, 60),
         "brew.manage" => (30, 60),
         // Host-proxied federation mutations.
         // post/interact 是高频社交操作（沿用原 federation.write 额度）；
@@ -120,7 +120,7 @@ pub fn get_rate_limit_config(operation: &str) -> (u32, u64) {
 pub fn host_write_rate_limit_operation(permission: TappPermission) -> Option<&'static str> {
     match permission {
         TappPermission::BrewWrite => Some("brew.write"),
-        TappPermission::BrewComment => Some("brew.comment"),
+        TappPermission::BrewCommentWrite => Some("brew.commentWrite"),
         TappPermission::BrewManage => Some("brew.manage"),
         TappPermission::FederationPost => Some("federation.post"),
         TappPermission::FederationInteract => Some("federation.interact"),
@@ -420,8 +420,8 @@ mod tests {
             Some("brew.write")
         );
         assert_eq!(
-            host_write_rate_limit_operation(TappPermission::BrewComment),
-            Some("brew.comment")
+            host_write_rate_limit_operation(TappPermission::BrewCommentWrite),
+            Some("brew.commentWrite")
         );
         assert_eq!(
             host_write_rate_limit_operation(TappPermission::BrewManage),
@@ -494,7 +494,7 @@ mod tests {
     fn host_write_rate_limit_defaults_are_sensible() {
         // (limit, window_secs) — tens–low hundreds / minute; manage/trust/speech stricter.
         assert_eq!(get_rate_limit_config("brew.write"), (90, 60));
-        assert_eq!(get_rate_limit_config("brew.comment"), (90, 60));
+        assert_eq!(get_rate_limit_config("brew.commentWrite"), (90, 60));
         assert_eq!(get_rate_limit_config("brew.manage"), (30, 60));
         assert_eq!(get_rate_limit_config("federation.post"), (90, 60));
         assert_eq!(get_rate_limit_config("federation.interact"), (90, 60));

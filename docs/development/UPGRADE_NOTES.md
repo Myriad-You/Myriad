@@ -18,6 +18,13 @@
 
 已安装应用的 `approved_permissions` 里如果还留着无法识别的旧名（例如 `storage`），列表和详情会标 `needs_reauthorization`，授予权限为空，直到更新 Manifest 并更新或重装。不会自动把 `storage` 改写成 `storage:read` / `storage:write`。
 
+## TAPP Brew 权限拆分（破坏性变更）
+
+`brew:write` 继续覆盖已读/未读/全部已读和收藏等当前用户状态；评论与回复的读取并入 `brew:read`，创建、更新与删除改用 `brew:commentWrite`。
+- `brew:commentWrite` 是 Elevated 权限，普通用户需由站长显式下放，游客不会获得该授予权限。
+
+已安装应用的旧权限串清理与「需重新授权」标记不随本版本提供，由后续升级迁移单独处理。
+
 ## TAPP 联邦写权限拆分（破坏性变更）
 
 声明旧权限 `federation:write` 的 TAPP Manifest 从本版本起会显式失败，不会自动映射或静默降权。请按实际操作改用 `federation:post`、`federation:interact`、`federation:channel`、`federation:room` 和/或 `federation:ring`，然后更新或重装应用。

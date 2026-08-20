@@ -322,8 +322,8 @@ async fn run_server() -> anyhow::Result<()> {
                         );
                         if dynamic_config.agent_life_needs_lite() {
                             tracing::warn!(
-                                "⚠️  Agent life is switched on but the Lite model is not enabled; \
-                                 life stays off so its calls do not fall back to the standard model"
+                                "⚠️  Agent life is on without Lite; proactive speech uses a short \
+                                 fallback and mood hints stay off (no Standard spend)"
                             );
                         }
                         if dynamic_config.agent_life_needs_pro() {

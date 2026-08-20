@@ -42,6 +42,7 @@ const GUEST_AUTHENTICATED_PERMISSION_KEYS = new Set([
   'federation_post',
   'federation_channel',
   'federation_room',
+  'brew_comment_write',
 ])
 export type AgentPermissionPreset = 'none' | 'chat' | 'standard' | 'elevated'
 
@@ -123,6 +124,7 @@ export interface PermissionConfigValues extends Record<
   user_perm_federation_post: boolean
   user_perm_federation_channel: boolean
   user_perm_federation_room: boolean
+  user_perm_brew_comment_write: boolean
   // 游客权限
   guest_perm_ai_generate: boolean
   guest_perm_ai_analyze: boolean
@@ -140,6 +142,7 @@ export interface PermissionConfigValues extends Record<
   guest_perm_federation_post: boolean
   guest_perm_federation_channel: boolean
   guest_perm_federation_room: boolean
+  guest_perm_brew_comment_write: boolean
   // AI 配额
   user_ai_daily_calls: number
   user_ai_daily_tokens: number
@@ -240,6 +243,12 @@ export const PermissionsConfigSection: React.FC<
       code: 'federation:room',
       label: t.tapp.permRoomFederation,
       hint: t.tapp.permRoomFederationDesc,
+    },
+    {
+      key: 'brew_comment_write',
+      code: 'brew:commentWrite',
+      label: t.tapp.permCommentWriteBrew,
+      hint: t.tapp.permCommentWriteBrewDesc,
     },
     // 网络（report:write 已仅管理员，不再展示下放开关）
     {

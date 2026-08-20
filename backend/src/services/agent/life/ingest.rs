@@ -179,7 +179,7 @@ pub async fn ingest(
     let shown = speech_is_shown(event_key, decision.notify);
     let spoken = if shown {
         let _ = set_activity(db, user_id, "thinking").await;
-        let line = compose_line(db, user_id, event_key, &summary).await;
+        let line = compose_line(db, user_id, &summary).await;
         let _ = set_activity(db, user_id, "idle").await;
         line
     } else {
@@ -218,11 +218,11 @@ fn speech_is_shown(event_key: &str, notify: bool) -> bool {
 }
 
 pub fn fallback_line(summary: &str) -> String {
-    let line = compact_summary(summary);
-    if line.is_empty() {
-        "刚才有件事，我想跟你说一声。".to_string()
-    } else {
-        line
+    match compact_summary(summary).as_str() {
+        "这个人今天第一次来了" => "今天又见到你了。".to_string(),
+        "这个人隔了很久又来了" => "好久不见。".to_string(),
+        "跟这个人的心情掉到了极低" => "我在。".to_string(),
+        _ => "刚才有件事，想跟你说一声。".to_string(),
     }
 }
 
@@ -314,12 +314,7 @@ async fn apply_task_mood(db: &DatabaseConnection, user_id: i32, event_key: &str,
     }
 }
 
-async fn compose_line(
-    db: &DatabaseConnection,
-    user_id: i32,
-    event_key: &str,
-    summary: &str,
-) -> String {
+async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> String {
     let fallback = fallback_line(summary);
     let Some(analyzer) = create_ai_analyzer_for_tier(ModelTier::Lite).await else {
         return fallback;
@@ -344,14 +339,13 @@ async fn compose_line(
     } else {
         recent
     };
-    let system = format!(
-        "{soul}\n\n{who}{mood}\n\n用一两句对这个人说刚才发生的事。\
-不要重复下面已经说过的话。不要输出 JSON、不要解释、不要提密钥或原始数据。\n\n\
-最近对这个人说过：\n{recent_block}",
-        who = addressee_speaking_section(&addressee),
-        mood = mood_block,
+    let system = super::speaking_prompts::compose_proactive_system(
+        &soul,
+        &addressee_speaking_section(&addressee),
+        &mood_block,
+        &recent_block,
     );
-    let prompt = format!("事件：{event_key}\n摘要：{summary}");
+    let prompt = super::speaking_prompts::compose_proactive_user(summary);
     match analyzer.analyze_with_system(&system, &prompt).await {
         Ok(raw) => {
             let spoken = sanitize_speech(&raw);
@@ -438,7 +432,12 @@ mod tests {
 
     #[test]
     fn fallback_keeps_human_summary() {
-        assert_eq!(fallback_line("  Steam  解锁了成就  "), "Steam 解锁了成就");
+        assert_eq!(
+            fallback_line("  Steam  解锁了成就  "),
+            "刚才有件事，想跟你说一声。"
+        );
+        assert_eq!(fallback_line("这个人今天第一次来了"), "今天又见到你了。");
+        assert_eq!(fallback_line("这个人隔了很久又来了"), "好久不见。");
     }
 
     #[test]

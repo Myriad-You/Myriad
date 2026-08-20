@@ -122,7 +122,7 @@ export function buildGuideSearchIndex(locale: Locale): GuideSearchEntry[] {
         continue
       }
 
-      // 嵌套分组（如 ai.providers.*）：一层子条目
+      // 嵌套分组（如 ai.llm 下的档位）：一层子条目
       if (value && typeof value === 'object') {
         for (const [subKey, subVal] of Object.entries(
           value as Record<string, SettingGuideEntry>,

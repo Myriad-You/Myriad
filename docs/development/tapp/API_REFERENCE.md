@@ -1264,9 +1264,9 @@ await Tapp.tappList.export("com.example.app");
 
 | 权限 | 典型方法（与 `fixtures/action_permissions.json` / `PERMISSION_MAP` 对齐） |
 | ---- | -------- |
-| `brew:read` | `list`, `get`, `sources`, `categories`, `stats`, `exportOpml` |
-| `brew:write` | `markRead`, `markUnread`, `star`, `unstar`, `markAllRead` |
-| `brew:comment` | `getComments`, `createComment`, `updateComment`, `deleteComment`, `getReplies`, `createReply` |
+| `brew:read` | `list`, `get`, `sources`, `categories`, `stats`, `exportOpml`, `getComments`, `getReplies` |
+| `brew:write` | `markRead`, `markUnread`, `markAllRead`, `star`, `unstar` |
+| `brew:commentWrite` | `createComment`, `updateComment`, `deleteComment`, `createReply` |
 | `brew:manage` | `discover`, `addSource`, `updateSource`, `deleteSource`, `refreshSource`, `importOpml`, `createCategory`, `deleteCategory` |
 
 Playground **临时预览不注册** brew handlers。完整 SDK（`Tapp.brewList`）仅在安装后可用：

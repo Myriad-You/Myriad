@@ -182,10 +182,7 @@ async fn ai_announce_plan(
     user_id: i32,
     progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
 ) -> Option<String> {
-    use crate::config::ModelTier;
-    use crate::services::ai::create_ai_analyzer_for_tier;
-
-    let analyzer = create_ai_analyzer_for_tier(ModelTier::Standard).await?;
+    let analyzer = crate::services::agent::life::create_speaking_analyzer().await?;
 
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
@@ -458,14 +455,11 @@ async fn ai_summarize(
     step_data: &[String],
     progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
 ) -> Option<String> {
-    use crate::config::ModelTier;
-    use crate::services::ai::create_ai_analyzer_for_tier;
-
-    let analyzer = match create_ai_analyzer_for_tier(ModelTier::Standard).await {
+    let analyzer = match crate::services::agent::life::create_speaking_analyzer().await {
         Some(a) => a,
         None => {
             tracing::warn!(
-                "[ResponseAgent] Standard AI analyzer not available, falling back to template"
+                "[ResponseAgent] Speaking analyzer not available, falling back to template"
             );
             return None;
         }

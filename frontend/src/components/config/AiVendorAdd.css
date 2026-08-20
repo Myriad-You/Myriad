@@ -1,4 +1,4 @@
-/* AI 页标题栏「添加服务商」：与「显示说明」同款 CheckboxCard + 预设浮窗 */
+/* 标题栏「添加服务商 / 登录方式」：与「显示说明」同款 CheckboxCard + 预设浮窗 */
 
 .setting-title-guide.ai-vendor-add-entry {
   margin-left: 0;
@@ -175,24 +175,12 @@
   z-index: 1;
 }
 
-.ai-vendor-card-status {
-  flex-shrink: 0;
-  font-size: 0.6875rem;
-  font-weight: 550;
-  line-height: 1.2;
-  padding: 0.12rem 0.38rem;
-  border-radius: 999px;
-  color: var(--cfg-text-3);
-  background: color-mix(in srgb, var(--cfg-text-3) 10%, transparent);
-}
-
-.ai-vendor-card-status.is-missing {
-  color: var(--cfg-accent);
-  background: color-mix(in srgb, var(--cfg-accent) 12%, transparent);
-}
-
 .ai-vendor-card-body {
   padding-top: 0.65rem;
+}
+
+.ai-vendor-setup-flow {
+  margin-bottom: 0.35rem;
 }
 
 .ai-vendor-preset-caps,

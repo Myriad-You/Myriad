@@ -288,7 +288,7 @@ export default function Reports() {
     void preloadPlatformFaces(REPORT_PLATFORM_IDS).catch(() => {})
   }, [])
 
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { preferences: moduleVisibility } = useModuleVisibilityPreferences()
   const moduleOpenToAll = canAccessModuleVisibility(
     moduleVisibility.modules.reports,
@@ -658,6 +658,8 @@ export default function Reports() {
         headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
+          'X-Myriad-Locale': locale,
+          'Accept-Language': locale,
         },
         credentials: 'include',
         body: JSON.stringify({ platforms: [platformId] }),
@@ -717,7 +719,7 @@ export default function Reports() {
     } finally {
       setRefreshingStage(false)
     }
-  }, [stageReportData, mergePlatformReport, t.reportsPage, translatedPlatforms, showToastMessage])
+  }, [stageReportData, mergePlatformReport, t.reportsPage, translatedPlatforms, showToastMessage, locale])
 
   // 使用 AuthContext 获取管理员状态
   const {
@@ -878,6 +880,8 @@ export default function Reports() {
           headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': csrfToken,
+            'X-Myriad-Locale': locale,
+            'Accept-Language': locale,
           },
           credentials: 'include',
           body: JSON.stringify({ platforms: [platformId] }),
@@ -944,7 +948,7 @@ export default function Reports() {
         setLoadingPlatform(null)
       }
     },
-    [t.reportsPage, translatedPlatforms, mergePlatformReport, showToastMessage],
+    [t.reportsPage, translatedPlatforms, mergePlatformReport, showToastMessage, locale],
   )
 
   return (

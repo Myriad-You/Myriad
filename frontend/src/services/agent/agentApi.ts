@@ -86,6 +86,7 @@ export interface AgentPersona {
   mood?: number
   activity?: string
   doNotDisturb?: boolean
+  reportCount?: number
 }
 
 function parseMcpRuntimeServers(

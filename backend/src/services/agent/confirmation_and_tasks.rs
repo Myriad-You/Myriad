@@ -1030,10 +1030,7 @@ impl Agent {
         planner_reply: &str,
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
     ) -> String {
-        use crate::config::ModelTier;
-        use crate::services::ai::create_ai_analyzer_for_tier;
-
-        let analyzer = match create_ai_analyzer_for_tier(ModelTier::Standard).await {
+        let analyzer = match crate::services::agent::life::create_speaking_analyzer().await {
             Some(a) => a,
             None => {
                 // AI 不可用，回退到模拟流式

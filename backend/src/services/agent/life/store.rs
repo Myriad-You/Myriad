@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect,
+    QueryOrder, QuerySelect, TransactionTrait,
 };
 use uuid::Uuid;
 
@@ -99,9 +99,18 @@ pub async fn upsert_persona(
 }
 
 pub async fn clear_persona(db: &DatabaseConnection) -> Result<(), anyhow::Error> {
-    agent_persona::Entity::delete_by_id(PERSONA_ROW_ID)
-        .exec(db)
+    let txn = db.begin().await?;
+    agent_proactive_messages::Entity::delete_many()
+        .exec(&txn)
         .await?;
+    agent_diary::Entity::delete_many().exec(&txn).await?;
+    agent_addressee_state::Entity::delete_many()
+        .exec(&txn)
+        .await?;
+    agent_persona::Entity::delete_by_id(PERSONA_ROW_ID)
+        .exec(&txn)
+        .await?;
+    txn.commit().await?;
     Ok(())
 }
 

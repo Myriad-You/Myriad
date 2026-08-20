@@ -470,12 +470,12 @@ pub struct DynamicConfig {
     pub tapp_window_schemes: Option<String>, // 窗口方案数据 (JSON)
 
     // Tapp 权限下放配置
-    // 基于 Tapp 系统的 elevated 级别权限（17 项可配置下放）
+    // 基于 Tapp 系统的 elevated 级别权限（18 项可配置下放）
     // 这些权限默认只有管理员可用，可以配置下放给普通用户或游客
     // 注意：basic 级别权限默认可授予所有用户
     // 注意：privileged 级别权限始终只限管理员
 
-    // 普通用户可使用的 elevated 权限（17 项）
+    // 普通用户可使用的 elevated 权限（18 项）
     /// ai:generate - AI 生成内容
     pub user_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据
@@ -510,8 +510,10 @@ pub struct DynamicConfig {
     pub user_perm_federation_channel: bool,
     /// federation:room - 房间创建/加入/治理
     pub user_perm_federation_room: bool,
+    /// brew:commentWrite - 写 Brew 评论（需登录主体）
+    pub user_perm_brew_comment_write: bool,
 
-    // 游客可使用的 elevated 权限（17 项）
+    // 游客可使用的 elevated 权限（18 项）
     /// ai:generate - AI 生成内容（游客）
     pub guest_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据（游客）
@@ -546,6 +548,8 @@ pub struct DynamicConfig {
     pub guest_perm_federation_channel: bool,
     /// federation:room - 房间治理（游客；同上，配置无效）
     pub guest_perm_federation_room: bool,
+    /// brew:commentWrite - 写 Brew 评论（游客；路由要求登录主体，实际恒为关闭）
+    pub guest_perm_brew_comment_write: bool,
 
     // AI 使用限额配置（当权限已下放时生效）
     // 这些限额只对非管理员用户生效，管理员无限制
@@ -782,6 +786,7 @@ impl Default for DynamicConfig {
             user_perm_federation_post: false,
             user_perm_federation_channel: false,
             user_perm_federation_room: false,
+            user_perm_brew_comment_write: false,
 
             // 游客 elevated 权限默认值
             // 默认全部关闭
@@ -802,6 +807,7 @@ impl Default for DynamicConfig {
             guest_perm_federation_post: false,
             guest_perm_federation_channel: false,
             guest_perm_federation_room: false,
+            guest_perm_brew_comment_write: false,
 
             // AI 使用限额默认值
             // 普通用户: 每日 50 次调用, 20000 tokens, 5 秒冷却
@@ -845,16 +851,15 @@ impl DynamicConfig {
 
     /// 生命是否真的生效。
     ///
-    /// 开口走 Lite，设定引导走 Pro。对应档关着时调用会回落到标准模型——同样的量，
-    /// 贵一档——所以两档都没开就不让这个开关生效，而不是让它悄悄花主力模型的钱。
-    /// （档开着但字段留空仍会回落，那是站长自己的选择，不在这里拦。）
+    /// 设定引导走 Pro；聊天里的人设只是系统词，跟 Lite 无关。
+    /// Lite 只写主动开口和心情微调——档关着时这两处直接停，不回落到标准模型。
     pub fn agent_life_enabled_resolved(&self) -> bool {
-        self.agent_life_switch_on() && self.lite_enabled && self.pro_enabled
+        self.agent_life_switch_on() && self.pro_enabled
     }
 
-    /// 开关开着却缺 Lite。用来在日志里说清为什么没生效。
+    /// 开关开着却缺 Lite。主动开口会走短句兜底，心情微调不会跑。
     pub fn agent_life_needs_lite(&self) -> bool {
-        self.agent_life_switch_on() && !self.lite_enabled
+        self.agent_life_switch_on() && self.pro_enabled && !self.lite_enabled
     }
 
     /// 开关开着却缺 Pro。设定引导和开关生效都要这一档。

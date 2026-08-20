@@ -18,7 +18,7 @@
   flex-shrink: 0;
 }
 
-/* 「重置」与「显示说明」之间的页专属操作（如 AI 快捷访问） */
+/* 「重置」与「显示说明」之间的页专属操作（如添加服务商 / 登录方式） */
 .section-header-actions-between {
   display: flex;
   align-items: center;

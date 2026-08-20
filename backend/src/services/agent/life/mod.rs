@@ -5,6 +5,7 @@ pub mod ingest;
 pub mod onboarding_ai;
 pub mod onboarding_prompts;
 pub mod report_dna;
+pub mod speaking_prompts;
 pub mod state;
 pub mod store;
 
@@ -52,6 +53,19 @@ pub async fn resolve_speaking_soul() -> Option<String> {
     crate::services::agent::identity::get_identity()
         .await
         .and_then(|id| id.soul)
+}
+
+/// Analyzer for lines spoken in character.
+/// Life + Lite → Lite. Otherwise Standard so chat still answers.
+pub async fn create_speaking_analyzer() -> Option<crate::services::analyzer::AiAnalyzer> {
+    if life_enabled().await {
+        if let Some(analyzer) =
+            crate::services::ai::create_ai_analyzer_for_tier(crate::config::ModelTier::Lite).await
+        {
+            return Some(analyzer);
+        }
+    }
+    crate::services::ai::create_ai_analyzer_for_tier(crate::config::ModelTier::Standard).await
 }
 
 pub fn refuse_new_task_message(mood_before: Option<f64>) -> Option<String> {
@@ -274,44 +288,10 @@ pub async fn resolve_addressee_label(db: &sea_orm::DatabaseConnection, user_id: 
     format_addressee_label(user_id, display_name.as_deref(), username.as_deref())
 }
 
-pub fn mood_tone_instruction(mood: f64) -> &'static str {
-    if is_extremely_low(mood) {
-        "跟这个人的心情极低。可以闲聊，语气克制，别催着办事。不要念出心情数字。"
-    } else if mood < 40.0 {
-        "跟这个人的心情偏低。语气克制一点。不要念出心情数字。"
-    } else if mood >= 85.0 {
-        "跟这个人的心情不错。语气可以轻松一点。不要念出心情数字。"
-    } else {
-        "按平常语气说话。不要念出心情数字。"
-    }
-}
-
-pub fn format_mood_section(mood: f64) -> String {
-    format!(
-        "## 对这个人的心情\n当前心情 {:.0}/100。\n{}",
-        clamp_mood(mood),
-        mood_tone_instruction(mood)
-    )
-}
-
-pub fn format_diary_section(contents: &[String]) -> Option<String> {
-    if contents.is_empty() {
-        return None;
-    }
-    let lines: Vec<String> = contents
-        .iter()
-        .map(|content| format!("- {}", ingest::compact_summary(content)))
-        .collect();
-    Some(format!("## 关于这个人的日记\n{}", lines.join("\n")))
-}
-
-pub fn guest_speaking_section() -> String {
-    "## 说话对象\n你现在在对游客说话。不要读日记，不要为这个人建立主动对话。".to_string()
-}
-
-pub fn addressee_speaking_section(label: &str) -> String {
-    format!("## 说话对象\n你现在在对{label}说话。不要把其他用户的日记或事情当成这个人的。")
-}
+pub use speaking_prompts::{
+    addressee_speaking_section, format_activity_section, format_diary_section, format_mood_section,
+    format_persona, guest_speaking_section, mood_tone_instruction,
+};
 
 /// Prompt sections for whoever this turn is speaking to. Empty when life is off.
 pub async fn speaking_prompt(user_id: i32) -> Vec<String> {
@@ -339,10 +319,17 @@ async fn speaking_prompt_from_db(db: &sea_orm::DatabaseConnection, user_id: i32)
         return sections;
     };
     if let Ok(notes) = list_diary(db, user_id, 8).await {
-        let contents: Vec<String> = notes.into_iter().map(|note| note.content).collect();
+        let contents: Vec<String> = notes
+            .into_iter()
+            .map(|note| ingest::compact_summary(&note.content))
+            .filter(|content| !content.is_empty())
+            .collect();
         if let Some(block) = format_diary_section(&contents) {
             sections.push(block);
         }
+    }
+    if let Some(block) = format_activity_section(current_activity(&state)) {
+        sections.push(block);
     }
     sections.push(format_mood_section(state.mood));
     sections
@@ -350,20 +337,6 @@ async fn speaking_prompt_from_db(db: &sea_orm::DatabaseConnection, user_id: i32)
 
 pub fn speaking_prompt_plain(sections: &[String]) -> String {
     sections.join("\n\n")
-}
-
-pub fn format_persona(persona: &agent_persona::Model) -> Option<String> {
-    let name = persona.name.trim();
-    let personality = persona.personality.trim();
-    if name.is_empty() && personality.is_empty() {
-        return None;
-    }
-    let display = if name.is_empty() { "Arael" } else { name };
-    if personality.is_empty() {
-        Some(format!("你是{display}。"))
-    } else {
-        Some(format!("你是{display}。\n{personality}"))
-    }
 }
 
 pub fn has_custom_persona(persona: &agent_persona::Model) -> bool {
@@ -452,19 +425,20 @@ mod tests {
         assert!(super::refuse_new_task_message(Some(10.1)).is_none());
         assert!(super::refuse_new_task_message(None).is_none());
         assert!(super::mood_tone_instruction(70.0).contains("不要念出心情数字"));
-        assert!(super::mood_tone_instruction(8.0).contains("克制"));
+        assert!(super::mood_tone_instruction(8.0).contains("极低"));
         assert!(super::mood_tone_instruction(30.0).contains("偏低"));
         assert!(super::mood_tone_instruction(90.0).contains("轻松"));
         let section = super::format_mood_section(72.4);
-        assert!(section.contains("72/100"));
+        assert!(!section.contains("72/100"));
         assert!(section.contains("不要念出心情数字"));
     }
 
     #[test]
     fn diary_section_skips_empty_and_compacts() {
         assert!(super::format_diary_section(&[]).is_none());
-        let block = super::format_diary_section(&["  今天晚上想打会独立游戏  ".into()]).unwrap();
+        let block = super::format_diary_section(&["今天晚上想打会独立游戏".into()]).unwrap();
         assert!(block.contains("## 关于这个人的日记"));
+        assert!(block.contains("不要当众报流水账"));
         assert!(block.contains("- 今天晚上想打会独立游戏"));
     }
 
