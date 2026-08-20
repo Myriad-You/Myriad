@@ -218,8 +218,8 @@ export const PermissionsConfigSection: React.FC<
     {
       key: 'brew_comment_write',
       code: 'brew:commentWrite',
-      label: '写 Brew 评论',
-      hint: '允许创建、编辑或删除 Brew 评论与回复',
+      label: t.tapp.permCommentWriteBrew,
+      hint: t.tapp.permCommentWriteBrewDesc,
     },
     // 网络（report:write 已仅管理员，不再展示下放开关）
     {
