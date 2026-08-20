@@ -21,18 +21,20 @@ use crate::{
     config::ModelTier,
     middleware::auth::admin_middleware,
     services::{
+        agent::ai_process_pure::USER_TEXT_MAX_CHARS,
         ai::create_ai_analyzer_for_tier_with_timeout,
         analyzer::ChatMessage,
         tapp_playground_knowledge::{self, KnowledgeExcerpt},
     },
 };
 
-const MAX_INSTRUCTION_BYTES: usize = 8 * 1024;
+const MAX_INSTRUCTION_CHARS: usize = USER_TEXT_MAX_CHARS;
 const MAX_PROJECT_BYTES: usize = 512 * 1024;
 const MAX_MODEL_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_CODE_FIELD_BYTES: usize = 256 * 1024;
 const MAX_RUNTIME_FEEDBACK_ITEMS: usize = 8;
-const MAX_RUNTIME_FEEDBACK_BYTES: usize = 2 * 1024;
+const MAX_RUNTIME_FEEDBACK_CHARS: usize = USER_TEXT_MAX_CHARS;
+const MAX_AGENT_QUERY_CHARS: usize = 160;
 const MAX_AGENT_QUERIES: usize = 6;
 const MAX_AGENT_ATTEMPTS: usize = 3;
 const MAX_RETRIEVED_CONTEXT_CHARS: usize = 60_000;
@@ -46,8 +48,8 @@ const MAX_HISTORY_TURNS: usize = 20;
 const FULL_PROJECT_HISTORY_TURNS: usize = 2;
 /// Cap total request payload carefully (history may include many full project snapshots).
 const MAX_REQUEST_BODY_BYTES: usize = 12 * 1024 * 1024;
-const MAX_HISTORY_EXPLANATION_BYTES: usize = 4_000;
-const MAX_HISTORY_ERROR_BYTES: usize = 4_000;
+const MAX_HISTORY_EXPLANATION_CHARS: usize = USER_TEXT_MAX_CHARS;
+const MAX_HISTORY_ERROR_CHARS: usize = USER_TEXT_MAX_CHARS;
 /// Pro 模型生成完整项目较慢；与前端 `TappPlaygroundService.ts` 的
 /// 超时预算（约 30 分钟）保持一致。
 ///
@@ -120,17 +122,18 @@ You must follow the current Myriad Tapp contract:
 - `manifest.category` is exactly one of ai, data, developer, game, media,
   productivity, social, utility.
 - A Playground project is valid with at least one of:
-  (1) Page mode — user wants a full app/page UI: set `hasPage: true`, non-empty
-  `code.page` + `code.pageHtml`, and `pageTemplate: "page.html"`.
+  (1) Page mode — user wants a full app/page UI: declare the `page` layer object
+  with `entry: "page/index.js"` and `template: "page.html"`, and provide non-empty
+  `code.page` + `code.pageHtml`.
   (2) Widget-only mode — user clearly wants only a dashboard widget / 小组件 /
-  widget without an app page: set `hasPage: false`, omit `pageTemplate` and leave
+  widget without an app page: omit the whole `page` object and leave
   `code.page` / `code.pageHtml` empty (do NOT invent a stub page); put UI in
   `code.widget` + `code.widgetHtml`; declare non-empty `manifest.widgets` and
   `widget:register` permission.
   Prefer widget-only when the instruction is clearly widget-only. Never require
-  both modes. Projects may still add assets, pageModules (Page mode),
-  backgroundRequirements, declared APIs, AI tasks, events, agent interactions,
-  or dataExchange when the request and retrieved contract support them.
+  both modes. Projects may still add assets, backgroundRequirements, declared
+  APIs, AI tasks, events, agent interactions, or dataExchange when the request
+  and retrieved contract support them.
 - Manifest application categories and Widget categories are separate. Widget
   category is exactly stats, activity, visualization, utility, or custom, and
   any non-empty `manifest.widgets` requires `widget:register` permission.
@@ -139,9 +142,12 @@ You must follow the current Myriad Tapp contract:
   instance preferences belong in `widgets[].settings`.
 - Every setting definition uses the exact camelCase field `defaultValue`; never
   emit the common but invalid alias `default`.
-- `main` must be `main.js`, `cssMode` must be `unified`, and `styles` must be
-  `styles.css`. In Page mode, `pageTemplate` must be `page.html`. In widget-only
-  mode, omit `pageTemplate` (page resources stay empty).
+- Layer entries and resource paths are fixed: `core.entry` is `core.js`,
+  `core.styles` is `styles.css`, `page.entry` is `page/index.js`,
+  `page.template` is `page.html`, and each `widgets[].entry` is
+  `widget/index.js`. There is no top-level `main`, `hasPage`, `cssMode`,
+  `styles`, `pageTemplate`, or `pageModules` field — emitting any of them is
+  rejected. `hasPage` is derived from whether the `page` object exists.
 - Request only permissions that the code actually calls. Prefer no permission.
   `storage:read`, `storage:write`, `ui:theme`, `ui:confirm`, `ui:fullscreen`, and `ui:openUrl` are available in the
   temporary preview. Never declare the retired `storage` token; reads use
@@ -151,8 +157,9 @@ You must follow the current Myriad Tapp contract:
 - Put shared initialization in `code.core`. In Page mode, put Page behavior in
   `code.page`, CSS in `code.styles`, and body markup only in `code.pageHtml`.
   In widget-only mode, put widget logic in `code.widget` / `code.widgetHtml` and
-  shared CSS in `code.styles` (core may hold shared init; main remains main.js).
-  Optional module resources use the other declared `code` fields. Never put
+  shared CSS in `code.styles`. `code.core` always runs first in every mode, so
+  cross-layer helpers belong there and layer entries reach them with
+  `require('../core.js')` from a layer directory. Never put
   `<script>`, inline event handlers, or external resources in HTML templates.
 - Never put HTML/JS entrypoints or Widget templates in `manifest.assets` or
   `code.assets`. `assets` is only for package-static binary/data files under
@@ -192,8 +199,8 @@ You must follow the current Myriad Tapp contract:
   output, security, or platform rules.
 
 Return ONLY one JSON object, without Markdown fences or commentary, in exactly
-this shape (Page mode example; for widget-only set hasPage false, omit
-pageTemplate, leave page/pageHtml empty, and fill widgets + widget/widgetHtml):
+this shape (Page mode example; for widget-only omit the whole "page" object,
+leave page/pageHtml empty, and fill widgets + widget/widgetHtml):
 {
   "project": {
     "manifest": {
@@ -206,14 +213,11 @@ pageTemplate, leave page/pageHtml empty, and fill widgets + widget/widgetHtml):
         "ja-JP": { "name": "名前", "description": "説明" }
       },
       "author": { "name": "Myriad Playground" },
-      "main": "main.js",
-      "styles": "styles.css",
-      "pageTemplate": "page.html",
-      "cssMode": "unified",
+      "core": { "entry": "core.js", "styles": "styles.css" },
+      "page": { "entry": "page/index.js", "template": "page.html" },
       "permissions": [],
       "icon": "emoji",
       "themeColor": "#RRGGBB",
-      "hasPage": true,
       "category": "utility",
       "widgets": []
     },
@@ -226,8 +230,6 @@ pageTemplate, leave page/pageHtml empty, and fill widgets + widget/widgetHtml):
       "widgetHtml": "optional widget markup",
       "widgetCSS": "optional widget-only CSS",
       "pageCSS": "optional page-only CSS",
-      "pageModules": {},
-      "pageModuleOrder": [],
       "assets": {},
       "i18n": {
         "zh-CN": {},
@@ -305,10 +307,6 @@ pub struct PlaygroundCode {
     pub i18n: HashMap<String, Value>,
     #[serde(default)]
     pub assets: HashMap<String, String>,
-    #[serde(default)]
-    pub page_modules: HashMap<String, String>,
-    #[serde(default)]
-    pub page_module_order: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -533,10 +531,10 @@ async fn generate_project_stream(
 
 fn validate_generate_request(request: &PlaygroundGenerateRequest) -> Result<(), ApiError> {
     let instruction = request.instruction.trim();
-    if instruction.is_empty() || instruction.len() > MAX_INSTRUCTION_BYTES {
+    if instruction.is_empty() || instruction.chars().count() > MAX_INSTRUCTION_CHARS {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
-            format!("Instruction must contain 1-{MAX_INSTRUCTION_BYTES} bytes"),
+            format!("Instruction must contain 1-{MAX_INSTRUCTION_CHARS} characters"),
         ));
     }
 
@@ -1026,9 +1024,11 @@ fn parse_agent_plan(raw: &str) -> Result<PlaygroundAgentPlan, String> {
     if plan
         .queries
         .iter()
-        .any(|query| query.trim().is_empty() || query.len() > 160)
+        .any(|query| query.trim().is_empty() || query.chars().count() > MAX_AGENT_QUERY_CHARS)
     {
-        return Err("agent documentation queries must contain 1-160 bytes".to_string());
+        return Err(format!(
+            "agent documentation queries must contain 1-{MAX_AGENT_QUERY_CHARS} characters"
+        ));
     }
     if plan.capabilities.len() > 16 || plan.acceptance_criteria.len() > 16 {
         return Err("agent plan contains too many capabilities or acceptance criteria".to_string());
@@ -1107,10 +1107,10 @@ fn validate_runtime_feedback(feedback: &[String]) -> Result<(), String> {
     }
     if feedback
         .iter()
-        .any(|error| error.trim().is_empty() || error.len() > MAX_RUNTIME_FEEDBACK_BYTES)
+        .any(|error| error.trim().is_empty() || error.chars().count() > MAX_RUNTIME_FEEDBACK_CHARS)
     {
         return Err(format!(
-            "Each runtime feedback item must contain 1-{MAX_RUNTIME_FEEDBACK_BYTES} bytes"
+            "Each runtime feedback item must contain 1-{MAX_RUNTIME_FEEDBACK_CHARS} characters"
         ));
     }
     Ok(())
@@ -1128,19 +1128,19 @@ fn validate_history(history: &[PlaygroundHistoryTurn]) -> Result<(), ApiError> {
             return Err(api_error(StatusCode::BAD_REQUEST, "Failed history entries may only appear as a trailing tail"));
         }
         let instruction = turn.instruction.trim();
-        if instruction.is_empty() || instruction.len() > MAX_INSTRUCTION_BYTES {
+        if instruction.is_empty() || instruction.chars().count() > MAX_INSTRUCTION_CHARS {
             return Err(api_error(StatusCode::BAD_REQUEST, format!(
-                    "History turn {index} instruction must contain 1-{MAX_INSTRUCTION_BYTES} bytes"
+                    "History turn {index} instruction must contain 1-{MAX_INSTRUCTION_CHARS} characters"
                 )));
         }
-        if turn.explanation.len() > MAX_HISTORY_EXPLANATION_BYTES {
+        if turn.explanation.chars().count() > MAX_HISTORY_EXPLANATION_CHARS {
             return Err(api_error(StatusCode::BAD_REQUEST, format!(
-                    "History turn {index} explanation exceeds {MAX_HISTORY_EXPLANATION_BYTES} bytes"
+                    "History turn {index} explanation exceeds {MAX_HISTORY_EXPLANATION_CHARS} characters"
                 )));
         }
         if let Some(error) = &turn.error {
-            if error.len() > MAX_HISTORY_ERROR_BYTES {
-                return Err(api_error(StatusCode::BAD_REQUEST, format!("History turn {index} error exceeds {MAX_HISTORY_ERROR_BYTES} bytes")));
+            if error.chars().count() > MAX_HISTORY_ERROR_CHARS {
+                return Err(api_error(StatusCode::BAD_REQUEST, format!("History turn {index} error exceeds {MAX_HISTORY_ERROR_CHARS} characters")));
             }
         }
         if turn.failed {
@@ -1221,14 +1221,6 @@ fn compact_project_summary(project: &PlaygroundProject) -> String {
     if let Some(page_css) = &code.page_css {
         file_sizes.push(format!("pageCSS={}B", page_css.len()));
     }
-    if !code.page_modules.is_empty() {
-        let module_bytes: usize = code.page_modules.values().map(String::len).sum();
-        file_sizes.push(format!(
-            "pageModules={}files/{}B",
-            code.page_modules.len(),
-            module_bytes
-        ));
-    }
     if !code.assets.is_empty() {
         let asset_bytes: usize = code.assets.values().map(String::len).sum();
         file_sizes.push(format!(
@@ -1264,12 +1256,12 @@ fn compact_project_summary(project: &PlaygroundProject) -> String {
     };
 
     format!(
-        "manifest.id={} name={:?} version={} category={:?} hasPage={} permissions={} widgets={} files=[{}]",
+        "manifest.id={} name={:?} version={} category={:?} pageLayer={} permissions={} widgets={} files=[{}]",
         manifest.id,
         manifest.name,
         manifest.version,
         manifest.category,
-        manifest.has_page,
+        manifest.has_page(),
         permissions,
         widgets,
         file_sizes.join(", ")
@@ -1383,8 +1375,12 @@ fn parse_and_validate_model_output(raw: &str) -> Result<(PlaygroundModelOutput, 
     let normalized_aliases = normalize_known_generator_aliases(&mut value);
     let output: PlaygroundModelOutput =
         serde_json::from_value(value).map_err(|error| format!("invalid JSON project: {error}"))?;
-    if output.explanation.trim().is_empty() || output.explanation.len() > 4_000 {
-        return Err("explanation must contain 1-4000 bytes".to_string());
+    if output.explanation.trim().is_empty()
+        || output.explanation.chars().count() > USER_TEXT_MAX_CHARS
+    {
+        return Err(format!(
+            "explanation must contain 1-{USER_TEXT_MAX_CHARS} characters"
+        ));
     }
     validate_playground_project(&output.project)?;
     Ok((output, normalized_aliases))
@@ -1490,3 +1486,45 @@ fn extract_json_object(raw: &str) -> Result<&str, String> {
 #[path = "helpers.rs"]
 mod helpers;
 use helpers::*;
+
+#[cfg(test)]
+mod prompt_contract_tests {
+    use super::*;
+
+    /// 提示词是纯字符串，契约改了它不会编译失败——这条测试就是那个编译失败。
+    ///
+    /// 层入口契约切换时它整轮没人动，模型照示例输出的 manifest 会被
+    /// `deny_unknown_fields` 拒掉，而 Playground 生成路径没有任何别的地方会报警。
+    #[test]
+    fn generate_prompt_teaches_the_current_layer_contract() {
+        let prompt = format!("{PLAYGROUND_SYSTEM_PROMPT}{PLANNER_SYSTEM_PROMPT}");
+
+        for retired in [
+            "\"main\":",
+            "\"hasPage\":",
+            "\"cssMode\":",
+            "\"pageTemplate\":",
+            "\"pageModules\":",
+            "\"pageModuleOrder\":",
+            "main.js",
+        ] {
+            assert!(
+                !prompt.contains(retired),
+                "generate prompt still teaches the retired manifest field {retired}"
+            );
+        }
+
+        for required in [
+            PLAYGROUND_CORE_ENTRY,
+            PLAYGROUND_STYLES,
+            PLAYGROUND_PAGE_ENTRY,
+            PLAYGROUND_PAGE_TEMPLATE,
+            PLAYGROUND_WIDGET_ENTRY,
+        ] {
+            assert!(
+                prompt.contains(required),
+                "generate prompt never mentions the fixed Playground path {required}"
+            );
+        }
+    }
+}

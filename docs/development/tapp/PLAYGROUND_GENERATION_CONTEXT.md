@@ -9,12 +9,16 @@
 Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-only，不强制 Page）。
 
 - `manifest.json` 描述身份、入口、资源、分类、权限和运行形态。
-- **Page 模式**（`hasPage: true`）：`main.js` 可含共享 `core` 与可见 `page`；`page.html`
-  只含 body 内静态语义结构；行为写在 `code.page` / `main.js` 对应段；
-  `pageTemplate` 为 `page.html`。
-- **Widget-only**（`hasPage: false`）：不要发明 stub 页面；UI 放在 `code.widget` 与
-  `code.widgetHtml`；声明非空 `manifest.widgets` 与 `widget:register`；可省略
-  `pageTemplate`，保持 `page` / `pageHtml` 为空。详见 [WIDGET.md](./WIDGET.md)。
+- **Page 模式**（声明 `page` 层）：共享逻辑写在 `code.core`（打包为 `core.js`），页面
+  逻辑写在 `code.page`（打包为 `page/index.js`）；`page.html` 只含 body 内静态语义
+  结构；`page.entry` 为 `page/index.js`、`page.template` 为 `page.html`。
+- **Widget-only**（不声明 `page` 层）：不要发明 stub 页面；UI 放在 `code.widget` 与
+  `code.widgetHtml`（打包为 `widget/index.js`）；声明非空 `manifest.widgets` 与
+  `widget:register`，保持 `page` / `pageHtml` 为空。详见 [WIDGET.md](./WIDGET.md)。
+- core 是共享层，三种模式都先执行它。Playground 一层一个文件（`core.js` /
+  `page/index.js` / `widget/index.js`）；跨层共享在 core 里 `module.exports`，层入口
+  `require('../core.js')`。再拆文件只在导出 `.tapp` 并用 CLI 打开之后。
+- 没有 `backgroundRequirements` 时不强制 core；声明后台常驻必须有 core。
 - `styles.css` 使用普通 CSS，并通过 `var(--tapp-primary)` 读取宿主强调色
   （沙箱内没有 `--color-primary`）。
 - Page 沙箱（有可用 Page 时）运行在没有 `allow-same-origin` 的 sandboxed iframe 中，
@@ -172,13 +176,13 @@ Bridge 默认 payload 约 **1 MiB**；正式运行特例：`file.download` 内�
 - 不读取 Cookie、localStorage、sessionStorage、父窗口 DOM 或宿主 token。
 - 页面在窄屏和宽屏都必须可用，并支持浅色/深色背景。
 - Manifest 只声明代码真实调用的权限；读取主题和语言不需要额外权限。读取
-  `Tapp.storage` / `Tapp.settings` 需要 `storage:read`，写入、删除与清空需要
+  `Tapp.storage` / `Tapp.settings` / `Tapp.shared` 需要 `storage:read`，写入、删除与清空需要
   `storage:write`。不要再声明已移除的 `storage`。确认和全屏分别需要
   `ui:confirm` 与 `ui:fullscreen`。
 - 应用分类和 Widget 分类不是同一枚举；Widget 分类仅允许 `stats`、`activity`、
   `visualization`、`utility`、`custom`，声明 Widget 时必须请求 `widget:register`。
-- 顶层 `manifest.settings` 是安装级设置；用户个人偏好放入 `Tapp.storage`，单个 Widget
-  实例偏好放入对应的 `widgets[].settings`。
+- 顶层 `manifest.settings` 是安装级设置；用户个人偏好放入 `Tapp.storage`，要给访客看的
+  站长数据放入 `Tapp.shared`，单个 Widget 实例偏好放入对应的 `widgets[].settings`。
 - 所有设置定义的默认值字段都必须写成 `defaultValue`；`default` 不是合法别名。
 - 应用用途分类只使用 `ai`、`data`、`developer`、`game`、`media`、`productivity`、
   `social`、`utility`。

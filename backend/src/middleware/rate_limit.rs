@@ -376,9 +376,7 @@ fn is_compute_intensive(path: &str) -> bool {
     }
     let p = path.trim_end_matches('/');
     // Bulk / AI / analysis
-    p == "/api/fetch"
-        || p == "/api/analysis"
-        || p == "/api/prompt/generate"
+    p == "/api/prompt/generate"
         || p == "/api/seo/generate-copy"
         || p == "/api/profile/refresh"
         || p == "/api/profile/fetch-all"
@@ -437,7 +435,6 @@ mod tests {
     fn open_proxy_path_classification() {
         assert!(is_compute_intensive("/api/proxy/hitokoto"));
         assert!(is_compute_intensive("/api/proxy/fetch-content"));
-        assert!(is_compute_intensive("/api/fetch"));
         assert!(is_compute_intensive("/api/profile/fetch-all"));
         assert!(is_compute_intensive("/api/profile/fetch-platform"));
         assert!(is_compute_intensive("/api/agent/process"));

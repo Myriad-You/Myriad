@@ -2,6 +2,9 @@
 
 pub mod gates;
 pub mod ingest;
+pub mod onboarding_ai;
+pub mod onboarding_prompts;
+pub mod report_dna;
 pub mod state;
 pub mod store;
 
@@ -11,7 +14,7 @@ pub use ingest::{
 pub use store::{
     clear_persona, get_or_create_state, get_persona, insert_diary, insert_proactive, latest_diary,
     list_diary, normalize_persona_fields, recent_proactive, save_departure_mood, save_mood,
-    set_activity, set_do_not_disturb, upsert_persona,
+    set_activity, set_do_not_disturb, upsert_persona, PortraitUpdate,
 };
 
 /// Logged-in users only. Guests use negative ids; heartbeat is `SYSTEM_USER_ID` (0).
@@ -370,8 +373,15 @@ pub fn has_custom_persona(persona: &agent_persona::Model) -> bool {
 pub use gates::{decide_ingest, is_chatting, is_valuable_event, IngestDecision};
 pub use state::{
     apply_departure, apply_mood_hint, apply_task_outcome, apply_user_utterance, clamp_mood,
-    detect_mood_cue, is_extremely_low, parse_mood_hint, should_apply_departure, MOOD_FLOOR,
+    detect_mood_cue, effective_activity, is_extremely_low, parse_mood_hint, should_apply_departure,
+    ACTIVITY_STALE_SECS, MOOD_FLOOR,
 };
+
+/// The activity to act on, with a stale one read as idle.
+pub fn current_activity(state: &crate::models::entities::agent_addressee_state::Model) -> &str {
+    let age = (chrono::Utc::now() - state.updated_at.with_timezone(&chrono::Utc)).num_seconds();
+    effective_activity(&state.activity, age)
+}
 
 #[cfg(test)]
 mod tests {

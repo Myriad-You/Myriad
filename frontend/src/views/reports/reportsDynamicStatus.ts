@@ -1,69 +1,39 @@
 /**
  * Reports page dynamic status: rotating tips + hero title for the unified bar.
  */
-export type LifeStatusKind =
-  | 'loading'
-  | 'disabled'
-  | 'guest'
-  | 'create'
-  | 'ready'
-
-export interface AgentLifeSnapshot {
-  name: string
-  mood?: number
-  activity?: string
-}
-
-export type ReportsTipKind =
-  | 'stage'
-  | 'platform'
-  | 'empty'
-  | 'life-ready'
-  | 'life-create'
-  | 'life-guest'
-  | 'life-loading'
-  | 'life-disabled'
-
-export type ReportsTipAction = 'none' | 'open-life' | 'login'
+export type ReportsTipKind = 'stage' | 'platform' | 'empty'
 
 export interface ReportsDynamicTip {
   id: string
-  /** Large background hero title — decorative Latin word, never localized */
+  /** Decorative Latin word behind the bar. Idle stays on Stage; stage follows the platform. */
   hero: string
   main: string
-  sub: string
+  /** Omit when the tip is just a status line — no how-to copy. */
+  sub?: string
   kind: ReportsTipKind
-  /** Tip body click target */
-  action: ReportsTipAction
-  /** Platform id for stage tip icon lookup */
+  /** Platform id for stage / highlight icon lookup */
   platformId?: string
+  /** Subtitle is a long hook — scroll it before advancing */
+  scrollSub?: boolean
 }
 
 export interface ReportsStatusCopy {
   /** Hero word for the report tips — decorative Latin, never localized */
   heroStage: string
-  /** Hero word for life tips — Latin like heroStage, not the localized title */
-  heroLife: string
   platformReport: string
-  clickToView: string
   noEnabledPlatforms: string
   stagePlaying: string
   stagePaused: string
-  tipPlatformCount: string
-  tipPlatformCountSub: string
-  tipReportReady: string
-  tipReportReadySub: string
   tipNoReports: string
   tipNoReportsSub: string
-  lifeTitle: string
-  lifeLoading: string
-  lifeDisabled: string
-  lifeNeedLogin: string
-  lifeCreateHint: string
-  lifeReadyHint: string
-  lifeIdle: string
-  lifeThinking: string
-  lifeTalking: string
+}
+
+export interface ReportHighlight {
+  platformId: string
+  /** Localized name — main title */
+  platformName: string
+  /** One-line portrait from the report itself — subtitle */
+  hook: string
 }
 
 export interface BuildReportsTipsInput {
@@ -72,22 +42,62 @@ export interface BuildReportsTipsInput {
   stagePaused: boolean
   stagePlatformId?: string | null
   stagePlatformName?: string | null
-  /** Latin platform name for the hero — display names get localized to CJK */
+  /** Latin platform name for the stage hero — display names get localized to CJK */
   stagePlatformHero?: string | null
   enabledPlatformCount: number
   reportCount: number
-  showLife: boolean
-  lifeKind: LifeStatusKind
-  lifeSnapshot: AgentLifeSnapshot | null
+  highlights?: ReportHighlight[]
 }
 
-function lifeActivityLabel(
-  activity: string | undefined,
-  copy: ReportsStatusCopy,
-): string {
-  if (activity === 'thinking') return copy.lifeThinking
-  if (activity === 'talking') return copy.lifeTalking
-  return copy.lifeIdle
+function oneLine(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function moodLine(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  const words = value
+    .filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+    .map((item) => item.trim())
+    .slice(0, 3)
+  return words.join(' · ')
+}
+
+/** Prefer the card's short portrait; fall back to the first insight / summary. */
+export function pickReportHook(report: {
+  summary?: string | null
+  insights?: string[] | null
+  card_visuals?: {
+    vibe?: unknown
+    taste_profile?: unknown
+    mood_keywords?: unknown
+  } | null
+}): string {
+  const visuals = report.card_visuals
+  const candidates = [
+    oneLine(visuals?.vibe),
+    oneLine(visuals?.taste_profile),
+    moodLine(visuals?.mood_keywords),
+    oneLine(report.insights?.[0]),
+    oneLine(report.summary),
+  ]
+  return candidates.find((item) => item.length > 0) ?? ''
+}
+
+const MARQUEE_PX_PER_SEC = 36
+const MARQUEE_MIN_MS = 1800
+const MARQUEE_MAX_MS = 14_000
+
+/** How long the subtitle should take to scroll its overflow. */
+export function marqueeDurationMs(overflowPx: number): number {
+  if (overflowPx <= 0) return 0
+  return Math.min(
+    MARQUEE_MAX_MS,
+    Math.max(
+      MARQUEE_MIN_MS,
+      Math.round((overflowPx / MARQUEE_PX_PER_SEC) * 1000),
+    ),
+  )
 }
 
 export function buildReportsDynamicTips(
@@ -102,9 +112,7 @@ export function buildReportsDynamicTips(
     stagePlatformHero,
     enabledPlatformCount,
     reportCount,
-    showLife,
-    lifeKind,
-    lifeSnapshot,
+    highlights = [],
   } = input
 
   // Stage locks the tip carousel — one focused status.
@@ -116,140 +124,53 @@ export function buildReportsDynamicTips(
         main: stagePlatformName,
         sub: stagePaused ? copy.stagePaused : copy.stagePlaying,
         kind: 'stage',
-        action: 'none',
         platformId: stagePlatformId || undefined,
       },
     ]
   }
 
-  const tips: ReportsDynamicTip[] = []
-
   if (enabledPlatformCount === 0) {
-    tips.push({
-      id: 'empty-platforms',
+    return [
+      {
+        id: 'empty-platforms',
+        hero: copy.heroStage,
+        main: copy.platformReport,
+        sub: copy.noEnabledPlatforms,
+        kind: 'empty',
+      },
+    ]
+  }
+
+  if (reportCount === 0) {
+    return [
+      {
+        id: 'no-reports',
+        hero: copy.heroStage,
+        main: copy.tipNoReports,
+        sub: copy.tipNoReportsSub,
+        kind: 'empty',
+      },
+    ]
+  }
+
+  if (highlights.length > 0) {
+    return highlights.map((item) => ({
+      id: `highlight-${item.platformId}`,
+      hero: copy.heroStage,
+      main: item.platformName,
+      sub: item.hook,
+      kind: 'platform',
+      platformId: item.platformId,
+      scrollSub: true,
+    }))
+  }
+
+  return [
+    {
+      id: 'idle',
       hero: copy.heroStage,
       main: copy.platformReport,
-      sub: copy.noEnabledPlatforms,
-      kind: 'empty',
-      action: 'none',
-    })
-  } else if (reportCount === 0) {
-    tips.push({
-      id: 'no-reports',
-      hero: copy.heroStage,
-      main: copy.tipNoReports,
-      sub: copy.tipNoReportsSub,
-      kind: 'empty',
-      action: 'none',
-    })
-  } else {
-    tips.push({
-      id: 'platform-ready',
-      hero: copy.heroStage,
-      main: copy.tipReportReady.replace('{count}', String(reportCount)),
-      sub: copy.tipReportReadySub,
       kind: 'platform',
-      action: 'none',
-    })
-
-    // Every platform already has a report → "N reports ready" and
-    // "N data platforms" are the same sentence twice. Only carry the
-    // platform count when it actually says something new.
-    if (enabledPlatformCount !== reportCount) {
-      tips.push({
-        id: 'platform-count',
-        hero: copy.heroStage,
-        main: copy.tipPlatformCount.replace(
-          '{count}',
-          String(enabledPlatformCount),
-        ),
-        sub: copy.tipPlatformCountSub || copy.clickToView,
-        kind: 'platform',
-        action: 'none',
-      })
-    }
-  }
-
-  if (!showLife) return tips
-
-  switch (lifeKind) {
-    case 'loading':
-      tips.push({
-        id: 'life-loading',
-        hero: copy.heroLife,
-        main: copy.lifeTitle,
-        sub: copy.lifeLoading,
-        kind: 'life-loading',
-        action: 'none',
-      })
-      break
-    case 'disabled':
-      tips.push({
-        id: 'life-disabled',
-        hero: copy.heroLife,
-        main: copy.lifeTitle,
-        sub: copy.lifeDisabled,
-        kind: 'life-disabled',
-        action: 'none',
-      })
-      break
-    case 'guest':
-      tips.push({
-        id: 'life-guest',
-        hero: copy.heroLife,
-        main: copy.lifeTitle,
-        sub: copy.lifeNeedLogin,
-        kind: 'life-guest',
-        action: 'login',
-      })
-      break
-    case 'create':
-      tips.push({
-        id: 'life-create',
-        hero: copy.heroLife,
-        main: copy.lifeTitle,
-        sub: copy.lifeCreateHint,
-        kind: 'life-create',
-        action: 'open-life',
-      })
-      break
-    case 'ready': {
-      const name = lifeSnapshot?.name || copy.lifeTitle
-      const activity = lifeActivityLabel(lifeSnapshot?.activity, copy)
-      const mood = Math.round(lifeSnapshot?.mood ?? 70)
-      tips.push({
-        id: `life-ready-${name}`,
-        hero: name,
-        main: name,
-        sub: copy.lifeReadyHint
-          .replace('{activity}', activity)
-          .replace('{mood}', String(mood)),
-        kind: 'life-ready',
-        action: 'open-life',
-      })
-      break
-    }
-  }
-
-  return tips
-}
-
-export function resolveLifeActionLabel(
-  kind: LifeStatusKind,
-  labels: {
-    create: string
-    open: string
-    login: string
-  },
-): string | null {
-  switch (kind) {
-    case 'create':
-      return labels.create
-    case 'ready':
-      return labels.open
-    case 'guest':
-      return labels.login
-    default:
-      return null
-  }
+    },
+  ]
 }

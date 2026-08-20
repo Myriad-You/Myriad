@@ -9,9 +9,9 @@ use myriad_tapp_contract::manifest::{TappCategory, TappManifest};
 
 use crate::services::tapp_validation::MAX_TAPP_ASSETS;
 
-/// Package directory on the store host (parent of main.js / manifest.json).
+/// Package directory on the store host (parent of the core entry / manifest.json).
 ///
-/// Example: `apps/com.myriad.doudizhu/main.js` → `apps/com.myriad.doudizhu`
+/// Example: `apps/com.myriad.doudizhu/core.js` → `apps/com.myriad.doudizhu`
 pub fn store_package_root(code_or_manifest_path: &str) -> String {
     let path = code_or_manifest_path.trim().trim_start_matches('/');
     match path.rfind('/') {
@@ -299,36 +299,42 @@ pub fn store_download_core_paths(
     Ok((manifest_path, code_path))
 }
 
-/// When the manifest declares pageStyles, the store index must list download.page_styles.
+/// When the manifest declares `page.styles`, the store index must list download.page_styles.
 pub fn require_download_page_styles_if_declared<'a>(
     download: &'a serde_json::Value,
     manifest: &TappManifest,
 ) -> Result<Option<&'a str>, String> {
     match (
         download.get("page_styles").and_then(|v| v.as_str()),
-        manifest.page_styles.is_some(),
+        manifest
+            .page
+            .as_ref()
+            .is_some_and(|page| page.styles.is_some()),
     ) {
         (Some(path), _) => Ok(Some(path)),
         (None, true) => Err(
-            "Store index is missing download.page_styles for a manifest that declares pageStyles"
+            "Store index is missing download.page_styles for a manifest that declares page.styles"
                 .to_string(),
         ),
         (None, false) => Ok(None),
     }
 }
 
-/// When the manifest declares pageTemplate, the store index must list download.page_template.
+/// When the manifest declares `page.template`, the store index must list download.page_template.
 pub fn require_download_page_template_if_declared<'a>(
     download: &'a serde_json::Value,
     manifest: &TappManifest,
 ) -> Result<Option<&'a str>, String> {
     match (
         download.get("page_template").and_then(|v| v.as_str()),
-        manifest.page_template.is_some(),
+        manifest
+            .page
+            .as_ref()
+            .is_some_and(|page| page.template.is_some()),
     ) {
         (Some(path), _) => Ok(Some(path)),
         (None, true) => Err(
-            "Store index is missing download.page_template for a manifest that declares pageTemplate"
+            "Store index is missing download.page_template for a manifest that declares page.template"
                 .to_string(),
         ),
         (None, false) => Ok(None),
@@ -453,9 +459,12 @@ pub fn i18n_downloads(download: &serde_json::Value) -> Vec<NamedPathDownload> {
     named_path_map_downloads(download, "i18n")
 }
 
-/// `download.page_modules` filename → path entries.
-pub fn page_module_downloads(download: &serde_json::Value) -> Vec<NamedPathDownload> {
-    named_path_map_downloads(download, "page_modules")
+/// `download.modules` 包内相对路径 → 仓库路径。
+///
+/// 覆盖任意层的入口与层内文件（`core.js`、`page/index.js`、`widget/index.js`…）。
+/// 取代按目录写死的 `page_modules`：层入口可以在任何位置，索引不该只能描述 `page/`。
+pub fn module_downloads(download: &serde_json::Value) -> Vec<NamedPathDownload> {
+    named_path_map_downloads(download, "modules")
 }
 
 /// Collapse a map into `None` when empty (install payload convention).
@@ -588,14 +597,14 @@ mod tests {
     #[test]
     fn package_root_from_code_path() {
         assert_eq!(
-            store_package_root("apps/com.myriad.doudizhu/main.js"),
+            store_package_root("apps/com.myriad.doudizhu/core.js"),
             "apps/com.myriad.doudizhu"
         );
         assert_eq!(
             store_package_root("apps/com.myriad.doudizhu/manifest.json"),
             "apps/com.myriad.doudizhu"
         );
-        assert_eq!(store_package_root("main.js"), "");
+        assert_eq!(store_package_root("core.js"), "");
         assert_eq!(store_package_root("/nested/a/b/c.js"), "nested/a/b");
     }
 
@@ -639,8 +648,8 @@ mod tests {
             "https://ex.com/store"
         );
         assert_eq!(
-            join_store_file_url("https://ex.com/store/", "apps/a/main.js"),
-            "https://ex.com/store/apps/a/main.js"
+            join_store_file_url("https://ex.com/store/", "apps/a/core.js"),
+            "https://ex.com/store/apps/a/core.js"
         );
     }
 
@@ -673,7 +682,7 @@ mod tests {
                 "category": "utility",
                 "download": {
                     "manifest": "apps/com.example.app/manifest.json",
-                    "code": "apps/com.example.app/main.js",
+                    "code": "apps/com.example.app/core.js",
                     "page_styles": "apps/com.example.app/page.css"
                 }
             }]
@@ -682,7 +691,7 @@ mod tests {
         let download = store_app_download_section(app).unwrap();
         let (manifest_path, code_path) = store_download_core_paths(download).unwrap();
         assert_eq!(manifest_path, "apps/com.example.app/manifest.json");
-        assert_eq!(code_path, "apps/com.example.app/main.js");
+        assert_eq!(code_path, "apps/com.example.app/core.js");
 
         assert!(matches!(
             find_store_app_entry(&index, "missing").unwrap_err(),
@@ -733,11 +742,10 @@ mod tests {
             "id": "com.example.app",
             "name": "App",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "core.js" },
+            "page": { "entry": "page/index.js", "styles": "page.css", "template": "page.html" },
             "category": "utility",
-            "permissions": [],
-            "pageStyles": "page.css",
-            "pageTemplate": "page.html"
+            "permissions": []
         }))
         .unwrap();
         let download_ok = json!({
@@ -769,7 +777,7 @@ mod tests {
             "id": "com.example.app",
             "name": "App",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "main.js" },
             "category": "music",
             "permissions": []
         }))
@@ -804,7 +812,7 @@ mod tests {
                 "list": { "4x2": "apps/a/templates/list-4x2.html" }
             },
             "i18n": { "en-US": "apps/a/i18n/en-US.json" },
-            "page_modules": { "extra.js": "apps/a/page/extra.js" }
+            "modules": { "page/extra.js": "apps/a/page/extra.js" }
         });
         let optional = optional_store_text_downloads(&download);
         assert_eq!(optional.len(), 2);
@@ -820,8 +828,8 @@ mod tests {
             key: "en-US".into(),
             path: "apps/a/i18n/en-US.json".into()
         }]);
-        let modules = page_module_downloads(&download);
-        assert_eq!(modules[0].key, "extra.js");
+        let modules = module_downloads(&download);
+        assert_eq!(modules[0].key, "page/extra.js");
 
         assert!(optional_store_text_downloads(&json!({})).is_empty());
         assert!(widget_template_downloads(&json!({})).is_empty());

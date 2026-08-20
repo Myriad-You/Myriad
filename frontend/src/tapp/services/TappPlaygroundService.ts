@@ -1,14 +1,29 @@
-import type { TappCodeStructure, TappManifest } from '../types'
+import type { TappManifest } from '../types'
 import { API_URL } from '../../config'
 import { getCSRFToken } from '../../utils/csrf'
 
+/**
+ * Playground 的编辑态代码：按层分成几个编辑框，而不是运行时那张模块表。
+ *
+ * 打包时映射到固定三文件 `core.js` / `page/index.js` / `widget/index.js`；
+ * 作者要拆更多文件走 CLI 或手写包，Playground 的文件树是另一个议题。
+ */
+export interface TappPlaygroundCode {
+  core: string
+  page: string
+  widget?: string
+  styles: string
+  pageHtml: string
+  widgetHtml?: string
+  widgetCSS?: string
+  pageCSS?: string
+  i18n?: Record<string, unknown>
+  assets?: Record<string, string>
+}
+
 export interface TappPlaygroundProject {
   manifest: TappManifest
-  code: TappCodeStructure & {
-    page: string
-    styles: string
-    pageHtml: string
-  }
+  code: TappPlaygroundCode
 }
 
 export interface PlaygroundAgentStep {

@@ -56,36 +56,6 @@ pub struct ConversationMessage {
     pub created_at: Option<String>,
 }
 
-/// 解析后的意图
-///
-/// **已废弃**: v3 Planner 直接输出 PlannerOutput，不再经过 ParsedIntent。
-/// 保留以兼容已持久化的序列化格式。
-#[deprecated(note = "v3 Planner 已不使用 ParsedIntent，请直接使用 PlannerOutput")]
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParsedIntent {
-    /// 意图 ID
-    pub id: String,
-    /// 主要动作
-    pub action: IntentAction,
-    /// 操作对象
-    pub target: IntentTarget,
-    /// 约束条件
-    pub constraints: IntentConstraints,
-    /// 置信度 (0.0 - 1.0)
-    pub confidence: f32,
-    /// 需要澄清的点（legacy，始终为空）
-    pub clarifications_needed: Vec<String>,
-    /// 子意图（复杂任务拆解）
-    pub sub_intents: Vec<ParsedIntent>,
-    /// AI 建议使用的能力列表
-    #[serde(default)]
-    pub suggested_capabilities: Vec<String>,
-    /// 不支持的原因（如果请求无法执行）
-    #[serde(default)]
-    pub unsupported_reason: Option<String>,
-}
-
 /// 意图动作类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -899,23 +869,6 @@ pub struct UserConfirmation {
 }
 
 // 辅助 trait
-
-#[allow(deprecated)]
-impl Default for ParsedIntent {
-    fn default() -> Self {
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            action: IntentAction::Query,
-            target: IntentTarget::Unspecified,
-            constraints: IntentConstraints::default(),
-            confidence: 0.0,
-            clarifications_needed: Vec::new(),
-            sub_intents: Vec::new(),
-            suggested_capabilities: Vec::new(),
-            unsupported_reason: None,
-        }
-    }
-}
 
 impl Default for Capability {
     fn default() -> Self {

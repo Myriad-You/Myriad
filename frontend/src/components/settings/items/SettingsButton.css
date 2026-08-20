@@ -129,6 +129,32 @@
   box-shadow: none;
 }
 
+/* Icon-only danger (card/row delete): quiet until hover */
+.settings-btn--danger-quiet.btn-danger {
+  background: transparent;
+  color: var(--cfg-text-3);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.settings-btn--danger-quiet.btn-danger:hover:not(:disabled) {
+  color: #dc2626;
+  background: rgb(239 68 68 / 10%);
+  border-color: transparent;
+  transform: none;
+  box-shadow: none;
+}
+
+html.dark .settings-btn--danger-quiet.btn-danger {
+  color: var(--cfg-text-3);
+  background: transparent;
+}
+
+html.dark .settings-btn--danger-quiet.btn-danger:hover:not(:disabled) {
+  color: #f87171;
+  background: rgb(239 68 68 / 16%);
+}
+
 html.dark .settings-btn--ghost {
   color: var(--cfg-text-2);
 }

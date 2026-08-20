@@ -596,7 +596,7 @@ html.dark .music-control-btn:hover {
   /* background-image 承载渐变；勿 transition background，避免抹成单色 */
   background-color: var(--music-base-primary);
   background-image: linear-gradient(
-    135deg,
+    135deg in oklch,
     var(--music-base-primary) 0%,
     var(--music-base-secondary) 100%
   );
@@ -621,7 +621,7 @@ html.dark .music-control-btn:hover {
   inset: -2px;
   border-radius: 50%;
   background-image: linear-gradient(
-    135deg,
+    135deg in oklch,
     var(--music-base-primary),
     var(--music-base-secondary)
   );
@@ -981,7 +981,7 @@ html.dark .music-progress-track:focus-within {
   /* 进度填充：primary → secondary 明确色停，避免被 transition 抹成单色 */
   background-color: var(--music-base-primary, #ec4899);
   background-image: linear-gradient(
-    90deg,
+    90deg in oklch,
     var(--music-base-primary, #ec4899) 0%,
     var(--music-base-secondary, #a855f7) 100%
   );
@@ -1637,7 +1637,7 @@ html.dark .music-mini-btn:hover {
   height: 2.5rem;
   background-color: var(--music-base-primary);
   background-image: linear-gradient(
-    135deg,
+    135deg in oklch,
     var(--music-base-primary) 0%,
     var(--music-base-secondary) 100%
   );
@@ -2200,7 +2200,7 @@ html.dark .music-source-tab:hover {
 
 .music-source-tab.active {
   background: linear-gradient(
-    135deg,
+    135deg in oklch,
     var(--music-base-primary),
     var(--music-base-secondary)
   );
@@ -2253,7 +2253,7 @@ html.dark .music-search-input::placeholder {
   padding: 0.5rem 0.875rem;
   background-color: var(--music-base-primary);
   background-image: linear-gradient(
-    135deg,
+    135deg in oklch,
     var(--music-base-primary) 0%,
     var(--music-base-secondary) 100%
   );

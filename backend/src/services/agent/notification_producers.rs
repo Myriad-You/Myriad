@@ -74,14 +74,22 @@ impl NotificationManager {
         if !crate::services::agent::life::allow_existing_notify(user_id).await {
             return;
         }
-        // Keep the deep link: the thing that broke is a feed, not a conversation.
-        // Whatever the Agent has to say about it goes out as its own speech.
-        let metadata = serde_json::json!({
+        // Exactly one click target: with life on the addressee lands in the
+        // conversation, otherwise the old deep link stands. Carrying both would
+        // leave `route` dead, since the panel resolves `action` first.
+        let mut metadata = serde_json::json!({
             "event_key": "brew.source_error",
-            "route": "/brew",
             "source_id": source_id,
             "status": "failed",
         });
+        if crate::services::agent::life::life_enabled().await {
+            metadata["action"] = serde_json::json!("open_arael");
+            metadata["session_id"] = serde_json::json!(
+                crate::services::agent::life::ingest::latest_session_id_for(user_id).await
+            );
+        } else {
+            metadata["route"] = serde_json::json!("/brew");
+        }
         let notification = Notification::new(
             user_id,
             NotificationType::BrewSourceError,
@@ -99,12 +107,19 @@ impl NotificationManager {
         if !crate::services::agent::life::allow_existing_notify(user_id).await {
             return;
         }
-        let metadata = serde_json::json!({
+        let mut metadata = serde_json::json!({
             "event_key": "platform.sync.failed",
-            "route": "/config?section=platforms",
             "platform": platform,
             "status": "failed",
         });
+        if crate::services::agent::life::life_enabled().await {
+            metadata["action"] = serde_json::json!("open_arael");
+            metadata["session_id"] = serde_json::json!(
+                crate::services::agent::life::ingest::latest_session_id_for(user_id).await
+            );
+        } else {
+            metadata["route"] = serde_json::json!("/config?section=platforms");
+        }
         let notification = Notification::new(
             user_id,
             NotificationType::SystemInfo,

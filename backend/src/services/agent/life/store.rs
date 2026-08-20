@@ -23,18 +23,38 @@ pub fn normalize_persona_fields(name: &str, personality: &str) -> (String, Strin
     (name.trim().to_string(), personality.trim().to_string())
 }
 
+/// What a persona write does to the portrait. An absent field must not wipe it —
+/// the manage drawer only ever sends name and personality.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PortraitUpdate {
+    Keep,
+    Clear,
+    Set(String),
+}
+
+impl PortraitUpdate {
+    fn stored(&self) -> Option<String> {
+        match self {
+            PortraitUpdate::Set(value) => Some(value.clone()),
+            _ => None,
+        }
+    }
+}
+
 fn apply_persona_update(
     existing: agent_persona::Model,
     name: String,
     personality: String,
-    portrait_asset_id: Option<String>,
+    portrait: &PortraitUpdate,
     updated_by: i32,
 ) -> agent_persona::ActiveModel {
     let mut active: agent_persona::ActiveModel = existing.into();
     active.name = Set(name);
     active.personality = Set(personality);
-    if portrait_asset_id.is_some() {
-        active.portrait_asset_id = Set(portrait_asset_id);
+    match portrait {
+        PortraitUpdate::Keep => {}
+        PortraitUpdate::Clear => active.portrait_asset_id = Set(None),
+        PortraitUpdate::Set(value) => active.portrait_asset_id = Set(Some(value.clone())),
     }
     active.updated_by = Set(Some(updated_by));
     active.updated_at = Set(Utc::now().into());
@@ -45,26 +65,22 @@ pub async fn upsert_persona(
     db: &DatabaseConnection,
     name: String,
     personality: String,
-    portrait_asset_id: Option<String>,
+    portrait: PortraitUpdate,
     updated_by: i32,
 ) -> Result<agent_persona::Model, anyhow::Error> {
     let (name, personality) = normalize_persona_fields(&name, &personality);
     if let Some(existing) = get_persona(db).await? {
-        return Ok(apply_persona_update(
-            existing,
-            name,
-            personality,
-            portrait_asset_id,
-            updated_by,
-        )
-        .update(db)
-        .await?);
+        return Ok(
+            apply_persona_update(existing, name, personality, &portrait, updated_by)
+                .update(db)
+                .await?,
+        );
     }
     let active = agent_persona::ActiveModel {
         id: Set(PERSONA_ROW_ID.to_string()),
         name: Set(name.clone()),
         personality: Set(personality.clone()),
-        portrait_asset_id: Set(portrait_asset_id.clone()),
+        portrait_asset_id: Set(portrait.stored()),
         updated_by: Set(Some(updated_by)),
         updated_at: Set(Utc::now().into()),
     };
@@ -73,7 +89,7 @@ pub async fn upsert_persona(
         Err(err) if is_unique_conflict(&err) => {
             let existing = get_persona(db).await?.ok_or_else(|| anyhow::anyhow!(err))?;
             Ok(
-                apply_persona_update(existing, name, personality, portrait_asset_id, updated_by)
+                apply_persona_update(existing, name, personality, &portrait, updated_by)
                     .update(db)
                     .await?,
             )

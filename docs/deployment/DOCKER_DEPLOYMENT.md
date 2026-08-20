@@ -66,14 +66,13 @@ Networks:
 | --- | --- |
 | `docker-compose.yml` | Production stack: postgres, backend, frontend, proxy, updater, updater-gateway, docker-guard |
 | `.env.production.example` | Template for host `.env` |
-| `scripts/docker/deploy.sh` | Linux/macOS bootstrap and stack management |
-| `scripts/docker/deploy.ps1` | Windows bootstrap and stack management |
+| `scripts/extra/deploy.sh` | Bootstrap and stack management (WSL / Git Bash on Windows) |
 | `docs/deployment/PORTS.md` | Development and production port map |
 | `docs/deployment/EXTERNAL_POSTGRES.md` | External / 1Panel Postgres: `MYRIAD_DB_MODE=external`, no local pgdata |
 | `docs/deployment/examples/docker-compose.external-db.example.yml` | Compose without `postgres`; external `DATABASE_URL` |
 | `docs/deployment/UPDATER_SECURITY_BASELINE.md` | Done-state security baseline + operator red lines |
 | `docs/deployment/SETUP_BOOTSTRAP.md` | 安装暗号：编排预置库时，安装写操作必须对上 |
-| `docs/UPDATER_QUICKSTART.md` | Operator guide for update, rollback, rescue |
+| `docs/deployment/UPDATER_QUICKSTART.md` | Operator guide for update, rollback, rescue |
 | `docs/updater-spec.md` | Updater protocol and failure-mode design |
 
 ## First Start
@@ -86,14 +85,10 @@ cp .env.production.example .env
 # deploy.sh fills UPDATE_TOKEN / UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET
 # and GUARD_SELF_UPDATE_TOKEN if empty, then writes ./guard-policy/docker-guard.env.
 
-bash scripts/docker/deploy.sh up
+bash scripts/extra/deploy.sh up
 ```
 
-On Windows:
-
-```powershell
-.\scripts\docker\deploy.ps1 up
-```
+On Windows use WSL / Git Bash for the same command, or `docker compose up -d`.
 
 Guard writes `./guard-policy/docker-guard.env` on first start.
 
@@ -166,12 +161,12 @@ out-of-scope items live in:
 - Topology check (read-only; no auto-migrate):
 
 ```bash
-bash scripts/docker/deploy.sh doctor
+bash scripts/extra/deploy.sh doctor
 ```
 
 - Optional host scan for unexpected privileged containers / `docker.sock` binds
-  (not run on every upgrade): `bash scripts/docker/deploy.sh doctor --host`.
-  To watch new containers: `bash scripts/docker/deploy.sh doctor --events`.
+  (not run on every upgrade): `bash scripts/extra/deploy.sh doctor --host`.
+  To watch new containers: `bash scripts/extra/deploy.sh doctor --events`.
 
 ### Hygiene (low-friction)
 
@@ -204,18 +199,18 @@ bash scripts/docker/deploy.sh doctor
 ## Operations
 
 ```bash
-bash scripts/docker/deploy.sh status
-bash scripts/docker/deploy.sh doctor
-bash scripts/docker/deploy.sh logs
-bash scripts/docker/deploy.sh restart
-bash scripts/docker/deploy.sh down
+bash scripts/extra/deploy.sh status
+bash scripts/extra/deploy.sh doctor
+bash scripts/extra/deploy.sh logs
+bash scripts/extra/deploy.sh restart
+bash scripts/extra/deploy.sh down
 ```
 
 Manual tag upgrade path:
 
 ```bash
 # Edit MYRIAD_TAG / PROXY_TAG / UPDATER_TAG in .env first.
-bash scripts/docker/deploy.sh upgrade
+bash scripts/extra/deploy.sh upgrade
 ```
 
 Day-to-day updates should be started from the admin UI:

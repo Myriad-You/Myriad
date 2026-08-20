@@ -331,7 +331,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_queue_activity_target
 /// 3. If orphans > 0 → warn and **skip** (still no DELETE / SET NULL).
 /// 4. If orphans = 0 → `ALTER TABLE … ADD CONSTRAINT`.
 ///
-/// Operators: run `scripts/dev/federation-fk-orphan-report.sql` on a replica
+/// Operators: run `scripts/extra/federation-fk-orphan-report.sql` on a replica
 /// first. If orphans > 0, decide manually — preferred conservative remediations:
 /// - nullable columns → `SET NULL` (keeps the row)
 /// - dead rows with no business value → `DELETE` only after explicit review
@@ -361,7 +361,7 @@ pub(crate) async fn ensure_federation_foreign_keys(db: &DatabaseConnection) -> R
         tracing::info!(
             "Federation FK heal is report-only \
              (set MYRIAD_FEDERATION_APPLY_FKS=1 to add constraints when orphan-free). \
-             See scripts/dev/federation-fk-orphan-report.sql"
+             See scripts/extra/federation-fk-orphan-report.sql"
         );
     }
 
@@ -598,7 +598,7 @@ LIMIT 1
                 constraint = fk.name,
                 orphans,
                 "Federation FK missing and has orphan rows — not applying \
-                 (heal never deletes). Run scripts/dev/federation-fk-orphan-report.sql; \
+                 (heal never deletes). Run scripts/extra/federation-fk-orphan-report.sql; \
                  prefer SET NULL on nullable columns over DELETE"
             );
             continue;
@@ -831,7 +831,7 @@ BEGIN
         + octet_length(NEW.key)
         + octet_length(NEW.value::text)
         + COALESCE(octet_length(NEW.encrypted_value), 0);
-    IF projected_bytes > 5242880 THEN
+    IF projected_bytes > 8388608 THEN
         RAISE EXCEPTION 'Tapp storage quota exceeded: % bytes', projected_bytes
             USING ERRCODE = '54000';
     END IF;

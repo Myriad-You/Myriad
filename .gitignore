@@ -117,3 +117,4 @@ docker/volumes/
 /.pnpm-store
 /Upload/
 /tapp-store
+backend/data/.bootstrap-claimed

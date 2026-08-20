@@ -9,7 +9,12 @@
 
 import type { ChatMessage, ExecutionStep } from '../types'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { API_URL } from '../../../config'
 import { useI18n } from '../../../contexts/I18nContext'
+
+function resolveAgentImageUrl(url: string): string {
+  return url.startsWith('/') ? `${API_URL}${url}` : url
+}
 
 // 轻量 Markdown → React 渲染
 
@@ -748,12 +753,16 @@ export const AraelChatMessage: React.FC<AraelChatMessageProps> = React.memo(
                 {message.imageUrls.map((url, idx) => (
                   <img
                     key={idx}
-                    src={url}
+                    src={resolveAgentImageUrl(url)}
                     alt={t.arael.aiGeneratedImage}
                     loading="lazy"
                     className="arael-msg-image-clickable"
                     onClick={() =>
-                      window.open(url, '_blank', 'noopener,noreferrer')
+                      window.open(
+                        resolveAgentImageUrl(url),
+                        '_blank',
+                        'noopener,noreferrer',
+                      )
                     }
                     onError={(e) => {
                       const el = e.currentTarget

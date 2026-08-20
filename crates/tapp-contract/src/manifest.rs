@@ -50,12 +50,12 @@ pub struct TappManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locales: Option<HashMap<String, TappManifestLocaleEntry>>,
     pub author: Option<TappAuthor>,
-    pub main: String,
-    pub styles: Option<String>,
-    pub widget_styles: Option<String>,
-    pub page_styles: Option<String>,
-    pub page_template: Option<String>,
-    pub css_mode: Option<String>,
+    /// 共享层。声明后台常驻能力的包必须有它；其余包可以只声明 page / widgets。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core: Option<TappCoreLayer>,
+    /// Page 层。存在即表示该 Tapp 有可打开的页面。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<TappPageLayer>,
     #[serde(default)]
     pub permissions: Vec<String>,
     pub icon: Option<String>,
@@ -66,8 +66,6 @@ pub struct TappManifest {
     pub min_system_version: Option<String>,
     pub widgets: Option<Vec<TappWidgetDef>>,
     #[serde(default)]
-    pub has_page: bool,
-    #[serde(default)]
     pub background_requirements: Option<Vec<String>>,
     pub settings: Option<Vec<TappSettingDef>>,
     /// Installation-level write-only credentials. Values are stored by the host
@@ -76,8 +74,6 @@ pub struct TappManifest {
     pub credentials: Option<Vec<TappCredentialDef>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<TappCategory>,
-    #[serde(default)]
-    pub page_modules: Option<Vec<String>>,
     /// Host-injected, pinned runtime libraries (currently only `three`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_modules: Option<Vec<String>>,
@@ -102,7 +98,63 @@ pub struct TappManifest {
     pub open_urls: Option<Vec<TappOpenUrlDef>>,
 }
 
+/// 共享层：所有沙箱模式执行的第一段代码，也是 headless 后台唯一执行的代码。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TappCoreLayer {
+    /// 包内相对路径的 `.js` 入口。层内其余文件由入口 require 进来。
+    pub entry: String,
+    /// 各层共享的作者样式。宿主预编译产物不走这里。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub styles: Option<String>,
+}
+
+/// Page 层。`entry` 与 `template` 至少有一个，否则这一层没有任何内容。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TappPageLayer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub styles: Option<String>,
+}
+
 impl TappManifest {
+    /// 该 Tapp 是否有可打开的页面。取代作者声明的 `hasPage`：页面存在与否
+    /// 由 `page` 层是否声明决定，不再是一个可以和内容对不上的独立开关。
+    pub fn has_page(&self) -> bool {
+        self.page.is_some()
+    }
+
+    /// 层入口按固定顺序展开，用于安装校验与依赖图起点。
+    pub fn layer_entries(&self) -> Vec<&str> {
+        let mut entries = Vec::new();
+        if let Some(core) = &self.core {
+            entries.push(core.entry.as_str());
+        }
+        if let Some(entry) = self.page.as_ref().and_then(|page| page.entry.as_deref()) {
+            entries.push(entry);
+        }
+        if let Some(widgets) = &self.widgets {
+            for widget in widgets {
+                if let Some(entry) = widget.entry.as_deref() {
+                    entries.push(entry);
+                }
+            }
+        }
+        entries
+    }
+
+    /// Larger archive/asset caps apply only to game/developer packages that
+    /// opt into the game session or a host runtime module.
+    pub fn uses_game_package_limits(&self) -> bool {
+        self.uses_game_asset_limits()
+    }
+
     /// Larger asset caps apply only to game/developer packages that opt into
     /// the game session or a host runtime module.
     pub fn uses_game_asset_limits(&self) -> bool {
@@ -766,6 +818,12 @@ pub struct TappWidgetDef {
     pub default_size: String,
     pub sizes: Vec<String>,
     pub category: Option<TappWidgetCategory>,
+    /// 该 widget 的 `.js` 入口。多个 widget 想共用代码就各自 require 同一个文件。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
+    /// 该 widget 的作者样式。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub styles: Option<String>,
     pub templates: Option<HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub settings: Vec<TappSettingDef>,

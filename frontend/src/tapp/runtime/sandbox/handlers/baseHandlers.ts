@@ -16,7 +16,10 @@ import {
 
   resolveOpenUrl,
 } from '../../../utils/openUrlAllowlist'
-import { emitTappStorageChange } from '../../WidgetRuntimeSignals'
+import {
+  emitTappSharedChange,
+  emitTappStorageChange,
+} from '../../WidgetRuntimeSignals'
 import { sanitizeStorageValue, validateStorageKey } from '../security'
 
 /** Per-tapp openUrl rate limit (host-side; shared across sandboxes in this tab). */
@@ -492,6 +495,133 @@ export function registerStorageHandlers(
     try {
       const values = await TappApiService.getTappSettings(tappId)
       return { success: true, data: values }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed',
+      }
+    }
+  })
+
+  bridge.registerHandler('shared.get', async (message) => {
+    const [key] = (message.payload as { args: unknown[] }).args || []
+    if (!key) return { success: false, error: 'Key is required' }
+    const keyValidation = validateStorageKey(key as string)
+    if (!keyValidation.valid) {
+      return { success: false, error: `Invalid key: ${keyValidation.reason}` }
+    }
+    try {
+      const value = await TappApiService.getShared(tappId, key as string)
+      return { success: true, data: value }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed',
+      }
+    }
+  })
+
+  bridge.registerHandler('shared.set', async (message) => {
+    const [key, value] = (message.payload as { args: unknown[] }).args || []
+    if (!key) return { success: false, error: 'Key is required' }
+    const keyValidation = validateStorageKey(key as string)
+    if (!keyValidation.valid) {
+      return { success: false, error: `Invalid key: ${keyValidation.reason}` }
+    }
+    const sanitizedValue = sanitizeStorageValue(value)
+    const valueSize = JSON.stringify(sanitizedValue).length
+    if (valueSize > MAX_VALUE_SIZE) {
+      return {
+        success: false,
+        error: `Value too large: ${valueSize} bytes (max ${MAX_VALUE_SIZE})`,
+      }
+    }
+    try {
+      await TappApiService.setShared(tappId, key as string, sanitizedValue)
+      emitTappSharedChange({
+        tappId,
+        key: key as string,
+        operation: 'set',
+        source: bridge,
+      })
+      return { success: true, data: null }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed',
+      }
+    }
+  })
+
+  bridge.registerHandler('shared.remove', async (message) => {
+    const [key] = (message.payload as { args: unknown[] }).args || []
+    if (!key) return { success: false, error: 'Key is required' }
+    const keyValidation = validateStorageKey(key as string)
+    if (!keyValidation.valid) {
+      return { success: false, error: `Invalid key: ${keyValidation.reason}` }
+    }
+    try {
+      await TappApiService.removeShared(tappId, key as string)
+      emitTappSharedChange({
+        tappId,
+        key: key as string,
+        operation: 'remove',
+        source: bridge,
+      })
+      return { success: true, data: null }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed',
+      }
+    }
+  })
+
+  bridge.registerHandler('shared.keys', async () => {
+    try {
+      const keys = await TappApiService.listSharedKeys(tappId)
+      return { success: true, data: keys }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed',
+      }
+    }
+  })
+
+  bridge.registerHandler('shared.getAll', async () => {
+    try {
+      const entries = await TappApiService.listSharedEntries(tappId)
+      return { success: true, data: entries }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed',
+      }
+    }
+  })
+
+  bridge.registerHandler('shared.clear', async () => {
+    try {
+      await TappApiService.clearShared(tappId)
+      emitTappSharedChange({
+        tappId,
+        operation: 'clear',
+        source: bridge,
+      })
+      return { success: true, data: null }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed',
+      }
+    }
+  })
+
+  bridge.registerHandler('shared.usage', async () => {
+    try {
+      const usage = await TappApiService.getSharedUsage(tappId)
+      return { success: true, data: usage }
     } catch (error) {
       return {
         success: false,

@@ -931,7 +931,7 @@ BEGIN
         + octet_length(NEW.key)
         + octet_length(NEW.value::text)
         + COALESCE(octet_length(NEW.encrypted_value), 0);
-    IF projected_bytes > 5242880 THEN
+    IF projected_bytes > 8388608 THEN
         RAISE EXCEPTION 'Tapp storage quota exceeded: % bytes', projected_bytes
             USING ERRCODE = '54000';
     END IF;

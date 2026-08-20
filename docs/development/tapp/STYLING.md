@@ -7,7 +7,7 @@
 > - 更好的可维护性和可读性
 > - 更小的样式体积，无需 Tailwind 编译
 > - 更容易实现复杂的 hover/动画效果
-> - 支持 CSS 架构分离模式（`cssMode: separated`）
+> - 支持按层声明样式（`core.styles` / `page.styles` / `widgets[].styles`）
 >
 > 参考实现：查看 `com.myriad.hello-world` 和 `com.myriad.ai-chat` 示例。
 

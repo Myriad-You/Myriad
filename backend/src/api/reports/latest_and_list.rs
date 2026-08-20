@@ -14,12 +14,7 @@ use super::generate::{
 };
 
 /// 后台重新生成过期的平台报告（只用已有缓存数据调 AI，不重新抓平台）
-fn spawn_report_auto_regen(
-    db: DatabaseConnection,
-    user_id: i32,
-    platforms: Vec<String>,
-    dynamic_config: std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
-) {
+fn spawn_report_auto_regen(db: DatabaseConnection, user_id: i32, platforms: Vec<String>) {
     let to_run: Vec<String> = {
         let mut in_flight = REPORT_REGEN_IN_FLIGHT.lock().unwrap();
         platforms
@@ -34,7 +29,7 @@ fn spawn_report_auto_regen(
     tokio::spawn(async move {
         tracing::info!("♻️ Auto-regenerating expired reports: {:?}", to_run);
         let (_reports, skipped) =
-            generate_platform_reports_internal(&db, user_id, to_run.clone(), dynamic_config).await;
+            generate_platform_reports_internal(&db, user_id, to_run.clone()).await;
         if !skipped.is_empty() {
             tracing::warn!("♻️ Auto-regen skipped some platforms: {:?}", skipped);
         }
@@ -47,9 +42,6 @@ fn spawn_report_auto_regen(
 
 pub async fn get_latest_report(
     crate::extract::Db(db): crate::extract::Db,
-    axum::extract::State(dynamic_config): axum::extract::State<
-        std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
-    >,
 ) -> Result<Json<Value>, crate::error::HttpError> {
     // Public dashboard: site owner first; historical rows may live under another admin.
     let preferred = public_report_owner_user_id(&db).await;
@@ -93,7 +85,7 @@ pub async fn get_latest_report(
     }
 
     if !expired_platforms.is_empty() {
-        spawn_report_auto_regen(db.clone(), user_id, expired_platforms, dynamic_config);
+        spawn_report_auto_regen(db.clone(), user_id, expired_platforms);
     }
 
     // 如果没有任何平台报告

@@ -18,6 +18,7 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
+use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 use crate::services::http_client::TAPP_HTTP_CLIENT;
 use crate::services::permission_service::UserRole;
 use crate::services::spoof_utils::{generate_spoof_headers, SpoofConfig};
@@ -778,9 +779,19 @@ impl TappApiService {
                 if messages.len() > 20 {
                     return Err("AI chat accepts at most 20 messages".to_string());
                 }
+                for message in messages {
+                    let content = message.get("content").and_then(Value::as_str).unwrap_or("");
+                    if content.chars().count() > USER_TEXT_MAX_CHARS {
+                        return Err(format!(
+                            "AI chat message too long (max {USER_TEXT_MAX_CHARS} characters)"
+                        ));
+                    }
+                }
                 let prompt = serde_json::to_string(messages)
                     .map_err(|error| format!("Invalid AI chat messages: {error}"))?;
-                if prompt.len() > 20_000 {
+                // Fits a full CJK USER_TEXT_MAX_CHARS turn plus several shorter ones.
+                const MAX_TAPP_CHAT_JSON_BYTES: usize = 256 * 1024;
+                if prompt.len() > MAX_TAPP_CHAT_JSON_BYTES {
                     return Err("AI chat messages are too large".to_string());
                 }
                 if let Some(reason) = myriad_prompt_security::validate_prompt_security(&prompt) {
@@ -812,8 +823,10 @@ impl TappApiService {
                     .get("params.prompt")
                     .and_then(Value::as_str)
                     .ok_or("AI generate requires params.prompt")?;
-                if prompt.len() > 2000 {
-                    return Err("Prompt too long (max 2000 characters)".to_string());
+                if prompt.chars().count() > USER_TEXT_MAX_CHARS {
+                    return Err(format!(
+                        "Prompt too long (max {USER_TEXT_MAX_CHARS} characters)"
+                    ));
                 }
                 if let Some(reason) = myriad_prompt_security::validate_prompt_security(prompt) {
                     return Err(format!("Prompt contains disallowed content: {reason}"));

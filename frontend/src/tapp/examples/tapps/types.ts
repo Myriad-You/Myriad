@@ -2,10 +2,10 @@
  * 示例 Tapp 类型定义
  */
 
-import type { TappCodeStructure, TappManifest } from '../../types'
+import type { TappPlaygroundCode } from '../../services/TappPlaygroundService'
+import type { TappManifest } from '../../types'
 
-export { getCodeForMode } from '../../runtime/codeStructure'
-export type { TappCodeStructure } from '../../types'
+export type { TappPlaygroundCode } from '../../services/TappPlaygroundService'
 
 /**
  * Tapp 代码结构（分离架构）
@@ -23,6 +23,6 @@ export type { TappCodeStructure } from '../../types'
 export interface ExampleTapp {
   manifest: TappManifest
   /** 代码结构（分离架构） */
-  code: TappCodeStructure
+  code: TappPlaygroundCode
   tags: string[]
 }

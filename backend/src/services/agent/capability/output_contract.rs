@@ -32,8 +32,8 @@
 //! - [`ContractViolation::Drift`] — the handler returned an object sharing no
 //!   key at all with the declared properties. A static audit of the registry
 //!   found ~10 capabilities whose declaration never matched its handler
-//!   (`bilibili.user`, `github.repos`, `steam.user`, `music.status`,
-//!   `tapp.generate`, …), so this stays a logged signal rather than a gate.
+//!   (`bilibili.user`, `github.repos`, `steam.user`, `tapp.generate`, …),
+//!   so this stays a logged signal rather than a gate.
 //!   Correcting those declarations is follow-up work.
 
 use serde_json::Value;
@@ -310,7 +310,7 @@ mod tests {
                     "imageUrl": "https://example.invalid/a.png",
                     "width": 1024,
                     "height": 768,
-                    "provider": "pollinations"
+                    "provider": "openrouter"
                 }),
             ),
             // execute_gemini_grounding_search_wrapper (ai.webSearch / groundingSearch)

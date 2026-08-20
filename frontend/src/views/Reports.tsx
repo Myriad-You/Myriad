@@ -1,8 +1,6 @@
 import type { ReactNode } from 'react'
 import type { ToastType } from '../components/Toast'
 import type { WidgetConfig } from '../components/WidgetGrid'
-import type { LifeStatusKind } from './reports/reportsDynamicStatus'
-
 import {
   FaGithub,
   FaSteam,
@@ -30,8 +28,6 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
-import PersonaOnboarding from '../components/agent/PersonaOnboarding'
 import AnimatedView from '../components/AnimatedView'
 import { Spinner } from '../components/Spinner'
 import StageMode from '../components/StageMode'
@@ -51,7 +47,6 @@ import {
   useResolvedTitleColor,
   useTitleFont,
 } from '../hooks/useTitleFont'
-import { agentService } from '../services/agent'
 import { getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
 import { buildModulePageSeo } from '../utils/modulePageSeo'
@@ -65,9 +60,11 @@ import { REPORT_PLATFORM_IDS } from '../utils/reportCardVisuals'
 import { invalidateLatestReportCache } from '../utils/requestDedup'
 import { hasSessionHint } from '../utils/sessionDetection'
 import ReportsStatusBar from './reports/ReportsStatusBar'
+import { pickReportHook } from './reports/reportsDynamicStatus'
 import {
   REPORT_CARD_FLEX_BASIS,
   REPORT_CAROUSEL_CSS_VARS,
+  REPORT_STRIP_ALIGN_PAD,
 } from './reports/types'
 
 interface PlatformReport {
@@ -416,6 +413,22 @@ export default function Reports() {
     return map
   }, [report?.platform_reports])
 
+  const reportHighlights = useMemo(() => {
+    const items = []
+    for (const platform of visiblePlatforms) {
+      const report = platformReportsMap.get(platform.id)
+      if (!report) continue
+      const hook = pickReportHook(report)
+      if (!hook) continue
+      items.push({
+        platformId: platform.id,
+        platformName: platform.name,
+        hook,
+      })
+    }
+    return items
+  }, [visiblePlatforms, platformReportsMap])
+
   // 稳定的 ReportCardWidget config，避免每次渲染新建对象打破 memo
   const platformWidgetConfigs = useMemo(() => {
     const map: Record<string, WidgetConfig> = {}
@@ -714,75 +727,6 @@ export default function Reports() {
     checkAuth,
     user,
   } = useAuth()
-  const navigate = useNavigate()
-  const [lifeKind, setLifeKind] = useState<LifeStatusKind>('loading')
-  const [lifeName, setLifeName] = useState('Arael')
-  const [lifeMood, setLifeMood] = useState(70)
-  const [lifeActivity, setLifeActivity] = useState('idle')
-  const [lifeEnabled, setLifeEnabled] = useState<boolean | null>(null)
-  const [showPersonaOnboarding, setShowPersonaOnboarding] = useState(false)
-
-  const refreshLifeEntry = useCallback(async () => {
-    // 开关未知时先说「正在确认」：否则关着生命的站点会让游客先看到登录提示，
-    // 等公共配置回来再跳成「已关闭」。
-    if (lifeEnabled === null) {
-      setLifeKind('loading')
-      return
-    }
-    if (!lifeEnabled) {
-      setLifeKind('disabled')
-      return
-    }
-    if (!isAuthenticated) {
-      setLifeKind('guest')
-      return
-    }
-    setLifeKind('loading')
-    try {
-      const persona = await agentService.getPersona()
-      setLifeName(persona?.name?.trim() || 'Arael')
-      setLifeMood(
-        typeof persona?.mood === 'number' && Number.isFinite(persona.mood)
-          ? persona.mood
-          : 70,
-      )
-      setLifeActivity(persona?.activity?.trim() || 'idle')
-      if (persona?.hasCustomPersona) {
-        setLifeKind('ready')
-      } else if (user?.is_owner) {
-        setLifeKind('create')
-      } else {
-        setLifeKind('ready')
-      }
-    } catch {
-      setLifeName('Arael')
-      setLifeKind(user?.is_owner ? 'create' : 'ready')
-    }
-  }, [isAuthenticated, lifeEnabled, user?.is_owner])
-
-  useEffect(() => {
-    void refreshLifeEntry()
-  }, [refreshLifeEntry])
-
-  useEffect(() => {
-    const onPersonaUpdated = () => {
-      void refreshLifeEntry()
-    }
-    window.addEventListener('arael-persona-updated', onPersonaUpdated)
-    return () =>
-      window.removeEventListener('arael-persona-updated', onPersonaUpdated)
-  }, [refreshLifeEntry])
-
-  const seedTags = useMemo(() => {
-    const tags: string[] = []
-    for (const report of platformReportsMap.values()) {
-      for (const insight of report.insights || []) {
-        const phrase = insight.replace(/\s+/g, ' ').trim()
-        if (phrase.length >= 2 && phrase.length <= 40) tags.push(phrase)
-      }
-    }
-    return tags
-  }, [platformReportsMap])
 
   // 智能检测：如果有登录迹象且未检查过，触发认证检查
   useEffect(() => {
@@ -822,15 +766,6 @@ export default function Reports() {
 
         if (!cancelled) {
           setEnabledPlatformIds(nextPlatformIds)
-          if (typeof data.agentLifeEnabled === 'boolean') {
-            setLifeEnabled(data.agentLifeEnabled)
-          }
-          if (
-            typeof data.agentPersonaName === 'string' &&
-            data.agentPersonaName.trim()
-          ) {
-            setLifeName(data.agentPersonaName.trim())
-          }
           setPlatformVisibilityReady(true)
         }
       } catch (err) {
@@ -849,22 +784,6 @@ export default function Reports() {
       cancelled = true
     }
   }, [])
-
-  useEffect(() => {
-    if (lifeEnabled !== null || !isAuthenticated) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const persona = await agentService.getPersona()
-        if (!cancelled) setLifeEnabled(persona !== null)
-      } catch {
-        // Keep unknown — don't pretend the life switch is off.
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [lifeEnabled, isAuthenticated])
 
   useEffect(() => {
     setIsAdmin(authIsAdmin)
@@ -1053,8 +972,8 @@ export default function Reports() {
           <div className="flex-1 md:flex-none md:h-[60%] rounded-2xl relative overflow-hidden" />
 
           {/* 下半部分：卡片列表区域 - 移动端/桌面端都在下半部分 */}
-          <div className="md:h-[40%] flex flex-col gap-3 relative justify-end md:justify-start">
-            <div className="flex flex-col gap-3 relative z-10">
+          <div className="md:h-[40%] flex flex-col relative justify-end md:justify-start">
+            <div className="flex flex-col relative z-10">
               {platformVisibilityReady && (
                 <>
                   <ReportsStatusBar
@@ -1069,20 +988,20 @@ export default function Reports() {
                           )?.name || stageReportData.platform
                         : null
                     }
-                    stagePlatformHero={stageReportData?.platform || null}
+                    stagePlatformHero={
+                      stageReportData?.platform === 'netease'
+                        ? 'NetEase'
+                        : PLATFORMS.find(
+                            (p) => p.id === stageReportData?.platform,
+                          )?.name ||
+                          stageReportData?.platform ||
+                          null
+                    }
                     enabledPlatformCount={visiblePlatforms.length}
                     reportCount={visiblePlatforms.filter((p) =>
                       platformReportsMap.has(p.id),
                     ).length}
                     hasEnabledPlatforms={hasEnabledPlatforms}
-                    platforms={visiblePlatforms}
-                    showLife
-                    lifeKind={lifeKind}
-                    lifeSnapshot={{
-                      name: lifeName,
-                      mood: lifeMood,
-                      activity: lifeActivity,
-                    }}
                     isAdmin={isAdmin}
                     refreshingStage={refreshingStage}
                     viewer={
@@ -1093,35 +1012,16 @@ export default function Reports() {
                           }
                         : null
                     }
+                    highlights={reportHighlights}
                     stageCompactHero={isStageMode}
                     copy={{
                       heroStage: t.reportsPage.heroStage,
-                      heroLife: t.reportsPage.heroLife,
                       platformReport: t.reportsPage.platformReport,
-                      clickToView: t.reportsPage.clickToView,
                       noEnabledPlatforms: t.reportsPage.noEnabledPlatforms,
                       stagePlaying: t.reportsPage.stagePlaying,
                       stagePaused: t.reportsPage.stagePaused,
-                      tipPlatformCount: t.reportsPage.tipPlatformCount,
-                      tipPlatformCountSub: t.reportsPage.tipPlatformCountSub,
-                      tipReportReady: t.reportsPage.tipReportReady,
-                      tipReportReadySub: t.reportsPage.tipReportReadySub,
                       tipNoReports: t.reportsPage.tipNoReports,
                       tipNoReportsSub: t.reportsPage.tipNoReportsSub,
-                      lifeTitle: t.arael.statusBarTitle,
-                      lifeLoading: t.arael.statusLoading,
-                      lifeDisabled: t.arael.statusDisabled,
-                      lifeNeedLogin: t.arael.statusNeedLogin,
-                      lifeCreateHint: t.arael.statusCreateHint,
-                      lifeReadyHint: t.arael.statusReadyHint,
-                      lifeIdle: t.arael.statusIdle,
-                      lifeThinking: t.arael.statusThinking,
-                      lifeTalking: t.arael.statusTalking,
-                    }}
-                    lifeActionLabels={{
-                      create: t.arael.statusCreate,
-                      open: t.arael.statusOpen,
-                      login: t.arael.statusLogin,
                     }}
                     actionTitles={{
                       playAll: t.reportsPage.playAllReports,
@@ -1132,7 +1032,7 @@ export default function Reports() {
                       closeStage: t.reportsPage.closeStage,
                     }}
                     titleStyle={{
-                      top: `calc(29px - ${7.5 * titleFontSize}rem)`,
+                      top: `calc(30px - ${7.5 * titleFontSize}rem)`,
                       fontFamily: currentFont.family,
                       fontSize: `${6 * titleFontSize}rem`,
                       color: titleColorPrimary,
@@ -1141,18 +1041,6 @@ export default function Reports() {
                     onPlayAll={startPlayAll}
                     onRefreshStage={refreshStageReport}
                     onCloseStage={closeStageMode}
-                    onLogin={() => navigate('/login')}
-                    onOpenLife={() => {
-                      if (lifeKind === 'create') {
-                        setShowPersonaOnboarding(true)
-                        return
-                      }
-                      window.dispatchEvent(
-                        new CustomEvent('arael-open-session', {
-                          detail: { sessionId: '' },
-                        }),
-                      )
-                    }}
                   />
                   {hasEnabledPlatforms && (
                     <motion.div
@@ -1160,10 +1048,8 @@ export default function Reports() {
                       className={`${isStageMode ? 'hidden md:flex' : 'flex'} relative left-1/2 w-dvw max-w-none -translate-x-1/2 gap-4 overflow-x-auto scrollbar-hide snap-x snap-mandatory touch-pan-x pt-8 pb-12 -mt-7 -mb-11 pr-3 xs:pr-4 sm:pr-6 md:pr-8 ${REPORT_CAROUSEL_CSS_VARS} ${platformStripScroll.className}`}
                       style={
                         {
-                          paddingLeft:
-                            'calc(max(var(--report-page-padding), (100dvw - 80rem) / 2) + 0.5rem)',
-                          scrollPaddingLeft:
-                            'calc(max(var(--report-page-padding), (100dvw - 80rem) / 2) + 0.5rem)',
+                          paddingLeft: REPORT_STRIP_ALIGN_PAD,
+                          scrollPaddingLeft: REPORT_STRIP_ALIGN_PAD,
                           ...platformStripScroll.style,
                         } as React.CSSProperties
                       }
@@ -1323,7 +1209,7 @@ export default function Reports() {
               )}
 
               {platformVisibilityReady && !hasEnabledPlatforms && (
-                  <div className="pt-8 pb-12 -mt-7 -mb-11">
+                  <div className="pt-8 pb-12 -mt-7 -mb-11 px-1">
                     <motion.div
                       className="relative rounded-2xl overflow-hidden min-h-55"
                       initial={{ opacity: 0, y: 12 }}
@@ -1367,20 +1253,6 @@ export default function Reports() {
           </div>
         </div>
       </div>
-      <PersonaOnboarding
-        open={showPersonaOnboarding}
-        seedTags={seedTags}
-        onClose={() => setShowPersonaOnboarding(false)}
-        onSaved={(name) => {
-          setLifeName(name)
-          setLifeKind('ready')
-          window.dispatchEvent(
-            new CustomEvent('arael-open-session', {
-              detail: { sessionId: '' },
-            }),
-          )
-        }}
-      />
     </AnimatedView>
   )
 }

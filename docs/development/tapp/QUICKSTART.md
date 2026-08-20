@@ -29,7 +29,7 @@ npm install --global @myriad/tapp-cli@0.1.0
 myriad-tapp init ./my-tapp --type page
 ```
 
-编辑生成的 `manifest.json`、`main.js`、模板和样式，然后校验权限并打包：
+编辑生成的 `manifest.json`、层入口文件、模板和样式，然后校验权限并打包：
 
 ```bash
 cd ./my-tapp
@@ -49,7 +49,7 @@ myriad-tapp pack .
 可用 [访问统计 SDK](API_REFERENCE.md#访问统计-api)（admin 完整 summary；user/guest 仅
 访客卡片聚合；关闭采集时 `enabled: false` 短路）。
 
-Page 内可用 Canvas 2D / WebGL。Three.js 当作包内 guest 依赖打进 `pageModules`，贴图和
+Page 内可用 Canvas 2D / WebGL。Three.js 当作包内 guest 依赖放进 `page/` 并 require，贴图和
 `.glb` 走 `Tapp.assets`，不要走 CDN。约定见 [图形与轻量游戏](GRAPHICS.md)；可安装的官方
 示例是商店里的 `com.myriad.three-lab`。
 
@@ -57,17 +57,17 @@ Page 内可用 Canvas 2D / WebGL。Three.js 当作包内 guest 依赖打进 `pag
 
 ## 代码架构
 
-Tapp 使用**分离模式**，将代码分为三部分：
+Tapp 按**层**组织代码：
 
 ```
-TappCodeStructure {
-  core: string    // 共享逻辑；也是 headless 后台入口
-  widget?: string // 小组件代码：Widget 渲染逻辑
-  page?: string   // 页面代码：页面渲染 + 生命周期
+manifest {
+  core:    { entry: "core.js" }        // 共享层；也是 headless 后台入口
+  page:    { entry: "page/index.js" }  // 页面层：页面渲染 + 生命周期
+  widgets: [{ entry: "widget/index.js" }] // 小组件层：Widget 渲染逻辑
 }
 ```
 
-### 为什么使用分离模式？
+### 为什么分三层？
 
 1. **避免代码冲突**：Widget 模式和 Page 模式加载不同的代码，互不干扰
 2. **更小的加载体积**：Widget 只加载 `core + widget`，Page 只加载 `core + page`
@@ -78,7 +78,7 @@ TappCodeStructure {
 | 模式          | 加载的代码                     | 执行内容                                      |
 | ------------- | ------------------------------ | --------------------------------------------- |
 | Widget 模式   | `core + widget`                | Widget 精简 SDK、生命周期、模板与 `render`    |
-| Page 模式     | `core + page` 或 `pageModules` | 完整 SDK、生命周期和页面 UI                   |
+| Page 模式     | core 入口 + page 入口                 | 完整 SDK、生命周期和页面 UI            |
 | Headless 模式 | 仅 `core`                      | 完整 Bridge 与生命周期，无 Page/Widget UI     |
 
 **三个模式都会触发** `Tapp.lifecycle`（含 `onReady` / `onDestroy` / pause/resume），不能把
@@ -87,9 +87,9 @@ TappCodeStructure {
 
 ### 代码结构示例
 
-```typescript
-// 核心代码 - 共享工具函数
-const CORE_CODE = `
+`core.js` 导出共享逻辑：
+
+```javascript
 function getThemeColors(isDark) {
   return {
     bg: isDark ? '#1a1a2e' : '#f8fafc',
@@ -97,33 +97,37 @@ function getThemeColors(isDark) {
     accent: '#6366f1',
   };
 }
-`;
 
-// Widget 代码 - 只定义 Widget 渲染
-const WIDGET_CODE = `
+module.exports = { getThemeColors };
+```
+
+`widget/index.js` 只注册 Widget：
+
+```javascript
+var core = require('../core.js');
+
 Tapp.widgets['my-widget'] = {
   render: async function(container, props) {
-    var colors = getThemeColors(props.theme === 'dark');
+    var colors = core.getThemeColors(props.theme === 'dark');
     container.style.background = colors.bg;
     container.innerHTML = '<div>Widget Content</div>';
   }
 };
-`;
+```
 
-// Page 代码 - 页面渲染（onReady 在所有模式都有；此处用它挂载 Page UI）
-const PAGE_CODE = `
-Tapp.pages['my-page'] = {
-  render: async function(container) {
-    var colors = getThemeColors(document.documentElement.classList.contains('dark'));
-    container.innerHTML = '<h1>Page Content</h1>';
-  }
-};
+`page/index.js` 只挂载 Page：
+
+```javascript
+var core = require('../core.js');
 
 Tapp.lifecycle.onReady(async function() {
   var container = document.getElementById('tapp-root');
-  await Tapp.pages['my-page'].render(container);
+  var colors = core.getThemeColors(
+    document.documentElement.classList.contains('dark')
+  );
+  container.style.color = colors.text;
+  container.innerHTML = '<h1>Page Content</h1>';
 });
-`;
 ```
 
 ---
@@ -169,7 +173,9 @@ HTML 模板定义结构，JS 只负责事件绑定和数据填充。**推荐用�
 ```
 com.example.my-tapp/
 ├── manifest.json       # 必需：应用配置
-├── main.js             # 必需：JS 代码
+├── core.js             # 共享层入口
+├── page/index.js       # 可选：页面层入口
+├── widget/index.js     # 可选：小组件层入口
 ├── page.html           # 可选：页面模板
 ├── styles.css          # 可选：自定义样式
 ├── widget-2x2.html     # 可选：2x2 尺寸模板
@@ -182,12 +188,12 @@ com.example.my-tapp/
 ```json
 {
   "id": "com.example.my-tapp",
-  "main": "main.js",
-  "styles": "styles.css",
-  "pageTemplate": "page.html",
+  "core": { "entry": "core.js", "styles": "styles.css" },
+  "page": { "entry": "page/index.js", "template": "page.html" },
   "widgets": [
     {
       "id": "my-widget",
+      "entry": "widget/index.js",
       "defaultSize": "2x2",
       "sizes": ["2x2", "4x2", "4x4"],
       "templates": {
@@ -223,7 +229,7 @@ com.example.my-tapp/
 </div>
 ```
 
-**main.js 混合模式示例**：
+**widget/index.js 混合模式示例**：
 
 ```javascript
 Tapp.widgets["my-widget"] = {
@@ -261,8 +267,8 @@ Tapp.widgets["my-widget"] = {
 
 最少注意：
 
-1. 商店 `index.json` 的 `download.code` 必须能下载到与 `manifest.main` **同一份**入口代码（路径字符串不必相同）。
-2. Manifest 声明的 `styles` / `pageTemplate` / Widget 模板 / `pageStyles` 等，索引 `download` 表与磁盘文件必须齐全。
+1. 商店 `index.json` 的 `download.code` 必须能下载到与 `core.entry` **同一份**入口代码（路径字符串不必相同）。
+2. Manifest 声明的 `core.styles` / `page.template` / `page.styles` / Widget 模板等，索引 `download` 表与磁盘文件必须齐全。非 core 的层文件走 `download.modules`。
 3. 索引与 Manifest 的 `version`、`category` 必须一致；`category` 用稳定用途 ID（见 [MANIFEST](MANIFEST.md#应用分类)）。
 4. 二进制贴图等走 `manifest.assets`，**不要**写进 `download` 表；路径须在包根下的 `assets/`。
 5. 大包在索引填写真实 `size`（字节），≥ 1 MiB 时宿主走客户端下载以显示进度。
@@ -353,8 +359,9 @@ Tapp.widgets['my-widget'] = {
 ## 数据加载与更新
 
 Widget / Page **不能**直接 `fetch`。外部 HTTP 必须写在 `manifest.apis` 里，再用
-`Tapp.api(name, params)`。同一 Tapp 的 Page、Widget、headless 共享 `Tapp.storage`；
-宿主默认在 storage 变更时刷新可见 Widget（`widgets[].refreshPolicy`）。
+`Tapp.api(name, params)`。同一 **subject** 的 Page、Widget、headless 共享 `Tapp.storage`；
+宿主默认在 storage 变更时刷新可见 Widget（`widgets[].refreshPolicy`）。公开部署要展示
+站长数据时写 `Tapp.shared`（安装级，访客可读），不要写 `Tapp.storage`（每人一份空仓库）。
 
 ### 推荐模式
 
@@ -398,7 +405,7 @@ Widget: render() 里 Tapp.storage.get(key)   （或 onChanged 局部更新）
 **2. core 拉数写 storage**
 
 ```javascript
-// main.js 的 core 段 — 三种模式都会加载
+// core.js — 三种模式都会先加载共享层
 // ⚠️ 只写 storage 即可；不要在 core/Page/headless 里调用 Tapp.widget.invalidate
 //    （该方法仅存在于 Widget 沙箱，见下表）
 async function pullFeed() {

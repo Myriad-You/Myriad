@@ -48,16 +48,14 @@ import { useWindowAgentHandler } from '../hooks/useWindowAgentHandler'
 import { getTappRuntime } from '../runtime'
 import { loadPageResources } from '../runtime/sandbox/resourceLoader'
 import { TappPageSandbox } from '../runtime/TappPageSandbox'
+import { tappHasPage } from '../utils/manifestLayers'
 import { resolveManifestText } from '../utils/manifestLocale'
 import {
   resolveTappCategory,
   TAPP_CATEGORIES,
   TAPP_CATEGORY_I18N_KEYS,
 } from '../utils/tappCategories'
-import {
-  getTappIconAccentColor,
-  getTappIconStyle,
-} from '../utils/tappColors'
+import { getTappIconAccentColor, getTappIconStyle } from '../utils/tappColors'
 import { TappIcon } from './TappIcon'
 import { TappIconBadge } from './TappIconBadge'
 import { TappStore } from './TappStore'
@@ -122,9 +120,7 @@ const LAUNCHPAD_PAGE_SIZE = LAUNCHPAD_COLS * LAUNCHPAD_ROWS
 /** 默认窗口尺寸（移动端竖屏比例） */
 const DEFAULT_WINDOW_SIZE = { width: 400, height: 600 }
 
-type LaunchpadEntry =
-  | { kind: 'store' }
-  | { kind: 'app'; tapp: TappInstance }
+type LaunchpadEntry = { kind: 'store' } | { kind: 'app'; tapp: TappInstance }
 
 /** 窗口方案中的窗口配置 */
 interface WindowSchemeItem {
@@ -858,9 +854,13 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
 
   /** Dock 已安装列表：内存快照 + 事件驱动刷新（避免 idle 延迟 / 商店装完不同步） */
   const refreshDockApps = useCallback(() => {
-    const next = runtime
-      .getAllTapps()
-      .filter((item) => item.manifest.hasPage)
+    const next = runtime.getAllTapps().filter(
+      (item) =>
+        tappHasPage(item.manifest) &&
+        // 包与当前格式不符的安装不进 Dock：点开只会失败
+        item.installationStatus !== 'error' &&
+        item.status !== 'error',
+    )
     setAvailableTapps((prev) => {
       if (
         prev.length === next.length &&
@@ -904,9 +904,8 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           setActiveWindowId((cur) => {
             if (cur && remaining.some((w) => w.windowId === cur)) return cur
             if (remaining.length === 0) return null
-            return remaining.reduce((a, b) =>
-              a.zIndex >= b.zIndex ? a : b,
-            ).windowId
+            return remaining.reduce((a, b) => (a.zIndex >= b.zIndex ? a : b))
+              .windowId
           })
           return remaining
         })
@@ -952,14 +951,14 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           const resources = await loadPageResources(instance)
           if (cancelled) return
           const code: TappCodeStructure = {
-            core: resources.core,
-            page: resources.page,
+            modules: resources.modules,
+            moduleResolutions: resources.moduleResolutions,
+            coreEntry: resources.coreEntry,
+            pageEntry: resources.pageEntry,
             pageHtml: resources.html,
             styles: resources.styles,
             pageCSS: resources.css,
             i18n: resources.i18n,
-            pageModules: resources.pageModules,
-            pageModuleOrder: resources.pageModuleOrder,
           }
           setWindows((prev) =>
             prev.map((item) =>
@@ -1125,14 +1124,14 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
 
         const resources = await loadPageResources(instance)
         const tappCode: TappCodeStructure = {
-          core: resources.core,
-          page: resources.page,
+          modules: resources.modules,
+          moduleResolutions: resources.moduleResolutions,
+          coreEntry: resources.coreEntry,
+          pageEntry: resources.pageEntry,
           pageHtml: resources.html,
           styles: resources.styles,
           pageCSS: resources.css,
           i18n: resources.i18n,
-          pageModules: resources.pageModules,
-          pageModuleOrder: resources.pageModuleOrder,
         }
 
         if (!runtime.isRunning(tappId)) {
@@ -1173,9 +1172,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         if (activeWindowId === windowId && remaining.length > 0) {
           const candidates = remaining.filter((w) => !w.isMinimized)
           const pool = candidates.length > 0 ? candidates : remaining
-          const topWindow = pool.reduce((a, b) =>
-            a.zIndex > b.zIndex ? a : b,
-          )
+          const topWindow = pool.reduce((a, b) => (a.zIndex > b.zIndex ? a : b))
           setActiveWindowId(topWindow.windowId)
         } else if (remaining.length === 0) {
           setActiveWindowId(null)
@@ -1197,9 +1194,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         if (activeWindowId === windowId) {
           const visible = next.filter((w) => !w.isMinimized)
           if (visible.length > 0) {
-            const top = visible.reduce((a, b) =>
-              a.zIndex > b.zIndex ? a : b,
-            )
+            const top = visible.reduce((a, b) => (a.zIndex > b.zIndex ? a : b))
             setActiveWindowId(top.windowId)
           } else {
             setActiveWindowId(null)
@@ -1402,14 +1397,14 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
 
           const resources = await loadPageResources(instance)
           const tappCode: TappCodeStructure = {
-            core: resources.core,
-            page: resources.page,
+            modules: resources.modules,
+            moduleResolutions: resources.moduleResolutions,
+            coreEntry: resources.coreEntry,
+            pageEntry: resources.pageEntry,
             pageHtml: resources.html,
             styles: resources.styles,
             pageCSS: resources.css,
             i18n: resources.i18n,
-            pageModules: resources.pageModules,
-            pageModuleOrder: resources.pageModuleOrder,
           }
 
           if (!runtime.isRunning(tappId)) {
@@ -1456,9 +1451,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   // Dock 快捷槽：最多 MAX_DOCK_APPS；已打开优先。应用面板入口常显，面板内始终列全部。
   const dockVisibleApps = useMemo(() => {
     const openIds = new Set(
-      windows
-        .map((w) => w.tappId)
-        .filter((id) => !isHostPanelId(id)),
+      windows.map((w) => w.tappId).filter((id) => !isHostPanelId(id)),
     )
     const openApps: TappInstance[] = []
     const restApps: TappInstance[] = []
@@ -1626,9 +1619,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           const top = byZ[0]
           const minimizedTop = byZ.find((w) => w.isMinimized)
           const target =
-            !top.isMinimized &&
-            activeWindowId === top.windowId &&
-            minimizedTop
+            !top.isMinimized && activeWindowId === top.windowId && minimizedTop
               ? minimizedTop
               : top
           focusWindow(target.windowId)
@@ -1934,15 +1925,9 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
               role="dialog"
               aria-modal="false"
               aria-label={t.tapp.dockAppPanel}
-              initial={
-                noAnimation ? false : { opacity: 0, scale: 0.96, y: 10 }
-              }
+              initial={noAnimation ? false : { opacity: 0, scale: 0.96, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={
-                noAnimation
-                  ? undefined
-                  : { opacity: 0, scale: 0.97, y: 8 }
-              }
+              exit={noAnimation ? undefined : { opacity: 0, scale: 0.97, y: 8 }}
               transition={
                 noAnimation
                   ? { duration: 0 }
@@ -2028,8 +2013,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                     {launchpadPageItems.map((entry) => {
                       if (entry.kind === 'store') {
                         const storeOpen =
-                          (openCountByTappId.get(HOST_PANEL_STORE_ID) ?? 0) >
-                          0
+                          (openCountByTappId.get(HOST_PANEL_STORE_ID) ?? 0) > 0
                         const storeTitle = t.tapp.storeTitle
                         const storeLabel = `${storeTitle}${dockAtMax && !storeOpen ? ` · ${t.tapp.dockAtMax}` : ''}`
                         return (
@@ -2162,9 +2146,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           <motion.button
             type="button"
             className={`tapp-multi-dock-item tapp-multi-dock-more${showLaunchpad ? ' is-open' : ''}`}
-            onClick={() =>
-              showLaunchpad ? closeLaunchpad() : openLaunchpad()
-            }
+            onClick={() => (showLaunchpad ? closeLaunchpad() : openLaunchpad())}
             aria-label={t.tapp.dockAppPanel}
             aria-expanded={showLaunchpad}
             aria-haspopup="dialog"

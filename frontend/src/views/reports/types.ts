@@ -66,6 +66,18 @@ export const REPORT_CARD_FLEX_BASIS =
   'calc((min(100dvw - 2 * var(--report-page-padding), 80rem) - 1rem) / var(--report-visible-cards))'
 
 /**
+ * First-card left edge inside the full-viewport strip.
+ *
+ * The strip breaks out to 100dvw, then reconstructs the page column:
+ *   max(page gutter, centered max-w-7xl) + p-2 (0.5rem)
+ * plus the status-bar rail's 0.25rem — same inset home uses on the user
+ * card (`p-1`) and each widget. Without that last 0.25rem the GitHub/etc.
+ * cards sit 4px left of the glass bar above them.
+ */
+export const REPORT_STRIP_ALIGN_PAD =
+  'calc(max(var(--report-page-padding), (100dvw - 80rem) / 2) + 0.75rem)'
+
+/**
  * Shared carousel strip CSS vars for the platform report strip.
  * Padding mirrors page gutters; visible-cards tracks home 4x2 fractions (1/2/4).
  */

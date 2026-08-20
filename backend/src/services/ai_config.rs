@@ -25,6 +25,8 @@ pub struct AiConfig {
 pub struct AiImageConfig {
     pub provider: String,
     pub model: String,
+    pub api_key: String,
+    pub base_url: String,
 }
 
 /// Domain error when no usable provider is configured.
@@ -144,14 +146,13 @@ pub async fn get_ai_image_config() -> Result<AiImageConfig, AiConfigError> {
     }
 
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    // Image path may still be partially configured; callers decide usability.
-    if config.ai_image_provider.is_empty() && config.ai_image_model.is_empty() {
-        // Preserve prior HTTP behavior: always return a snapshot (keys may be empty).
-        // Callers check keys before use. Do not treat empty as NotConfigured here.
-    }
+    let resolved = crate::services::image_generation::config_from_dynamic(&config)
+        .map_err(|_| AiConfigError::NotConfigured)?;
     let image_config = AiImageConfig {
-        provider: config.ai_image_provider.clone(),
-        model: config.ai_image_model.clone(),
+        provider: resolved.provider,
+        model: resolved.model,
+        api_key: resolved.api_key,
+        base_url: resolved.base_url,
     };
 
     let mut cache = AI_IMAGE_CONFIG_CACHE.write().await;

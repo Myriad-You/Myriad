@@ -3,33 +3,18 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   buildReportsDynamicTips,
-
-  resolveLifeActionLabel,
+  marqueeDurationMs,
+  pickReportHook,
 } from './reportsDynamicStatus'
 
 const copy: ReportsStatusCopy = {
   heroStage: 'Stage',
-  heroLife: 'Arael',
   platformReport: 'Platform Reports',
-  clickToView: 'Click card to view',
   noEnabledPlatforms: 'No platforms',
   stagePlaying: 'Playing on stage',
   stagePaused: 'Stage paused',
-  tipPlatformCount: '{count} data platforms',
-  tipPlatformCountSub: 'Click a card',
-  tipReportReady: '{count} reports ready',
-  tipReportReadySub: 'Play all',
   tipNoReports: 'No reports yet',
   tipNoReportsSub: 'Generate below',
-  lifeTitle: '设定',
-  lifeLoading: 'Loading…',
-  lifeDisabled: 'Disabled',
-  lifeNeedLogin: 'Sign in',
-  lifeCreateHint: 'Write persona',
-  lifeReadyHint: '{activity} · mood {mood}',
-  lifeIdle: 'Idle',
-  lifeThinking: 'Thinking',
-  lifeTalking: 'Talking',
 }
 
 test('stage mode locks tip carousel to platform', () => {
@@ -41,13 +26,6 @@ test('stage mode locks tip carousel to platform', () => {
     stagePlatformName: 'Steam',
     enabledPlatformCount: 3,
     reportCount: 2,
-    showLife: true,
-    lifeKind: 'ready',
-    lifeSnapshot: {
-      name: 'Aiko',
-      activity: 'idle',
-      mood: 70,
-    },
   })
 
   assert.equal(tips.length, 1)
@@ -65,9 +43,6 @@ test('stage paused updates subtitle', () => {
     stagePlatformName: 'GitHub',
     enabledPlatformCount: 1,
     reportCount: 1,
-    showLife: false,
-    lifeKind: 'loading',
-    lifeSnapshot: null,
   })
   assert.equal(tips[0].sub, 'Stage paused')
 })
@@ -79,116 +54,77 @@ test('stage hero uses the latin platform name, main keeps the localized one', ()
     stagePaused: false,
     stagePlatformId: 'netease',
     stagePlatformName: '网易云',
-    stagePlatformHero: 'NetEase Music',
+    stagePlatformHero: 'NetEase',
     enabledPlatformCount: 1,
     reportCount: 1,
-    showLife: false,
-    lifeKind: 'loading',
-    lifeSnapshot: null,
   })
 
-  assert.equal(tip.hero, 'NetEase Music')
+  assert.equal(tip.hero, 'NetEase')
   assert.equal(tip.main, '网易云')
 })
 
-test('platform count tip is dropped when it repeats the report count', () => {
-  const allCovered = buildReportsDynamicTips({
-    copy,
-    isStageMode: false,
-    stagePaused: false,
-    enabledPlatformCount: 9,
-    reportCount: 9,
-    showLife: false,
-    lifeKind: 'loading',
-    lifeSnapshot: null,
-  })
-  assert.deepEqual(
-    allCovered.map((t) => t.id),
-    ['platform-ready'],
-  )
-
-  const partial = buildReportsDynamicTips({
-    copy,
-    isStageMode: false,
-    stagePaused: false,
-    enabledPlatformCount: 9,
-    reportCount: 4,
-    showLife: false,
-    lifeKind: 'loading',
-    lifeSnapshot: null,
-  })
-  assert.deepEqual(
-    partial.map((t) => t.id),
-    ['platform-ready', 'platform-count'],
-  )
-})
-
-test('life tips keep the latin hero word, not the localized title', () => {
+test('idle bar puts the platform first and the hook in the subtitle', () => {
   const tips = buildReportsDynamicTips({
     copy,
     isStageMode: false,
     stagePaused: false,
     enabledPlatformCount: 2,
-    reportCount: 1,
-    showLife: true,
-    lifeKind: 'guest',
-    lifeSnapshot: null,
-  })
-
-  const life = tips.find((t) => t.kind === 'life-guest')
-  assert.equal(life?.hero, 'Arael')
-  assert.equal(life?.main, '设定')
-})
-
-test('merges platform and life tips when life is available', () => {
-  const tips = buildReportsDynamicTips({
-    copy,
-    isStageMode: false,
-    stagePaused: false,
-    enabledPlatformCount: 4,
     reportCount: 2,
-    showLife: true,
-    lifeKind: 'create',
-    lifeSnapshot: null,
+    highlights: [
+      {
+        platformId: 'youtube',
+        platformName: 'YouTube',
+        hook: '技术日志型创作者，上传稳均播不虚',
+      },
+      {
+        platformId: 'bangumi',
+        platformName: 'Bangumi',
+        hook: '偏爱深夜动画与硬核科幻',
+      },
+    ],
   })
 
-  assert.ok(tips.some((t) => t.kind === 'platform'))
-  assert.ok(tips.some((t) => t.kind === 'life-create' && t.action === 'open-life'))
-  assert.ok(tips.every((t) => t.hero.length > 0))
+  assert.deepEqual(
+    tips.map((t) => t.id),
+    ['highlight-youtube', 'highlight-bangumi'],
+  )
+  assert.equal(tips[0].main, 'YouTube')
+  assert.equal(tips[0].sub, '技术日志型创作者，上传稳均播不虚')
+  assert.equal(tips[0].scrollSub, true)
+  assert.equal(tips[1].hero, 'Stage')
 })
 
-test('ready persona uses name as hero and open-life action', () => {
-  const tips = buildReportsDynamicTips({
-    copy,
-    isStageMode: false,
-    stagePaused: false,
-    enabledPlatformCount: 2,
-    reportCount: 1,
-    showLife: true,
-    lifeKind: 'ready',
-    lifeSnapshot: {
-      name: 'Nova',
-      activity: 'thinking',
-      mood: 88.4,
-    },
-  })
-
-  const life = tips.find((t) => t.kind === 'life-ready')
-  assert.ok(life)
-  assert.equal(life?.hero, 'Nova')
-  assert.equal(life?.action, 'open-life')
-  assert.match(life?.sub || '', /Thinking/)
-  assert.match(life?.sub || '', /88/)
+test('pickReportHook prefers vibe, then taste, then insight', () => {
+  assert.equal(
+    pickReportHook({
+      summary: 'long summary',
+      insights: ['first insight'],
+      card_visuals: { vibe: '  short vibe  ', taste_profile: 'taste' },
+    }),
+    'short vibe',
+  )
+  assert.equal(
+    pickReportHook({
+      insights: ['first insight'],
+      card_visuals: { taste_profile: '深夜向', mood_keywords: ['欢快', '夜'] },
+    }),
+    '深夜向',
+  )
+  assert.equal(
+    pickReportHook({
+      insights: ['  keep going  '],
+      card_visuals: { mood_keywords: ['欢快', '夜', '燃', 'extra'] },
+    }),
+    '欢快 · 夜 · 燃',
+  )
+  assert.equal(pickReportHook({ summary: 'only summary' }), 'only summary')
+  assert.equal(pickReportHook({}), '')
 })
 
-test('life action labels resolve only for interactive kinds', () => {
-  const labels = {
-    create: 'Create',
-    open: 'Open',
-    login: 'Sign in',
-  }
-  assert.equal(resolveLifeActionLabel('create', labels), 'Create')
-  assert.equal(resolveLifeActionLabel('ready', labels), 'Open')
-  assert.equal(resolveLifeActionLabel('loading', labels), null)
-  assert.equal(resolveLifeActionLabel('disabled', labels), null)
+test('marqueeDurationMs scales with overflow and stays bounded', () => {
+  assert.equal(marqueeDurationMs(0), 0)
+  assert.equal(marqueeDurationMs(-4), 0)
+  assert.ok(marqueeDurationMs(20) >= 1800)
+  assert.ok(marqueeDurationMs(20_000) <= 14_000)
+  assert.equal(marqueeDurationMs(360), 10_000)
 })

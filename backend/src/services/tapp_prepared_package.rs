@@ -19,16 +19,19 @@ pub type WidgetTemplateContents = HashMap<String, HashMap<String, String>>;
 /// Structured install payload (JSON install path / store download).
 #[derive(Debug, Default, Clone)]
 pub struct PreparedTappResources {
-    pub code: String,
-    pub styles: Option<String>,
-    pub widget_styles: Option<String>,
+    /// 包内 `.js` 文件：相对路径 → 源码。必须覆盖 manifest 声明的每个层入口。
+    pub modules: HashMap<String, String>,
+    /// 作者样式，按层声明的路径写入。
+    pub core_styles: Option<String>,
     pub page_styles: Option<String>,
+    /// 作者 widget 样式：widget id → 内容。
+    pub widget_styles: Option<HashMap<String, String>>,
     pub page_template: Option<String>,
     pub widget_templates: Option<WidgetTemplateContents>,
+    /// 宿主预编译 Tailwind，写到固定路径，与作者样式是两条通道。
     pub generated_widget_css: Option<String>,
     pub generated_page_css: Option<String>,
     pub i18n: Option<HashMap<String, serde_json::Value>>,
-    pub page_modules: Option<HashMap<String, String>>,
     pub assets: Option<HashMap<String, String>>,
 }
 
@@ -53,6 +56,7 @@ pub enum PackageValidateError {
     IdMismatch,
     Manifest(String),
     WidgetTemplates(String),
+    MissingLayerEntry { declared: String },
     MissingPageStyles { declared: String },
     MissingPageTemplate,
     MissingWidgetStyles { declared: String },
@@ -66,17 +70,17 @@ impl PackageValidateError {
             Self::Manifest(msg) | Self::WidgetTemplates(msg) | Self::NamedResource(msg) => {
                 msg.clone()
             }
+            Self::MissingLayerEntry { declared } => format!(
+                "Install package is missing source for declared layer entry {declared}"
+            ),
             Self::MissingPageStyles { declared } => format!(
-                "Install package is missing pageStyles/pageCss content required by \
-manifest.pageStyles={declared} (frontend must send pageCss; store fetch must download download.page_styles)"
+                "Install package is missing content for declared page.styles={declared}"
             ),
             Self::MissingPageTemplate => {
-                "Install package is missing pageTemplate content required by manifest.pageTemplate"
-                    .to_string()
+                "Install package is missing content for declared page.template".to_string()
             }
             Self::MissingWidgetStyles { declared } => format!(
-                "Install package is missing widgetStyles/widgetCss content required by \
-manifest.widgetStyles={declared}"
+                "Install package is missing content for declared widgets[].styles={declared}"
             ),
         }
     }
@@ -196,8 +200,43 @@ pub fn check_manifest_byte_size(size: u64) -> Result<(), PackageLoadError> {
 }
 
 /// Parse manifest.json text into a typed manifest.
+/// 层契约之前的顶层字段。命中任何一个说明这是旧格式包，报错要指向新格式，
+/// 而不是把 serde 的 `unknown field` 原样丢给用户。
+const PRE_LAYER_MANIFEST_FIELDS: &[&str] = &[
+    "main",
+    "hasPage",
+    "cssMode",
+    "styles",
+    "widgetStyles",
+    "pageStyles",
+    "pageTemplate",
+    "pageModules",
+];
+
 pub fn parse_manifest_json(content: &str) -> Result<TappManifest, PackageLoadError> {
-    serde_json::from_str(content).map_err(|error| PackageLoadError::ManifestParse(error.to_string()))
+    match serde_json::from_str(content) {
+        Ok(manifest) => Ok(manifest),
+        Err(error) => {
+            let legacy = serde_json::from_str::<serde_json::Value>(content)
+                .ok()
+                .and_then(|value| {
+                    let object = value.as_object()?;
+                    let found: Vec<&str> = PRE_LAYER_MANIFEST_FIELDS
+                        .iter()
+                        .copied()
+                        .filter(|field| object.contains_key(*field))
+                        .collect();
+                    (!found.is_empty()).then(|| found.join(", "))
+                });
+            Err(PackageLoadError::ManifestParse(match legacy {
+                Some(fields) => format!(
+                    "manifest.json uses the pre-layer format ({fields}). Declare core / page / \
+widgets layers with an `entry` each; see docs/features/TAPP_FILE_FORMAT.md"
+                ),
+                None => error.to_string(),
+            }))
+        }
+    }
 }
 
 impl PreparedTappPackage {
@@ -227,12 +266,14 @@ impl PreparedTappPackage {
     pub fn apply_resource_overrides(
         &mut self,
         i18n: Option<HashMap<String, serde_json::Value>>,
-        page_modules: Option<HashMap<String, String>>,
+        modules: Option<HashMap<String, String>>,
         assets: Option<HashMap<String, String>>,
     ) {
         if let PreparedTappPayload::Resources(resources) = &mut self.payload {
             resources.i18n = i18n.or(resources.i18n.take());
-            resources.page_modules = page_modules.or(resources.page_modules.take());
+            if let Some(modules) = modules {
+                resources.modules = modules;
+            }
             resources.assets = assets.or(resources.assets.take());
         }
     }
@@ -275,36 +316,52 @@ impl PreparedTappPackage {
                 .map_err(PackageValidateError::WidgetTemplates)?;
         }
 
-        // Declared pageStyles/widgetStyles must include content to write.
-        // Without this, validate_installed_resources fails with a misleading
-        // "not a regular file: page.css" after stage.
-        if let Some(declared) = self.manifest.page_styles.as_deref() {
-            if resolved_style_content(
-                resources.page_styles.as_ref(),
-                resources.generated_page_css.as_ref(),
-            )
-            .is_none()
-            {
+        // 声明了层入口就必须带上对应源码，否则 staging 之后 validate_installed_resources
+        // 只会报一句「文件缺失」，看不出是 payload 少给了内容。
+        for entry in self.manifest.layer_entries() {
+            if !resources.modules.contains_key(entry) {
+                return Err(PackageValidateError::MissingLayerEntry {
+                    declared: entry.to_string(),
+                });
+            }
+        }
+
+        // 声明了层样式/模板同理。
+        if let Some(declared) = self
+            .manifest
+            .page
+            .as_ref()
+            .and_then(|page| page.styles.as_deref())
+        {
+            if nonempty_content(resources.page_styles.as_ref()).is_none() {
                 return Err(PackageValidateError::MissingPageStyles {
                     declared: declared.to_string(),
                 });
             }
         }
-        if self.manifest.page_template.is_some()
+        if self
+            .manifest
+            .page
+            .as_ref()
+            .is_some_and(|page| page.template.is_some())
             && nonempty_content(resources.page_template.as_ref()).is_none()
         {
             return Err(PackageValidateError::MissingPageTemplate);
         }
-        if let Some(declared) = self.manifest.widget_styles.as_deref() {
-            if resolved_style_content(
-                resources.widget_styles.as_ref(),
-                resources.generated_widget_css.as_ref(),
-            )
-            .is_none()
-            {
-                return Err(PackageValidateError::MissingWidgetStyles {
-                    declared: declared.to_string(),
-                });
+        if let Some(widgets) = &self.manifest.widgets {
+            for widget in widgets {
+                let Some(declared) = widget.styles.as_deref() else {
+                    continue;
+                };
+                let content = resources
+                    .widget_styles
+                    .as_ref()
+                    .and_then(|styles| styles.get(&widget.id));
+                if nonempty_content(content).is_none() {
+                    return Err(PackageValidateError::MissingWidgetStyles {
+                        declared: declared.to_string(),
+                    });
+                }
             }
         }
 
@@ -315,15 +372,6 @@ impl PreparedTappPackage {
                 .into_iter()
                 .flat_map(|translations| translations.keys()),
             "i18n language code",
-        )
-        .map_err(PackageValidateError::NamedResource)?;
-        validate_named_resource_keys(
-            resources
-                .page_modules
-                .as_ref()
-                .into_iter()
-                .flat_map(|modules| modules.keys()),
-            "page module filename",
         )
         .map_err(PackageValidateError::NamedResource)?;
 
@@ -341,7 +389,7 @@ mod tests {
             "id": "com.example.prepared",
             "name": "Prepared package",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "core.js" },
             "category": "media",
             "permissions": []
         }))
@@ -353,7 +401,7 @@ mod tests {
         let package = PreparedTappPackage::from_resources(
             base_manifest(),
             PreparedTappResources {
-                code: "export {};".to_string(),
+                modules: HashMap::from([("core.js".to_string(), "export {};".to_string())]),
                 ..PreparedTappResources::default()
             },
         );
@@ -388,7 +436,7 @@ mod tests {
         let mut package = PreparedTappPackage::from_resources(
             base_manifest(),
             PreparedTappResources {
-                code: "export {};".to_string(),
+                modules: HashMap::from([("core.js".to_string(), "export {};".to_string())]),
                 i18n: Some(original_i18n),
                 ..PreparedTappResources::default()
             },
@@ -402,41 +450,46 @@ mod tests {
         );
     }
 
+    /// 旧格式包不再能安装，但错误必须说清是格式问题、指向新契约，
+    /// 而不是把 serde 的 `unknown field: main` 原样抛给用户。
     #[test]
-    fn validate_rejects_missing_page_styles_content_with_clear_error() {
-        let manifest: TappManifest = serde_json::from_value(json!({
-            "id": "com.example.missing-page-css",
-            "name": "Missing page css",
-            "version": "1.0.0",
-            "main": "main.js",
-            "cssMode": "separated",
-            "pageStyles": "page.css",
-            "category": "game",
-            "permissions": []
-        }))
-        .unwrap();
-        let package = PreparedTappPackage::from_resources(
-            manifest,
-            PreparedTappResources {
-                code: "export {};".to_string(),
-                ..PreparedTappResources::default()
-            },
-        );
-        let err = package.validate(None).unwrap_err();
-        let msg = err.message();
-        assert!(msg.contains("pageStyles") || msg.contains("pageCss"));
-        assert!(msg.contains("page.css"));
-        assert_eq!(err.status_hint(), 400);
+    fn legacy_manifest_error_points_at_the_layer_contract() {
+        let error = parse_manifest_json(
+            r#"{
+                "id": "com.example.legacy",
+                "name": "Legacy",
+                "version": "1.0.0",
+                "category": "utility",
+                "main": "main.js",
+                "hasPage": true,
+                "permissions": []
+            }"#,
+        )
+        .expect_err("pre-layer manifest must not parse");
+        let message = error.message();
+        assert!(message.contains("pre-layer format"), "got: {message}");
+        assert!(message.contains("main"), "got: {message}");
+        assert!(message.contains("hasPage"), "got: {message}");
+        assert!(!message.contains("unknown field"), "got: {message}");
     }
 
+    /// 结构性错误仍要保留 serde 的原始诊断。
     #[test]
-    fn validate_rejects_empty_page_styles_content() {
+    fn non_legacy_parse_errors_keep_serde_detail() {
+        let error = parse_manifest_json("{ not json").expect_err("must not parse");
+        assert!(!error.message().contains("pre-layer format"));
+    }
+
+    /// 声明了层入口却不带源码：必须在 staging 之前就报清楚，不能等落盘后
+    /// 变成一句「文件缺失」。
+    #[test]
+    fn validate_rejects_missing_layer_entry_source() {
         let manifest: TappManifest = serde_json::from_value(json!({
-            "id": "com.example.empty-page-css",
-            "name": "Empty page css",
+            "id": "com.example.missing-entry",
+            "name": "Missing entry",
             "version": "1.0.0",
-            "main": "main.js",
-            "pageStyles": "styles/page.css",
+            "core": { "entry": "core.js" },
+            "page": { "entry": "page/index.js" },
             "category": "utility",
             "permissions": []
         }))
@@ -444,14 +497,71 @@ mod tests {
         let package = PreparedTappPackage::from_resources(
             manifest,
             PreparedTappResources {
-                code: "export {};".to_string(),
+                modules: HashMap::from([("core.js".to_string(), "export {};".to_string())]),
+                ..PreparedTappResources::default()
+            },
+        );
+        let err = package.validate(None).unwrap_err();
+        assert!(err.message().contains("page/index.js"));
+        assert_eq!(err.status_hint(), 400);
+    }
+
+    #[test]
+    fn validate_rejects_missing_page_styles_content_with_clear_error() {
+        let manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.missing-page-css",
+            "name": "Missing page css",
+            "version": "1.0.0",
+            "core": { "entry": "core.js" },
+            "page": { "entry": "page/index.js", "styles": "page.css" },
+            "category": "game",
+            "permissions": []
+        }))
+        .unwrap();
+        let package = PreparedTappPackage::from_resources(
+            manifest,
+            PreparedTappResources {
+                modules: HashMap::from([
+                    ("core.js".to_string(), "export {};".to_string()),
+                    ("page/index.js".to_string(), "export {};".to_string()),
+                ]),
+                ..PreparedTappResources::default()
+            },
+        );
+        let err = package.validate(None).unwrap_err();
+        let msg = err.message();
+        assert!(msg.contains("page.styles"));
+        assert!(msg.contains("page.css"));
+        assert_eq!(err.status_hint(), 400);
+    }
+
+    /// 宿主预编译的 Tailwind 是另一条通道，不能拿它顶替作者声明的层样式。
+    #[test]
+    fn validate_rejects_empty_page_styles_content() {
+        let manifest: TappManifest = serde_json::from_value(json!({
+            "id": "com.example.empty-page-css",
+            "name": "Empty page css",
+            "version": "1.0.0",
+            "core": { "entry": "core.js" },
+            "page": { "entry": "page/index.js", "styles": "styles/page.css" },
+            "category": "utility",
+            "permissions": []
+        }))
+        .unwrap();
+        let package = PreparedTappPackage::from_resources(
+            manifest,
+            PreparedTappResources {
+                modules: HashMap::from([
+                    ("core.js".to_string(), "export {};".to_string()),
+                    ("page/index.js".to_string(), "export {};".to_string()),
+                ]),
                 page_styles: Some(String::new()),
-                generated_page_css: Some(String::new()),
+                generated_page_css: Some(".from-host {}".to_string()),
                 ..PreparedTappResources::default()
             },
         );
         let msg = package.validate(None).unwrap_err().message();
-        assert!(msg.contains("pageStyles") || msg.contains("pageCss"));
+        assert!(msg.contains("page.styles"));
         assert!(msg.contains("styles/page.css"));
     }
 
@@ -461,21 +571,32 @@ mod tests {
             "id": "com.example.missing-widget-css",
             "name": "Missing widget css",
             "version": "1.0.0",
-            "main": "main.js",
-            "widgetStyles": "widget.css",
+            "core": { "entry": "core.js" },
             "category": "utility",
-            "permissions": []
+            "permissions": ["widget:register"],
+            "widgets": [{
+                "id": "card",
+                "name": "Card",
+                "defaultSize": "2x2",
+                "sizes": ["2x2"],
+                "entry": "widget.js",
+                "styles": "widget-card.css"
+            }]
         }))
         .unwrap();
         let package = PreparedTappPackage::from_resources(
             manifest,
             PreparedTappResources {
-                code: "export {};".to_string(),
+                modules: HashMap::from([
+                    ("core.js".to_string(), "export {};".to_string()),
+                    ("widget.js".to_string(), "export {};".to_string()),
+                ]),
                 ..PreparedTappResources::default()
             },
         );
         let msg = package.validate(None).unwrap_err().message();
-        assert!(msg.contains("widgetStyles") || msg.contains("widgetCss"));
+        assert!(msg.contains("widgets[].styles"));
+        assert!(msg.contains("widget-card.css"));
     }
 
     #[test]
@@ -508,7 +629,7 @@ mod tests {
             "id": "com.example.widgets",
             "name": "Widgets",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "core.js" },
             "category": "utility",
             "permissions": ["widget:register"],
             "widgets": [{

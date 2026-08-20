@@ -25,23 +25,6 @@ pub(super) fn build_authenticated_router(
         // Note: /api/config routes are now registered above with wrappers, not here
         // Note: /api/profile/user-info, metadata now registered above with wrappers
         .route("/api/platforms", get(api::platforms::list_platforms))
-        .route("/api/profiles", get(api::platforms::get_profiles))
-        .route(
-            "/api/fetch",
-            post(api::platforms::trigger_fetch).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
-        )
-        .route(
-            "/api/analysis",
-            get(api::analysis::get_analysis)
-                .post(api::analysis::trigger_analysis)
-                .route_layer(from_fn_with_state(
-                    app_state.clone(),
-                    middleware::auth::auth_middleware,
-                )),
-        )
         // Prompt generation -  REQUIRE AUTHENTICATION
         .route(
             "/api/prompt/generate",

@@ -62,7 +62,7 @@ html.dark .rsb {
   gap: 0.5rem;
   align-items: center;
   width: fit-content;
-  min-width: min(100%, 14rem);
+  min-width: min(100%, 8rem);
   max-width: min(100%, 34rem);
   height: var(--rsb-h);
   padding: 0 0.5rem 0 0.75rem;
@@ -144,6 +144,10 @@ html.dark .rsb {
   min-width: 0;
 }
 
+.rsb-lines.is-ticker {
+  width: min(12.5rem, calc(100dvw - 9rem));
+}
+
 .rsb-main {
   overflow: hidden;
   font-size: 0.875rem;
@@ -156,11 +160,53 @@ html.dark .rsb {
 
 .rsb-sub {
   overflow: hidden;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   line-height: 1.25;
   color: var(--rsb-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rsb-sub-track {
+  text-overflow: clip;
+}
+
+.rsb-sub-track.is-overflow {
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 1.1rem),
+    transparent
+  );
+}
+
+.rsb-sub-text {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.rsb-sub-text.is-marquee {
+  animation: rsb-marquee var(--rsb-marquee-ms, 4s) linear forwards;
+}
+
+.rsb.is-held .rsb-sub-text.is-marquee {
+  animation-play-state: paused;
+}
+
+@keyframes rsb-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-1 * var(--rsb-marquee-shift, 0px)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rsb-sub-text.is-marquee {
+    animation: none;
+  }
 }
 
 .rsb-go {

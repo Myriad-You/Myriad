@@ -54,7 +54,6 @@ import {
 import {
   exportTapp,
   getTappAsset,
-  getTappCode,
   getTappResources,
 } from './TappPackageResourceApi'
 import {
@@ -113,7 +112,6 @@ export default {
   updateTappFromCode,
   updateTappFromStore,
   getTapp,
-  getTappCode,
   getTappResources,
   startTapp,
   stopTapp,

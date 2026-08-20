@@ -4,6 +4,13 @@ use super::*;
 use serde_json::json;
 use std::collections::HashSet;
 
+/// Playground 固定的包内布局。多文件拆分属于另一个议题，不在这里放开。
+pub(super) const PLAYGROUND_CORE_ENTRY: &str = "core.js";
+pub(super) const PLAYGROUND_STYLES: &str = "styles.css";
+pub(super) const PLAYGROUND_PAGE_ENTRY: &str = "page/index.js";
+pub(super) const PLAYGROUND_PAGE_TEMPLATE: &str = "page.html";
+pub(super) const PLAYGROUND_WIDGET_ENTRY: &str = "widget/index.js";
+
 pub(super) fn validate_playground_project(project: &PlaygroundProject) -> Result<(), String> {
     validate_tapp_manifest(&project.manifest)?;
     let manifest = &project.manifest;
@@ -12,47 +19,53 @@ pub(super) fn validate_playground_project(project: &PlaygroundProject) -> Result
     if manifest.version != "1.0.0" {
         return Err("Playground project version must remain 1.0.0".to_string());
     }
-    if manifest.main != "main.js"
-        || manifest.styles.as_deref() != Some("styles.css")
-        || manifest.css_mode.as_deref() != Some("unified")
-    {
-        return Err("Playground requires main.js, styles.css, and unified CSS".to_string());
+    // Playground 本轮只落固定三文件；作者要拆更多文件走 CLI 或手写包。
+    let core = manifest
+        .core
+        .as_ref()
+        .ok_or_else(|| "Playground requires a core layer".to_string())?;
+    if core.entry != PLAYGROUND_CORE_ENTRY || core.styles.as_deref() != Some(PLAYGROUND_STYLES) {
+        return Err(format!(
+            "Playground requires core.entry={PLAYGROUND_CORE_ENTRY} and core.styles={PLAYGROUND_STYLES}"
+        ));
     }
 
     let manifest_widgets = manifest.widgets.as_deref().unwrap_or_default();
     let has_widgets = !manifest_widgets.is_empty();
 
     // Dual mode: Page and/or Widget-only. Reject empty projects (neither).
-    if !manifest.has_page && !has_widgets {
-        return Err(
-            "Playground project requires a Page (hasPage) and/or non-empty Widgets".to_string(),
-        );
+    if manifest.page.is_none() && !has_widgets {
+        return Err("Playground project requires a page layer and/or non-empty Widgets".to_string());
     }
 
-    if manifest.has_page {
-        if manifest.page_template.as_deref() != Some("page.html") {
-            return Err("Playground Page mode requires pageTemplate: page.html".to_string());
+    if let Some(page) = &manifest.page {
+        if page.entry.as_deref() != Some(PLAYGROUND_PAGE_ENTRY)
+            || page.template.as_deref() != Some(PLAYGROUND_PAGE_TEMPLATE)
+        {
+            return Err(format!(
+                "Playground page layer requires entry={PLAYGROUND_PAGE_ENTRY} and template={PLAYGROUND_PAGE_TEMPLATE}"
+            ));
         }
         if code.page.trim().is_empty() || code.page_html.trim().is_empty() {
             return Err(
-                "Playground project requires non-empty page code and HTML when hasPage is true"
+                "Playground project requires non-empty page code and HTML when a page layer is declared"
                     .to_string(),
             );
         }
-    } else {
-        // Widget-only: pageTemplate optional/absent; page fields may be empty.
-        if let Some(template) = manifest.page_template.as_deref() {
-            if template != "page.html" {
-                return Err("Playground pageTemplate must be page.html when declared".to_string());
-            }
-        }
-        if code.widget.as_deref().is_none_or(str::is_empty)
-            || code.widget_html.as_deref().is_none_or(str::is_empty)
-        {
-            return Err(
-                "Widget-only Playground projects require non-empty code.widget and code.widgetHtml"
-                    .to_string(),
-            );
+    } else if code.widget.as_deref().is_none_or(str::is_empty)
+        || code.widget_html.as_deref().is_none_or(str::is_empty)
+    {
+        return Err(
+            "Widget-only Playground projects require non-empty code.widget and code.widgetHtml"
+                .to_string(),
+        );
+    }
+
+    for widget in manifest_widgets {
+        if widget.entry.as_deref() != Some(PLAYGROUND_WIDGET_ENTRY) {
+            return Err(format!(
+                "Playground widgets must share entry={PLAYGROUND_WIDGET_ENTRY}"
+            ));
         }
     }
 
@@ -71,9 +84,6 @@ pub(super) fn validate_playground_project(project: &PlaygroundProject) -> Result
         if let Some(value) = value {
             code_fields.push((name, value));
         }
-    }
-    for (path, source) in &code.page_modules {
-        code_fields.push((path.as_str(), source.as_str()));
     }
     for (name, value) in &code_fields {
         if value.len() > MAX_CODE_FIELD_BYTES {
@@ -101,39 +111,6 @@ pub(super) fn validate_playground_project(project: &PlaygroundProject) -> Result
         return Err(
             "Manifest Widgets require non-empty code.widget and code.widgetHtml".to_string(),
         );
-    }
-
-    let manifest_modules: HashSet<&str> = manifest
-        .page_modules
-        .as_deref()
-        .unwrap_or_default()
-        .iter()
-        .map(String::as_str)
-        .collect();
-    let code_modules: HashSet<&str> = code.page_modules.keys().map(String::as_str).collect();
-    if manifest_modules != code_modules {
-        return Err(
-            "manifest.pageModules and code.pageModules must contain the same paths".to_string(),
-        );
-    }
-    if code.page_modules.len() > 64 {
-        return Err("code.pageModules accepts at most 64 entries".to_string());
-    }
-    for (path, source) in &code.page_modules {
-        if source.len() > MAX_CODE_FIELD_BYTES {
-            return Err(format!(
-                "Page module {path} exceeds {MAX_CODE_FIELD_BYTES} bytes"
-            ));
-        }
-    }
-    if !code.page_module_order.is_empty() {
-        let order: HashSet<&str> = code.page_module_order.iter().map(String::as_str).collect();
-        if order != manifest_modules || order.len() != code.page_module_order.len() {
-            return Err(
-                "code.pageModuleOrder must contain every manifest Page module exactly once"
-                    .to_string(),
-            );
-        }
     }
 
     let manifest_assets: HashSet<&str> = manifest
@@ -410,14 +387,11 @@ mod tests {
                 "version": "1.0.0",
                 "description": format!("A {name}"),
                 "author": { "name": "Myriad Playground" },
-                "main": "main.js",
-                "styles": "styles.css",
-                "pageTemplate": "page.html",
-                "cssMode": "unified",
+                "core": { "entry": "core.js", "styles": "styles.css" },
+                "page": { "entry": "page/index.js", "template": "page.html" },
                 "permissions": ["storage:read"],
                 "icon": "🧪",
                 "themeColor": "#7C3AED",
-                "hasPage": true,
                 "category": "developer"
             },
             "code": {
@@ -440,14 +414,11 @@ mod tests {
                     "version": "1.0.0",
                     "description": "A counter",
                     "author": { "name": "Myriad Playground" },
-                    "main": "main.js",
-                    "styles": "styles.css",
-                    "pageTemplate": "page.html",
-                    "cssMode": "unified",
+                    "core": { "entry": "core.js", "styles": "styles.css" },
+                    "page": { "entry": "page/index.js", "template": "page.html" },
                     "permissions": ["storage:read"],
                     "icon": "🧪",
                     "themeColor": "#7C3AED",
-                    "hasPage": true,
                     "category": "developer"
                 },
                 "code": {
@@ -765,7 +736,7 @@ mod tests {
             parse_and_validate_model_output(&raw).expect("valid project");
         assert_eq!(normalized_aliases, 0);
         assert_eq!(output.project.manifest.version, "1.0.0");
-        assert!(output.project.manifest.has_page);
+        assert!(output.project.manifest.has_page());
     }
 
     #[test]
@@ -916,6 +887,7 @@ mod tests {
             "defaultSize": "2x2",
             "sizes": ["2x2"],
             "category": "utility",
+            "entry": "widget/index.js",
             "templates": { "2x2": "templates/widget-2x2.html" }
         }]);
         value["project"]["manifest"]["assets"] = json!(["templates/widget-2x2.html"]);
@@ -1039,20 +1011,18 @@ mod tests {
                 "version": "1.0.0",
                 "description": "A widget-only playground project",
                 "author": { "name": "Myriad Playground" },
-                "main": "main.js",
-                "styles": "styles.css",
-                "cssMode": "unified",
+                "core": { "entry": "core.js", "styles": "styles.css" },
                 "permissions": ["widget:register"],
                 "icon": "🧩",
                 "themeColor": "#7C3AED",
-                "hasPage": false,
                 "category": "utility",
                 "widgets": [{
                     "id": "card",
                     "name": "Card",
                     "defaultSize": "2x2",
                     "sizes": ["2x2"],
-                    "category": "utility"
+                    "category": "utility",
+                    "entry": "widget/index.js"
                 }]
             },
             "code": {
@@ -1072,7 +1042,7 @@ mod tests {
     fn accepts_widget_only_project() {
         let project = sample_widget_only_project();
         validate_playground_project(&project).expect("widget-only should validate");
-        assert!(!project.manifest.has_page);
+        assert!(!project.manifest.has_page());
         assert!(project.code.page_html.trim().is_empty());
         assert!(!project.manifest.widgets.as_ref().unwrap().is_empty());
     }
@@ -1081,32 +1051,31 @@ mod tests {
     fn accepts_page_only_project() {
         let project = sample_project("PageOnly");
         validate_playground_project(&project).expect("page-only should validate");
-        assert!(project.manifest.has_page);
+        assert!(project.manifest.has_page());
     }
 
     #[test]
     fn rejects_project_with_neither_page_nor_widgets() {
         let mut project = sample_project("Empty");
-        project.manifest.has_page = false;
-        project.manifest.page_template = None;
+        project.manifest.page = None;
         project.code.page = String::new();
         project.code.page_html = String::new();
         project.manifest.widgets = None;
         let err = validate_playground_project(&project).unwrap_err();
         assert!(
-            err.contains("Page") || err.contains("Widgets") || err.contains("hasPage"),
+            err.contains("page layer") || err.contains("Widgets"),
             "expected empty-project error, got: {err}"
         );
     }
 
     #[test]
-    fn rejects_has_page_true_without_page_content() {
+    fn rejects_page_layer_without_page_content() {
         let mut project = sample_project("MissingPage");
         project.code.page = String::new();
         project.code.page_html = String::new();
         let err = validate_playground_project(&project).unwrap_err();
         assert!(
-            err.contains("page code and HTML") || err.contains("hasPage"),
+            err.contains("page code and HTML"),
             "expected missing page content error, got: {err}"
         );
     }

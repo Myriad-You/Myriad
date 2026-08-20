@@ -4,6 +4,9 @@
 //! Lives in the services layer so agent handlers do not depend on `api::speech`.
 
 use crate::services::data_paths::paths;
+use crate::services::speech_runtime::{
+    configured_provider, synthesize_openai_tts, SpeechProviderKind,
+};
 use crate::services::tencent_speech_service::{
     TencentSpeechError, TencentSpeechService, TtsRequest,
 };
@@ -21,7 +24,7 @@ const STANDALONE_TTS_SUBDIR: &str = "standalone_tts";
 pub struct TtsApiRequest {
     /// 要转换的文本（中文最大150字，英文最大500字母）
     pub text: String,
-    /// 音色ID（可选，默认10510000-晓晓）
+    /// 音色ID（可选，默认爱小溪 AI_XIAO_XI）
     #[serde(default)]
     pub voice_type: Option<i32>,
     /// 语速 [-2, 6]，默认0
@@ -196,7 +199,20 @@ pub async fn synthesize_standalone_tts(request: &TtsApiRequest) -> Result<TtsApi
     }
 
     let codec = request.codec.as_deref().unwrap_or("mp3");
-    let voice_type = request.voice_type.unwrap_or(10510000);
+    let provider = configured_provider().await;
+    if matches!(
+        provider,
+        SpeechProviderKind::OpenAi | SpeechProviderKind::OpenRouter
+    ) {
+        return synthesize_openai_standalone(request, codec).await;
+    }
+    if provider == SpeechProviderKind::Gemini {
+        return synthesize_gemini_standalone(request).await;
+    }
+
+    let voice_type = request
+        .voice_type
+        .unwrap_or(crate::services::tencent_speech_service::voice_types::AI_XIAO_XI);
     let speed = request.speed.unwrap_or(0.0);
     let sample_rate = request.sample_rate.unwrap_or(16000);
     let text_hash = generate_text_hash(&request.text);
@@ -260,6 +276,60 @@ pub async fn synthesize_standalone_tts(request: &TtsApiRequest) -> Result<TtsApi
         }
         Err(e) => Err(tencent_speech_error_message(&e)),
     }
+}
+
+async fn synthesize_gemini_standalone(request: &TtsApiRequest) -> Result<TtsApiResponse, String> {
+    let audio = crate::services::speech_runtime::synthesize_gemini_tts(&request.text).await?;
+    let text_hash = generate_text_hash(&request.text);
+    let audio_b64 = BASE64.encode(&audio);
+    Ok(TtsApiResponse {
+        success: true,
+        audio: Some(audio_b64),
+        session_id: Some(format!("gemini-{}", &text_hash[..8])),
+        cached: Some(false),
+        error: None,
+    })
+}
+
+async fn synthesize_openai_standalone(
+    request: &TtsApiRequest,
+    codec: &str,
+) -> Result<TtsApiResponse, String> {
+    let (audio, voice) = synthesize_openai_tts(&request.text, codec).await?;
+    let text_hash = generate_text_hash(&request.text);
+    let speed = request.speed.unwrap_or(0.0);
+    let sample_rate = request.sample_rate.unwrap_or(16000);
+    let cache_voice = cache_tag_from_voice(&voice);
+    let audio_b64 = BASE64.encode(&audio);
+    if let Err(e) = write_tts_file(
+        &text_hash,
+        cache_voice,
+        speed,
+        sample_rate,
+        codec,
+        &audio_b64,
+    )
+    .await
+    {
+        tracing::warn!("Failed to write OpenAI TTS file: {}", e);
+    }
+    Ok(TtsApiResponse {
+        success: true,
+        audio: Some(audio_b64),
+        session_id: Some(format!("openai-{}", &text_hash[..8])),
+        cached: Some(false),
+        error: None,
+    })
+}
+
+/// Pack a string voice into the existing i32 cache filename slot.
+fn cache_tag_from_voice(voice: &str) -> i32 {
+    let mut hash: u32 = 2166136261;
+    for byte in voice.as_bytes() {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(16777619);
+    }
+    (hash & 0x7fff_ffff) as i32
 }
 
 #[cfg(test)]

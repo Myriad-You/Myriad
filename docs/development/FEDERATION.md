@@ -146,9 +146,9 @@ Host UI: Config → Federation → **Outbound delivery queue** (stats, list, ret
 
 ## Multi-instance suite
 
-Script: `scripts/dev/federation-multi-instance-suite.sh`
+Script: `scripts/extra/federation-suite.sh`
 
-Read-only FK orphan report (does not mutate): `scripts/dev/federation-fk-orphan-report.sql`
+Read-only FK orphan report (does not mutate): `scripts/extra/federation-fk-orphan-report.sql`
 
 - `wait_delivery_side` treats `dead` as failure **unless** `error_message` matches
   `cancelled:%` (user/API cancels left by prior cases must not poison later waits).

@@ -28,13 +28,11 @@ impl AgentScheduleType {
     }
 }
 
-/// Parse scheduleType (or infer cron from legacy cronExpression).
+/// Parse scheduleType (cron / interval / once / daily).
 pub fn parse_schedule_type(
     schedule_type_name: Option<&str>,
-    has_legacy_cron: bool,
 ) -> Result<AgentScheduleType, String> {
     let name = schedule_type_name
-        .or_else(|| has_legacy_cron.then_some("cron"))
         .ok_or_else(|| "Missing scheduleType parameter".to_string())?;
     match name.to_ascii_lowercase().as_str() {
         "cron" => Ok(AgentScheduleType::Cron),
@@ -161,15 +159,6 @@ pub fn extract_raw_backend_actions(params: &HashMap<String, Value>) -> Option<Va
         })
 }
 
-/// Legacy cron expression keys used by older agent plans.
-pub fn extract_legacy_cron(params: &HashMap<String, Value>) -> Option<&str> {
-    params
-        .get("cronExpression")
-        .or_else(|| params.get("cron"))
-        .or_else(|| params.get("schedule").filter(|value| value.is_string()))
-        .and_then(Value::as_str)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,15 +166,11 @@ mod tests {
     #[test]
     fn schedule_type_and_execution_target() {
         assert_eq!(
-            parse_schedule_type(Some("CRON"), false).unwrap(),
+            parse_schedule_type(Some("CRON")).unwrap(),
             AgentScheduleType::Cron
         );
-        assert_eq!(
-            parse_schedule_type(None, true).unwrap(),
-            AgentScheduleType::Cron
-        );
-        assert!(parse_schedule_type(None, false).is_err());
-        assert!(parse_schedule_type(Some("weekly"), false).is_err());
+        assert!(parse_schedule_type(None).is_err());
+        assert!(parse_schedule_type(Some("weekly")).is_err());
 
         assert_eq!(
             parse_execution_target(None, true).unwrap(),
@@ -282,9 +267,5 @@ mod tests {
         params.insert("action".into(), json!({ "type": "x" }));
         let raw = extract_raw_backend_actions(&params).unwrap();
         assert!(raw.is_array());
-        assert_eq!(
-            extract_legacy_cron(&HashMap::from([("cron".into(), json!("0 0 * * *"))])),
-            Some("0 0 * * *")
-        );
     }
 }

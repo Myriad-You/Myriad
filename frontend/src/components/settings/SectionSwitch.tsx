@@ -63,22 +63,26 @@ export const SectionSwitch: React.FC<SectionSwitchProps> = ({
       return undefined
     }
 
+    const commitIn = () => {
+      shownKeyRef.current = sectionKey
+      setShownKey(sectionKey)
+      setPhase('in')
+      onCommitRef.current?.(sectionKey)
+      timerRef.current = window.setTimeout(
+        setPhase,
+        SETTINGS_DURATION_MS.slow + 60,
+        'idle',
+      )
+    }
+
+    // 减弱动效：不要先出场再进场，避免空一拍。
+    if (prefersReducedMotion()) {
+      commitIn()
+      return undefined
+    }
+
     setPhase('out')
-    const id = window.setTimeout(
-      () => {
-        shownKeyRef.current = sectionKey
-        setShownKey(sectionKey)
-        setPhase('in')
-        onCommitRef.current?.(sectionKey)
-        // 兜底：reduced-motion / 降级档下没有动画，animationend 不会来
-        timerRef.current = window.setTimeout(
-          setPhase,
-          SETTINGS_DURATION_MS.slow + 60,
-          'idle',
-        )
-      },
-      prefersReducedMotion() ? 0 : SETTINGS_DURATION_MS.fast,
-    )
+    const id = window.setTimeout(commitIn, SETTINGS_DURATION_MS.fast)
     timerRef.current = id
     // 目标再次变化时必须清掉当前阶段的定时器，否则旧目标或旧阶段会串进来
     return () => window.clearTimeout(timerRef.current)

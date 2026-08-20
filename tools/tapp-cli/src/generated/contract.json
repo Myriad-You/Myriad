@@ -15,12 +15,12 @@
     "apiCacheTtlSeconds": 86400,
     "apiInjectAliases": 32,
     "apiInjectTemplateLength": 2048,
-    "archiveBytes": 26214400,
-    "archiveFiles": 512,
-    "archiveUncompressedBytes": 104857600,
-    "assetBytes": 5242880,
-    "assets": 64,
-    "assetsTotalBytes": 20971520,
+    "archiveBytes": 67108864,
+    "archiveFiles": 1024,
+    "archiveUncompressedBytes": 134217728,
+    "assetBytes": 16777216,
+    "assets": 128,
+    "assetsTotalBytes": 67108864,
     "authorEmailLength": 320,
     "backgroundRequirements": 16,
     "credentialFieldLength": 128,
@@ -35,9 +35,13 @@
     "dataExchangeResponseBytes": 524288,
     "dataExchangeSchemaBytes": 65536,
     "eventTopics": 100,
-    "gameAssetBytes": 12582912,
-    "gameAssets": 128,
-    "gameAssetsTotalBytes": 50331648,
+    "gameArchiveBytes": 134217728,
+    "gameArchiveFiles": 2048,
+    "gameArchiveUncompressedBytes": 268435456,
+    "gameAssetBytes": 33554432,
+    "gameAssets": 256,
+    "gameAssetsTotalBytes": 134217728,
+    "gameResourceBytes": 134217728,
     "httpUrlLength": 2048,
     "i18nFiles": 32,
     "i18nResourceBytes": 1048576,
@@ -48,8 +52,7 @@
     "openUrlQueryKeys": 16,
     "openUrlQueryValueLength": 512,
     "openUrls": 32,
-    "pageModules": 64,
-    "resourceBytes": 26214400,
+    "resourceBytes": 67108864,
     "resourcePathLength": 256,
     "routeMaxBodyBytes": 1048576,
     "routeMaxMaxSkewSecs": 3600,
@@ -70,6 +73,7 @@
     "tappNonJsonHttpRequestBytes": 1048576,
     "tappPermissions": 64,
     "tappSettings": 64,
+    "uploadBytes": 136314880,
     "widgetRefreshIntervalMaxSeconds": 86400,
     "widgetRefreshIntervalMinSeconds": 15,
     "widgetSizes": 10,
@@ -169,10 +173,6 @@
       "md5-sorted-kv",
       "hmac-sha256-raw"
     ],
-    "cssModes": [
-      "unified",
-      "separated"
-    ],
     "dataExchangeDirections": {
       "exports": "export",
       "imports": "import"
@@ -247,11 +247,11 @@
       "const"
     ],
     "manifestResourceFields": {
-      "main": "main",
-      "pageStyles": "pageStyles",
-      "pageTemplate": "pageTemplate",
-      "styles": "styles",
-      "widgetStyles": "widgetStyles"
+      "core.entry": "coreEntry",
+      "core.styles": "coreStyles",
+      "page.entry": "pageEntry",
+      "page.styles": "pageStyles",
+      "page.template": "pageTemplate"
     },
     "openUrlMatchModes": [
       "exact",
@@ -278,19 +278,20 @@
     "packageResourceFileLimits": {
       "i18n": "i18nFiles"
     },
-    "pageModuleDirectory": "page",
+    "pageLayerDirectory": "page",
     "protocolVersion": 2,
     "requiredManifestFields": [
       "category"
     ],
     "resourceExtensions": {
       "agentSchema": ".json",
+      "coreEntry": ".js",
+      "coreStyles": ".css",
       "i18n": ".json",
-      "main": ".js",
-      "pageModule": ".js",
+      "pageEntry": ".js",
       "pageStyles": ".css",
       "pageTemplate": ".html",
-      "styles": ".css",
+      "widgetEntry": ".js",
       "widgetStyles": ".css",
       "widgetTemplate": ".html"
     },
@@ -386,6 +387,7 @@
     "widgetCategoryAliases": [
       "tool"
     ],
+    "widgetLayerDirectory": "widget",
     "widgetManifestPermission": "widget:register",
     "widgetRefreshModes": {
       "event": "event",
@@ -776,6 +778,27 @@
         ],
         "type": "string"
       },
+      "TappCoreLayer": {
+        "additionalProperties": false,
+        "description": "共享层：所有沙箱模式执行的第一段代码，也是 headless 后台唯一执行的代码。",
+        "properties": {
+          "entry": {
+            "description": "包内相对路径的 `.js` 入口。层内其余文件由入口 require 进来。",
+            "type": "string"
+          },
+          "styles": {
+            "description": "各层共享的作者样式。宿主预编译产物不走这里。",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entry"
+        ],
+        "type": "object"
+      },
       "TappCredentialDef": {
         "additionalProperties": false,
         "properties": {
@@ -1041,6 +1064,31 @@
         ],
         "type": "string"
       },
+      "TappPageLayer": {
+        "additionalProperties": false,
+        "description": "Page 层。`entry` 与 `template` 至少有一个，否则这一层没有任何内容。",
+        "properties": {
+          "entry": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "styles": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "template": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "TappRouteVerify": {
         "additionalProperties": false,
         "description": "Host-verified inbound HMAC for `/tapi/{tappId}{path}`.",
@@ -1224,6 +1272,13 @@
               "null"
             ]
           },
+          "entry": {
+            "description": "该 widget 的 `.js` 入口。多个 widget 想共用代码就各自 require 同一个文件。",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "icon": {
             "type": [
               "string",
@@ -1257,6 +1312,13 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "styles": {
+            "description": "该 widget 的作者样式。",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "templates": {
             "additionalProperties": {
@@ -1383,6 +1445,17 @@
           }
         ]
       },
+      "core": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TappCoreLayer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "共享层。声明后台常驻能力的包必须有它；其余包可以只声明 page / widgets。"
+      },
       "credentials": {
         "description": "Installation-level write-only credentials. Values are stored by the host\nand may only be attached to explicitly bound declared HTTP APIs.",
         "items": {
@@ -1390,12 +1463,6 @@
         },
         "type": [
           "array",
-          "null"
-        ]
-      },
-      "cssMode": {
-        "type": [
-          "string",
           "null"
         ]
       },
@@ -1438,10 +1505,6 @@
         ],
         "description": "Optional turn-based game session declaration (federation rooms)."
       },
-      "hasPage": {
-        "default": false,
-        "type": "boolean"
-      },
       "homepage": {
         "type": [
           "string",
@@ -1473,9 +1536,6 @@
           "null"
         ]
       },
-      "main": {
-        "type": "string"
-      },
       "minSystemVersion": {
         "type": [
           "string",
@@ -1495,27 +1555,16 @@
           "null"
         ]
       },
-      "pageModules": {
-        "default": null,
-        "items": {
-          "type": "string"
-        },
-        "type": [
-          "array",
-          "null"
-        ]
-      },
-      "pageStyles": {
-        "type": [
-          "string",
-          "null"
-        ]
-      },
-      "pageTemplate": {
-        "type": [
-          "string",
-          "null"
-        ]
+      "page": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TappPageLayer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Page 层。存在即表示该 Tapp 有可打开的页面。"
       },
       "permissions": {
         "default": [],
@@ -1549,12 +1598,6 @@
           "null"
         ]
       },
-      "styles": {
-        "type": [
-          "string",
-          "null"
-        ]
-      },
       "themeColor": {
         "type": [
           "string",
@@ -1563,12 +1606,6 @@
       },
       "version": {
         "type": "string"
-      },
-      "widgetStyles": {
-        "type": [
-          "string",
-          "null"
-        ]
       },
       "widgets": {
         "items": {
@@ -1583,8 +1620,7 @@
     "required": [
       "id",
       "name",
-      "version",
-      "main"
+      "version"
     ],
     "title": "TappManifest",
     "type": "object"
@@ -1743,6 +1779,13 @@
       "settings.get": "storage:read",
       "settings.set": "storage:write",
       "settings.getAll": "storage:read",
+      "shared.get": "storage:read",
+      "shared.set": "storage:write",
+      "shared.remove": "storage:write",
+      "shared.keys": "storage:read",
+      "shared.getAll": "storage:read",
+      "shared.clear": "storage:write",
+      "shared.usage": "storage:read",
       "ui.showNotification": "ui:notification",
       "ui.confirm": "ui:confirm",
       "ui.openUrl": "ui:openUrl",

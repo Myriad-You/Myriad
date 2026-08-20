@@ -369,6 +369,27 @@
       ],
       "type": "string"
     },
+    "TappCoreLayer": {
+      "additionalProperties": false,
+      "description": "共享层：所有沙箱模式执行的第一段代码，也是 headless 后台唯一执行的代码。",
+      "properties": {
+        "entry": {
+          "description": "包内相对路径的 `.js` 入口。层内其余文件由入口 require 进来。",
+          "type": "string"
+        },
+        "styles": {
+          "description": "各层共享的作者样式。宿主预编译产物不走这里。",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entry"
+      ],
+      "type": "object"
+    },
     "TappCredentialDef": {
       "additionalProperties": false,
       "properties": {
@@ -634,6 +655,31 @@
       ],
       "type": "string"
     },
+    "TappPageLayer": {
+      "additionalProperties": false,
+      "description": "Page 层。`entry` 与 `template` 至少有一个，否则这一层没有任何内容。",
+      "properties": {
+        "entry": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "styles": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "template": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "TappRouteVerify": {
       "additionalProperties": false,
       "description": "Host-verified inbound HMAC for `/tapi/{tappId}{path}`.",
@@ -817,6 +863,13 @@
             "null"
           ]
         },
+        "entry": {
+          "description": "该 widget 的 `.js` 入口。多个 widget 想共用代码就各自 require 同一个文件。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "icon": {
           "type": [
             "string",
@@ -850,6 +903,13 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "styles": {
+          "description": "该 widget 的作者样式。",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "templates": {
           "additionalProperties": {
@@ -976,6 +1036,17 @@
         }
       ]
     },
+    "core": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappCoreLayer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "共享层。声明后台常驻能力的包必须有它；其余包可以只声明 page / widgets。"
+    },
     "credentials": {
       "description": "Installation-level write-only credentials. Values are stored by the host\nand may only be attached to explicitly bound declared HTTP APIs.",
       "items": {
@@ -983,12 +1054,6 @@
       },
       "type": [
         "array",
-        "null"
-      ]
-    },
-    "cssMode": {
-      "type": [
-        "string",
         "null"
       ]
     },
@@ -1031,10 +1096,6 @@
       ],
       "description": "Optional turn-based game session declaration (federation rooms)."
     },
-    "hasPage": {
-      "default": false,
-      "type": "boolean"
-    },
     "homepage": {
       "type": [
         "string",
@@ -1066,9 +1127,6 @@
         "null"
       ]
     },
-    "main": {
-      "type": "string"
-    },
     "minSystemVersion": {
       "type": [
         "string",
@@ -1088,27 +1146,16 @@
         "null"
       ]
     },
-    "pageModules": {
-      "default": null,
-      "items": {
-        "type": "string"
-      },
-      "type": [
-        "array",
-        "null"
-      ]
-    },
-    "pageStyles": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "pageTemplate": {
-      "type": [
-        "string",
-        "null"
-      ]
+    "page": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TappPageLayer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Page 层。存在即表示该 Tapp 有可打开的页面。"
     },
     "permissions": {
       "default": [],
@@ -1142,12 +1189,6 @@
         "null"
       ]
     },
-    "styles": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
     "themeColor": {
       "type": [
         "string",
@@ -1156,12 +1197,6 @@
     },
     "version": {
       "type": "string"
-    },
-    "widgetStyles": {
-      "type": [
-        "string",
-        "null"
-      ]
     },
     "widgets": {
       "items": {
@@ -1176,8 +1211,7 @@
   "required": [
     "id",
     "name",
-    "version",
-    "main"
+    "version"
   ],
   "title": "Myriad Tapp Manifest",
   "type": "object",

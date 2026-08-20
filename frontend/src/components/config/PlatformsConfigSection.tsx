@@ -166,6 +166,11 @@ export function isPlatformConfigured(platform: PlatformConfig) {
 
 /** 清理掩码输入，供父级 updateField 复用 */
 export function sanitizeMaskedFieldValue(value: string): string {
+  const trimmed = value.trimStart()
+  // JSON 袋（服务商列表等）里会嵌套 •••• 掩码，不能当单个密码框清洗
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    return value
+  }
   if (
     isMaskedValue(value) &&
     value !== '••••••••' &&

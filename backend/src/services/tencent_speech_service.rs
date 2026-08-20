@@ -72,7 +72,7 @@ pub struct TtsRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<i32>,
     /// 音色ID
-    /// 精品音色: 10510000-晓晓(女), 10510001-晓辰(女), 1001-智瑜(女), 1002-智聆(女)
+    /// 大模型音色默认 `voice_types::AI_XIAO_XI`（601000）
     /// 更多音色参见: https://cloud.tencent.com/document/product/1073/34079
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice_type: Option<i32>,
@@ -105,7 +105,7 @@ impl Default for TtsRequest {
             volume: Some(0.0),
             speed: Some(0.0),
             project_id: Some(0),
-            voice_type: Some(10510000), // 默认晓晓女声
+            voice_type: Some(voice_types::AI_XIAO_XI),
             primary_language: Some(1),  // 中文
             sample_rate: Some(16000),
             codec: Some("mp3".to_string()),
@@ -292,25 +292,41 @@ impl TencentSpeechService {
     pub async fn new() -> Result<Self, TencentSpeechError> {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
 
-        let secret_id = config
-            .tencent_secret_id
-            .clone()
-            .map(|k| k.trim().to_string())
-            .filter(|k| !k.is_empty())
+        let source = config.find_vendor_source(&config.speech_source);
+        let tencent = source
+            .as_ref()
+            .filter(|item| item.kind == "tencent");
+        let secret_id = tencent
+            .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.secret_id.as_ref()))
+            .or_else(|| {
+                config
+                    .tencent_secret_id
+                    .clone()
+                    .map(|k| k.trim().to_string())
+                    .filter(|k| !k.is_empty())
+            })
             .ok_or(TencentSpeechError::ApiKeyNotConfigured)?;
 
-        let secret_key = config
-            .tencent_secret_key
-            .clone()
-            .map(|k| k.trim().to_string())
-            .filter(|k| !k.is_empty())
+        let secret_key = tencent
+            .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.secret_key.as_ref()))
+            .or_else(|| {
+                config
+                    .tencent_secret_key
+                    .clone()
+                    .map(|k| k.trim().to_string())
+                    .filter(|k| !k.is_empty())
+            })
             .ok_or(TencentSpeechError::ApiKeyNotConfigured)?;
 
-        let region = config
-            .tencent_region
-            .clone()
-            .map(|r| r.trim().to_string())
-            .filter(|r| !r.is_empty())
+        let region = tencent
+            .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.region.as_ref()))
+            .or_else(|| {
+                config
+                    .tencent_region
+                    .clone()
+                    .map(|r| r.trim().to_string())
+                    .filter(|r| !r.is_empty())
+            })
             .unwrap_or_else(|| "ap-guangzhou".to_string());
 
         drop(config);
@@ -689,53 +705,6 @@ pub mod voice_types {
     pub const ZHI_FU: i32 = 101055;
     /// 爱小静 - 对话女声 (精品)
     pub const AI_XIAO_JING_PREMIUM: i32 = 301037;
-
-    // 旧版兼容（保留）
-    /// 精品女声 - 晓晓 (通用场景) - 已废弃，请使用新版音色
-    #[deprecated(note = "使用新版大模型音色如 AI_XIAO_XI")]
-    pub const XIAOXIAO: i32 = 10510000;
-    /// 精品女声 - 晓辰 (通用场景) - 已废弃
-    #[deprecated(note = "使用新版大模型音色")]
-    pub const XIAOCHEN: i32 = 10510001;
-    /// 精品男声 - 晓晓男声版 - 已废弃
-    #[deprecated(note = "使用新版大模型音色如 AI_XIAO_CHEN")]
-    pub const XIAOXIAO_MALE: i32 = 10510002;
-    /// 智瑜 - 标准女声 - 已废弃
-    #[deprecated(note = "使用 ZHI_YU")]
-    pub const ZHIYU: i32 = 1001;
-    /// 智聆 - 标准女声 - 已废弃
-    #[deprecated(note = "使用新版精品音色")]
-    pub const ZHILING: i32 = 1002;
-    /// 智美 - 标准女声 - 已废弃
-    #[deprecated(note = "使用 ZHI_MEI")]
-    pub const ZHIMEI: i32 = 1003;
-    /// 智雅 - 客服女声 - 已废弃
-    #[deprecated(note = "使用新版精品音色")]
-    pub const ZHIYA: i32 = 1004;
-    /// 智娜 - 新闻女声 - 已废弃
-    #[deprecated(note = "使用 ZHI_YAN")]
-    pub const ZHINA: i32 = 1005;
-    /// 智琪 - 儿童女声 - 已废弃
-    #[deprecated(note = "使用 ZHI_TIAN")]
-    pub const ZHIQI: i32 = 1006;
-    /// 智娇 - 情感女声 - 已废弃
-    #[deprecated(note = "使用 AI_XIAO_JIAO")]
-    pub const ZHIJIAO: i32 = 1007;
-    /// 智妍 - 粤语女声 - 已废弃
-    #[deprecated(note = "使用 ZHI_TONG")]
-    pub const ZHIYAN: i32 = 1050;
-    /// 智云 - 标准男声 - 已废弃
-    #[deprecated(note = "使用 ZHI_YUN")]
-    pub const ZHIYUN: i32 = 1008;
-    /// 智强 - 新闻男声 - 已废弃
-    #[deprecated(note = "使用 ZHI_HUI")]
-    pub const ZHIQIANG: i32 = 1009;
-    /// WeJack - 英文男声 - 已废弃
-    #[deprecated(note = "使用 WE_JACK")]
-    pub const WEJACK: i32 = 1010;
-    /// WeRose - 英文女声 - 已废弃
-    #[deprecated(note = "使用 WE_WINNY")]
-    pub const WEROSE: i32 = 1017;
 }
 
 /// ASR引擎类型
@@ -766,7 +735,7 @@ mod tests {
     fn test_tts_request_default() {
         let request = TtsRequest::default();
         assert!(!request.session_id.is_empty());
-        assert_eq!(request.voice_type, Some(10510000));
+        assert_eq!(request.voice_type, Some(voice_types::AI_XIAO_XI));
         assert_eq!(request.codec, Some("mp3".to_string()));
     }
 

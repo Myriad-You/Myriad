@@ -8,16 +8,17 @@
  * whether the built package would stage cleanly.
  */
 
-import type { TappCodeStructure, TappManifest, WidgetSize } from '../types'
+import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
+import type { TappManifest, WidgetSize } from '../types'
 import type { PackageFileContent, PlaygroundPackageFiles } from './playgroundPackageFiles.ts'
 import {
   buildPlaygroundPackageFiles,
 
 } from './playgroundPackageFiles.ts'
+import { maxDeclaredAssets } from './tappPackageLimits.ts'
 
 const MAX_TAPP_ID_LEN = 128
 const MAX_RESOURCE_PATH_LEN = 256
-const MAX_TAPP_ASSETS = 64
 const MAX_WIDGETS_PER_TAPP = 64
 
 const VALID_WIDGET_SIZES = new Set<string>([
@@ -47,7 +48,7 @@ export type ValidatePlaygroundPackageResult =
 
 export interface ValidatePlaygroundPackageInput {
   manifest: TappManifest
-  code: TappCodeStructure
+  code: TappPlaygroundCode
 }
 
 function isSafePathComponent(value: string): boolean {
@@ -137,7 +138,7 @@ export function validatePlaygroundPackage(
   const { manifest, files } = pkg
   const code = project.code
   // Mode checks use the author-declared manifest so normalize (which may clear
-  // hasPage when pageHtml is empty) does not hide "hasPage without page" errors.
+  // declared page when pageHtml is empty) does not hide "page without content" errors.
   const declared = project.manifest
 
   // Manifest required fields (validate_tapp_manifest core)
@@ -181,53 +182,60 @@ export function validatePlaygroundPackage(
     push('Tapp category is required')
   }
 
-  if (!manifest.main || !manifest.main.trim()) {
-    push('Tapp main entry is required')
-  } else {
-    const mainPathError = validateResourcePath(manifest.main)
-    if (mainPathError) push(mainPathError)
-    const mainExtError = validateResourceExtension(manifest.main, '.js', 'main')
-    if (mainExtError) push(mainExtError)
+  // 层入口与层资源（validate_tapp_layers）
+  const layerPaths: Array<[string, string | undefined, string]> = [
+    ['core.entry', manifest.core?.entry, '.js'],
+    ['core.styles', manifest.core?.styles, '.css'],
+    ['page.entry', manifest.page?.entry, '.js'],
+    ['page.template', manifest.page?.template, '.html'],
+    ['page.styles', manifest.page?.styles, '.css'],
+  ]
+  for (const widget of manifest.widgets ?? []) {
+    layerPaths.push(['widgets[].entry', widget.entry, '.js'])
+    layerPaths.push(['widgets[].styles', widget.styles, '.css'])
   }
-
-  // Playground install/export expectations (validate_playground_project dual-mode)
-  if (manifest.main !== 'main.js') {
-    push('Playground requires main entry main.js')
-  }
-  if (manifest.styles !== 'styles.css') {
-    push('Playground requires styles.css')
-  }
-  if (manifest.cssMode && manifest.cssMode !== 'unified') {
-    push('Playground requires unified CSS mode')
+  for (const [field, path, extension] of layerPaths) {
+    if (!path) continue
+    const pathError = validateResourcePath(path)
+    if (pathError) push(pathError)
+    const extError = validateResourceExtension(path, extension, field)
+    if (extError) push(extError)
   }
 
   const pageCode = code.page ?? ''
   const pageHtml = code.pageHtml ?? ''
   const widgetsForMode = declared.widgets ?? manifest.widgets ?? []
   const hasWidgets = widgetsForMode.length > 0
-  const hasPage = declared.hasPage === true
+  // 用作者声明判断模式：normalize 会在内容为空时清掉 page 层，
+  // 只看 normalize 结果就分不出「没打算要页面」和「声明了却没写内容」。
+  const hasPage = declared.page !== undefined || manifest.page !== undefined
+
+  const declaredBackground =
+    (declared.backgroundRequirements?.length ?? 0) > 0 ||
+    (manifest.backgroundRequirements?.length ?? 0) > 0
+  if (declaredBackground && !declared.core?.entry && !code.core?.trim()) {
+    push('Tapp declaring backgroundRequirements must declare a core layer')
+  }
 
   // Dual mode: Page and/or Widget-only. Reject empty projects (neither).
   if (!hasPage && !hasWidgets) {
-    push('Playground project requires a Page (hasPage) and/or non-empty Widgets')
+    push('Playground project requires a page layer and/or non-empty Widgets')
   }
 
+  // Playground install/export expectations (fixed three-file layout)
+  if (manifest.core && manifest.core.entry !== 'core.js') {
+    push('Playground requires core entry core.js')
+  }
+  if (code.styles && manifest.core?.styles !== 'styles.css') {
+    push('Playground requires styles.css')
+  }
   if (hasPage) {
-    const pageTemplate =
-      declared.pageTemplate ?? manifest.pageTemplate ?? undefined
-    if (pageTemplate !== 'page.html') {
-      push('Playground Page mode requires pageTemplate: page.html')
-    }
     if (!pageCode.trim() || !pageHtml.trim()) {
       push(
-        'Playground project requires non-empty page code and HTML when hasPage is true',
+        'Playground project requires non-empty page code and HTML when a page layer is declared',
       )
-    }
-  } else {
-    const pageTemplate =
-      declared.pageTemplate ?? manifest.pageTemplate ?? undefined
-    if (pageTemplate && pageTemplate !== 'page.html') {
-      push('Playground pageTemplate must be page.html when declared')
+    } else if (manifest.page?.template !== 'page.html') {
+      push('Playground page layer requires template page.html')
     }
   }
 
@@ -239,44 +247,11 @@ export function validatePlaygroundPackage(
     }
   }
 
-  // Optional path fields on normalized manifest
-  for (const [field, path, extension] of [
-    ['styles', manifest.styles, '.css'],
-    ['widgetStyles', manifest.widgetStyles, '.css'],
-    ['pageStyles', manifest.pageStyles, '.css'],
-    ['pageTemplate', manifest.pageTemplate, '.html'],
-  ] as const) {
-    if (!path) continue
-    const pathError = validateResourcePath(path)
-    if (pathError) push(pathError)
-    const extError = validateResourceExtension(path, extension, field)
-    if (extError) push(extError)
-  }
-
-  // pageModules filenames
-  if (manifest.pageModules) {
-    if (manifest.pageModules.length > 64) {
-      push('Tapp pageModules accepts at most 64 entries')
-    }
-    const seen = new Set<string>()
-    for (const module of manifest.pageModules) {
-      if (
-        !isSafePathComponent(module) ||
-        !module.endsWith('.js') ||
-        seen.has(module)
-      ) {
-        push(
-          `Invalid or duplicate page module filename: ${module}; expected a .js file relative to page/`,
-        )
-      }
-      seen.add(module)
-    }
-  }
-
   // Assets list on manifest — full validate_asset_path
   if (manifest.assets) {
-    if (manifest.assets.length > MAX_TAPP_ASSETS) {
-      push(`Tapp assets accepts at most ${MAX_TAPP_ASSETS} entries`)
+    const maxAssets = maxDeclaredAssets(manifest)
+    if (manifest.assets.length > maxAssets) {
+      push(`Tapp assets accepts at most ${maxAssets} entries`)
     }
     const seen = new Set<string>()
     for (const path of manifest.assets) {
@@ -352,15 +327,21 @@ export function validatePlaygroundPackage(
     }
   }
 
-  // Declared resources must exist in the built file map
+  // Declared layer resources must exist in the built file map
   const requiredPaths: string[] = []
-  if (manifest.main) requiredPaths.push(manifest.main)
-  if (manifest.styles) requiredPaths.push(manifest.styles)
-  if (manifest.widgetStyles) requiredPaths.push(manifest.widgetStyles)
-  if (manifest.pageStyles) requiredPaths.push(manifest.pageStyles)
-  if (manifest.pageTemplate) requiredPaths.push(manifest.pageTemplate)
+  for (const path of [
+    manifest.core?.entry,
+    manifest.core?.styles,
+    manifest.page?.entry,
+    manifest.page?.template,
+    manifest.page?.styles,
+  ]) {
+    if (path) requiredPaths.push(path)
+  }
 
   for (const widget of widgets) {
+    if (widget.entry) requiredPaths.push(widget.entry)
+    if (widget.styles) requiredPaths.push(widget.styles)
     if (!widget.templates) continue
     for (const path of Object.values(widget.templates)) {
       if (path) requiredPaths.push(path)
@@ -374,15 +355,6 @@ export function validatePlaygroundPackage(
     }
     if (relative.endsWith('.html') && !isNonEmptyText(files[relative])) {
       push(`Declared Tapp resource is empty: ${relative}`)
-    }
-  }
-
-  if (manifest.pageModules) {
-    for (const module of manifest.pageModules) {
-      const relative = `page/${module}`
-      if (!fileExists(files, relative)) {
-        push(`Declared Tapp resource not found: ${relative}`)
-      }
     }
   }
 
@@ -416,15 +388,12 @@ export function validatePlaygroundPackage(
     }
   }
 
-  // Ensure main.js was produced with some source
-  if (manifest.main && fileExists(files, manifest.main)) {
-    const main = files[manifest.main]
-    if (
-      typeof main === 'string' &&
-      main.trim().length === 0 &&
-      !code.core?.trim()
-    ) {
-      push('Tapp main entry is empty (missing core/page/widget code)')
+  // 安装契约只在后台常驻时强制 core。空 core.js 对 Page/Widget 预览无害。
+  const coreEntry = manifest.core?.entry
+  if (declaredBackground && coreEntry && fileExists(files, coreEntry)) {
+    const source = files[coreEntry]
+    if (typeof source === 'string' && source.trim().length === 0) {
+      push('Tapp declaring backgroundRequirements must declare a core layer')
     }
   }
 

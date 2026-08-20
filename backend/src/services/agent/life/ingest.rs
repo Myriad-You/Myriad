@@ -1,4 +1,8 @@
-//! Named-event speech: gate → Lite line → hidden proactive → maybe notify.
+//! Named-event speech: gate → line → hidden proactive → maybe notify.
+//!
+//! The line is written by Lite only when it will be shown. Everything else keeps
+//! the event summary verbatim: the transcript's other reader is this module
+//! itself, checking that it does not repeat what it already said.
 
 use chrono::Utc;
 use sea_orm::DatabaseConnection;
@@ -156,7 +160,7 @@ pub async fn ingest(
 
     let state = get_or_create_state(db, user_id).await?;
     let chatting = addressee_is_chatting(db, user_id).await;
-    let working = state.activity == "working";
+    let working = super::current_activity(&state) == "working";
     let decision = decide_ingest(event_key, state.do_not_disturb, chatting, working);
     apply_task_mood(db, user_id, event_key, state.mood).await;
 
@@ -169,9 +173,18 @@ pub async fn ingest(
         return Ok(());
     }
 
-    let _ = set_activity(db, user_id, "thinking").await;
-    let spoken = compose_line(db, user_id, event_key, &summary).await;
-    let _ = set_activity(db, user_id, "idle").await;
+    // Only a line the addressee will actually read is worth a model call. The rest
+    // of the transcript is a ledger with no reader — it exists so the next line
+    // does not repeat itself — so the human-readable summary stands in for it.
+    let shown = speech_is_shown(event_key, decision.notify);
+    let spoken = if shown {
+        let _ = set_activity(db, user_id, "thinking").await;
+        let line = compose_line(db, user_id, event_key, &summary).await;
+        let _ = set_activity(db, user_id, "idle").await;
+        line
+    } else {
+        fallback_line(&summary)
+    };
 
     if is_trivial_line(&spoken) {
         let _ = insert_diary(db, user_id, &summary, "event").await;
@@ -188,14 +201,20 @@ pub async fn ingest(
     }
 
     let _ = insert_diary(db, user_id, &summary, "event").await;
-    let should_notify = decision.notify && LIFE_OWNED_NOTIFY.contains(&event_key);
-    insert_proactive(db, user_id, &spoken, Some(event_key), should_notify).await?;
+    insert_proactive(db, user_id, &spoken, Some(event_key), shown).await?;
     let _ = touch_proactive(db, user_id).await;
 
-    if should_notify {
+    if shown {
         emit_speech_notification(db, user_id, event_key, &spoken).await;
     }
     Ok(())
+}
+
+/// Whether the composed line reaches the addressee at all. Valuable events whose
+/// notification an existing producer already owns are excluded: sending our own
+/// would mean two notifications for one thing.
+fn speech_is_shown(event_key: &str, notify: bool) -> bool {
+    notify && LIFE_OWNED_NOTIFY.contains(&event_key)
 }
 
 pub fn fallback_line(summary: &str) -> String {
@@ -276,8 +295,11 @@ async fn addressee_is_chatting(db: &DatabaseConnection, user_id: i32) -> bool {
         .ok()
         .flatten()
         .map(|(_, at)| at);
-    let open_run = run_hub::user_has_open_run(user_id).await;
-    is_chatting(last_active, open_run, Utc::now())
+    // A run parked on `waiting_for_input` is the addressee *not* talking: counting
+    // it as chatting would suppress the very clarification notice that asks them
+    // to come back, so only actively executing runs hold the floor.
+    let executing_run = run_hub::user_has_executing_run(user_id).await;
+    is_chatting(last_active, executing_run, Utc::now())
 }
 
 async fn apply_task_mood(db: &DatabaseConnection, user_id: i32, event_key: &str, mood: f64) {
@@ -428,6 +450,16 @@ mod tests {
         );
         assert_eq!(compact_summary("抓取失败 Bearer eyJhbGciOi"), "抓取失败");
         assert_eq!(compact_summary("  Steam  解锁了成就  "), "Steam 解锁了成就");
+    }
+
+    #[test]
+    fn only_life_owned_speech_is_worth_a_model_call() {
+        assert!(speech_is_shown("agent.life.platform_activity", true));
+        // These already have a producer sending the notification.
+        assert!(!speech_is_shown("agent.task_failed", true));
+        assert!(!speech_is_shown("brew.source_error", true));
+        // Ambient speech never notifies at all.
+        assert!(!speech_is_shown("agent.life.greeting", false));
     }
 
     #[test]

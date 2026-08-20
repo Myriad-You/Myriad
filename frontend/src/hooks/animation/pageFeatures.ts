@@ -47,7 +47,6 @@ export interface PageFeatureConfig {
  * | home            | Visibility, Resize, RAF, Idle                 |
  * | library         | Resize, Intersection, Idle                    |
  * | reports         | Visibility, Interval, RAF, DOMBatch           |
- * | life            | Visibility                                    |
  * | config          | Timeout                                       |
  * | login           | Timeout                                       |
  * | details         | 基础（无特殊需求）                              |
@@ -68,9 +67,6 @@ export const PAGE_FEATURES: Record<string, number> = {
   // 报告页：轮播定时器(Interval)、背景动画(RAF)、DOM优化(DOMBatch)、可见性暂停
   reports:
     Feature.Visibility | Feature.Interval | Feature.RAF | Feature.DOMBatch,
-
-  // 退役 /life 路由：只保留页面可见性，不再做精灵轮询。
-  life: Feature.Visibility,
 
   // Brew 阅读页：文章列表无限滚动(Intersection)、可见性感知暂停轮询、卡片交错动画(Timeout)
   brew:

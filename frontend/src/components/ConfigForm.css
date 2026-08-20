@@ -1459,6 +1459,21 @@ html.dark .section-header-back:hover {
   background: color-mix(in srgb, var(--cfg-accent, #93c5fd) 14%, transparent);
 }
 
+.section-header-back:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.section-header-back:disabled:hover {
+  color: var(--cfg-text-2);
+  background: transparent;
+}
+
+html.dark .section-header-back:disabled:hover {
+  color: var(--cfg-text-2);
+  background: transparent;
+}
+
 /* 章节图标：透明 PNG 本体，无渐变底板、阴影或高光遮罩。 */
 .section-icon {
   width: 3rem;
@@ -2177,11 +2192,11 @@ html.dark .platform-status-dot.is-unconfigured {
 /* 配置图标按钮 - 继承统一基类 */
 
 /**
- * 数据平台列表 ↔ 二级页联动动效
- * 方向与时长由动效系统的 .sm-pane[data-nav] 提供（settings-motion.css），
+ * 平台列表 / AI 一级 ↔ 二级页：方向与时长由 .sm-pane[data-nav] 提供，
  * 这里只留布局。
  */
-.platforms-pane {
+.platforms-pane,
+.ai-pane {
   display: flex;
   flex-direction: column;
   gap: var(--settings-gap-group, 1.25rem);
@@ -2194,6 +2209,53 @@ html.dark .platform-status-dot.is-unconfigured {
 }
 
 /* 接入平台内 · 自动刷新：纯文本分区（无图标） */
+.ai-llm-tier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--settings-gap-item, 0.625rem);
+  min-width: 0;
+}
+
+.ai-llm-tier + .ai-llm-tier {
+  margin-top: 0.35rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--cfg-subtle-border);
+}
+
+.ai-llm-tier-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.ai-llm-tier-switch {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ai-llm-tier-copy {
+  min-width: 0;
+}
+
+.ai-llm-tier-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--cfg-text-1);
+  line-height: 1.3;
+}
+
+.ai-llm-tier-desc {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--cfg-text-3);
+}
+
 .platform-auto-refresh--plain {
   display: flex;
   flex-direction: column;
@@ -3048,6 +3110,10 @@ html.dark .copy-btn:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.oidc-provider-title .setting-title-tag {
+  flex-shrink: 0;
 }
 
 /* 允许 ⓘ tooltip 溢出卡片，不被 title 裁切 */

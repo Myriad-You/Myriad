@@ -45,9 +45,8 @@ pub fn parse_install_source(source: &str) -> Result<InstallSource, InvalidInstal
 
 /// Where client `widgetCss` / `pageCss` bodies should land for direct install.
 ///
-/// Prefer declared `manifest.widgetStyles` / `pageStyles` paths when present
-/// (cssMode=separated). Otherwise treat the bodies as generated
-/// `widget.css` / `page.css` sidecars.
+/// Prefer declared `widget.styles` / `page.styles` paths when present.
+/// Otherwise treat the bodies as generated `widget.css` / `page.css` sidecars.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DirectCssChannels {
     pub widget_styles: Option<String>,
@@ -150,18 +149,24 @@ use crate::services::tapp_package_fs::MANIFEST_JSON;
 pub struct InstallPathPair {
     /// `…/manifest.json` under the live install directory.
     pub file_path: String,
-    /// Live path to the package main entry (`manifest.main`).
+    /// Live path to the package's primary layer entry.
+    ///
+    /// Kept as a diagnostic/column value only. Serving resolves entries from
+    /// the stored manifest layers, never from this column, so a package whose
+    /// layers declare no JS entry falls back to the manifest path here.
     pub code_path: String,
 }
 
 /// Build `file_path` / `code_path` for a live install directory.
-pub fn install_path_pair(final_tapp_dir: &Path, main: &str) -> InstallPathPair {
+pub fn install_path_pair(final_tapp_dir: &Path, primary_entry: Option<&str>) -> InstallPathPair {
+    let file_path = final_tapp_dir.join(MANIFEST_JSON);
     InstallPathPair {
-        file_path: final_tapp_dir
-            .join(MANIFEST_JSON)
+        code_path: primary_entry
+            .map(|entry| final_tapp_dir.join(entry))
+            .unwrap_or_else(|| file_path.clone())
             .to_string_lossy()
             .into_owned(),
-        code_path: final_tapp_dir.join(main).to_string_lossy().into_owned(),
+        file_path: file_path.to_string_lossy().into_owned(),
     }
 }
 
@@ -208,7 +213,7 @@ pub fn build_new_install_persist(
     final_tapp_dir: &Path,
     now: DateTime<FixedOffset>,
 ) -> Result<NewInstallPersist, String> {
-    let paths = install_path_pair(final_tapp_dir, &manifest.main);
+    let paths = install_path_pair(final_tapp_dir, manifest.layer_entries().first().copied());
     let manifest_json =
         serde_json::to_value(manifest).map_err(|e| format!("Failed to serialize manifest: {e}"))?;
     Ok(NewInstallPersist {
@@ -256,7 +261,7 @@ pub fn build_update_install_persist(
     final_tapp_dir: &Path,
     now: DateTime<FixedOffset>,
 ) -> Result<UpdateInstallPersist, String> {
-    let paths = install_path_pair(final_tapp_dir, &manifest.main);
+    let paths = install_path_pair(final_tapp_dir, manifest.layer_entries().first().copied());
     let manifest_json =
         serde_json::to_value(manifest).map_err(|e| format!("Failed to serialize manifest: {e}"))?;
     Ok(UpdateInstallPersist {
@@ -445,7 +450,7 @@ mod tests {
             "name": "App",
             "version": "1.2.3",
             "description": "demo",
-            "main": "src/main.js",
+            "core": { "entry": "src/core.js" },
             "category": "utility",
             "permissions": ["storage:read"],
             "icon": "icon.png",
@@ -456,17 +461,19 @@ mod tests {
     }
 
     #[test]
-    fn install_path_pair_joins_manifest_and_main() {
+    fn install_path_pair_joins_manifest_and_primary_entry() {
         let root = Path::new("/data/tapps/1/com.example.app");
-        let paths = install_path_pair(root, "src/main.js");
-        assert_eq!(
-            paths.file_path,
-            root.join(MANIFEST_JSON).to_string_lossy()
-        );
-        assert_eq!(
-            paths.code_path,
-            root.join("src/main.js").to_string_lossy()
-        );
+        let paths = install_path_pair(root, Some("src/core.js"));
+        assert_eq!(paths.file_path, root.join(MANIFEST_JSON).to_string_lossy());
+        assert_eq!(paths.code_path, root.join("src/core.js").to_string_lossy());
+    }
+
+    /// 没有任何 JS 层入口的包（例如纯模板 Page）仍要有个非空 code_path。
+    #[test]
+    fn install_path_pair_falls_back_to_manifest_without_entry() {
+        let root = Path::new("/data/tapps/1/com.example.app");
+        let paths = install_path_pair(root, None);
+        assert_eq!(paths.code_path, paths.file_path);
     }
 
     #[test]
@@ -487,7 +494,7 @@ mod tests {
         assert!(snap.start_running);
         let root = Path::new("/data/tapps/7/com.example.app");
         assert_eq!(snap.file_path, root.join(MANIFEST_JSON).to_string_lossy());
-        assert_eq!(snap.code_path, root.join("src/main.js").to_string_lossy());
+        assert_eq!(snap.code_path, root.join("src/core.js").to_string_lossy());
         assert_eq!(snap.installed_at, now);
         assert_eq!(snap.last_run_at, now);
         assert_eq!(snap.granted_permissions, json!(["storage:read"]));
@@ -509,7 +516,7 @@ mod tests {
         assert_eq!(
             snap.code_path,
             Path::new("/data/tapps/1/com.example.app")
-                .join("src/main.js")
+                .join("src/core.js")
                 .to_string_lossy()
         );
         assert_eq!(snap.updated_at, now);

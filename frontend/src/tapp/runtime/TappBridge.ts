@@ -26,6 +26,7 @@ import {
   federationMessageEnvelopeBytes,
   refreshFederationLimits,
 } from './federationLimits'
+import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits'
 import { PERMISSION_MAP } from './permissionConfig'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 
@@ -44,9 +45,6 @@ const BRIDGE_LIMITS = {
   /** Acceptable clock skew for message timestamps */
   timestampSkewMs: 2 * 60 * 1000,
 } as const
-
-/** Direct install/store packages have a separate, intentionally larger budget. */
-const TAPP_PACKAGE_PAYLOAD_BYTES = 32 * 1024 * 1024 + 512 * 1024
 
 function serializedUtf8Bytes(value: unknown): number | null {
   let serialized: string | undefined
@@ -775,7 +773,7 @@ export class TappBridge {
         if (payloadBytes > TAPP_PACKAGE_PAYLOAD_BYTES) {
           return {
             valid: false,
-            error: `Payload too large for ${msg.action} (max ~32 MiB; got ${payloadBytes} UTF-8 bytes)`,
+            error: `Payload too large for ${msg.action} (max ~128 MiB; got ${payloadBytes} UTF-8 bytes)`,
           }
         }
       } else {

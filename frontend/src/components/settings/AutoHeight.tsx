@@ -9,6 +9,8 @@ export interface AutoHeightProps {
   contentKey: Key
   children: ReactNode
   className?: string
+  /** 换内容时是否过渡高度。层级下钻只走位移，关掉以免长页收成短页时顿一下。 */
+  animate?: boolean
 }
 
 interface AutoHeightState {
@@ -67,7 +69,7 @@ export class AutoHeight extends React.PureComponent<
       return
     }
 
-    if (prefersReducedMotion()) {
+    if (prefersReducedMotion() || this.props.animate === false) {
       this.release()
       return
     }

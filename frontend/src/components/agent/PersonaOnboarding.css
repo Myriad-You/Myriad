@@ -1,0 +1,1325 @@
+/* Agent 生命设定引导：词条 / 命名 / 人设。 */
+
+.setting-section--persona,
+.life-ob {
+  --life-ink: color-mix(in srgb, var(--text-primary, #171923) 92%, transparent);
+  --life-muted: color-mix(in srgb, var(--text-secondary, #667085) 82%, transparent);
+  --life-line: color-mix(in srgb, var(--border-color, #d8dbe6) 72%, transparent);
+  --life-accent: var(--color-primary, #7c6ee6);
+  --life-surface-rgb: var(--surface-rgb, 255 255 255);
+}
+
+html.dark .setting-section--persona,
+html.dark .life-ob {
+  --life-surface-rgb: var(--surface-rgb, 24 24 27);
+}
+
+/*
+ * 内容区贴玻璃卡左 / 右 / 下沿，只留标题下的上边距。
+ * 标题栏自己补回原来的左右内边距，避免和内容一起被拉出去。
+ */
+.setting-section.setting-section--persona {
+  padding-right: 0;
+  padding-bottom: 0;
+  padding-left: 0;
+}
+
+.setting-section.setting-section--persona > .section-header {
+  padding-right: 1.5rem;
+  padding-left: 1.5rem;
+}
+
+@media (width >= 768px) {
+  .setting-section.setting-section--persona > .section-header {
+    padding-right: 1.25rem;
+    padding-left: 1.25rem;
+  }
+}
+
+.setting-section.setting-section--persona > .config-form {
+  overflow: hidden;
+  border-bottom-right-radius: 1.25rem;
+  border-bottom-left-radius: 1.25rem;
+}
+
+@keyframes life-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.life-ob-cta .is-spinning,
+.life-ob-name-roll__spin {
+  animation: life-spin 0.85s linear infinite;
+}
+
+.life-loading__orb {
+  flex: 0 0 auto;
+  width: 52px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 32% 30%,
+    color-mix(in srgb, var(--life-accent) 55%, white),
+    color-mix(in srgb, var(--life-accent) 30%, transparent) 72%
+  );
+  box-shadow: 0 0 46px color-mix(in srgb, var(--life-accent) 42%, transparent);
+  animation: life-orb-breathe 2.4s var(--sm-ease-standard) infinite;
+}
+
+@keyframes life-orb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.78;
+  }
+
+  50% {
+    transform: scale(1.14);
+    opacity: 1;
+  }
+}
+
+/* ============ 错误提示 ============ */
+
+.life-error {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin: 0;
+  padding: 11px 16px;
+  border: 1px solid rgb(239 68 68 / 22%);
+  border-radius: 16px;
+  color: #b42318;
+  background: rgb(254 226 226 / 92%);
+}
+
+.life-ob {
+  position: relative;
+  width: 100%;
+}
+
+/*
+ * 低开销流体玻璃绘制令牌（无额外 backdrop）：镜面边 · 顶线/发丝 · 轻 sheen，
+ * 跟样式系统 liquid 同源、开销可缓存。挂在设置二级页上，按钮仍用同一套语言。
+ */
+.setting-section--persona,
+.life-ob {
+  --ob-liq-border: var(
+    --surface-border,
+    color-mix(in srgb, var(--life-line) 48%, white 36%)
+  );
+  --ob-liq-sheen: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 16%),
+    rgb(255 255 255 / 0%) 48%
+  );
+  --ob-liq-streak: linear-gradient(
+    115deg,
+    rgb(255 255 255 / 0%) 30%,
+    rgb(255 255 255 / 10%) 42%,
+    rgb(255 255 255 / 3%) 52%,
+    rgb(255 255 255 / 0%) 62%
+  );
+  --ob-liq-inset:
+    inset 0 1px 0 rgb(255 255 255 / 44%), inset 0 -1px 0 rgb(0 0 0 / 6%);
+  --ob-liq-soft-shadow:
+    var(--ob-liq-inset), 0 8px 22px -12px rgb(31 38 135 / 12%);
+}
+
+html.dark .setting-section--persona,
+html.dark .life-ob {
+  --ob-liq-border: var(--surface-border, rgb(255 255 255 / 16%));
+  --ob-liq-sheen: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 8%),
+    rgb(255 255 255 / 0%) 48%
+  );
+  --ob-liq-streak: linear-gradient(
+    115deg,
+    rgb(255 255 255 / 0%) 30%,
+    rgb(255 255 255 / 5%) 42%,
+    rgb(255 255 255 / 2%) 52%,
+    rgb(255 255 255 / 0%) 62%
+  );
+  --ob-liq-inset:
+    inset 0 1px 0 rgb(255 255 255 / 12%), inset 0 -1px 0 rgb(0 0 0 / 28%);
+  --ob-liq-soft-shadow: var(--ob-liq-inset), 0 8px 22px -12px rgb(0 0 0 / 28%);
+}
+
+/* ---------- 卡片：贴设置页，不再自带毛玻璃 ---------- */
+
+.life-ob__card {
+  --ob-pad: clamp(18px, 3vw, 34px);
+  --ob-label-gap: 10px;
+
+  display: flex;
+  flex-direction: column;
+  height: clamp(520px, calc(100dvh - 16rem), 780px);
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+}
+
+.life-ob__viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+}
+
+.life-ob__pane {
+  display: flex;
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 底部留白给悬浮按钮让路。 */
+.life-ob__pane > section {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  padding-top: 8px;
+  padding-bottom: 76px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--life-muted) 34%, transparent)
+    transparent;
+}
+
+.life-ob-body {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 14px var(--ob-pad) 0;
+  text-align: left;
+}
+
+/* ---------- 悬浮操作簇：取消底栏，动作贴着卡片右下角浮起 ---------- */
+
+.life-ob-bar {
+  position: absolute;
+  right: var(--ob-pad);
+  bottom: max(16px, calc(var(--ob-pad) - 6px));
+  z-index: 3;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.life-ob-bar .life-ghost-button {
+  min-height: 44px;
+}
+
+/* 「下一步」：流体玻璃圆钮——吸色透底 + 镜面边 + 色散环 + 凝胶手感 */
+.life-ob-bar .life-ob-cta {
+  position: relative;
+  isolation: isolate;
+  width: 58px;
+  height: 58px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--surface-border, rgb(255 255 255 / 58%));
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--life-accent) 78%, var(--life-ink));
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 22%), rgb(255 255 255 / 0%) 48%),
+    linear-gradient(
+      115deg,
+      rgb(255 255 255 / 0%) 28%,
+      rgb(255 255 255 / 16%) 42%,
+      rgb(255 255 255 / 4%) 52%,
+      rgb(255 255 255 / 0%) 64%
+    ),
+    radial-gradient(
+      120% 120% at 50% 50%,
+      color-mix(
+          in srgb,
+          rgb(var(--life-surface-rgb) / 32%),
+          var(--life-accent) 18%
+        )
+        28%,
+      color-mix(
+          in srgb,
+          rgb(var(--life-surface-rgb) / 48%),
+          var(--life-accent) 28%
+        )
+        100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 55%),
+    inset 0 -1px 0 rgb(0 0 0 / 8%),
+    inset 0 0 18px -4px rgb(255 255 255 / 22%),
+    0 2px 6px -2px rgb(31 38 135 / 14%),
+    0 16px 36px -12px color-mix(in srgb, var(--life-accent) 42%, transparent);
+  transition:
+    transform var(--sm-dur-slow) var(--sm-ease-spring),
+    border-color var(--sm-dur-base) var(--sm-ease-standard),
+    box-shadow var(--sm-dur-slow) var(--sm-ease-standard),
+    filter var(--sm-dur-base) var(--sm-ease-standard);
+}
+
+@supports (mask-composite: exclude) or (-webkit-mask-composite: xor) {
+  .life-ob-bar .life-ob-cta::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: inherit;
+    padding: 1.5px;
+    pointer-events: none;
+    background: conic-gradient(
+      from 0deg,
+      rgb(255 255 255 / 70%) 0deg,
+      rgb(200 228 255 / 42%) 50deg,
+      rgb(255 255 255 / 14%) 95deg,
+      color-mix(in srgb, var(--life-accent) 35%, transparent) 170deg,
+      rgb(255 255 255 / 48%) 185deg,
+      rgb(255 255 255 / 12%) 280deg,
+      rgb(226 210 255 / 36%) 325deg,
+      rgb(255 255 255 / 70%) 360deg
+    );
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+}
+
+.life-ob-bar .life-ob-cta > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.life-ob-bar .life-ob-cta svg {
+  position: relative;
+  z-index: 1;
+  width: 21px;
+  height: 21px;
+  transition: var(--sm-t-transform);
+}
+
+.life-ob-bar .life-ob-cta:hover:not(:disabled) {
+  transform: translateY(var(--sm-lift)) scale(1.04);
+  border-color: rgb(255 255 255 / 72%);
+  filter: brightness(1.04);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 62%),
+    inset 0 -1px 0 rgb(0 0 0 / 6%),
+    inset 0 0 20px -4px rgb(255 255 255 / 28%),
+    0 4px 10px -2px rgb(31 38 135 / 16%),
+    0 22px 44px -14px color-mix(in srgb, var(--life-accent) 48%, transparent);
+}
+
+/* 悬停时箭头往前探一探，指向「下一步」 */
+.life-ob-bar .life-ob-cta:hover:not(:disabled) svg {
+  transform: translateX(3px);
+}
+
+.life-ob-bar .life-ob-cta:active:not(:disabled) {
+  transform: scale(0.94);
+  filter: brightness(1.08);
+}
+
+html.dark .life-ob-bar .life-ob-cta {
+  color: color-mix(in srgb, var(--life-accent) 70%, white);
+  border-color: var(--surface-border, rgb(255 255 255 / 18%));
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 10%), rgb(255 255 255 / 0%) 48%),
+    radial-gradient(
+      120% 120% at 50% 50%,
+      color-mix(
+          in srgb,
+          rgb(var(--life-surface-rgb) / 36%),
+          var(--life-accent) 22%
+        )
+        28%,
+      color-mix(
+          in srgb,
+          rgb(var(--life-surface-rgb) / 52%),
+          var(--life-accent) 30%
+        )
+        100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 14%),
+    inset 0 -1px 0 rgb(0 0 0 / 28%),
+    inset 0 0 18px -4px rgb(255 255 255 / 6%),
+    0 2px 6px -2px rgb(0 0 0 / 36%),
+    0 16px 36px -12px color-mix(in srgb, var(--life-accent) 36%, transparent);
+}
+
+.life-ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 18px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--life-muted);
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  cursor: pointer;
+  transition: var(--sm-t-control);
+}
+
+.life-ghost-button:hover:not(:disabled) {
+  color: var(--life-ink);
+}
+
+.life-ghost-button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* 主操作按钮走与卡片同源的流体玻璃：镜面边 + sheen + 斜向发丝 + 内高光，
+   底色仍是实心主题色，保证白字可读；圆形那版靠更高优先级保留自己的形状。 */
+.life-ob-cta {
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ob-liq-border, transparent);
+  border-radius: 999px;
+  background:
+    var(--ob-liq-sheen, none), var(--ob-liq-streak, none), var(--life-accent);
+  box-shadow:
+    var(--ob-liq-inset, none),
+    0 12px 26px color-mix(in srgb, var(--life-accent) 28%, transparent);
+  font-weight: 640;
+  white-space: nowrap;
+}
+
+.life-ob-cta svg {
+  width: 16px;
+  height: 16px;
+}
+
+.life-ob-cta:hover:not(:disabled) {
+  transform: translateY(var(--sm-lift)) scale(1.03);
+  box-shadow:
+    var(--ob-liq-inset, none),
+    0 18px 36px color-mix(in srgb, var(--life-accent) 38%, transparent);
+}
+
+.life-ob-cta:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+/* 不可用时收掉彩色光晕、底色换成中性灰，但保留同一层玻璃质感，
+   一眼看出是按不动，而不是一颗没渲染好的主按钮 */
+.life-ob-cta:disabled {
+  color: color-mix(in srgb, var(--life-ink) 45%, transparent);
+  background:
+    var(--ob-liq-sheen, none),
+    color-mix(in srgb, var(--life-ink) 8%, transparent);
+  box-shadow: var(--ob-liq-inset, none);
+  opacity: 1;
+}
+
+.life-gender {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--ob-liq-border);
+  border-radius: 18px;
+  background:
+    var(--ob-liq-sheen),
+    color-mix(in srgb, rgb(var(--life-surface-rgb) / 55%) 78%, transparent);
+  box-shadow: var(--ob-liq-inset);
+}
+
+.life-gender__opt {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  place-items: center;
+  min-height: 58px;
+  padding: 10px 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  color: var(--life-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: var(--sm-t-control);
+}
+
+.life-gender__icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.1;
+  transition: var(--sm-t-transform);
+}
+
+.life-gender__text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.life-gender__opt.is-on .life-gender__icon {
+  transform: scale(1.06);
+}
+
+.life-gender__opt:hover:not(:disabled, .is-on) {
+  color: var(--life-ink);
+  background: color-mix(in srgb, var(--life-ink) 5%, transparent);
+}
+
+.life-gender__opt.is-on {
+  color: color-mix(in srgb, var(--life-accent) 18%, white);
+  background:
+    var(--ob-liq-sheen),
+    linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--life-accent) 92%, white),
+      color-mix(in srgb, var(--life-accent) 78%, black)
+    );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    inset 0 -1px 0 rgb(0 0 0 / 10%),
+    0 8px 18px color-mix(in srgb, var(--life-accent) 28%, transparent);
+}
+
+.life-gender__opt:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.life-gender__opt:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--life-accent) 22%, transparent);
+}
+
+.life-gender__opt.is-on:focus-visible {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 34%),
+    0 8px 18px color-mix(in srgb, var(--life-accent) 28%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--life-accent) 22%, transparent);
+}
+
+.life-gender__opt:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (width <= 420px) {
+  .life-gender {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 词条圆泡的基座；选中勾和悬停位移由这里提供，形状由 --bubble 覆盖。 */
+
+.life-choice {
+  position: relative;
+  border: 1px solid var(--ob-liq-border, var(--life-line));
+  color: var(--life-ink);
+  background: var(--ob-liq-sheen, none), rgb(var(--life-surface-rgb) / 58%);
+  box-shadow: var(--ob-liq-inset, none);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--sm-dur-base) var(--sm-ease-standard),
+    background-color var(--sm-dur-base) var(--sm-ease-standard),
+    box-shadow var(--sm-dur-base) var(--sm-ease-standard),
+    translate var(--sm-dur-slow) var(--sm-ease-spring),
+    scale var(--sm-dur-slow) var(--sm-ease-spring);
+}
+
+/* 入场动画带 fill:both，会一直压住 transform；
+   悬停和按压改用 translate / scale 这两个独立属性才生效。 */
+.life-choice:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--life-accent) 40%, var(--life-line));
+  box-shadow: var(
+    --ob-liq-soft-shadow,
+    inset 0 1px 0 rgb(255 255 255 / 40%),
+    0 10px 22px -12px rgb(31 38 135 / 12%)
+  );
+  translate: 0 -2px;
+}
+
+.life-choice:active:not(:disabled) {
+  scale: 0.98;
+}
+
+.life-choice:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.life-choice:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--life-accent) 70%, white);
+  outline-offset: 2px;
+}
+
+.life-choice.is-on {
+  border-color: color-mix(in srgb, var(--life-accent) 55%, transparent);
+  background:
+    var(--ob-liq-sheen, none),
+    color-mix(
+      in srgb,
+      var(--life-accent) 10%,
+      rgb(var(--life-surface-rgb) / 72%)
+    );
+  box-shadow:
+    var(--ob-liq-inset, inset 0 1px 0 rgb(255 255 255 / 36%)),
+    0 10px 26px color-mix(in srgb, var(--life-accent) 16%, transparent);
+}
+
+.life-choice__tick {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  background: var(--life-accent);
+  opacity: 0;
+  transform: scale(0.4);
+  transition:
+    opacity var(--sm-dur-fast) var(--sm-ease-standard),
+    transform var(--sm-dur-slow) var(--sm-ease-spring);
+}
+
+.life-choice.is-on .life-choice__tick {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- 词条画布：一簇随机散布的彩色圆泡 ----------
+   配色以壁纸 primary↔accent 为锚，再掺自由色相——相关但不强制锁死；
+   另有轻微色相偏移与明度差，让同批词也能互相区分。
+   直径主要由权重拉开，浮动用 translate、按压用 scale，
+   避免和入场动画抢 transform。 */
+.life-bubble-canvas {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  min-height: 200px;
+  flex: 1 1 auto;
+  contain: layout style;
+}
+
+/* 气泡都定位在这一层上，拖拽时整层平移 */
+.life-bubble-canvas__layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* 摆不下才可拖：给抓手光标，并让触屏的拖动用来平移而不是滚页面 */
+.life-bubble-canvas.is-pannable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.life-bubble-canvas.is-pannable:active {
+  cursor: grabbing;
+}
+
+/* 词条步白板铺满卡片，不另起边框。 */
+.life-ob__card:has(.life-ob-tags) > .life-ob__viewport {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.life-ob__pane > section.life-ob-tags {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* 无边框白板层：贴齐卡片四边 */
+.life-ob-tags__board {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.life-ob-tags__board .life-bubble-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+
+  /* 触控优先平移，避免整页跟着滚 */
+  touch-action: none;
+}
+
+.life-ob-tags__board .life-bubble-canvas.is-pannable {
+  cursor: grab;
+}
+
+.life-ob-tags__board .life-bubble-canvas.is-pannable:active {
+  cursor: grabbing;
+}
+
+.life-ob-tags__board .life-ob-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: var(--ob-pad);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.life-ob-tags .life-ob-tags__fade--bottom {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  height: clamp(88px, 18%, 140px);
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    rgb(var(--life-surface-rgb) / 72%) 0%,
+    rgb(var(--life-surface-rgb) / 36%) 48%,
+    rgb(var(--life-surface-rgb) / 0%) 100%
+  );
+}
+
+.life-ob-tags__error {
+  position: absolute;
+  top: 16px;
+  right: var(--ob-pad);
+  left: var(--ob-pad);
+  z-index: 5;
+}
+
+/* 左下角：纯文本，叠在底渐变之上 */
+.life-ob-tags .life-ob-tags__status {
+  position: absolute;
+  left: max(12px, calc(var(--ob-pad) - 4px));
+  bottom: max(16px, calc(var(--ob-pad) - 6px));
+  z-index: 5;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  max-width: min(72%, 300px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: color-mix(in srgb, var(--life-ink) 78%, var(--life-muted));
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  text-shadow:
+    0 0 8px rgb(var(--life-surface-rgb) / 90%),
+    0 1px 2px rgb(var(--life-surface-rgb) / 85%),
+    0 0 1px rgb(var(--life-surface-rgb) / 95%);
+}
+
+.life-ob-tags .life-ob-tags__status-sep {
+  opacity: 0.5;
+  font-weight: 500;
+}
+
+.life-ob-tags .life-ob-tags__status-pan {
+  font-weight: 550;
+  opacity: 0.92;
+}
+
+.life-ob-tags .life-ob-bar {
+  z-index: 6;
+}
+
+.life-choice--bubble {
+  --bubble-size: 84px;
+  --bubble-mix: 50;
+  --bubble-hue: 210;
+  --bubble-kin: 64;
+  --bubble-shift: 0deg;
+  --bubble-bright: 1;
+  --bubble-wallpaper: color-mix(
+    in oklab,
+    var(--color-primary, #7c6ee6) calc(var(--bubble-mix) * 1%),
+    var(--color-accent, #6ee7f0)
+  );
+
+  /* 壁纸锚点为主，自由色相作辅，整体仍相关 */
+  --bubble-tint: color-mix(
+    in oklab,
+    var(--bubble-wallpaper) calc(var(--bubble-kin) * 1%),
+    oklch(72% 0.15 calc(var(--bubble-hue) * 1deg))
+  );
+
+  /* 填充抽成变量：.life-choice.is-on 的浅色底特异性更高，
+     选中态必须自己再声明一次，否则圆泡会被刷成白的 */
+  --bubble-fill: radial-gradient(
+    circle at 30% 24%,
+    color-mix(in oklab, var(--bubble-tint) 16%, white),
+    color-mix(in oklab, var(--bubble-tint) 44%, white) 58%,
+    color-mix(in oklab, var(--bubble-tint) 68%, white)
+  );
+
+  /* 文字用同一色相压深，而不是白色——这是网易云那套气泡的关键 */
+  --bubble-ink: color-mix(in oklab, var(--bubble-tint) 72%, black);
+
+  /* 选中蒙层：用本泡色相压暗，白勾叠在上面 */
+  --bubble-veil: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--bubble-tint) 55%, black) 58%,
+    transparent
+  );
+
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: var(--bubble-size);
+  height: var(--bubble-size);
+  overflow: hidden;
+
+  /* 百分比 padding 会按容器宽度算，圆泡必须用自己的直径推 */
+  padding: calc(var(--bubble-size) * 0.13);
+
+  /* 无描边：压过 .life-choice 基座的 1px line，全程视觉无边框 */
+  border: none;
+  border-radius: 50%;
+  color: var(--bubble-ink);
+  background: var(--bubble-fill);
+
+  /* 只靠柔光，不用硬描边/描边色环 */
+  box-shadow:
+    inset 0 2px 10px rgb(255 255 255 / 48%),
+    0 8px 22px color-mix(in oklab, var(--bubble-tint) 22%, transparent);
+  text-align: center;
+  place-items: center;
+  filter: hue-rotate(var(--bubble-shift)) brightness(var(--bubble-bright))
+    saturate(1.18);
+  contain: layout style;
+  animation:
+    sm-rise-in var(--sm-dur-slow) var(--sm-ease-spring) backwards,
+    life-bubble-float 5.2s var(--sm-ease-standard) infinite;
+  animation-delay:
+    calc(var(--choice-i, 0) * var(--sm-stagger)),
+    calc(var(--choice-i, 0) * 240ms);
+  transition:
+    filter var(--sm-dur-slow) var(--sm-ease-standard),
+    box-shadow var(--sm-dur-slow) var(--sm-ease-standard),
+    scale var(--sm-dur-slow) var(--sm-ease-spring);
+}
+
+/* 悬停 / 选中 / 焦点都不要冒出 line 边框（基座 .life-choice 会改 border-color） */
+.life-choice--bubble:hover:not(:disabled),
+.life-choice--bubble.is-on,
+.life-choice--bubble.is-on:hover:not(:disabled),
+.life-choice--bubble:focus,
+.life-choice--bubble:focus-visible {
+  border: none;
+  border-color: transparent;
+}
+
+.life-choice--bubble:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 2px 10px rgb(255 255 255 / 48%),
+    0 0 0 3px color-mix(in oklab, var(--bubble-tint) 42%, transparent),
+    0 10px 26px color-mix(in oklab, var(--bubble-tint) 28%, transparent);
+}
+
+/* 画布里的泡按圆心定位，所以要往回挪半个直径 */
+.life-bubble-canvas .life-choice--bubble {
+  position: absolute;
+  margin: calc(var(--bubble-size) / -2) 0 0 calc(var(--bubble-size) / -2);
+}
+
+@keyframes life-bubble-float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+
+  50% {
+    translate: 0 -7px;
+  }
+}
+
+.life-choice--bubble .life-choice__label {
+  position: relative;
+  z-index: 1;
+  font-size: clamp(11px, calc(var(--bubble-size) * 0.175), 18px);
+  font-weight: 680;
+  line-height: 1.22;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 42%);
+  transition: var(--sm-t-fade);
+}
+
+.life-choice--bubble:hover:not(:disabled) {
+  filter: hue-rotate(var(--bubble-shift))
+    brightness(calc(var(--bubble-bright) * 1.06)) saturate(1.24);
+  scale: 1.07;
+  box-shadow:
+    inset 0 2px 10px rgb(255 255 255 / 55%),
+    0 12px 28px color-mix(in oklab, var(--bubble-tint) 28%, transparent);
+}
+
+.life-choice--bubble:active:not(:disabled) {
+  scale: 0.95;
+}
+
+/* 选中：无描边，仅蒙层 + 对勾 + 稍亮的柔光 */
+.life-choice--bubble.is-on {
+  border: none;
+  color: var(--bubble-ink);
+  background: var(--bubble-fill);
+  filter: hue-rotate(var(--bubble-shift))
+    brightness(calc(var(--bubble-bright) * 1.02)) saturate(1.28);
+  box-shadow:
+    inset 0 2px 10px rgb(255 255 255 / 50%),
+    0 12px 28px color-mix(in oklab, var(--bubble-tint) 30%, transparent);
+  scale: 1.04;
+}
+
+.life-choice--bubble.is-on .life-choice__label {
+  opacity: 0.22;
+}
+
+.life-choice--bubble.is-on:hover:not(:disabled) {
+  scale: 1.09;
+}
+
+/* 蒙层铺满圆泡；对勾居中。覆盖基座里小角标尺寸 */
+.life-choice--bubble .life-choice__tick {
+  inset: 0;
+  z-index: 2;
+  width: auto;
+  height: auto;
+  border-radius: 50%;
+  color: white;
+  background: var(--bubble-veil);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%);
+  transform: scale(0.92);
+  pointer-events: none;
+}
+
+.life-choice--bubble .life-choice__tick svg {
+  width: clamp(18px, calc(var(--bubble-size) * 0.34), 36px);
+  height: clamp(18px, calc(var(--bubble-size) * 0.34), 36px);
+  stroke-width: 2.6;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 28%));
+}
+
+.life-ob-field {
+  display: grid;
+  gap: var(--ob-label-gap, 10px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/*
+ * fieldset + legend 多数浏览器不吃 gap：用同一 --ob-label-gap 作下边距，
+ * 性别等 FieldGroup 与普通 Field 视觉一致。
+ */
+fieldset.life-ob-field {
+  gap: 0;
+}
+
+fieldset.life-ob-field > legend.life-ob-field__label {
+  float: none;
+  width: 100%;
+  margin: 0 0 var(--ob-label-gap, 10px);
+  padding: 0;
+}
+
+.life-ob-field__label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  color: var(--life-muted);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.life-ob-field__optional {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--life-muted) 14%, transparent);
+  font-size: 10.5px;
+  font-style: normal;
+  letter-spacing: 0.04em;
+}
+
+.life-ob-field__hint {
+  color: var(--life-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.life-ob-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--ob-liq-border, var(--life-line));
+  border-radius: 14px;
+  color: inherit;
+  outline: 0;
+  background: var(--ob-liq-sheen, none), rgb(var(--life-surface-rgb) / 74%);
+  box-shadow: var(--ob-liq-inset, none);
+  font: inherit;
+  transition: var(--sm-t-control);
+}
+
+/* Step 2: name field + icon-only liquid roll (matches fluid ghost buttons) */
+.life-ob-name-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.life-ob-name-row .life-ob-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.life-ob-name-roll {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--ob-liq-border, var(--life-line));
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--life-ink) 72%, var(--life-muted));
+  background:
+    var(--ob-liq-sheen, none),
+    color-mix(in srgb, rgb(var(--life-surface-rgb) / 42%), transparent);
+  box-shadow: var(--ob-liq-inset, inset 0 1px 0 rgb(255 255 255 / 28%));
+  cursor: pointer;
+  transition: var(--sm-t-control);
+}
+
+.life-ob-name-roll:hover:not(:disabled) {
+  color: var(--life-accent);
+  border-color: color-mix(in srgb, var(--life-accent) 40%, var(--life-line));
+  background:
+    var(--ob-liq-sheen, none),
+    color-mix(in srgb, var(--life-accent) 12%, transparent);
+  box-shadow: var(
+    --ob-liq-soft-shadow,
+    inset 0 1px 0 rgb(255 255 255 / 36%),
+    0 6px 16px -8px rgb(31 38 135 / 12%)
+  );
+  transform: translateY(var(--sm-lift));
+}
+
+.life-ob-name-roll:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.life-ob-name-roll:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.life-ob-name-roll svg {
+  width: 16px;
+  height: 16px;
+}
+
+.life-ob-input:focus {
+  border-color: color-mix(in srgb, var(--life-accent) 58%, var(--life-line));
+  box-shadow:
+    var(--ob-liq-inset, inset 0 1px 0 rgb(255 255 255 / 36%)),
+    0 0 0 4px color-mix(in srgb, var(--life-accent) 12%, transparent);
+}
+
+.life-ob-input--area {
+  min-height: 84px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.life-ob-persona-groups {
+  display: grid;
+  gap: 16px;
+}
+
+.life-ob-persona-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.life-ob-persona-group__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 4px;
+  color: var(--life-muted);
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: 0.04em;
+}
+
+.life-ob-persona-group__draft {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid
+    color-mix(in srgb, var(--life-warn, #c98a2e) 45%, transparent);
+  color: color-mix(
+    in srgb,
+    var(--life-warn, #c98a2e) 92%,
+    var(--life-ink, #222)
+  );
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.life-ob-persona-groups.is-incomplete .life-ob-persona-view {
+  opacity: 0.92;
+}
+
+.life-ob-persona-view__row dd.is-pending {
+  color: var(--life-muted);
+  font-style: italic;
+  font-weight: 550;
+}
+
+.life-ob-persona-view {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 6px 4px;
+  border: 1px solid var(--ob-liq-border, var(--life-line));
+  border-radius: 18px;
+  background: var(--ob-liq-sheen, none), rgb(var(--life-surface-rgb) / 42%);
+  box-shadow: var(--ob-liq-inset, none);
+}
+
+.life-ob-persona-view__row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.life-ob-persona-view__row:not(:last-child) {
+  border-bottom: 1px solid color-mix(in srgb, var(--life-line) 55%, transparent);
+}
+
+.life-ob-persona-view__row.is-editing {
+  display: grid;
+  background: color-mix(in srgb, var(--life-accent) 5%, transparent);
+}
+
+.life-ob-persona-view__copy {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 5px;
+  min-width: 0;
+}
+
+.life-ob-persona-view__row dt {
+  margin: 0;
+  color: var(--life-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.life-ob-persona-view__row dd {
+  margin: 0;
+  color: var(--life-ink);
+  font-size: 15px;
+  font-weight: 560;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.life-ob-persona-view__edit {
+  display: grid;
+  flex: 0 0 auto;
+  align-self: center;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--ob-liq-border, transparent);
+  border-radius: 50%;
+  color: var(--life-muted);
+  background:
+    var(--ob-liq-sheen, none),
+    color-mix(in srgb, rgb(var(--life-surface-rgb) / 55%), transparent);
+  box-shadow: var(--ob-liq-inset, none);
+  cursor: pointer;
+  transition: var(--sm-t-control);
+}
+
+.life-ob-persona-view__edit svg {
+  width: 14px;
+  height: 14px;
+}
+
+.life-ob-persona-view__edit:hover:not(:disabled) {
+  color: var(--life-accent);
+  border-color: color-mix(in srgb, var(--life-accent) 36%, transparent);
+  background: color-mix(in srgb, var(--life-accent) 10%, transparent);
+  transform: scale(1.04);
+}
+
+.life-ob-persona-view__edit:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.life-ob-persona-view__editor {
+  display: grid;
+  gap: 8px;
+}
+
+.life-ob-persona-view__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.life-ob-persona-view__action {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--ob-liq-border, var(--life-line));
+  border-radius: 50%;
+  color: var(--life-ink);
+  background: var(--ob-liq-sheen, none), rgb(var(--life-surface-rgb) / 70%);
+  box-shadow: var(--ob-liq-inset, none);
+  cursor: pointer;
+  transition: var(--sm-t-control);
+}
+
+.life-ob-persona-view__action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.life-ob-persona-view__action.is-save {
+  color: color-mix(in srgb, var(--life-accent) 18%, white);
+  border-color: transparent;
+  background: var(--life-accent);
+}
+
+.life-ob-persona-view__action:hover:not(:disabled) {
+  transform: scale(1.05);
+}
+
+.life-ob-persona-view__action:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
+/* ---------- 忙碌 ---------- */
+
+.life-ob-bg {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 26px 16px;
+  border: 0;
+  border-radius: 16px;
+  background:
+    radial-gradient(
+      120% 80% at 50% 0%,
+      color-mix(in srgb, var(--life-accent, #6b8cff) 9%, transparent),
+      transparent 62%
+    ),
+    color-mix(in srgb, var(--life-ink, #222) 3%, transparent);
+  color: var(--life-muted);
+  text-align: center;
+}
+
+.life-ob-bg__text {
+  margin: 0;
+  max-width: 30em;
+  color: color-mix(in srgb, var(--life-ink, #222) 76%, var(--life-muted));
+  font-size: 13.5px;
+  font-weight: 560;
+  line-height: 1.55;
+}
+
+.life-ob-bg__sub {
+  margin: 0;
+  color: var(--life-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.life-ob-bg .life-loading__orb {
+  display: block;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin-inline: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .life-choice--bubble,
+  .life-loading__orb,
+  .life-ob-cta .is-spinning,
+  .life-ob-name-roll__spin {
+    animation: none;
+  }
+}
+
+html[data-perf-mode='exlight'] .life-choice--bubble {
+  animation: sm-rise-in var(--sm-dur-base) var(--sm-ease-standard) backwards;
+}
+
+html[data-perf-mode='exlight'] .life-loading__orb {
+  animation: none;
+}

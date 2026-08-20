@@ -1,11 +1,12 @@
 //! Agent API — helpers
 use super::*;
 use crate::error::HttpError;
+use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 
 // 辅助函数
 
-/// 输入限制常量
-pub(crate) const MAX_INPUT_LEN: usize = 2000;
+/// 输入限制常量（Unicode 标量，不是字节）
+pub(crate) const MAX_INPUT_LEN: usize = USER_TEXT_MAX_CHARS;
 pub(crate) const MAX_HISTORY_ITEMS: usize = 50;
 
 /// 将 API 层的 ProcessContext 转换为 service 层的 RequestContext
@@ -121,7 +122,7 @@ pub(crate) async fn require_current_admin(
 
 /// 验证输入长度
 pub(crate) fn validate_input(input: &str) -> Result<(), HttpError> {
-    if input.len() > MAX_INPUT_LEN {
+    if input.chars().count() > MAX_INPUT_LEN {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(json!({

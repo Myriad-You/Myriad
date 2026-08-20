@@ -126,7 +126,7 @@ describe('tapp docs gating consistency', () => {
 
   it('store package path helpers match documented examples', () => {
     assert.equal(
-      storePackageRoot('apps/com.myriad.doudizhu/main.js'),
+      storePackageRoot('apps/com.myriad.doudizhu/core.js'),
       'apps/com.myriad.doudizhu',
     )
     assert.equal(
@@ -211,13 +211,36 @@ describe('tapp docs gating consistency', () => {
     const maxTotal = rules.match(
       /MAX_TAPP_ASSETS_TOTAL_BYTES:\s*u64\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024/,
     )
-    assert.equal(maxAssets, '64')
-    assert.equal(maxBytes?.[1], '5')
-    assert.equal(maxTotal?.[1], '20')
+    assert.equal(maxAssets, '128')
+    assert.equal(maxBytes?.[1], '16')
+    assert.equal(maxTotal?.[1], '64')
+    const gameAssets = rules.match(
+      /MAX_TAPP_GAME_ASSETS:\s*usize\s*=\s*(\d+)/,
+    )?.[1]
+    const gameBytes = rules.match(
+      /MAX_TAPP_GAME_ASSET_BYTES:\s*u64\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024/,
+    )
+    const gameTotal = rules.match(
+      /MAX_TAPP_GAME_ASSETS_TOTAL_BYTES:\s*u64\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024/,
+    )
+    const archiveBytes = rules.match(
+      /MAX_TAPP_ARCHIVE_BYTES:\s*usize\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024/,
+    )
+    const gameArchiveBytes = rules.match(
+      /MAX_TAPP_GAME_ARCHIVE_BYTES:\s*usize\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024/,
+    )
+    assert.equal(gameAssets, '256')
+    assert.equal(gameBytes?.[1], '32')
+    assert.equal(gameTotal?.[1], '128')
+    assert.equal(archiveBytes?.[1], '64')
+    assert.equal(gameArchiveBytes?.[1], '128')
     const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
-    assert.match(manifest, /单文件 ≤ 5 MiB/)
-    assert.match(manifest, /合计 ≤ 20 MiB/)
-    assert.match(manifest, /最多 64 项/)
+    assert.match(manifest, /单文件 ≤ 16 MiB/)
+    assert.match(manifest, /合计 ≤ 64 MiB/)
+    assert.match(manifest, /最多 128 项/)
+    assert.match(manifest, /单文件 32 MiB \/ 合计 128 MiB \/ 256 项/)
+    assert.match(manifest, /普通 64 MiB \/ 合计 128 MiB/)
+    assert.match(manifest, /游戏档 128 MiB \/ 合计 256 MiB/)
   })
 
   it('brew fixture permissions match PERMISSION_MAP for brewList actions', async () => {
@@ -298,12 +321,15 @@ describe('tapp docs gating consistency', () => {
       resolveTappListInstallRequest({
         source: 'direct',
         manifest: { id: 'com.example.app' },
-        code: 'x',
+        modules: { 'core.js': 'x' },
       }).kind,
       'direct',
     )
     assert.equal(
-      resolveTappListInstallRequest({ source: 'direct', code: 'x' }).kind,
+      resolveTappListInstallRequest({
+        source: 'direct',
+        modules: { 'core.js': 'x' },
+      }).kind,
       'error',
     )
 

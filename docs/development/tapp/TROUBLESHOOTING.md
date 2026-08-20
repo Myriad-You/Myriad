@@ -38,7 +38,7 @@ Refused to load the script/style/image '...' because it violates the following C
 
 **解决方案**：
 
-1. **外部脚本**：不支持直接加载外部 JS 文件，将代码内联到 `main.js`
+1. **外部脚本**：不支持直接加载外部 JS 文件；把代码放进包内并用相对路径 `require`
 2. **外部样式**：使用 `styles.css` 文件或内联样式
 3. **图片**：允许 `data:`、`blob:` 和 HTTP(S)，检查 URL 与响应类型
 4. **媒体**：CSP 默认禁止直接加载；使用宿主媒体 API
@@ -135,10 +135,10 @@ Failed to load resource: the server responded with a status of 401 ()
 
    ```json
    // manifest.json：安装后的入口
-   { "main": "main.js" }
+   { "core": { "entry": "core.js" } }
 
    // 商店 index.json：仓库中的下载位置
-   { "download": { "code": "apps/com.example/main.js" } }
+   { "download": { "code": "apps/com.example/core.js" } }
    ```
 
 2. **manifest 声明的资源缺失**
@@ -147,7 +147,7 @@ Failed to load resource: the server responded with a status of 401 ()
    // manifest.json 声明了这些文件，但实际不存在
    {
      "styles": "styles.css", // 文件不存在
-     "pageTemplate": "page.html", // 文件不存在
+     "page": { "template": "page.html" }, // 文件不存在
      "widgets": [
        {
          "templates": {
@@ -160,7 +160,7 @@ Failed to load resource: the server responded with a status of 401 ()
 
 **解决方案**：
 
-1. 检查 `manifest.main` 是否指向安装根目录内真实存在的 JS 文件
+1. 检查层入口是否指向安装根目录内真实存在的 JS 文件
 2. 商店发布时检查 `index.json` 的 `download.code` 是否下载同一入口
 3. 确保 Manifest 中声明的所有资源文件都实际存在
 4. 文件名区分大小写
@@ -518,7 +518,7 @@ HTTP 声明式 API 都需要，不只是 `protected`）：
 2. 后端容器访问不了 raw.githubusercontent.com 等外网时 store 安装失败；宿主可能回退为
    浏览器下载 + REST `source: "direct"`。
 3. 上传 `.tapp` 走 `install-file`；SDK 内联包用 `tappList.install({ source: "direct",
-   manifest, code, ... })`（见 [API 参考 · Tapp 列表](./API_REFERENCE.md#tapp-列表-api)）。
+   manifest, modules, ... })`（见 [API 参考 · Tapp 列表](./API_REFERENCE.md#tapp-列表-api)）。
 
 **解决方案**：
 
@@ -533,7 +533,7 @@ HTTP 声明式 API 都需要，不只是 `protected`）：
 **症状**：后端 `BAD_GATEWAY` 提示 category 不一致，或缺少 `page_styles` / `page_template`。
 
 **原因**：索引 `apps[].category` 与 `manifest.category` 不一致；或 Manifest 声明了
-`pageStyles` / `pageTemplate` 但 `download` 表未给出对应路径或远程 404。
+`page.styles` / `page.template` 但 `download` 表未给出对应路径或远程 404。
 
 **解决方案**：对齐分类稳定 ID；补齐 `download` 路径并保证 `base_url` 下可 GET。见
 [STORE · 索引检查清单](STORE.md#索引检查清单)。
@@ -583,11 +583,11 @@ Tapp.lifecycle.onReady(async function () {
 
 ### 发布前检查
 
-- [ ] `manifest.main` 与实际入口一致
+- [ ] 层入口与实际文件一致
 - [ ] 商店 `index.json` 的 `download.code` 能下载同一入口
 - [ ] manifest 声明的所有资源文件都存在
 - [ ] 版本号与 **category** 在 `index.json` 和 `manifest.json` 中一致
-- [ ] 声明了 `pageStyles` / `pageTemplate` / Widget 模板时，索引 `download` 路径齐全
+- [ ] 声明了 `page.styles` / `page.template` / Widget 模板时，索引 `download` 路径齐全
 - [ ] `manifest.assets` 文件位于包根 `assets/` 且远程可下载
 - [ ] 大包填写索引 `size`（字节）
 - [ ] Widget 模板文件格式正确

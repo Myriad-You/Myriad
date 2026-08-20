@@ -359,7 +359,15 @@ export function base64ToAudioUrl(
   for (let i = 0; i < byteCharacters.length; i++) {
     byteArray[i] = byteCharacters.charCodeAt(i)
   }
-  const blob = new Blob([byteArray], { type: mimeType })
+  const sniffed =
+    byteArray.length >= 12 &&
+    byteArray[0] === 0x52 &&
+    byteArray[1] === 0x49 &&
+    byteArray[2] === 0x46 &&
+    byteArray[3] === 0x46
+      ? 'audio/wav'
+      : mimeType
+  const blob = new Blob([byteArray], { type: sniffed })
   return URL.createObjectURL(blob)
 }
 

@@ -2,6 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import { agentService } from '../../../services/agent'
 import { invalidatePublicConfigCache } from '../../../utils/requestDedup'
+import {
+  ADDRESSEE_UPDATED_EVENT,
+  formatVitalsLine,
+} from '../lifeVitals'
 
 export const AraelPersonaSection: React.FC<{
   isOwner: boolean
@@ -16,10 +20,13 @@ export const AraelPersonaSection: React.FC<{
   const [disabled, setDisabled] = useState(false)
   const [canEdit, setCanEdit] = useState(false)
   const [doNotDisturb, setDoNotDisturb] = useState(false)
+  const [mood, setMood] = useState(70)
+  const [activity, setActivity] = useState('idle')
   const [error, setError] = useState<string | null>(null)
+  const o = t.life.onboarding
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true)
     setError(null)
     try {
       const persona = await agentService.getPersona()
@@ -31,6 +38,8 @@ export const AraelPersonaSection: React.FC<{
       setDisabled(false)
       setName(persona.name ?? '')
       setDoNotDisturb(persona.doNotDisturb === true)
+      setMood(typeof persona.mood === 'number' ? persona.mood : 70)
+      setActivity(persona.activity ?? 'idle')
       setCanEdit(isOwner)
       setPersonality(
         typeof persona.personality === 'string' ? persona.personality : '',
@@ -45,6 +54,15 @@ export const AraelPersonaSection: React.FC<{
 
   useEffect(() => {
     void load()
+    const refresh = () => {
+      void load({ silent: true })
+    }
+    window.addEventListener('arael-persona-updated', refresh)
+    window.addEventListener(ADDRESSEE_UPDATED_EVENT, refresh)
+    return () => {
+      window.removeEventListener('arael-persona-updated', refresh)
+      window.removeEventListener(ADDRESSEE_UPDATED_EVENT, refresh)
+    }
   }, [load])
 
   const save = useCallback(async () => {
@@ -91,6 +109,9 @@ export const AraelPersonaSection: React.FC<{
     try {
       const saved = await agentService.putAddressee({ doNotDisturb: next })
       setDoNotDisturb(saved.doNotDisturb)
+      setMood(saved.mood)
+      setActivity(saved.activity)
+      window.dispatchEvent(new CustomEvent(ADDRESSEE_UPDATED_EVENT))
     } catch (e) {
       setDoNotDisturb(!next)
       setError(e instanceof Error ? e.message : a.manageActionError)
@@ -143,6 +164,7 @@ export const AraelPersonaSection: React.FC<{
           />
         </label>
       ) : null}
+      <p className="arael-persona-vitals">{formatVitalsLine(o, mood, activity)}</p>
       <label className="arael-persona-dnd">
         <input
           type="checkbox"

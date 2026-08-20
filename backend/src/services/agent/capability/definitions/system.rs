@@ -421,7 +421,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "config.get".to_string(),
         name: "获取配置".to_string(),
-        description: "获取系统配置信息".to_string(),
+        description: "获取系统配置。AI 为 Standard（enabled/provider/model，不含密钥）；platforms 为接通标志；ui 为公开展示字段".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -446,7 +446,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "setup.status".to_string(),
         name: "系统设置状态".to_string(),
-        description: "检查系统初始化和设置状态".to_string(),
+        description: "检查系统初始化状态（库表与管理员；与 HTTP /api/setup/status 一致，不含 AI 钥）".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -497,7 +497,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "permission.check".to_string(),
         name: "权限检查".to_string(),
-        description: "检查用户对指定操作的权限状态".to_string(),
+        description: "检查当前会话角色的授予权限；带 tappId 时再与该安装的批准权限求交".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -505,13 +505,16 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "permission": { "type": "string" },
                 "tappId": { "type": "string" }
-            }
+            },
+            "required": ["permission"]
         }),
         output_schema: json!({
             "type": "object",
             "properties": {
                 "granted": { "type": "boolean" },
-                "permission": { "type": "string" }
+                "permission": { "type": "string" },
+                "role": { "type": "string" },
+                "tappId": { "type": "string" }
             }
         }),
         required_permissions: vec![],

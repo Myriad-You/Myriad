@@ -546,24 +546,30 @@ impl NotificationManager {
                 .await;
             return;
         }
+        let life_on = crate::services::agent::life::life_enabled().await;
         let session_id = match session_id {
             Some(id) if !id.is_empty() => Some(id.to_string()),
-            _ if crate::services::agent::life::life_enabled().await => {
+            _ if life_on => {
                 crate::services::agent::life::ingest::latest_session_id_for(user_id).await
             }
             _ => None,
         };
+        let mut metadata = serde_json::json!({
+            "event_key": event_key,
+            "run_id": run_id,
+            "task_id": task_id,
+            "session_id": session_id,
+            "status": status,
+            "progress": progress,
+            "success": success,
+        });
+        // Flag off must look exactly like before: no landing hint of its own,
+        // the panel keeps resolving these by notification type and session id.
+        if life_on {
+            metadata["action"] = serde_json::json!("open_arael");
+        }
         let mut notification = Notification::new(user_id, notification_type, priority, title, body)
-            .with_metadata(serde_json::json!({
-                "event_key": event_key,
-                "action": "open_arael",
-                "run_id": run_id,
-                "task_id": task_id,
-                "session_id": session_id,
-                "status": status,
-                "progress": progress,
-                "success": success,
-            }));
+            .with_metadata(metadata);
         notification.id = format!("agent_run_{}", run_id);
         self.upsert(notification).await;
     }

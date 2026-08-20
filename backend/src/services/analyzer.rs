@@ -270,6 +270,14 @@ pub struct AiAnalyzer {
     base_url: Option<String>, // For OpenAI-compatible APIs
 }
 
+fn require_analyze_prompt(profile_data: &serde_json::Value) -> Result<&str> {
+    profile_data
+        .get("prompt")
+        .and_then(|p| p.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("analyze_profile requires a non-empty prompt"))
+}
+
 /// Flatten multi-turn messages into a single Gemini-compatible prompt.
 fn flatten_messages_for_gemini(system: &str, messages: &[ChatMessage]) -> String {
     let mut parts = Vec::new();
@@ -549,12 +557,13 @@ impl AiAnalyzer {
     }
 
     pub async fn analyze_profile(&self, profile_data: &serde_json::Value) -> Result<String> {
+        let prompt = require_analyze_prompt(profile_data)?;
         let input_chars = serde_json::to_string(profile_data)
             .map(|s| s.len())
             .unwrap_or(0);
         let result = match self.provider {
-            AiProvider::Gemini => self.analyze_with_gemini(profile_data).await,
-            AiProvider::OpenAI => self.analyze_with_openai(profile_data).await,
+            AiProvider::Gemini => self.analyze_with_gemini(prompt).await,
+            AiProvider::OpenAI => self.analyze_with_openai(prompt).await,
         };
         self.note_ledger(input_chars, &result, "analyze").await;
         result
@@ -595,29 +604,12 @@ impl AiAnalyzer {
         }
     }
 
-    async fn analyze_with_gemini(&self, profile_data: &serde_json::Value) -> Result<String> {
-        // 检查是否提供了自定义提示词
-        let user_prompt = if let Some(prompt) = profile_data.get("prompt").and_then(|p| p.as_str())
-        {
-            prompt.to_string()
-        } else {
-            let system_prompt = "You are an expert data analyst. Analyze data thoroughly and provide structured, actionable insights. Always respond in the same language as the input data.";
-            let data_str = serde_json::to_string_pretty(profile_data)?;
-            // 截断过长数据以避免 token 溢出
-            let truncated: String = data_str.chars().take(15000).collect();
-            format!(
-                "{}\n\nPlease analyze the following data and provide:\n\
-                1. Key findings and patterns\n\
-                2. Notable highlights\n\
-                3. Actionable insights\n\n\
-                Data:\n{}",
-                system_prompt, truncated
-            )
-        };
-
+    async fn analyze_with_gemini(&self, prompt: &str) -> Result<String> {
         let request_body = GeminiRequest {
             contents: vec![GeminiContent {
-                parts: vec![GeminiPart { text: user_prompt }],
+                parts: vec![GeminiPart {
+                    text: prompt.to_string(),
+                }],
             }],
             generation_config: None,
         };
@@ -679,30 +671,13 @@ impl AiAnalyzer {
         Ok(analysis)
     }
 
-    async fn analyze_with_openai(&self, profile_data: &serde_json::Value) -> Result<String> {
-        // 检查是否提供了自定义提示词
-        let user_content = if let Some(prompt) = profile_data.get("prompt").and_then(|p| p.as_str())
-        {
-            prompt.to_string()
-        } else {
-            format!(
-                "Analyze the following user profile data and provide insights on their professional background, skills, interests, and online presence:\n\n{}",
-                serde_json::to_string_pretty(profile_data)?
-            )
-        };
-
+    async fn analyze_with_openai(&self, prompt: &str) -> Result<String> {
         let request_body = OpenAIRequest {
             model: self.model.clone(),
-            messages: vec![
-                OpenAIMessage {
-                    role: "system".to_string(),
-                    content: "You are an expert data analyst specializing in social media and professional profiles.".to_string(),
-                },
-                OpenAIMessage {
-                    role: "user".to_string(),
-                    content: user_content,
-                },
-            ],
+            messages: vec![OpenAIMessage {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            }],
             response_format: None,
         };
 
@@ -1215,8 +1190,8 @@ mod tests {
     use super::{
         extract_openai_completion_text, flatten_messages_for_gemini,
         format_openai_compatible_http_error, gemini_response_schema, openai_chat_completions_url,
-        ChatMessage, GeminiContent, GeminiPart, GeminiRequest, JsonMode, OpenAIMessage,
-        OpenAIRequest, OpenAIResponse, ProviderCallFailure,
+        require_analyze_prompt, ChatMessage, GeminiContent, GeminiPart, GeminiRequest, JsonMode,
+        OpenAIMessage, OpenAIRequest, OpenAIResponse, ProviderCallFailure,
     };
     use serde_json::json;
 
@@ -1232,6 +1207,17 @@ mod tests {
             "required": ["summary"],
             "additionalProperties": false
         })
+    }
+
+    #[test]
+    fn analyze_profile_requires_a_non_empty_prompt() {
+        assert_eq!(
+            require_analyze_prompt(&json!({ "prompt": "write the card" })).unwrap(),
+            "write the card"
+        );
+        assert!(require_analyze_prompt(&json!({})).is_err());
+        assert!(require_analyze_prompt(&json!({ "prompt": "" })).is_err());
+        assert!(require_analyze_prompt(&json!({ "summary": "raw profile" })).is_err());
     }
 
     // Structured output — Gemini schema dialect

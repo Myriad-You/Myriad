@@ -28,6 +28,26 @@ import type {
 import { ApiError, apiService } from '../api'
 import { abortSseSubscriptions, executeSSERequest } from './sseTransport'
 
+/** Keep in sync with DIGITAL_LIFE_PROXY_TIMEOUT_MS in frontend/astro.config.mjs */
+const PERSONA_GENERATION_TIMEOUT_MS = 15 * 60 * 1000
+
+const personaGenerationInflight = new Map<string, Promise<unknown>>()
+
+function sharePersonaGeneration<T>(
+  key: string,
+  start: () => Promise<T>,
+): Promise<T> {
+  const existing = personaGenerationInflight.get(key)
+  if (existing) return existing as Promise<T>
+  const promise = start().finally(() => {
+    if (personaGenerationInflight.get(key) === promise) {
+      personaGenerationInflight.delete(key)
+    }
+  })
+  personaGenerationInflight.set(key, promise)
+  return promise
+}
+
 /** On-disk MCP server entry (`mcp_servers.json`). */
 export interface McpServerConfig {
   id: string
@@ -804,31 +824,62 @@ class AgentService {
     )
   }
 
-  // 会话管理
+  // 设定引导（词条 / 命名 / 人设稿）
 
-  /**
-   * 创建新会话
-   */
-  async getPersonaSignals(): Promise<{
+  async getPersonaSignals(body: {
+    language: string
+    regenerate?: boolean
+  }): Promise<{
     reportCount: number
-    tags: Array<{ label: string; source?: string }>
-  } | null> {
-    try {
-      return await apiService.get(`${this.baseUrl}/persona/signals`)
-    } catch {
-      return null
-    }
+    tags: string[]
+    aiDistilled: boolean
+  }> {
+    return sharePersonaGeneration(
+      `signals:${body.language}:${body.regenerate === true}`,
+      () =>
+        apiService.post(
+          `${this.baseUrl}/persona/signals`,
+          {
+            consent: true,
+            language: body.language,
+            regenerate: body.regenerate === true,
+          },
+          { timeout: PERSONA_GENERATION_TIMEOUT_MS },
+        ),
+    )
   }
 
   async draftPersona(body: {
     name: string
     tags: string[]
-  }): Promise<{ personality: string; source: string } | null> {
-    try {
-      return await apiService.post(`${this.baseUrl}/persona/draft`, body)
-    } catch {
-      return null
-    }
+    gender?: string
+    extraRequirements?: string
+    language: string
+  }): Promise<{
+    persona: Record<string, unknown>
+  }> {
+    return sharePersonaGeneration(
+      `draft:${body.language || ''}:${body.name}:${body.gender || ''}:${body.extraRequirements || ''}:${body.tags.join(',')}`,
+      () =>
+        apiService.post(`${this.baseUrl}/persona/draft`, body, {
+          timeout: PERSONA_GENERATION_TIMEOUT_MS,
+        }),
+    )
+  }
+
+  async suggestPersonaName(body: {
+    selectedTags: string[]
+    gender?: string
+    avoidName?: string
+    language: string
+  }): Promise<{ name: string }> {
+    return sharePersonaGeneration(
+      `name:${body.language || ''}:${body.gender || ''}:${body.avoidName || ''}:${body.selectedTags.join(',')}`,
+      () =>
+        apiService.post(`${this.baseUrl}/persona/name`, body, {
+          timeout: PERSONA_GENERATION_TIMEOUT_MS,
+        }),
+    )
   }
 
   async getPersona(): Promise<AgentPersona | null> {
@@ -861,6 +912,8 @@ class AgentService {
   }> {
     return apiService.put(`${this.baseUrl}/addressee`, body)
   }
+
+  // 会话管理
 
   async createSession(): Promise<SessionInfo> {
     return apiService.post<SessionInfo>(`${this.baseUrl}/sessions`)

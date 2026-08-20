@@ -63,7 +63,7 @@ export function registerPlaygroundPreviewHandlers(
     const used = new Blob([JSON.stringify(Object.fromEntries(storage))]).size
     return {
       success: true,
-      data: { used, limit: 5 * 1024 * 1024, remaining: 5 * 1024 * 1024 - used },
+      data: { used, limit: 8 * 1024 * 1024, remaining: 8 * 1024 * 1024 - used },
     }
   })
 
@@ -83,6 +83,49 @@ export function registerPlaygroundPreviewHandlers(
     success: true,
     data: Object.fromEntries(settings),
   }))
+
+  const shared: PreviewStore = new Map()
+  bridge.registerHandler('shared.get', async (message) => {
+    const key = validateKey(argsOf(message)[0])
+    if (!key) return { success: false, error: 'Invalid shared key' }
+    return { success: true, data: shared.get(key) ?? null }
+  })
+  bridge.registerHandler('shared.set', async (message) => {
+    const [rawKey, rawValue] = argsOf(message)
+    const key = validateKey(rawKey)
+    if (!key) return { success: false, error: 'Invalid shared key' }
+    const value = sanitizeStorageValue(rawValue)
+    if (JSON.stringify(value).length > 1024 * 1024) {
+      return { success: false, error: 'Preview shared value is too large' }
+    }
+    shared.set(key, value)
+    return { success: true, data: null }
+  })
+  bridge.registerHandler('shared.remove', async (message) => {
+    const key = validateKey(argsOf(message)[0])
+    if (!key) return { success: false, error: 'Invalid shared key' }
+    shared.delete(key)
+    return { success: true, data: null }
+  })
+  bridge.registerHandler('shared.keys', async () => ({
+    success: true,
+    data: Array.from(shared.keys()),
+  }))
+  bridge.registerHandler('shared.getAll', async () => ({
+    success: true,
+    data: Object.fromEntries(shared),
+  }))
+  bridge.registerHandler('shared.clear', async () => {
+    shared.clear()
+    return { success: true, data: null }
+  })
+  bridge.registerHandler('shared.usage', async () => {
+    const used = new Blob([JSON.stringify(Object.fromEntries(shared))]).size
+    return {
+      success: true,
+      data: { used, quota: 8 * 1024 * 1024 },
+    }
+  })
 
   bridge.registerHandler('ui.showNotification', async () => ({
     success: false,

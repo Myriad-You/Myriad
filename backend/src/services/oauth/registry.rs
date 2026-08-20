@@ -46,10 +46,7 @@ impl ProviderRegistry {
 
     /// 从 DynamicConfig 重建 provider 集合（启动时 + 配置变更时调用）
     ///
-    /// 装载顺序：
-    /// 1. `oauth_providers` 列表（kind="github" / "oidc"），优先
-    /// 2. legacy `github_client_id`/`github_client_secret` 平铺字段（向后兼容；
-    /// 若 (1) 中已经有 slug="github" 则跳过）
+    /// 只装载 `oauth_providers`（kind="github" / "oidc"）。
     pub async fn reload(&self) {
         use crate::GLOBAL_DYNAMIC_CONFIG;
 
@@ -119,22 +116,6 @@ impl ProviderRegistry {
                         entry.slug
                     );
                 }
-            }
-        }
-
-        // Legacy 兼容：旧的 github_client_id/secret 平铺字段
-        // 仅当 entries 里没有 slug="github" 时才生效，避免冲突。
-        if !new_map.contains_key("github") {
-            if let (Some(cid), Some(csec)) = (
-                config.github_client_id.as_ref().filter(|s| !s.is_empty()),
-                config
-                    .github_client_secret
-                    .as_ref()
-                    .filter(|s| !s.is_empty()),
-            ) {
-                let provider = GithubProvider::new(cid.clone(), csec.clone());
-                new_map.insert("github".to_string(), Arc::new(provider));
-                tracing::info!("🔐 OAuth provider loaded: github (from legacy fields)");
             }
         }
 

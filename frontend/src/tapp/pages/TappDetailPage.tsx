@@ -576,9 +576,16 @@ export function TappDetailPage() {
     (tapp.userRole === 'user' && tapp.isTemporary === true)
   const canManageVisibility =
     tapp.userRole === 'admin' && tapp.isAdminTapp === true
+  // 安装记录被判为 error：包与当前格式不符，启动只会失败，先给原因再谈操作。
+  const isUnusable =
+    tapp.installationStatus === 'error' || tapp.status === 'error'
+  const unusableReason = isUnusable
+    ? tapp.error?.trim() || t.tapp.packageUnusableMessage
+    : ''
   const canStartStop =
-    tapp.userRole === 'admin' ||
-    (tapp.userRole === 'user' && tapp.isTemporary === true)
+    !isUnusable &&
+    (tapp.userRole === 'admin' ||
+      (tapp.userRole === 'user' && tapp.isTemporary === true))
   const canUninstall =
     tapp.userRole === 'admin' ||
     (tapp.userRole === 'user' && tapp.isTemporary === true)
@@ -792,6 +799,15 @@ export function TappDetailPage() {
 
   // Copy disabled on the whole card (`copyable={false}`); no per-field copyText.
   const infoFields = [
+    ...(isUnusable
+      ? [
+          {
+            key: 'unusable',
+            label: t.tapp.packageUnusable,
+            value: unusableReason,
+          },
+        ]
+      : []),
     {
       key: 'id',
       label: t.tapp.appId,

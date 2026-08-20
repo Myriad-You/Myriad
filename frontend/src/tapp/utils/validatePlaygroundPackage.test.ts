@@ -4,7 +4,8 @@
  *   node --experimental-strip-types --test src/tapp/utils/validatePlaygroundPackage.test.ts
  */
 
-import type { TappCodeStructure, TappManifest } from '../types'
+import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
+import type { TappManifest } from '../types'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -15,22 +16,19 @@ import {
 
 function validPageProject(): {
   manifest: TappManifest
-  code: TappCodeStructure
+  code: TappPlaygroundCode
 } {
   const manifest: TappManifest = {
     id: 'com.example.page',
     name: 'Page App',
     version: '1.0.0',
-    main: 'main.js',
     permissions: [],
     category: 'utility',
-    hasPage: true,
-    styles: 'styles.css',
-    pageTemplate: 'page.html',
-    cssMode: 'unified',
+    core: { entry: 'core.js', styles: 'styles.css' },
+    page: { entry: 'page/index.js', template: 'page.html' },
   }
 
-  const code: TappCodeStructure = {
+  const code: TappPlaygroundCode = {
     core: 'const core = 1;',
     page: 'function renderPage() {}',
     styles: '.root { color: red; }',
@@ -42,7 +40,7 @@ function validPageProject(): {
 
 function validWidgetProject(): {
   manifest: TappManifest
-  code: TappCodeStructure
+  code: TappPlaygroundCode
 } {
   const { manifest, code } = validPageProject()
   return {
@@ -66,22 +64,19 @@ function validWidgetProject(): {
   }
 }
 
-/** Widget-only: hasPage false, no page resources, widgets + widget code. */
+/** Widget-only: no page layer, widgets + widget code. */
 function validWidgetOnlyProject(): {
   manifest: TappManifest
-  code: TappCodeStructure
+  code: TappPlaygroundCode
 } {
   return {
     manifest: {
       id: 'com.example.widgetonly',
       name: 'Widget Only',
       version: '1.0.0',
-      main: 'main.js',
       permissions: ['widget:register'],
       category: 'utility',
-      hasPage: false,
-      styles: 'styles.css',
-      cssMode: 'unified',
+      core: { entry: 'core.js', styles: 'styles.css' },
       widgets: [
         {
           id: 'card',
@@ -107,7 +102,8 @@ describe('validatePlaygroundPackage', () => {
     const result = validatePlaygroundPackage(validPageProject())
     assert.equal(result.ok, true)
     if (result.ok) {
-      assert.ok(result.package.files['main.js'])
+      assert.ok(result.package.files['core.js'])
+      assert.ok(result.package.files['page/index.js'])
       assert.ok(result.package.files['page.html'])
       assert.ok(result.package.files['styles.css'])
     }
@@ -125,11 +121,39 @@ describe('validatePlaygroundPackage', () => {
     const result = validatePlaygroundPackage(validWidgetOnlyProject())
     assert.equal(result.ok, true)
     if (result.ok) {
-      assert.equal(result.package.manifest.hasPage, false)
-      assert.equal(result.package.manifest.pageTemplate, undefined)
-      assert.ok(result.package.files['main.js'])
+      assert.equal(result.package.manifest.page, undefined)
+      assert.ok(result.package.files['core.js'])
+      assert.ok(result.package.files['widget/index.js'])
       assert.ok(result.package.files['templates/card.html'])
       assert.equal(result.package.files['page.html'], undefined)
+    }
+  })
+
+  it('does not require a core layer unless backgroundRequirements are declared', () => {
+    const { manifest, code } = validPageProject()
+    const result = validatePlaygroundPackage({
+      manifest: { ...manifest, core: undefined },
+      code: { ...code, core: '', styles: '' },
+    })
+    assert.equal(result.ok, true)
+  })
+
+  it('requires core when backgroundRequirements are declared without core code', () => {
+    const { manifest, code } = validPageProject()
+    const result = validatePlaygroundPackage({
+      manifest: {
+        ...manifest,
+        core: undefined,
+        backgroundRequirements: ['scheduler'],
+      },
+      code: { ...code, core: '' },
+    })
+    assert.equal(result.ok, false)
+    if (!result.ok) {
+      assert.ok(
+        result.errors.some((e) => e.includes('backgroundRequirements')),
+        `expected core/background error, got: ${result.errors.join('; ')}`,
+      )
     }
   })
 
@@ -138,8 +162,7 @@ describe('validatePlaygroundPackage', () => {
     const result = validatePlaygroundPackage({
       manifest: {
         ...manifest,
-        hasPage: false,
-        pageTemplate: undefined,
+        page: undefined,
         widgets: undefined,
       },
       code: { ...code, page: '', pageHtml: '' },
@@ -151,14 +174,14 @@ describe('validatePlaygroundPackage', () => {
           (e) =>
             e.includes('Page') ||
             e.includes('Widgets') ||
-            e.includes('hasPage'),
+            e.includes('page'),
         ),
         `expected empty-project error, got: ${result.errors.join('; ')}`,
       )
     }
   })
 
-  it('rejects hasPage true without page content', () => {
+  it('rejects a declared page layer without page content', () => {
     const { manifest, code } = validPageProject()
     const result = validatePlaygroundPackage({
       manifest,
@@ -178,7 +201,7 @@ describe('validatePlaygroundPackage', () => {
     }
   })
 
-  it('rejects missing page.html when pageTemplate is declared', () => {
+  it('rejects missing page.html when page.template is declared', () => {
     const { manifest, code } = validPageProject()
     const result = validatePlaygroundPackage({
       manifest,

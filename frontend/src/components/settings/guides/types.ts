@@ -108,52 +108,20 @@ export interface SettingGuidesCatalog {
     events: SettingGuideEntry
   }
   ai: {
+    llm: SettingGuideEntry
     standard: SettingGuideEntry
     lite: SettingGuideEntry
     liteEnable: SettingGuideEntry
+    agentLife: SettingGuideEntry
     pro: SettingGuideEntry
     proEnable: SettingGuideEntry
     image: SettingGuideEntry
     speech: SettingGuideEntry
+    vendors: SettingGuideEntry
     provider: SettingGuideEntry
     apiKey: SettingGuideEntry
     baseUrl: SettingGuideEntry
     model: SettingGuideEntry
-    /**
-     * 页头「快捷访问」总述（SettingTitleGuideEntry + SettingGuideBody）
-     */
-    providersQuickAccess: SettingGuideEntry
-    /**
-     * 各服务商独立完整指南（what / chain / frontend / notes）
-     * 在「快捷访问」浮窗中逐条用 SettingGuideBody 渲染
-     */
-    providers: {
-      openrouter: SettingGuideEntry
-      openai: SettingGuideEntry
-      azureOpenAI: SettingGuideEntry
-      gemini: SettingGuideEntry
-      anthropic: SettingGuideEntry
-      deepseek: SettingGuideEntry
-      volcengine: SettingGuideEntry
-      dashscope: SettingGuideEntry
-      moonshot: SettingGuideEntry
-      zhipu: SettingGuideEntry
-      siliconflow: SettingGuideEntry
-      groq: SettingGuideEntry
-      xai: SettingGuideEntry
-      mistral: SettingGuideEntry
-      together: SettingGuideEntry
-      fireworks: SettingGuideEntry
-      perplexity: SettingGuideEntry
-      minimax: SettingGuideEntry
-      ollama: SettingGuideEntry
-      cloudflare: SettingGuideEntry
-      cohere: SettingGuideEntry
-      nvidia: SettingGuideEntry
-      tencentHunyuan: SettingGuideEntry
-      baiduQianfan: SettingGuideEntry
-      openaiCompatible: SettingGuideEntry
-    }
   }
   /**
    * 3D / Tripo（独立于 AI 图片服务；密钥仅存后端）
@@ -200,7 +168,6 @@ export interface SettingGuidesCatalog {
   advanced: {
     memorySaver: SettingGuideEntry
     memorySaverEnable: SettingGuideEntry
-    agentLife: SettingGuideEntry
     network: SettingGuideEntry
     proxyEnable: SettingGuideEntry
     proxyUrl: SettingGuideEntry

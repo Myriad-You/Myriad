@@ -3,7 +3,7 @@
 本文说明如何把 Myriad 的业务数据库放到 **Compose 栈之外** 的 PostgreSQL（云 RDS、1Panel 应用商店、宿主机 Postgres、独立 DB 容器等），同时继续使用 updater 管理镜像 tag 与维护模式。
 
 默认生产栈见 [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md)（栈内 `postgres` + `./pgdata` 快照）。  
-Updater 日常操作见 [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md)。
+Updater 日常操作见 [UPDATER_QUICKSTART.md](./UPDATER_QUICKSTART.md)。
 
 > **契约摘要**  
 > - `MYRIAD_DB_MODE=external`：updater **跳过** `pgdata` 快照 / 恢复；业务更新仍切换镜像 tag 与维护模式。  
@@ -113,7 +113,7 @@ cp /path/to/repo/docs/deployment/examples/docker-compose.external-db.example.yml
 docker compose --env-file .env pull
 docker compose --env-file .env up -d
 # 或（若仍使用仓库脚本且 compose 文件名兼容）：
-# bash scripts/docker/deploy.sh up
+# bash scripts/extra/deploy.sh up
 ```
 
 > **1Panel**：用「编排」导入上述 compose + `.env` 即可。应用商店里的 Postgres 与 Myriad 栈 **分开** 创建；Myriad 栈内不要再勾选/附带 postgres 容器。网络互通见下一节。
@@ -229,7 +229,7 @@ Schema migration 仍由 **backend 启动路径** 负责（与默认部署相同�
 | `pgdata` 快照 / 回滚恢复 | 是 | **否（跳过）** |
 | 库备份 | 快照近似「整库文件」 | **运维 `pg_dump`/云备份** |
 
-若某版本 updater 尚未实现 `MYRIAD_DB_MODE`，仍应使用无 `postgres` 的 compose 与正确 `DATABASE_URL`；升级/回滚时请 **手动** 备份库，并避免依赖 UI 里的「pgdata 回滚」按钮。
+外部库模式下请 **手动** 备份（`pg_dump` / 云快照），不要点 UI 里的「pgdata 回滚」。
 
 ---
 
@@ -245,7 +245,7 @@ Schema migration 仍由 **backend 启动路径** 负责（与默认部署相同�
 ## 相关文档
 
 - [DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) — 默认生产拓扑与环境变量  
-- [UPDATER_QUICKSTART.md](../UPDATER_QUICKSTART.md) — 更新 / 回滚 / 救援  
+- [UPDATER_QUICKSTART.md](./UPDATER_QUICKSTART.md) — 更新 / 回滚 / 救援  
 - [updater-spec.md](../updater-spec.md) — updater 协议与快照设计（本地 pgdata）  
 - [examples/docker-compose.external-db.example.yml](./examples/docker-compose.external-db.example.yml) — 外部 DB compose 示例  
 - 仓库根 [`docker-compose.yml`](../../docker-compose.yml) — 默认栈内 Postgres 拓扑  

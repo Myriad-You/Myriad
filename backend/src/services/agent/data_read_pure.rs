@@ -582,21 +582,90 @@ pub fn weekday_zh(weekday: chrono::Weekday) -> &'static str {
     }
 }
 
-/// Project a UTC instant + timezone label into the time.info response shape.
-/// Clock is supplied by the adapter (no wall-clock I/O inside pure).
-pub fn project_time_info(now: chrono::DateTime<chrono::Utc>, timezone: &str) -> Value {
-    use chrono::{Datelike, Timelike};
-    json!({
-        "datetime": now.to_rfc3339(),
-        "timestamp": now.timestamp(),
-        "timezone": timezone,
-        "weekday": weekday_zh(now.weekday()),
-        "year": now.year(),
-        "month": now.month(),
-        "day": now.day(),
-        "hour": now.hour(),
-        "minute": now.minute()
-    })
+/// Project a UTC instant into the wall clock of `timezone`.
+///
+/// Accepts IANA names (`Asia/Shanghai`), `UTC`/`Z`, `local`, and fixed offsets
+/// (`+08:00`, `UTC+8`). Unknown zones fail instead of echoing UTC fields.
+pub fn project_time_info(
+    now: chrono::DateTime<chrono::Utc>,
+    timezone: &str,
+) -> Result<Value, String> {
+    use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
+    use chrono_tz::Tz;
+    use std::str::FromStr;
+
+    let label = timezone.trim();
+    if label.is_empty() {
+        return Err("Missing timezone".to_string());
+    }
+
+    fn pack<Z: TimeZone>(now: DateTime<chrono::Utc>, zoned: DateTime<Z>, timezone: &str) -> Value
+    where
+        Z::Offset: std::fmt::Display,
+    {
+        json!({
+            "datetime": zoned.to_rfc3339(),
+            "timestamp": now.timestamp(),
+            "timezone": timezone,
+            "weekday": weekday_zh(zoned.weekday()),
+            "year": zoned.year(),
+            "month": zoned.month(),
+            "day": zoned.day(),
+            "hour": zoned.hour(),
+            "minute": zoned.minute()
+        })
+    }
+
+    if label.eq_ignore_ascii_case("utc") || label.eq_ignore_ascii_case("z") {
+        return Ok(pack(now, now, "UTC"));
+    }
+    if label.eq_ignore_ascii_case("local") {
+        return Ok(pack(now, now.with_timezone(&Local), "local"));
+    }
+    if let Ok(offset) = parse_fixed_offset(label) {
+        return Ok(pack(now, now.with_timezone(&offset), label));
+    }
+    let tz = Tz::from_str(label).map_err(|_| {
+        format!("Unknown timezone '{label}': use IANA (Asia/Shanghai), UTC, local, or +08:00")
+    })?;
+    Ok(pack(now, now.with_timezone(&tz), label))
+}
+
+fn parse_fixed_offset(raw: &str) -> Result<chrono::FixedOffset, String> {
+    let s = raw.trim();
+    let body = s
+        .strip_prefix("UTC")
+        .or_else(|| s.strip_prefix("utc"))
+        .or_else(|| s.strip_prefix("GMT"))
+        .or_else(|| s.strip_prefix("gmt"))
+        .unwrap_or(s)
+        .trim();
+    let (sign, rest) = if let Some(r) = body.strip_prefix('+') {
+        (1i32, r)
+    } else if let Some(r) = body.strip_prefix('-') {
+        (-1i32, r)
+    } else {
+        return Err(format!("not a fixed offset: {raw}"));
+    };
+    let rest = rest.trim();
+    let (hh, mm) = if let Some((h, m)) = rest.split_once(':') {
+        (
+            h.parse::<i32>()
+                .map_err(|_| format!("Invalid timezone hour in '{raw}'"))?,
+            m.parse::<i32>()
+                .map_err(|_| format!("Invalid timezone minute in '{raw}'"))?,
+        )
+    } else {
+        let h = rest
+            .parse::<i32>()
+            .map_err(|_| format!("Invalid timezone hour in '{raw}'"))?;
+        (h, 0)
+    };
+    if !(0..=14).contains(&hh) || !(0..60).contains(&mm) {
+        return Err(format!("Timezone offset out of range: '{raw}'"));
+    }
+    let secs = sign * (hh * 3600 + mm * 60);
+    chrono::FixedOffset::east_opt(secs).ok_or_else(|| format!("Invalid timezone offset: '{raw}'"))
 }
 
 
@@ -1181,48 +1250,6 @@ pub fn parse_rsshub_radar_rules(content: &str) -> Value {
         }
     }
 
-    // 添加一些已知的无需配置的热门路由（作为后备）
-    let popular_routes = vec![
-        ("知乎日报", "/zhihu/daily", "知乎日报，每日推荐"),
-        ("知乎热榜", "/zhihu/hotlist", "知乎热门话题榜单"),
-        ("微博热搜", "/weibo/search/hot", "微博实时热搜榜"),
-        ("B站排行榜", "/bilibili/ranking/0/3/1", "B站全站排行榜"),
-        (
-            "GitHub Trending",
-            "/github/trending/daily/any",
-            "GitHub 每日趋势项目",
-        ),
-        ("Hacker News", "/hackernews/best", "Hacker News 最佳"),
-        ("少数派首页", "/sspai/index", "少数派首页文章"),
-        ("IT之家", "/ithome", "IT之家最新资讯"),
-        ("36氪", "/36kr/newsflashes", "36氪快讯"),
-        ("抖音热搜", "/douyin/trending", "抖音热搜榜"),
-        ("豆瓣电影", "/douban/movie/playing", "豆瓣正在上映"),
-        (
-            "即刻精选",
-            "/jike/topic/text/553870e8e4b0cafb0a1bef68",
-            "即刻精选内容",
-        ),
-    ];
-
-    for (name, path, desc) in popular_routes {
-        // 检查是否已存在
-        let exists = routes
-            .iter()
-            .any(|r| r.get("path").and_then(|p| p.as_str()) == Some(path));
-
-        if !exists {
-            routes.push(json!({
-                "name": name,
-                "path": path,
-                "description": desc,
-                "domain": "",
-                "requiresConfig": false,
-                "verified": true
-            }));
-        }
-    }
-
     json!(routes)
 }
 
@@ -1510,7 +1537,7 @@ mod tests {
         assert_eq!(rss[0]["title"], "T");
 
         let radar = parse_rsshub_radar_rules("");
-        assert!(radar.as_array().unwrap().len() >= 5, "popular fallback routes");
+        assert!(radar.as_array().unwrap().is_empty());
     }
 
     #[test]
@@ -1630,16 +1657,21 @@ mod tests {
     fn project_time_info_uses_supplied_clock_not_hidden_now() {
         use chrono::{TimeZone, Utc};
         let now = Utc.with_ymd_and_hms(2026, 7, 31, 12, 30, 0).unwrap();
-        let out = project_time_info(now, "Asia/Shanghai");
+        let out = project_time_info(now, "Asia/Shanghai").expect("valid zone");
         assert_eq!(out["timezone"], "Asia/Shanghai");
         assert_eq!(out["year"], 2026);
         assert_eq!(out["month"], 7);
         assert_eq!(out["day"], 31);
-        assert_eq!(out["hour"], 12);
+        assert_eq!(out["hour"], 20);
         assert_eq!(out["minute"], 30);
-        assert_eq!(out["weekday"], "星期五"); // 2026-07-31 is Friday
+        assert_eq!(out["weekday"], "星期五"); // 2026-07-31 20:30 +08 is Friday
         assert_eq!(out["timestamp"], now.timestamp());
-        assert!(out["datetime"].as_str().unwrap().starts_with("2026-07-31"));
+        assert!(out["datetime"].as_str().unwrap().starts_with("2026-07-31T20:30:00"));
+        assert!(project_time_info(now, "Not/AZone").is_err());
+        let utc = project_time_info(now, "UTC").expect("utc");
+        assert_eq!(utc["hour"], 12);
+        let offset = project_time_info(now, "UTC+8").expect("offset");
+        assert_eq!(offset["hour"], 20);
     }
 
 }

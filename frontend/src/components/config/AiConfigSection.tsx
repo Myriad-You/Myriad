@@ -3,64 +3,56 @@
  * 使用通用设置组件重构
  */
 
+import type { OnboardingPageChrome } from '../agent/onboarding/onboardingTypes'
 import type { SettingOption } from '../settings/types'
+import type { VendorUsageId, VendorUsageMap } from './AiVendorSources'
 import {
   FaMicrophone,
   FaVolumeUp,
-  LuLeaf,
+  LuChevronLeft,
   LuPalette,
+  LuStore,
+  LuRefreshCw,
   LuSparkles,
-  LuZap,
   SiGooglegemini,
   SiOpenai,
   SiOpenrouter,
 } from '@lib/icons'
-import React, { useCallback, useMemo, useState } from 'react'
 
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { agentService } from '../../services/agent'
 import {
+  ADDRESSEE_UPDATED_EVENT,
+  formatVitalsLine,
+} from '../agent/lifeVitals'
+import PersonaOnboardingPage from '../agent/onboarding/PersonaOnboardingPage'
+import {
+  AutoHeight,
   ButtonItem,
   InputItem,
   ProviderItem,
-  SelectItem,
   SettingGroup,
+  SettingsButton,
   SettingSection,
+  SettingTitleTag,
   SwitchItem,
+  ToggleSwitch,
   useSettingGuide,
 } from '../settings'
-import { AiProvidersQuickAccess } from './AiProvidersQuickAccess'
-
-/**
- * Volcengine (火山引擎) 官方标识。
- * 路径与品牌色对齐公开品牌图标（lobe-icons / volcengine brand）。
- */
-const VolcengineIcon: React.FC = () => (
-  <svg
-    viewBox="0 0 24 24"
-    xmlns="http://www.w3.org/2000/svg"
-    width="1em"
-    height="1em"
-    aria-hidden
-  >
-    <title>Volcengine</title>
-    <path
-      d="M19.44 10.153l-2.936 11.586a.215.215 0 00.214.261h5.87a.215.215 0 00.214-.261l-2.95-11.586a.214.214 0 00-.412 0zM3.28 12.778l-2.275 8.96A.214.214 0 001.22 22h4.532a.212.212 0 00.214-.165.214.214 0 000-.097l-2.276-8.96a.214.214 0 00-.41 0z"
-      fill="#00E5E5"
-    />
-    <path
-      d="M7.29 5.359L3.148 21.738a.215.215 0 00.203.261h8.29a.214.214 0 00.215-.261L7.7 5.358a.214.214 0 00-.41 0z"
-      fill="#006EFF"
-    />
-    <path
-      d="M14.44.15a.214.214 0 00-.41 0L8.366 21.739a.214.214 0 00.214.261H19.9a.216.216 0 00.171-.078.214.214 0 00.044-.183L14.439.15z"
-      fill="#006EFF"
-    />
-    <path
-      d="M10.278 7.741L6.685 21.736a.214.214 0 00.214.264h7.17a.215.215 0 00.214-.264L10.688 7.741a.214.214 0 00-.41 0z"
-      fill="#00E5E5"
-    />
-  </svg>
-)
+import {
+  defaultModelsForSource,
+  parseVendorSources,
+  resolveUsedVendorSlug,
+  vendorSupports,
+} from './aiVendorPresets'
+import {
+  AiVendorAddTrigger,
+  AiVendorSources,
+  VendorKindIcon,
+} from './AiVendorSources'
+import { usePersonaPage } from './usePersonaPage'
+import { TencentCloudMark, VolcengineMark } from './vendorIcons'
 
 interface ConfigField {
   key: string
@@ -103,6 +95,9 @@ interface AiConfigSectionProps {
   configFields: ConfigField[]
   /** 更新配置字段值 */
   updateValue: (key: string, value: string) => void
+  /** ui bag：Agent 生命总开关存在这里，控件挂在 Lite / Pro 旁边 */
+  uiConfigFields: Array<{ key: string; value: string }>
+  updateUiFieldValue: (key: string, value: string) => void
   /** 语音测试回调 */
   onSpeechTest: () => Promise<{ success: boolean; message: string }>
   title: string
@@ -113,7 +108,6 @@ interface AiConfigSectionProps {
 
 interface ModelTierGroupProps {
   title: string
-  icon: React.ReactNode
   description: React.ReactNode
   providerItemKey: string
   providerLabel: string
@@ -122,15 +116,18 @@ interface ModelTierGroupProps {
   providerHint?: string
   fields: ConfigField[]
   enabled?: boolean
-  controls?: React.ReactNode
+  toggle?: {
+    checked: boolean
+    onChange: (checked: boolean) => void
+    ariaLabel: string
+    title?: string
+  }
   onProviderChange: (provider: string) => void
   updateValue: (key: string, value: string) => void
 }
 
 const ModelTierGroup: React.FC<
   ModelTierGroupProps & {
-    guide?: React.ReactNode
-    guidePath?: string
     providerGuide?: React.ReactNode
     providerGuidePath?: string
     fieldGuideFor?: (
@@ -139,10 +136,7 @@ const ModelTierGroup: React.FC<
   }
 > = ({
   title,
-  icon,
   description,
-  guide,
-  guidePath,
   providerGuide,
   providerGuidePath,
   fieldGuideFor,
@@ -153,18 +147,31 @@ const ModelTierGroup: React.FC<
   providerHint,
   fields,
   enabled = true,
-  controls,
+  toggle,
   onProviderChange,
   updateValue,
-}) => (
-  <SettingGroup
-    title={title}
-    icon={icon}
-    description={description}
-    guide={guide}
-    guidePath={guidePath}
-  >
-    {controls}
+}) => {
+  const { t } = useI18n()
+  return (
+  <div className={`ai-llm-tier${toggle && !toggle.checked ? ' is-off' : ''}`}>
+    <div className="ai-llm-tier-head">
+      <div className="ai-llm-tier-copy">
+        <h3 className="ai-llm-tier-title">{title}</h3>
+        {description ? (
+          <p className="ai-llm-tier-desc">{description}</p>
+        ) : null}
+      </div>
+      {toggle ? (
+        <div className="ai-llm-tier-switch">
+          <ToggleSwitch
+            checked={toggle.checked}
+            onChange={toggle.onChange}
+            aria-label={toggle.ariaLabel}
+            title={toggle.title}
+          />
+        </div>
+      ) : null}
+    </div>
     {enabled && (
       <>
         <ProviderItem
@@ -184,7 +191,11 @@ const ModelTierGroup: React.FC<
             <InputItem
               key={field.key}
               itemKey={field.key}
-              label={field.label}
+              label={
+                field.key.endsWith('model')
+                  ? t.config.openaiModelLabel
+                  : field.label
+              }
               required={field.required}
               value={field.value}
               onChange={(value) => updateValue(field.key, value)}
@@ -199,8 +210,9 @@ const ModelTierGroup: React.FC<
         })}
       </>
     )}
-  </SettingGroup>
-)
+  </div>
+  )
+}
 
 function fieldsForModelTier(
   configFields: ConfigField[],
@@ -209,14 +221,16 @@ function fieldsForModelTier(
 ): ConfigField[] {
   const providerKey = `${prefix}provider`
   const geminiPrefix = `${prefix}gemini_`
-  const openaiPrefix = `${prefix}openai_`
-  const openaiBaseUrlKey = `${prefix}openai_base_url`
   return configFields.filter((field) => {
     if (field.key === providerKey) return false
-    if (provider === 'gemini') return field.key.startsWith(geminiPrefix)
+    if (field.key.includes('api_key') || field.key.endsWith('base_url')) {
+      return false
+    }
+    if (provider === 'gemini') {
+      return field.key.startsWith(geminiPrefix) && field.key.endsWith('model')
+    }
     if (provider === 'openai' || provider === 'openrouter') {
-      if (!field.key.startsWith(openaiPrefix)) return false
-      return provider !== 'openrouter' || field.key !== openaiBaseUrlKey
+      return field.key === `${prefix}openai_model`
     }
     return false
   })
@@ -225,6 +239,8 @@ function fieldsForModelTier(
 export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   configFields,
   updateValue,
+  uiConfigFields,
+  updateUiFieldValue,
   onSpeechTest,
   title,
   icon,
@@ -234,6 +250,17 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   const { t } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const [speechTesting, setSpeechTesting] = useState(false)
+  const [personaChrome, setPersonaChrome] = useState<OnboardingPageChrome | null>(
+    null,
+  )
+  const {
+    open: personaPage,
+    navDir: personaPaneNav,
+    openPage: openPersonaPage,
+    closePage: closePersonaPage,
+  } = usePersonaPage((open) => {
+    if (open) setPersonaChrome(null)
+  })
 
   const fieldGuideFor = useCallback(
     (fieldKey: string) => {
@@ -265,6 +292,43 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     [configFields],
   )
 
+  const vendorSources = useMemo(
+    () => parseVendorSources(getFieldValue('ai_vendor_sources')),
+    [getFieldValue],
+  )
+
+  const setVendorSources = useCallback(
+    (next: ReturnType<typeof parseVendorSources>) => {
+      updateValue('ai_vendor_sources', JSON.stringify(next))
+    },
+    [updateValue],
+  )
+
+  const sourceOptions = useCallback(
+    (capability: 'text' | 'image' | 'speech') => {
+      const enabled = vendorSources.filter(
+        (source) => source.enabled && vendorSupports(source, capability),
+      )
+      if (enabled.length === 0) return null
+      return enabled.map((source) => ({
+        value: source.slug,
+        label: source.display_name || source.slug,
+        icon: (
+          <VendorKindIcon
+            kind={source.kind}
+            slug={source.slug}
+            preset={source.preset}
+          />
+        ),
+      }))
+    },
+    [vendorSources],
+  )
+
+  const textSourceOptions = sourceOptions('text')
+  const imageSourceOptions = sourceOptions('image')
+  const speechSourceOptions = sourceOptions('speech')
+
   // 当前 AI Provider (标准模型)。OpenRouter 依据 base_url 从 openai 中区分出来，未配置时默认 OpenRouter
   const currentProvider = useMemo(() => {
     const raw = getFieldValue('provider')
@@ -277,6 +341,13 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     const val = getFieldValue('lite_enabled', 'false')
     return val === 'true' || val === '1'
   }, [getFieldValue])
+
+  const agentLifeEnabled = useMemo(
+    () =>
+      uiConfigFields.find((field) => field.key === 'agent_life_enabled')
+        ?.value === 'true',
+    [uiConfigFields],
+  )
 
   const currentLiteProvider = useMemo(() => {
     const raw = getFieldValue('lite_provider')
@@ -332,10 +403,151 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     [getFieldValue, updateValue],
   )
 
+  const applyTextSource = useCallback(
+    (
+      sourceKey: string,
+      providerKey: string,
+      baseUrlKey: string,
+      modelKey: string,
+      openrouterModel: string,
+      openaiModel: string,
+      slug: string,
+    ) => {
+      updateValue(sourceKey, slug)
+      const source = vendorSources.find((item) => item.slug === slug)
+      if (!source) {
+        handleProviderChange(
+          providerKey,
+          baseUrlKey,
+          modelKey,
+          openrouterModel,
+          openaiModel,
+          slug,
+        )
+        return
+      }
+      if (source.kind === 'gemini') {
+        updateValue(providerKey, 'gemini')
+        const fallback = defaultModelsForSource(source, 'text').text
+        if (fallback && !getFieldValue(modelKey)) {
+          updateValue(modelKey, fallback)
+        }
+        return
+      }
+      updateValue(providerKey, 'openai')
+      const base =
+        source.kind === 'openrouter' ||
+        (source.base_url || '').includes('openrouter.ai')
+          ? OPENROUTER_BASE_URL
+          : source.base_url || OPENAI_BASE_URL
+      updateValue(baseUrlKey, base)
+      if (!getFieldValue(modelKey)) {
+        const fallback = defaultModelsForSource(source, 'text').text
+        if (fallback) updateValue(modelKey, fallback)
+      }
+    },
+    [getFieldValue, handleProviderChange, updateValue, vendorSources],
+  )
+
+  const standardSourceValue =
+    getFieldValue('ai_source') || currentProvider
+  const liteSourceValue =
+    getFieldValue('lite_ai_source') || currentLiteProvider
+  const proSourceValue = getFieldValue('pro_ai_source') || currentProProvider
+
   // 当前图片生成 Provider
   const currentImageProvider = useMemo(
     () => getFieldValue('ai_image_provider', 'openrouter'),
     [getFieldValue],
+  )
+
+  const currentSpeechProvider = useMemo(
+    () => getFieldValue('speech_provider', 'tencent'),
+    [getFieldValue],
+  )
+
+  const vendorUsages = useMemo(() => {
+    const map: VendorUsageMap = {}
+    const add = (raw: string, id: VendorUsageId) => {
+      const slug = resolveUsedVendorSlug(raw, vendorSources)
+      if (!slug) return
+      const next = map[slug] ?? []
+      if (!next.includes(id)) next.push(id)
+      map[slug] = next
+    }
+    add(getFieldValue('ai_source') || currentProvider, 'standard')
+    if (liteEnabled) {
+      add(getFieldValue('lite_ai_source') || currentLiteProvider, 'lite')
+    }
+    if (proEnabled) {
+      add(getFieldValue('pro_ai_source') || currentProProvider, 'pro')
+    }
+    add(getFieldValue('ai_image_source') || currentImageProvider, 'image')
+    add(getFieldValue('speech_source') || currentSpeechProvider, 'speech')
+    return map
+  }, [
+    currentImageProvider,
+    currentLiteProvider,
+    currentProProvider,
+    currentProvider,
+    currentSpeechProvider,
+    getFieldValue,
+    liteEnabled,
+    proEnabled,
+    vendorSources,
+  ])
+
+  const speechProviderOptions: SettingOption<string>[] = useMemo(
+    () => [
+      {
+        value: 'openrouter',
+        label: t.config.providerOpenRouter,
+        icon: <SiOpenrouter />,
+      },
+      {
+        value: 'openai',
+        label: t.config.openaiCompatible,
+        icon: <SiOpenai />,
+      },
+      {
+        value: 'tencent',
+        label: t.config.speechProviderTencent,
+        icon: <TencentCloudMark />,
+      },
+      {
+        value: 'gemini',
+        label: t.config.providerGemini,
+        icon: <SiGooglegemini />,
+      },
+    ],
+    [
+      t.config.openaiCompatible,
+      t.config.providerGemini,
+      t.config.providerOpenRouter,
+      t.config.speechProviderTencent,
+    ],
+  )
+
+  const handleSpeechProviderChange = useCallback(
+    (slug: string) => {
+      updateValue('speech_source', slug)
+      const source = vendorSources.find((item) => item.slug === slug)
+      const kind = source?.kind || slug
+      const mapped =
+        kind === 'tencent'
+          ? 'tencent'
+          : kind === 'openrouter'
+            ? 'openrouter'
+            : kind === 'gemini'
+              ? 'gemini'
+              : 'openai'
+      updateValue('speech_provider', mapped)
+      const models = defaultModelsForSource(source ?? { kind }, 'speech')
+      if (models.stt) updateValue('speech_stt_model', models.stt)
+      if (models.tts !== undefined) updateValue('speech_tts_model', models.tts)
+      if (models.voice) updateValue('speech_tts_voice', models.voice)
+    },
+    [updateValue, vendorSources],
   )
 
   // 与上方 AI 设置共用同一套字段文案（优先后端 label，否则 i18n）
@@ -345,7 +557,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     return {
       apiKey: byKey('openai_api_key', t.config.openaiApiKeyLabel),
       baseUrl: byKey('openai_base_url', t.config.openaiBaseUrlLabel),
-      model: byKey('openai_model', t.config.openaiModelLabel),
+      model: t.config.openaiModelLabel,
     }
   }, [
     configFields,
@@ -380,65 +592,52 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   const imageProviderOptions: SettingOption<string>[] = useMemo(
     () => [
       {
-        value: 'openai',
-        label: t.config.openaiCompatible,
-        icon: <SiOpenai />,
-        badge: t.config.imageProviderBadgeGptImage,
-      },
-      {
         value: 'openrouter',
         label: t.config.providerOpenRouter,
         icon: <SiOpenrouter />,
-        badge: t.config.imageProviderBadgeImageApi,
+      },
+      {
+        value: 'openai',
+        label: t.config.openaiCompatible,
+        icon: <SiOpenai />,
       },
       {
         value: 'volcengine',
         label: t.config.providerVolcengine,
-        icon: <VolcengineIcon />,
-        badge: t.config.imageProviderBadgeSeedream,
+        icon: <VolcengineMark />,
+      },
+      {
+        value: 'gemini',
+        label: t.config.providerGemini,
+        icon: <SiGooglegemini />,
       },
     ],
     [
-      t.config.imageProviderBadgeGptImage,
-      t.config.imageProviderBadgeImageApi,
-      t.config.imageProviderBadgeSeedream,
       t.config.openaiCompatible,
+      t.config.providerGemini,
       t.config.providerOpenRouter,
       t.config.providerVolcengine,
     ],
   )
 
   const handleImageProviderChange = useCallback(
-    (provider: string) => {
-      const defaults: Record<string, string> = {
-        openai: 'gpt-image-2',
-        openrouter: 'openai/gpt-image-2',
-        volcengine: 'doubao-seedream-5-0-260128',
-      }
-      updateValue('ai_image_provider', provider)
-      updateValue('ai_image_model', defaults[provider] ?? '')
+    (slug: string) => {
+      updateValue('ai_image_source', slug)
+      const source = vendorSources.find((item) => item.slug === slug)
+      const kind = source?.kind || slug
+      const mapped =
+        kind === 'volcengine'
+          ? 'volcengine'
+          : kind === 'openrouter'
+            ? 'openrouter'
+            : kind === 'gemini'
+              ? 'gemini'
+              : 'openai'
+      updateValue('ai_image_provider', mapped)
+      const models = defaultModelsForSource(source ?? { kind }, 'image')
+      updateValue('ai_image_model', models.image ?? '')
     },
-    [updateValue],
-  )
-
-  // 腾讯云区域选项
-  const tencentRegionOptions: SettingOption<string>[] = useMemo(
-    () => [
-      { value: 'ap-guangzhou', label: t.config.tencentRegionGuangzhou },
-      { value: 'ap-shanghai', label: t.config.tencentRegionShanghai },
-      { value: 'ap-beijing', label: t.config.tencentRegionBeijing },
-      { value: 'ap-chengdu', label: t.config.tencentRegionChengdu },
-      { value: 'ap-chongqing', label: t.config.tencentRegionChongqing },
-      { value: 'ap-nanjing', label: t.config.tencentRegionNanjing },
-    ],
-    [
-      t.config.tencentRegionGuangzhou,
-      t.config.tencentRegionShanghai,
-      t.config.tencentRegionBeijing,
-      t.config.tencentRegionChengdu,
-      t.config.tencentRegionChongqing,
-      t.config.tencentRegionNanjing,
-    ],
+    [updateValue, vendorSources],
   )
 
   const liteProviderFields = useMemo(
@@ -472,123 +671,285 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     }
   }, [onSpeechTest, t.config.speechTestFailed])
 
+  const o = t.life.onboarding
+  const paneKey = personaPage ? 'persona' : 'ai'
+  const personaGuide = bindGuide('ai.agentLife', g.ai.agentLife)
+  const lifeOn = agentLifeEnabled && liteEnabled && proEnabled
+  const [savedPersonaName, setSavedPersonaName] = useState('')
+  const [hasSavedPersona, setHasSavedPersona] = useState(false)
+  const [mood, setMood] = useState(70)
+  const [activity, setActivity] = useState('idle')
+  const [vitalsReady, setVitalsReady] = useState(false)
+
+  useEffect(() => {
+    if (!lifeOn) {
+      setSavedPersonaName('')
+      setHasSavedPersona(false)
+      setMood(70)
+      setActivity('idle')
+      setVitalsReady(false)
+      return
+    }
+    let cancelled = false
+    const load = () => {
+      void agentService
+        .getPersona()
+        .then((persona) => {
+          if (cancelled || !persona) return
+          const name = persona.name?.trim() ?? ''
+          setSavedPersonaName(name)
+          setHasSavedPersona(
+            persona.hasCustomPersona === true ||
+              name.length > 0 ||
+              Boolean(persona.personality?.trim()),
+          )
+          setMood(typeof persona.mood === 'number' ? persona.mood : 70)
+          setActivity(persona.activity ?? 'idle')
+          setVitalsReady(true)
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSavedPersonaName('')
+            setHasSavedPersona(false)
+            setVitalsReady(false)
+          }
+        })
+    }
+    load()
+    window.addEventListener('arael-persona-updated', load)
+    window.addEventListener(ADDRESSEE_UPDATED_EVENT, load)
+    return () => {
+      cancelled = true
+      window.removeEventListener('arael-persona-updated', load)
+      window.removeEventListener(ADDRESSEE_UPDATED_EVENT, load)
+    }
+  }, [lifeOn])
+  const personaGateLead =
+    !liteEnabled && !proEnabled
+      ? t.config.agentLifeNeedsLiteAndPro
+      : !liteEnabled
+        ? t.config.agentLifeNeedsLite
+        : !proEnabled
+          ? t.config.agentLifeNeedsPro
+          : t.config.agentLifeHint
+
   return (
     <SettingSection
-      title={title}
-      icon={icon}
-      description={description}
       sectionId={sectionId}
-      // 仅 AI 配置页：完整 SettingTitleGuideEntry，夹在「重置」与「说明」之间
-      headerBetweenPinned={<AiProvidersQuickAccess />}
+      className={personaPage ? 'setting-section--persona' : undefined}
+      title={personaPage ? (personaChrome?.title ?? o.step1Title) : title}
+      icon={personaPage ? undefined : icon}
+      description={
+        personaPage ? (personaChrome?.description ?? o.step1Lead) : description
+      }
+      detail={personaPage ? (personaChrome?.description ?? o.step1Lead) : undefined}
+      detailTone={personaPage ? personaChrome?.detailTone : undefined}
+      showResetPage={personaPage ? false : undefined}
+      {...(personaPage ? personaGuide : {})}
+      headerActions={
+        personaPage && personaChrome?.action ? (
+          <SettingsButton
+            variant="secondary"
+            size="sm"
+            icon={<LuRefreshCw size={14} />}
+            loading={personaChrome.action.busy}
+            disabled={personaChrome.action.disabled}
+            onClick={personaChrome.action.onClick}
+          >
+            {personaChrome.action.label}
+          </SettingsButton>
+        ) : null
+      }
+      headerBetweenPinned={
+        personaPage ? undefined : (
+          <AiVendorAddTrigger
+            sources={vendorSources}
+            onChange={setVendorSources}
+            usages={vendorUsages}
+          />
+        )
+      }
+      headerLeading={
+        personaPage ? (
+          <button
+            type="button"
+            className="section-header-back"
+            onClick={() => (personaChrome?.onBack ?? closePersonaPage)()}
+            disabled={personaChrome?.backDisabled}
+            aria-label={personaChrome?.backAria ?? t.common.back}
+          >
+            <LuChevronLeft size={18} aria-hidden />
+            <span>{t.common.back}</span>
+          </button>
+        ) : undefined
+      }
     >
-      <ModelTierGroup
-        title={t.config.aiStandardModelTitle}
+      <AutoHeight contentKey={paneKey} animate={false}>
+        <div key={paneKey} data-nav={personaPaneNav} className="ai-pane sm-pane">
+          {personaPage ? (
+            <PersonaOnboardingPage
+              onBack={closePersonaPage}
+              onChromeChange={setPersonaChrome}
+              lifeOn={lifeOn}
+              gateLead={personaGateLead}
+            />
+          ) : (
+            <>
+      <SettingGroup
+        title={t.config.aiVendorsTitle}
+        icon={<LuStore />}
+        description={t.config.aiVendorsDesc}
+        {...bindGuide('ai.vendors', g.ai.vendors)}
+      >
+        <AiVendorSources
+          sources={vendorSources}
+          onChange={setVendorSources}
+          usages={vendorUsages}
+        />
+      </SettingGroup>
+
+      <SettingGroup
+        title={t.config.aiLlmTitle}
         icon={<LuSparkles />}
-        description={t.config.aiStandardModelDesc}
-        {...bindGuide('ai.standard', g.ai.standard)}
-        providerGuide={providerGuideBinding.guide}
-        providerGuidePath={providerGuideBinding.guidePath}
-        fieldGuideFor={fieldGuideFor}
-        providerItemKey="ai_provider"
-        providerLabel={t.config.aiProvider}
-        provider={currentProvider}
-        providerOptions={aiProviderOptions}
-        providerHint={t.config.aiProviderHint}
-        fields={providerFields}
-        onProviderChange={(provider) =>
-          handleProviderChange(
-            'provider',
-            'openai_base_url',
-            'openai_model',
-            OPENROUTER_MODEL_STANDARD,
-            OPENAI_MODEL_STANDARD,
-            provider,
-          )
-        }
-        updateValue={updateValue}
-      />
+        description={t.config.aiLlmDesc}
+        {...bindGuide('ai.llm', g.ai.llm)}
+      >
+        <ModelTierGroup
+          title={t.config.aiStandardModelTitle}
+          description={t.config.aiStandardModelDesc}
+          providerGuide={providerGuideBinding.guide}
+          providerGuidePath={providerGuideBinding.guidePath}
+          fieldGuideFor={fieldGuideFor}
+          providerItemKey="ai_provider"
+          providerLabel={t.config.aiProvider}
+          provider={textSourceOptions ? standardSourceValue : currentProvider}
+          providerOptions={textSourceOptions ?? aiProviderOptions}
+          providerHint={t.config.aiProviderHint}
+          fields={providerFields}
+          onProviderChange={(provider) =>
+            applyTextSource(
+              'ai_source',
+              'provider',
+              'openai_base_url',
+              'openai_model',
+              OPENROUTER_MODEL_STANDARD,
+              OPENAI_MODEL_STANDARD,
+              provider,
+            )
+          }
+          updateValue={updateValue}
+        />
 
-      <ModelTierGroup
-        title={t.config.aiLiteModelTitle}
-        icon={<LuLeaf />}
-        description={t.config.aiLiteModelDesc}
-        {...bindGuide('ai.lite', g.ai.lite)}
-        providerGuide={providerGuideBinding.guide}
-        providerGuidePath={providerGuideBinding.guidePath}
-        fieldGuideFor={fieldGuideFor}
-        providerItemKey="lite_ai_provider"
-        providerLabel={t.config.aiProvider}
-        provider={currentLiteProvider}
-        providerOptions={aiProviderOptions}
-        providerHint={t.config.aiLiteProviderHint}
-        fields={liteProviderFields}
-        enabled={liteEnabled}
-        controls={
-          <SwitchItem
-            itemKey="lite_enabled"
-            label={t.config.aiLiteEnable}
-            description={t.config.aiLiteEnableDesc}
-            {...bindGuide('ai.liteEnable', g.ai.liteEnable)}
-            value={liteEnabled}
-            onChange={(value: boolean) =>
-              updateValue('lite_enabled', value ? 'true' : 'false')
+        <ModelTierGroup
+          title={t.config.aiLiteModelTitle}
+          description={t.config.aiLiteModelDesc}
+          providerGuide={providerGuideBinding.guide}
+          providerGuidePath={providerGuideBinding.guidePath}
+          fieldGuideFor={fieldGuideFor}
+          providerItemKey="lite_ai_provider"
+          providerLabel={t.config.aiProvider}
+          provider={textSourceOptions ? liteSourceValue : currentLiteProvider}
+          providerOptions={textSourceOptions ?? aiProviderOptions}
+          providerHint={t.config.aiLiteProviderHint}
+          fields={liteProviderFields}
+          enabled={liteEnabled}
+          toggle={{
+            checked: liteEnabled,
+            onChange: (value) =>
+              updateValue('lite_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.aiLiteEnable,
+            title: t.config.aiLiteEnableDesc,
+          }}
+          onProviderChange={(provider) =>
+            applyTextSource(
+              'lite_ai_source',
+              'lite_provider',
+              'lite_openai_base_url',
+              'lite_openai_model',
+              OPENROUTER_MODEL_LITE,
+              OPENAI_MODEL_LITE,
+              provider,
+            )
+          }
+          updateValue={updateValue}
+        />
+
+        <ModelTierGroup
+          title={t.config.aiProModelTitle}
+          description={t.config.aiProModelDesc}
+          providerGuide={providerGuideBinding.guide}
+          providerGuidePath={providerGuideBinding.guidePath}
+          fieldGuideFor={fieldGuideFor}
+          providerItemKey="pro_ai_provider"
+          providerLabel={t.config.aiProvider}
+          provider={textSourceOptions ? proSourceValue : currentProProvider}
+          providerOptions={textSourceOptions ?? aiProviderOptions}
+          providerHint={t.config.aiProProviderHint}
+          fields={proProviderFields}
+          enabled={proEnabled}
+          toggle={{
+            checked: proEnabled,
+            onChange: (value) =>
+              updateValue('pro_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.aiProEnable,
+            title: t.config.aiProEnableDesc,
+          }}
+          onProviderChange={(provider) =>
+            applyTextSource(
+              'pro_ai_source',
+              'pro_provider',
+              'pro_openai_base_url',
+              'pro_openai_model',
+              OPENROUTER_MODEL_PRO,
+              OPENAI_MODEL_PRO,
+              provider,
+            )
+          }
+          updateValue={updateValue}
+        />
+      </SettingGroup>
+
+      {/* 开关留在这一级；标题、说明和指南在二级页的 SettingSection 上。 */}
+      <SettingGroup
+        title={t.config.agentLife}
+        icon={<LuSparkles />}
+        guidePath="ai.agentLife"
+      >
+        <SwitchItem
+          itemKey="agent_life_enabled"
+          label={t.config.agentLife}
+          description={
+            !liteEnabled || !proEnabled
+              ? personaGateLead
+              : lifeOn && vitalsReady
+                ? formatVitalsLine(o, mood, activity)
+                : undefined
+          }
+          disabled={!liteEnabled || !proEnabled}
+          value={lifeOn}
+          onChange={(value: boolean) =>
+            updateUiFieldValue('agent_life_enabled', value ? 'true' : 'false')
+          }
+          layout="horizontal"
+        />
+        {lifeOn ? (
+          <ButtonItem
+            itemKey="agent_life_onboarding"
+            label={o.setupLabel}
+            description={
+              hasSavedPersona
+                ? o.currentPersona.replace(
+                    '{name}',
+                    savedPersonaName || 'Arael',
+                  )
+                : undefined
             }
+            buttonText={hasSavedPersona ? o.editPage : o.openPage}
+            onClick={openPersonaPage}
             layout="horizontal"
           />
-        }
-        onProviderChange={(provider) =>
-          handleProviderChange(
-            'lite_provider',
-            'lite_openai_base_url',
-            'lite_openai_model',
-            OPENROUTER_MODEL_LITE,
-            OPENAI_MODEL_LITE,
-            provider,
-          )
-        }
-        updateValue={updateValue}
-      />
-
-      <ModelTierGroup
-        title={t.config.aiProModelTitle}
-        icon={<LuZap />}
-        description={t.config.aiProModelDesc}
-        {...bindGuide('ai.pro', g.ai.pro)}
-        providerGuide={providerGuideBinding.guide}
-        providerGuidePath={providerGuideBinding.guidePath}
-        fieldGuideFor={fieldGuideFor}
-        providerItemKey="pro_ai_provider"
-        providerLabel={t.config.aiProvider}
-        provider={currentProProvider}
-        providerOptions={aiProviderOptions}
-        providerHint={t.config.aiProProviderHint}
-        fields={proProviderFields}
-        enabled={proEnabled}
-        controls={
-          <SwitchItem
-            itemKey="pro_enabled"
-            label={t.config.aiProEnable}
-            description={t.config.aiProEnableDesc}
-            {...bindGuide('ai.proEnable', g.ai.proEnable)}
-            value={proEnabled}
-            onChange={(value: boolean) =>
-              updateValue('pro_enabled', value ? 'true' : 'false')
-            }
-            layout="horizontal"
-          />
-        }
-        onProviderChange={(provider) =>
-          handleProviderChange(
-            'pro_provider',
-            'pro_openai_base_url',
-            'pro_openai_model',
-            OPENROUTER_MODEL_PRO,
-            OPENAI_MODEL_PRO,
-            provider,
-          )
-        }
-        updateValue={updateValue}
-      />
+        ) : null}
+      </SettingGroup>
 
       {/* 图片生成模型 */}
       <SettingGroup
@@ -601,86 +962,15 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           itemKey="image_provider"
           label={t.config.aiProvider}
           {...bindGuide('ai.provider', g.ai.provider)}
-          value={currentImageProvider}
+          value={
+            imageSourceOptions
+              ? getFieldValue('ai_image_source') || currentImageProvider
+              : currentImageProvider
+          }
           onChange={handleImageProviderChange}
-          options={imageProviderOptions}
+          options={imageSourceOptions ?? imageProviderOptions}
           layout="horizontal"
         />
-
-        {currentImageProvider === 'openai' && (
-          <>
-            <InputItem
-              itemKey="ai_image_openai_api_key"
-              label={openaiFieldLabels.apiKey}
-              required
-              value={getFieldValue('ai_image_openai_api_key')}
-              onChange={(v) => updateValue('ai_image_openai_api_key', v)}
-              placeholder="sk-..."
-              inputType="password"
-              autoSelectOnMask
-              {...bindGuide('ai.apiKey', g.ai.apiKey)}
-              layout="vertical"
-            />
-            <InputItem
-              itemKey="ai_image_openai_base_url"
-              label={openaiFieldLabels.baseUrl}
-              value={getFieldValue(
-                'ai_image_openai_base_url',
-                OPENAI_BASE_URL,
-              )}
-              onChange={(v) => updateValue('ai_image_openai_base_url', v)}
-              placeholder={OPENAI_BASE_URL}
-              inputType="text"
-              {...bindGuide('ai.baseUrl', g.ai.baseUrl)}
-              layout="vertical"
-            />
-          </>
-        )}
-
-        {currentImageProvider === 'openrouter' && (
-          <InputItem
-            itemKey="ai_image_openrouter_api_key"
-            label={openaiFieldLabels.apiKey}
-            required
-            value={getFieldValue('ai_image_openrouter_api_key')}
-            onChange={(v) => updateValue('ai_image_openrouter_api_key', v)}
-            placeholder="sk-or-v1-..."
-            inputType="password"
-            autoSelectOnMask
-            {...bindGuide('ai.apiKey', g.ai.apiKey)}
-            layout="vertical"
-          />
-        )}
-
-        {currentImageProvider === 'volcengine' && (
-          <>
-            <InputItem
-              itemKey="ai_image_volcengine_api_key"
-              label={t.config.volcengineArkApiKey}
-              required
-              value={getFieldValue('ai_image_volcengine_api_key')}
-              onChange={(v) => updateValue('ai_image_volcengine_api_key', v)}
-              placeholder={t.config.volcengineArkApiKeyPlaceholder}
-              inputType="password"
-              autoSelectOnMask
-              {...bindGuide('ai.apiKey', g.ai.apiKey)}
-              layout="vertical"
-            />
-            <InputItem
-              itemKey="ai_image_volcengine_base_url"
-              label={t.config.volcengineArkBaseUrl}
-              value={getFieldValue(
-                'ai_image_volcengine_base_url',
-                'https://ark.cn-beijing.volces.com/api/v3',
-              )}
-              onChange={(v) => updateValue('ai_image_volcengine_base_url', v)}
-              placeholder="https://ark.cn-beijing.volces.com/api/v3"
-              inputType="text"
-              {...bindGuide('ai.baseUrl', g.ai.baseUrl)}
-              layout="vertical"
-            />
-          </>
-        )}
 
         <InputItem
           itemKey="ai_image_model"
@@ -692,7 +982,9 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
               ? 'gpt-image-2'
               : currentImageProvider === 'volcengine'
                 ? 'doubao-seedream-5-0-260128'
-                : 'openai/gpt-image-2'
+                : currentImageProvider === 'gemini'
+                  ? 'gemini-3.1-flash-image'
+                  : 'openai/gpt-image-2'
           }
           inputType="text"
           layout="vertical"
@@ -705,50 +997,103 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         icon={<FaMicrophone />}
         description={t.config.speechServiceDesc}
         {...bindGuide('ai.speech', g.ai.speech)}
+        titleExtra={
+          <SettingTitleTag
+            variant={
+              speechTestResult && !speechTestResult.success ? 'danger' : 'muted'
+            }
+            icon={<FaVolumeUp />}
+            onClick={() => void handleSpeechTest()}
+            disabled={speechTesting}
+            title={
+              speechTestResult?.message || t.config.speechTestAvailability
+            }
+          >
+            {speechTesting
+              ? t.config.speechTestAvailability
+              : t.config.speechTestTag}
+          </SettingTitleTag>
+        }
       >
-        <InputItem
-          itemKey="tencent_secret_id"
-          label={t.config.tencentSecretId}
-          value={getFieldValue('tencent_secret_id')}
-          onChange={(v) => updateValue('tencent_secret_id', v)}
-          placeholder={t.config.tencentSecretIdPlaceholder}
-          inputType="password"
-          autoSelectOnMask
-          layout="vertical"
+        <ProviderItem
+          itemKey="speech_provider"
+          label={t.config.speechProvider}
+          value={
+            speechSourceOptions
+              ? getFieldValue('speech_source') || currentSpeechProvider
+              : currentSpeechProvider
+          }
+          onChange={handleSpeechProviderChange}
+          options={speechSourceOptions ?? speechProviderOptions}
+          layout="horizontal"
         />
 
-        <InputItem
-          itemKey="tencent_secret_key"
-          label={t.config.tencentSecretKey}
-          value={getFieldValue('tencent_secret_key')}
-          onChange={(v) => updateValue('tencent_secret_key', v)}
-          placeholder={t.config.tencentSecretKeyPlaceholder}
-          inputType="password"
-          autoSelectOnMask
-          layout="vertical"
-        />
-
-        <SelectItem
-          itemKey="tencent_region"
-          label={t.config.tencentRegion}
-          value={getFieldValue('tencent_region', 'ap-guangzhou')}
-          onChange={(v) => updateValue('tencent_region', v)}
-          options={tencentRegionOptions}
-          layout="vertical"
-        />
-
-        <ButtonItem
-          itemKey="speech_test"
-          label=""
-          buttonText={t.config.speechTestAvailability}
-          buttonIcon={<FaVolumeUp />}
-          onClick={handleSpeechTest}
-          loading={speechTesting}
-          result={speechTestResult}
-          variant="secondary"
-          layout="vertical"
-        />
+        {(() => {
+          const selected =
+            vendorSources.find(
+              (item) =>
+                item.slug ===
+                (getFieldValue('speech_source') || currentSpeechProvider),
+            )?.kind || currentSpeechProvider
+          return (
+            selected === 'openai' ||
+            selected === 'openrouter' ||
+            selected === 'openai_compatible' ||
+            selected === 'gemini'
+          )
+        })() && (
+          <>
+            <InputItem
+              itemKey="speech_stt_model"
+              label={t.config.speechSttModel}
+              value={getFieldValue('speech_stt_model')}
+              onChange={(v) => updateValue('speech_stt_model', v)}
+              placeholder={
+                currentSpeechProvider === 'openrouter'
+                  ? 'openai/gpt-transcribe'
+                  : currentSpeechProvider === 'gemini'
+                    ? 'gemini-3.6-flash'
+                    : 'gpt-transcribe'
+              }
+              inputType="text"
+              layout="vertical"
+            />
+            <InputItem
+              itemKey="speech_tts_model"
+              label={t.config.speechTtsModel}
+              value={getFieldValue('speech_tts_model')}
+              onChange={(v) => updateValue('speech_tts_model', v)}
+              placeholder={
+                currentSpeechProvider === 'openai'
+                  ? 'gpt-4o-mini-tts'
+                  : currentSpeechProvider === 'gemini'
+                    ? 'gemini-2.5-flash-preview-tts'
+                    : ''
+              }
+              inputType="text"
+              layout="vertical"
+            />
+            <InputItem
+              itemKey="speech_tts_voice"
+              label={t.config.speechTtsVoice}
+              value={getFieldValue('speech_tts_voice', 'marin')}
+              onChange={(v) => updateValue('speech_tts_voice', v)}
+              placeholder={
+                currentSpeechProvider === 'gemini' ? 'Kore' : 'marin'
+              }
+              inputType="text"
+              layout="vertical"
+            />
+            {currentSpeechProvider === 'openrouter' ? (
+              <p className="setting-hint">{t.config.speechOpenRouterTtsHint}</p>
+            ) : null}
+          </>
+        )}
       </SettingGroup>
+            </>
+          )}
+        </div>
+      </AutoHeight>
     </SettingSection>
   )
 }

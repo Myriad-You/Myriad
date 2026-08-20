@@ -1,0 +1,211 @@
+/* AI 页标题栏「添加服务商」：与「显示说明」同款 CheckboxCard + 预设浮窗 */
+
+.setting-title-guide.ai-vendor-add-entry {
+  margin-left: 0;
+  display: inline-flex;
+  align-items: stretch;
+  max-width: min(16rem, 44vw);
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.setting-title-guide.ai-vendor-add-entry
+  .setting-title-guide-trigger-host {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ai-vendor-add-toggle.checkbox-group-card {
+  max-width: 100%;
+  min-width: 0;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.ai-vendor-add-toggle .checkbox-group-card-icon,
+.ai-vendor-add-toggle .checkbox-group-card-icon svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.ai-vendor-add-toggle .checkbox-group-card-label,
+.ai-vendor-add-toggle .checkbox-group-card-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.ai-vendor-add-toggle .checkbox-group-card-desc {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+@media (width < 1024px) {
+  .setting-title-guide.ai-vendor-add-entry {
+    max-width: none;
+    flex: 1 1 auto;
+    min-width: min(100%, 8.5rem);
+  }
+
+  .ai-vendor-add-toggle .checkbox-group-card-desc {
+    display: none;
+  }
+}
+
+.setting-title-guide-float.ai-vendor-add-float {
+  width: min(36rem, calc(100vw - 1.25rem));
+  max-width: min(36rem, calc(100vw - 1.25rem));
+  max-height: min(82vh, 40rem);
+}
+
+/*
+ * 和用户详情浮窗一样：固定/关闭进文档流底部，
+ * 不再绝对叠在最后一排预设上。
+ */
+.setting-title-guide-float.ai-vendor-add-float .setting-title-guide-drag {
+  order: 0;
+}
+
+.setting-title-guide-float.ai-vendor-add-float .setting-title-guide-body {
+  order: 1;
+  overflow: hidden auto;
+  padding: 0.75rem 0.85rem 0.55rem;
+}
+
+.setting-title-guide-float.ai-vendor-add-float .setting-title-guide-actions {
+  position: static;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  order: 2;
+  z-index: auto;
+  flex: 0 0 auto;
+  align-self: stretch;
+  justify-content: flex-end;
+  width: auto;
+  margin: 0;
+  padding: 0.35rem 0.85rem 0.8rem;
+}
+
+.ai-vendor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.25rem;
+  padding: 0.85rem 1rem;
+}
+
+.ai-vendor-card:not(.is-open) {
+  cursor: pointer;
+}
+
+.ai-vendor-card .ai-vendor-card-header {
+  position: relative;
+  margin-bottom: 0;
+}
+
+.ai-vendor-card:not(.is-open) .ai-vendor-card-hit {
+  inset: -0.75rem -0.875rem;
+}
+
+.ai-vendor-card-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ai-vendor-card-hit:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cfg-accent) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 0.35rem;
+}
+
+.ai-vendor-card-header .oidc-provider-title {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+  align-items: center;
+}
+
+.ai-vendor-card-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.ai-vendor-card-tags .setting-title-tag,
+.ai-vendor-card-tags .ai-vendor-card-control {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 1.5rem;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.ai-vendor-card-tags .setting-title-tag-icon,
+.ai-vendor-card-tags .setting-title-tag-label {
+  line-height: 1;
+}
+
+.ai-vendor-card-status-missing {
+  color: var(--cfg-accent) !important;
+  border-color: color-mix(in srgb, var(--cfg-accent) 28%, transparent) !important;
+  background: color-mix(in srgb, var(--cfg-accent) 12%, transparent) !important;
+}
+
+.ai-vendor-card-control {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+}
+
+.ai-vendor-card-header .oidc-provider-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.ai-vendor-card-status {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  font-weight: 550;
+  line-height: 1.2;
+  padding: 0.12rem 0.38rem;
+  border-radius: 999px;
+  color: var(--cfg-text-3);
+  background: color-mix(in srgb, var(--cfg-text-3) 10%, transparent);
+}
+
+.ai-vendor-card-status.is-missing {
+  color: var(--cfg-accent);
+  background: color-mix(in srgb, var(--cfg-accent) 12%, transparent);
+}
+
+.ai-vendor-card-body {
+  padding-top: 0.65rem;
+}
+
+.ai-vendor-preset-caps,
+.ai-vendor-preset-used {
+  display: block;
+  max-width: 100%;
+  padding: 0 0.15rem;
+  overflow: hidden;
+  color: var(--cfg-text-3);
+  font-size: 0.5625rem;
+  font-weight: 550;
+  line-height: 1.25;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

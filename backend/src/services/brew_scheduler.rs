@@ -684,6 +684,40 @@ impl BrewSchedulerEngine {
             }
         }
     }
+
+    /// Refresh enabled non-link sources now. Caps at `MAX_SOURCES_PER_TICK`, stale first.
+    pub async fn refresh_all_enabled(&self) -> Result<(usize, usize, usize, i32), String> {
+        let sources = brew_sources::Entity::find()
+            .filter(brew_sources::Column::Enabled.eq(true))
+            .filter(brew_sources::Column::SourceType.ne(brew_sources::SourceType::Link))
+            .order_by_asc(brew_sources::Column::LastFetchedAt)
+            .limit(MAX_SOURCES_PER_TICK)
+            .all(&self.db)
+            .await
+            .map_err(|e| format!("Failed to query sources: {e}"))?;
+
+        let attempted = sources.len();
+        let mut refreshed = 0usize;
+        let mut failed = 0usize;
+        let mut new_items = 0i32;
+        for source in sources {
+            match self.refresh_source(source.id).await {
+                Ok(n) => {
+                    refreshed += 1;
+                    new_items += n;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        source_id = source.id,
+                        %error,
+                        "[BrewScheduler] refresh_all source failed"
+                    );
+                    failed += 1;
+                }
+            }
+        }
+        Ok((attempted, refreshed, failed, new_items))
+    }
 }
 
 /// 全局调度引擎实例

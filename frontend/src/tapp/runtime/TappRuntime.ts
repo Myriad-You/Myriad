@@ -13,11 +13,11 @@
  * - 懒加载按需获取 Tapp 详情
  */
 
+import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
 import type {
   BackgroundRequirement,
   CustomPlatformConfig,
   RegisteredWidget,
-  TappCodeStructure,
   TappInstance,
   TappManifest,
   TappPermission,
@@ -265,6 +265,7 @@ export class TappRuntime {
             isAdminTapp,
             visibility:
               detail.visibility === 'admin' ? 'admin' : 'all',
+            error: detail.error_message,
           }
           this.installedTapps.set(detail.id, instance)
           if (
@@ -361,7 +362,7 @@ export class TappRuntime {
    */
   async installTapp(
     manifest: TappManifest,
-    code: TappCodeStructure,
+    code: TappPlaygroundCode,
     _requestedPermissions?: TappPermission[],
   ): Promise<TappInstance> {
     // 验证 Manifest
@@ -397,6 +398,7 @@ export class TappRuntime {
       isTemporary: detail.is_temporary ?? result.isTemporary ?? false,
       isAdminTapp: detail.is_admin_tapp ?? result.isAdminTapp ?? false,
       visibility: detail.visibility === 'admin' ? 'admin' : 'all',
+      error: detail.error_message,
     }
 
     // 添加到内存缓存

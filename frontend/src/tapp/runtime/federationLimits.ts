@@ -8,7 +8,7 @@
 
 import { federationApi } from '../../services/federationApi'
 
-export type FederationLiveLimits = {
+export interface FederationLiveLimits {
   profile: 'default' | 'saver'
   messagePayloadBytes: number
   noteImageBytes: number

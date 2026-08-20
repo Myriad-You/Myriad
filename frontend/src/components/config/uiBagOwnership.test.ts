@@ -5,6 +5,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  ADVANCED_RESET_KEYS,
+  AI_UI_RESET_KEYS,
   ALL_OWNED_UI_BAG_KEYS,
   bagFieldValue,
   configChangesNeedHardReload,
@@ -35,6 +37,9 @@ describe('uiBagOwnership', () => {
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('analytics_enabled'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('music_enabled'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('agent_life_enabled'))
+    // The switch lives on the AI page now, so resetting Advanced must leave it alone.
+    assert.ok(!ADVANCED_RESET_KEYS.includes('agent_life_enabled'))
+    assert.ok(AI_UI_RESET_KEYS.includes('agent_life_enabled'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('proxy_url'))
     assert.ok(!ALL_OWNED_UI_BAG_KEYS.includes('base_url'))
   })

@@ -676,7 +676,7 @@ impl Agent {
         data: &Value,
         _planner_output: &PlannerOutput,
     ) -> Option<DataDisplayHint> {
-        // 复用现有的数据结构推断逻辑，但不依赖 ParsedIntent
+        // 复用现有的数据结构推断逻辑
         match data {
             Value::Array(arr) if !arr.is_empty() => {
                 if let Some(Value::Object(obj)) = arr.first() {

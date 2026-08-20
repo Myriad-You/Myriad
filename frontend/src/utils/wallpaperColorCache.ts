@@ -45,9 +45,9 @@ interface ColorExtractionCheckResult {
 
 // 常量
 
-const CACHE_VERSION = 5 // 升级版本号
+const CACHE_VERSION = 6
 const CACHE_DURATION_MS = 6 * 60 * 60 * 1000 // 6小时
-const CACHE_KEY = 'myriad_wallpaper_color_cache_v5'
+const CACHE_KEY = 'myriad_wallpaper_color_cache_v6'
 const MAX_CACHE_ITEMS = 10
 // 缓存存储操作
 

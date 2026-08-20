@@ -61,6 +61,21 @@ export interface TappManifestLocaleEntry {
  */
 export type TappManifestLocales = Record<string, TappManifestLocaleEntry>
 
+/** 共享层：所有模式先执行的入口，也是 headless 后台唯一执行的代码。 */
+export interface TappCoreLayer {
+  /** 包内相对路径的 `.js` 入口；层内其余文件由它 require 进来。 */
+  entry: string
+  /** 各层共享的作者样式。宿主预编译产物不走这里。 */
+  styles?: string
+}
+
+/** Page 层。`entry` 与 `template` 至少有一个。 */
+export interface TappPageLayer {
+  entry?: string
+  template?: string
+  styles?: string
+}
+
 /** Tapp 清单文件 */
 export interface TappManifest {
   /** 唯一标识符 (如 com.example.my-tapp) */
@@ -102,9 +117,6 @@ export interface TappManifest {
   /** 主题色（十六进制，如 #6366f1） */
   themeColor?: string
 
-  /** 入口文件 */
-  main: string
-
   /** 所需权限 */
   permissions: TappPermission[]
 
@@ -120,8 +132,14 @@ export interface TappManifest {
   /** 小组件定义（声明式，安装时自动注册） */
   widgets?: ManifestWidget[]
 
-  /** 是否有页面模块（声明式，标识应用可在页面模式下运行） */
-  hasPage?: boolean
+  /**
+   * 共享层。所有沙箱模式先执行它，headless 后台只执行它。
+   * 声明 `backgroundRequirements` 的应用必须有 core，否则没有可常驻的代码。
+   */
+  core?: TappCoreLayer
+
+  /** Page 层。声明即表示该应用有可打开的页面（取代旧的 hasPage 开关）。 */
+  page?: TappPageLayer
 
   /**
    * 声明式后台运行需求（启动时自动注册，用于引导 headless core）。
@@ -129,32 +147,6 @@ export interface TappManifest {
    * 即使没有可见窗口/widget 也持续运行 core 逻辑。
    */
   backgroundRequirements?: BackgroundRequirement[]
-
-  /**
-   * CSS 架构模式
-   * - 'unified': 统一 CSS 文件（默认，使用 styles 字段）
-   * - 'separated': 分离 CSS 文件（使用 widgetStyles + pageStyles）
-   */
-  cssMode?: 'unified' | 'separated'
-
-  /** 自定义 CSS 样式文件路径（统一模式，或作为共享样式） */
-  styles?: string
-
-  /** Widget 专用 CSS 文件路径（分离模式） */
-  widgetStyles?: string
-
-  /** Page 专用 CSS 文件路径（分离模式） */
-  pageStyles?: string
-
-  /** 页面 HTML 模板文件路径 */
-  pageTemplate?: string
-
-  /**
-   * Page 模块加载顺序（文件名数组）
-   * 当使用 page/ 文件夹模块化开发时，指定加载顺序
-   * 未指定时按字母序加载，index.js 最后
-   */
-  pageModules?: string[]
 
   /** Host-injected runtime libraries. Currently only `three`. */
   runtimeModules?: Array<'three'>
@@ -363,16 +355,25 @@ export interface TappCredentialItem {
  * 这是运行时契约，不属于示例应用专用类型。
  */
 export interface TappCodeStructure {
-  /** 所有模式共享；headless 后台模式只执行这一部分 */
-  core: string
-  /** 仅 Widget 模式执行 */
-  widget?: string
-  /** 仅 Page 模式执行 */
-  page?: string
-  /** 共享自定义样式 */
+  /** 包内 `.js` 文件：相对路径 → 源码。只含当前模式依赖图内的文件。 */
+  modules: Record<string, string>
+  /** 宿主预解析的 require 图；旧后端响应可省略并由前端兼容扫描。 */
+  moduleResolutions?: Record<string, Record<string, string>>
+  /** core 层入口；headless 后台只执行它。 */
+  coreEntry?: string
+  /** Page 层入口。 */
+  pageEntry?: string
+  /** 各 widget 的入口：widget id → 相对路径。 */
+  widgetEntries?: Record<string, string>
+  /** 作者共享样式（`core.styles`）。 */
   styles?: string
+  /** 作者 Page 样式。 */
+  pageStyles?: string
+  /** 作者 Widget 样式：widget id → 内容。 */
+  widgetStyles?: Record<string, string>
   widgetHtml?: string
   pageHtml?: string
+  /** 宿主预编译 Tailwind，与作者样式是两条通道。 */
   widgetCSS?: string
   pageCSS?: string
   i18n?: Record<string, unknown>
@@ -381,10 +382,6 @@ export interface TappCodeStructure {
    * 路径必须出现在 `manifest.assets` 中。
    */
   assets?: Record<string, string>
-  /** 已加载的 Page 模块内容（文件名到代码） */
-  pageModules?: Record<string, string>
-  /** Page 模块执行顺序，优先于 manifest.pageModules */
-  pageModuleOrder?: string[]
 }
 
 /** Manifest 中的 Widget 声明 */
@@ -402,6 +399,10 @@ export interface ManifestWidget {
   sizes: WidgetSize[]
   /** 组件分类 */
   category?: WidgetCategory
+  /** 该 widget 的 `.js` 入口；多个 widget 想共用代码就各自 require 同一个文件 */
+  entry?: string
+  /** 该 widget 的作者样式 */
+  styles?: string
   /** HTML 模板文件路径（按尺寸） */
   templates?: Record<string, string>
 

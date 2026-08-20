@@ -10,11 +10,12 @@ use sea_orm::{
 use serde_json::Value;
 
 /// Per-install soft quota for sandbox + host-managed keys combined.
-pub const TAPP_STORAGE_QUOTA_BYTES: i64 = 5 * 1024 * 1024;
+pub const TAPP_STORAGE_QUOTA_BYTES: i64 = 8 * 1024 * 1024;
 
-const HOST_STORAGE_KEY_PREFIXES: [&str; 5] = [
+const HOST_STORAGE_KEY_PREFIXES: [&str; 6] = [
     "_settings.",
     "_credentials.",
+    "_shared.",
     "_component:",
     "_shortcut:",
     "_report:",
@@ -50,8 +51,9 @@ impl std::error::Error for TappStorageError {}
 
 /// Resolve the two storage identities attached to a Tapp runtime.
 ///
-/// Sandbox storage belongs to the current subject. Installation settings and
-/// host-managed resources remain attached to the installation owner.
+/// Sandbox storage belongs to the current subject. Installation settings,
+/// shared data, and other host-managed resources remain attached to the
+/// installation owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TappStorageAccess {
     pub owner_id: i32,
@@ -234,6 +236,7 @@ const SANDBOX_STORAGE_PREDICATE_SQL: &str = r#"
 key <> '_settings'
 AND NOT starts_with(key, '_settings.')
 AND NOT starts_with(key, '_credentials.')
+AND NOT starts_with(key, '_shared.')
 AND NOT starts_with(key, '_component:')
 AND NOT starts_with(key, '_shortcut:')
 AND NOT starts_with(key, '_report:')
@@ -483,6 +486,7 @@ mod tests {
             "_settings",
             "_settings.theme",
             "_credentials.wegame",
+            "_shared.posts",
             "_component:x",
             "_shortcut:y",
             "_report:z",
@@ -563,6 +567,7 @@ VALUES
     ($1, $2, 'ordinary.one', '{"visible":1}'::jsonb, NULL, NULL, NOW(), NOW()),
     ($1, $2, 'ordinary.two', '{"visible":2}'::jsonb, NULL, NULL, NOW(), NOW()),
     ($1, $2, '_settings.theme', '"dark"'::jsonb, NULL, NULL, NOW(), NOW()),
+    ($1, $2, '_shared.posts', '[]'::jsonb, NULL, NULL, NOW(), NOW()),
     ($1, $2, '_credentials.api', '{"kind":"credential","version":1}'::jsonb,
         'ciphertext-must-stay-host-only', $3, NOW(), NOW())
 "#,
@@ -598,7 +603,10 @@ VALUES
             .into_iter()
             .map(|row| row.try_get("", "key").expect("key"))
             .collect();
-        assert_eq!(remaining, vec!["_credentials.api", "_settings.theme"]);
+        assert_eq!(
+            remaining,
+            vec!["_credentials.api", "_settings.theme", "_shared.posts"]
+        );
 
         db.execute_raw(delete_rows())
             .await

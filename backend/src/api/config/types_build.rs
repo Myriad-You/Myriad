@@ -407,30 +407,24 @@ pub struct ConfigField {
     pub required: bool,
 }
 
+/// 管理端 `ai_config`：只暴露 bag（`config_fields`）。
+/// 历史 typed 镜像（provider / model / api_key / enabled / image_provider）已废弃。
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiConfig {
-    pub provider: String,
-    pub model: String,
-    pub api_key: String,
-    pub enabled: bool,
-    // AI 图片生成配置
-    pub image_provider: String,
     pub config_fields: Vec<ConfigField>,
 }
 
 /// 独立的 3D 生成配置。它不属于图片生成 provider；图片只作为 3D 管线输入。
+/// 管理端只暴露 bag（`config_fields`）。
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TripoConfig {
-    pub enabled: bool,
-    pub configured: bool,
     pub config_fields: Vec<ConfigField>,
 }
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ReportConfig {
-    pub topic_style: String,
     pub config_fields: Vec<ConfigField>,
 }
 
@@ -468,6 +462,108 @@ pub(crate) fn nonempty_db(opt: Option<&String>) -> bool {
 
 pub(crate) fn nonempty_env(key: &str) -> bool {
     std::env::var(key).ok().is_some_and(|s| !s.trim().is_empty())
+}
+
+/// Agent `config.get` / `platform.connection` / `auth.status` 共用：平台是否按配置视为已接通。
+pub(crate) fn platform_configured_flags(
+    config: &crate::config::DynamicConfig,
+) -> Vec<(&'static str, bool)> {
+    let nonempty = nonempty_db;
+    let enabled = resolve_platform_enabled;
+    vec![
+        (
+            "steam",
+            enabled(
+                config.steam_enabled,
+                nonempty(config.steam_api_key.as_ref()),
+            ),
+        ),
+        (
+            "bilibili",
+            enabled(
+                config.bilibili_enabled,
+                nonempty(config.bilibili_uid.as_ref()),
+            ),
+        ),
+        (
+            "github",
+            enabled(
+                config.github_enabled,
+                nonempty(config.github_username.as_ref()),
+            ),
+        ),
+        (
+            "youtube",
+            enabled(
+                config.youtube_enabled,
+                nonempty(config.youtube_api_key.as_ref())
+                    && nonempty(config.youtube_channel_id.as_ref()),
+            ),
+        ),
+        (
+            "netease",
+            enabled(
+                config.netease_enabled,
+                nonempty(config.netease_user_id.as_ref()),
+            ),
+        ),
+        (
+            "bangumi",
+            enabled(
+                config.bangumi_enabled,
+                nonempty(config.bangumi_username.as_ref())
+                    || nonempty(config.bangumi_access_token.as_ref()),
+            ),
+        ),
+        (
+            "x",
+            enabled(
+                config.x_enabled,
+                nonempty(config.x_username.as_ref()) && nonempty(config.x_bearer_token.as_ref()),
+            ),
+        ),
+        (
+            "discord",
+            enabled(
+                config.discord_enabled,
+                nonempty(config.discord_access_token.as_ref()),
+            ),
+        ),
+        (
+            "mal",
+            enabled(config.mal_enabled, nonempty(config.mal_username.as_ref())),
+        ),
+        (
+            "xbox",
+            enabled(
+                config.xbox_enabled,
+                nonempty(config.openxbl_api_key.as_ref()),
+            ),
+        ),
+        (
+            "psn",
+            enabled(config.psn_enabled, nonempty(config.psn_npsso.as_ref())),
+        ),
+    ]
+}
+
+/// Agent `config.get` ui 段：与公开 UI 运行时同类的非密钥字段。
+pub(crate) fn public_ui_config_value(config: &crate::config::DynamicConfig) -> Value {
+    json!({
+        "analytics_enabled": config.analytics_enabled,
+        "pwa_enabled": config.pwa_enabled,
+        "wallpaper_url": config.ui_wallpaper_url,
+        "wallpaper_blur": config.ui_wallpaper_blur,
+        "evocative_parallax": config.ui_evocative_parallax,
+        "evocative_dynamic_blur": config.ui_evocative_dynamic_blur,
+        "evocative_ripple": config.ui_evocative_ripple,
+        "evocative_fps": config.ui_evocative_fps,
+        "evocative_ripple_quality": config.ui_evocative_ripple_quality,
+        "music_enabled": config.music_enabled,
+        "music_source": config.music_source,
+        "site_title": config.site_title,
+        "site_description": config.site_description,
+    })
 }
 
 pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool) -> ConfigResponse {
@@ -942,33 +1038,6 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
             ),
         }),
         ai_config: AiConfig {
-            provider: db_config
-                .as_ref()
-                .map(|c| c.ai_provider.clone())
-                .unwrap_or_else(|| {
-                    std::env::var("AI_PROVIDER").unwrap_or_else(|_| "gemini".to_string())
-                }),
-            model: db_config
-                .as_ref()
-                .map(|c| c.gemini_model.clone())
-                .unwrap_or_else(|| {
-                    std::env::var("GEMINI_MODEL")
-                        .unwrap_or_else(|_| "gemini-3.6-flash".to_string())
-                }),
-            api_key: get_value(
-                db_config.as_ref().and_then(|c| c.gemini_api_key.clone()),
-                "GEMINI_API_KEY",
-            ),
-            enabled: db_config
-                .as_ref()
-                .and_then(|c| c.gemini_api_key.as_ref())
-                .is_some()
-                || db_config
-                    .as_ref()
-                    .and_then(|c| c.openai_api_key.as_ref())
-                    .is_some()
-                || std::env::var("GEMINI_API_KEY").is_ok()
-                || std::env::var("OPENAI_API_KEY").is_ok(),
             config_fields: vec![
                 ConfigField {
                     key: "provider".to_string(),
@@ -996,7 +1065,7 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                 },
                 ConfigField {
                     key: "gemini_model".to_string(),
-                    label: "Gemini Model Name".to_string(),
+                    label: "Model Name".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
@@ -1022,7 +1091,7 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                 },
                 ConfigField {
                     key: "openai_model".to_string(),
-                    label: "OpenAI Model Name".to_string(),
+                    label: "Model Name".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
@@ -1092,7 +1161,7 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                 },
                 ConfigField {
                     key: "pro_gemini_model".to_string(),
-                    label: "【Pro Model】Gemini Model Name".to_string(),
+                    label: "Model Name".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
@@ -1120,7 +1189,7 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                 },
                 ConfigField {
                     key: "pro_openai_model".to_string(),
-                    label: "【Pro Model】OpenAI Model Name".to_string(),
+                    label: "Model Name".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
@@ -1165,7 +1234,7 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                 },
                 ConfigField {
                     key: "ai_image_model".to_string(),
-                    label: "OpenAI Model Name".to_string(),
+                    label: "Model Name".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
@@ -1286,7 +1355,7 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                 },
                 ConfigField {
                     key: "lite_gemini_model".to_string(),
-                    label: "【Lite Model】Gemini Model Name".to_string(),
+                    label: "Model Name".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
@@ -1313,7 +1382,7 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                 },
                 ConfigField {
                     key: "lite_openai_model".to_string(),
-                    label: "【Lite Model】OpenAI Model Name".to_string(),
+                    label: "Model Name".to_string(),
                     field_type: "text".to_string(),
                     value: db_config
                         .as_ref()
@@ -1376,27 +1445,271 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
                     placeholder: "ap-guangzhou".to_string(),
                     required: false,
                 },
+                ConfigField {
+                    key: "speech_provider".to_string(),
+                    label: "Speech Provider".to_string(),
+                    field_type: "select".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.speech_provider.clone())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "tencent".to_string()),
+                    placeholder: "tencent".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "speech_reuse_text_credentials".to_string(),
+                    label: "Reuse text-model credentials".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.speech_reuse_text_credentials.to_string())
+                        .unwrap_or_else(|| "true".to_string()),
+                    placeholder: "true".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "speech_stt_model".to_string(),
+                    label: "Speech-to-text model".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.speech_stt_model.clone())
+                        .unwrap_or_default(),
+                    placeholder: "gpt-transcribe".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "speech_tts_model".to_string(),
+                    label: "Text-to-speech model".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.speech_tts_model.clone())
+                        .unwrap_or_default(),
+                    placeholder: "gpt-4o-mini-tts".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "speech_tts_voice".to_string(),
+                    label: "TTS voice".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.speech_tts_voice.clone())
+                        .unwrap_or_default(),
+                    placeholder: "marin".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "speech_openai_api_key".to_string(),
+                    label: "OpenAI API Key".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(get_value(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.speech_openai_api_key.clone()),
+                        "SPEECH_OPENAI_API_KEY",
+                    )),
+                    placeholder: "sk-...".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "speech_openai_base_url".to_string(),
+                    label: "OpenAI Base URL".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.speech_openai_base_url.clone())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+                    placeholder: "https://api.openai.com/v1".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "speech_openrouter_api_key".to_string(),
+                    label: "OpenRouter API Key".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(get_value(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.speech_openrouter_api_key.clone()),
+                        "SPEECH_OPENROUTER_API_KEY",
+                    )),
+                    placeholder: "sk-or-v1-...".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "provider_openrouter_api_key".to_string(),
+                    label: "OpenRouter API Key".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.shared_openrouter_api_key())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "sk-or-v1-...".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "provider_openai_api_key".to_string(),
+                    label: "OpenAI API Key".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.shared_openai_api_key())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "sk-...".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "provider_openai_base_url".to_string(),
+                    label: "OpenAI Base URL".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.shared_openai_base_url())
+                        .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+                    placeholder: "https://api.openai.com/v1".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "provider_gemini_api_key".to_string(),
+                    label: "Gemini API Key".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.shared_gemini_api_key())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "AIza...".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "provider_volcengine_api_key".to_string(),
+                    label: "Volcengine Ark API Key".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.shared_volcengine_api_key())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "Ark API key".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "provider_volcengine_base_url".to_string(),
+                    label: "Volcengine Ark Base URL".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.shared_volcengine_base_url())
+                        .unwrap_or_else(|| {
+                            "https://ark.cn-beijing.volces.com/api/v3".to_string()
+                        }),
+                    placeholder: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "ai_vendor_sources".to_string(),
+                    label: "AI vendor sources".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| {
+                            let mut sources = c.effective_vendor_sources();
+                            for source in &mut sources {
+                                if source
+                                    .api_key
+                                    .as_ref()
+                                    .is_some_and(|key| !key.trim().is_empty())
+                                {
+                                    source.api_key = Some(mask_secret_display_value());
+                                }
+                                if source
+                                    .secret_id
+                                    .as_ref()
+                                    .is_some_and(|key| !key.trim().is_empty())
+                                {
+                                    source.secret_id = Some(mask_secret_display_value());
+                                }
+                                if source
+                                    .secret_key
+                                    .as_ref()
+                                    .is_some_and(|key| !key.trim().is_empty())
+                                {
+                                    source.secret_key = Some(mask_secret_display_value());
+                                }
+                            }
+                            serde_json::to_string(&sources).unwrap_or_else(|_| "[]".to_string())
+                        })
+                        .unwrap_or_else(|| "[]".to_string()),
+                    placeholder: "[]".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "ai_source".to_string(),
+                    label: "Standard AI source".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.ai_source.clone())
+                        .unwrap_or_default(),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "lite_ai_source".to_string(),
+                    label: "Lite AI source".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.lite_ai_source.clone())
+                        .unwrap_or_default(),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "pro_ai_source".to_string(),
+                    label: "Pro AI source".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.pro_ai_source.clone())
+                        .unwrap_or_default(),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "ai_image_source".to_string(),
+                    label: "Image AI source".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.ai_image_source.clone())
+                        .unwrap_or_default(),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "speech_source".to_string(),
+                    label: "Speech source".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.speech_source.clone())
+                        .unwrap_or_default(),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
             ],
-            image_provider: db_config
-                .as_ref()
-                .map(|c| c.ai_image_provider.clone())
-                .unwrap_or_else(|| {
-                    std::env::var("AI_IMAGE_PROVIDER")
-                        .unwrap_or_else(|_| "openrouter".to_string())
-                }),
         },
         tripo_config: TripoConfig {
-            enabled: db_config
-                .as_ref()
-                .map(|c| c.tripo_enabled)
-                .unwrap_or_else(|| {
-                    std::env::var("TRIPO_ENABLED")
-                        .ok()
-                        .is_some_and(|v| v == "true" || v == "1")
-                }),
-            configured: nonempty_db(
-                db_config.as_ref().and_then(|c| c.tripo_api_key.as_ref()),
-            ) || nonempty_env("TRIPO_API_KEY"),
             config_fields: vec![
                 ConfigField {
                     key: "tripo_enabled".to_string(),
@@ -1511,12 +1824,6 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
             ],
         },
         report_config: ReportConfig {
-            topic_style: db_config
-                .as_ref()
-                .map(|c| c.topic_style.clone())
-                .unwrap_or_else(|| {
-                    std::env::var("TOPIC_STYLE").unwrap_or_else(|_| "balanced".to_string())
-                }),
             config_fields: vec![ConfigField {
                 key: "topic_style".to_string(),
                 label: "Report Topic Style".to_string(),
@@ -1535,8 +1842,8 @@ pub(crate) async fn build_config(db: &DatabaseConnection, reveal_sensitive: bool
         ui_config: UiConfig {
             // ui_config.config_fields 跨页共享大袋子；按设置 Section 归属 emit。
             // 死字段（无设置页入口）勿再 emit：
-            // pet_*、wallpaper_parallax（legacy 仅 DB；公开 API 亦不再返回）
-            // github_client_*（走 OAuth 专用端点 + legacy 平铺字段，勿进 admin bag）
+            // pet_*、wallpaper_parallax（已下线，备份恢复会忽略，运行时也不再读）
+            // github_client_*（走 OAuth 专用端点，勿进 admin bag）
             // 归属：
             // UI        → wallpaper_*, evocative_*, site_*, cloud_sponsors, pwa_enabled, base_url
             // Platforms → analytics_enabled
@@ -2111,8 +2418,8 @@ pub(crate) struct SettingDescriptor {
 
 // 这是配置备份唯一的后端注册表。新增或删除非 ConfigResponse 设置时只需要改这里；
 // 恢复、预检和导出过滤全部从该注册表派生。
-/// 备份/恢复 registry：含 legacy 键（`pet_*` / `ui_wallpaper_parallax` / `github_client_*` 等）。
-/// 这些键仍可从旧备份还原到 DB，但**不再**进入管理端 `ui_config.config_fields` emit。
+/// 备份/恢复 registry：含仍在用的键。已下线的 `pet_*` / `ui_wallpaper_parallax` /
+/// `github_client_*` / `github_redirect_url` 不在表里——旧备份里这些键会进 ignored。
 pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "agent_life_enabled",
     "ai_image_model",
@@ -2121,8 +2428,14 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "ai_image_openrouter_api_key",
     "ai_image_provider",
     "ai_image_volcengine_api_key",
+    "ai_image_source",
     "ai_image_volcengine_base_url",
     "ai_provider",
+    "ai_source",
+    "ai_vendor_sources",
+    "lite_ai_source",
+    "pro_ai_source",
+    "speech_source",
     "allow_local_registration",
     "analytics_enabled",
     "tapp_private_install_cleanup",
@@ -2152,10 +2465,7 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "gemini_base_url",
     "gemini_model",
     "github_api_base_url",
-    "github_client_id",
-    "github_client_secret",
     "github_enabled",
-    "github_redirect_url",
     "github_token",
     "github_username",
     "guest_ai_cooldown_seconds",
@@ -2198,9 +2508,13 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "openai_max_tokens",
     "openai_model",
     "openxbl_api_key",
-    "pet_enabled",
-    "pet_image_url",
     "platform_order",
+    "provider_gemini_api_key",
+    "provider_openai_api_key",
+    "provider_openai_base_url",
+    "provider_openrouter_api_key",
+    "provider_volcengine_api_key",
+    "provider_volcengine_base_url",
     "pro_ai_provider",
     "pro_enabled",
     "pro_gemini_api_key",
@@ -2228,6 +2542,14 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "site_og_image",
     "site_title",
     "site_visibility_policy",
+    "speech_openai_api_key",
+    "speech_openai_base_url",
+    "speech_openrouter_api_key",
+    "speech_provider",
+    "speech_reuse_text_credentials",
+    "speech_stt_model",
+    "speech_tts_model",
+    "speech_tts_voice",
     "steam_api_key",
     "steam_enabled",
     "steam_id",
@@ -2259,7 +2581,6 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "ui_secondary_color",
     "ui_theme",
     "ui_wallpaper_blur",
-    "ui_wallpaper_parallax",
     "ui_wallpaper_url",
     "umami_script_url",
     "umami_website_id",
@@ -2857,6 +3178,33 @@ mod settings_backup_tests {
     }
 
     #[test]
+    fn ai_config_bag_drops_legacy_typed_mirrors() {
+        let raw = json!({
+            "provider": "gemini",
+            "model": "gemini-x",
+            "api_key": "secret",
+            "enabled": true,
+            "image_provider": "openrouter",
+            "config_fields": [{
+                "key": "provider",
+                "label": "AI Provider",
+                "field_type": "select",
+                "value": "openai",
+                "placeholder": "",
+                "required": true
+            }]
+        });
+        let parsed: AiConfig = serde_json::from_value(raw).expect("legacy payload");
+        assert_eq!(parsed.config_fields.len(), 1);
+        let out = serde_json::to_value(&parsed).expect("serialize");
+        assert!(out.get("provider").is_none());
+        assert!(out.get("model").is_none());
+        assert!(out.get("api_key").is_none());
+        assert!(out.get("enabled").is_none());
+        assert!(out.get("image_provider").is_none());
+    }
+
+    #[test]
     fn effective_config_collects_unmasked_credentials_for_migration() {
         let mut config = empty_config();
         config.platforms.push(PlatformConfig {
@@ -2944,6 +3292,75 @@ mod settings_backup_tests {
         assert_eq!(modules.get("library"), Some(&json!("admin")));
         assert!(modules.contains_key("brew"));
         assert!(!modules.contains_key("removed_module"));
+    }
+
+    #[test]
+    fn restore_plan_ignores_retired_pet_parallax_and_flat_github_oauth_keys() {
+        let plan = build_settings_restore_plan(&backup_with_entries(vec![
+            entry("pet_enabled"),
+            entry("pet_image_url"),
+            entry("ui_wallpaper_parallax"),
+            entry("github_client_id"),
+            entry("github_client_secret"),
+            entry("github_redirect_url"),
+            entry("site_title"),
+        ]));
+        for key in [
+            "pet_enabled",
+            "pet_image_url",
+            "ui_wallpaper_parallax",
+            "github_client_id",
+            "github_client_secret",
+            "github_redirect_url",
+        ] {
+            assert!(
+                plan.preview.ignored_keys.iter().any(|k| k == key),
+                "{key} should be ignored"
+            );
+        }
+        assert!(plan.entries.iter().any(|e| e.key == "site_title"));
+        assert!(!plan.entries.iter().any(|e| e.key.starts_with("pet_")));
+        assert!(!plan
+            .entries
+            .iter()
+            .any(|e| e.key.starts_with("github_client")));
+    }
+
+    #[test]
+    fn platform_configured_flags_follow_explicit_enabled_and_credentials() {
+        let mut config = crate::config::DynamicConfig::default();
+        assert!(platform_configured_flags(&config)
+            .iter()
+            .all(|(_, on)| !*on));
+
+        config.steam_api_key = Some("k".into());
+        let map: std::collections::HashMap<_, _> =
+            platform_configured_flags(&config).into_iter().collect();
+        assert_eq!(map.get("steam"), Some(&true));
+
+        config.steam_enabled = Some(false);
+        let map: std::collections::HashMap<_, _> =
+            platform_configured_flags(&config).into_iter().collect();
+        assert_eq!(map.get("steam"), Some(&false));
+    }
+
+    #[test]
+    fn public_ui_config_value_exposes_display_fields_without_secrets() {
+        let mut config = crate::config::DynamicConfig::default();
+        config.analytics_enabled = true;
+        config.pwa_enabled = false;
+        config.ui_wallpaper_url = Some("https://example.test/w.jpg".into());
+        config.site_title = Some("Myriad".into());
+        config.music_enabled = Some("true".into());
+
+        let ui = public_ui_config_value(&config);
+        assert_eq!(ui["analytics_enabled"], json!(true));
+        assert_eq!(ui["pwa_enabled"], json!(false));
+        assert_eq!(ui["wallpaper_url"], json!("https://example.test/w.jpg"));
+        assert_eq!(ui["site_title"], json!("Myriad"));
+        assert_eq!(ui["music_enabled"], json!("true"));
+        assert!(ui.get("github_client_secret").is_none());
+        assert!(ui.get("openai_api_key").is_none());
     }
 
     #[test]
@@ -3082,26 +3499,21 @@ mod settings_backup_tests {
     }
 
     #[test]
-    fn ui_secret_fields_skip_empty_and_masked_values() {
+    fn ui_bag_ignores_retired_typed_mirrors() {
         let mut config = empty_config();
-
-        // Empty secret must not overwrite
-        config.ui_config.config_fields = vec![ui_field("github_client_secret", "")];
+        config.ui_config.config_fields = vec![
+            ui_field("github_client_secret", "real-secret"),
+            ui_field("github_client_id", "client"),
+            ui_field("pet_enabled", "true"),
+            ui_field("pet_image_url", "https://example.com/pet.png"),
+            ui_field("wallpaper_parallax", "true"),
+        ];
         let updates = collect_database_updates(&config);
         assert!(!updates.contains_key("github_client_secret"));
-
-        // Masked secret must not overwrite
-        config.ui_config.config_fields = vec![ui_field("github_client_secret", "••••••••")];
-        let updates = collect_database_updates(&config);
-        assert!(!updates.contains_key("github_client_secret"));
-
-        // Real secret is persisted
-        config.ui_config.config_fields = vec![ui_field("github_client_secret", "real-secret")];
-        let updates = collect_database_updates(&config);
-        assert_eq!(
-            updates.get("github_client_secret"),
-            Some(&json!("real-secret"))
-        );
+        assert!(!updates.contains_key("github_client_id"));
+        assert!(!updates.contains_key("pet_enabled"));
+        assert!(!updates.contains_key("pet_image_url"));
+        assert!(!updates.contains_key("ui_wallpaper_parallax"));
     }
 
     #[test]
@@ -3583,8 +3995,7 @@ pub async fn update_config(
             crate::services::http_client::reload_global_client().await;
             tracing::info!("✅ Global HTTP client reloaded with new proxy settings");
 
-            // 3.2 兼容旧配置保存路径：如果 github_client_id/secret 仍由
-            // /api/config 写入，也要让 OAuth provider 列表立即生效。
+            // OAuth redirect URLs follow site origin / provider list; reload after any config save.
             crate::services::oauth::registry::REGISTRY.reload().await;
             tracing::info!("✅ OAuth provider registry reloaded");
         }
@@ -3629,6 +4040,43 @@ async fn save_to_database(
         .update_configs(collect_database_updates(config))
         .await?;
     Ok(())
+}
+
+fn merge_vendor_source_secrets(incoming: serde_json::Value) -> serde_json::Value {
+    let Ok(mut sources) =
+        serde_json::from_value::<Vec<crate::config::AiVendorSource>>(incoming.clone())
+    else {
+        return incoming;
+    };
+    let existing = crate::GLOBAL_DYNAMIC_CONFIG
+        .try_read()
+        .map(|guard| guard.effective_vendor_sources())
+        .unwrap_or_default();
+    for source in &mut sources {
+        let previous = existing.iter().find(|item| item.slug == source.slug);
+        if source
+            .api_key
+            .as_deref()
+            .is_some_and(is_masked_secret_value)
+        {
+            source.api_key = previous.and_then(|item| item.api_key.clone());
+        }
+        if source
+            .secret_id
+            .as_deref()
+            .is_some_and(is_masked_secret_value)
+        {
+            source.secret_id = previous.and_then(|item| item.secret_id.clone());
+        }
+        if source
+            .secret_key
+            .as_deref()
+            .is_some_and(is_masked_secret_value)
+        {
+            source.secret_key = previous.and_then(|item| item.secret_key.clone());
+        }
+    }
+    serde_json::to_value(sources).unwrap_or(incoming)
 }
 
 fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMap<String, Value> {
@@ -3876,10 +4324,81 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
             "tencent_secret_id" => ("tencent_secret_id", JsonValue::String(field.value.clone())),
             "tencent_secret_key" => ("tencent_secret_key", JsonValue::String(field.value.clone())),
             "tencent_region" => ("tencent_region", JsonValue::String(field.value.clone())),
+            "speech_provider" => ("speech_provider", JsonValue::String(field.value.clone())),
+            "speech_reuse_text_credentials" => (
+                "speech_reuse_text_credentials",
+                JsonValue::Bool(field.value == "true" || field.value == "1"),
+            ),
+            "speech_openai_api_key" => (
+                "speech_openai_api_key",
+                JsonValue::String(field.value.clone()),
+            ),
+            "speech_openai_base_url" => (
+                "speech_openai_base_url",
+                JsonValue::String(field.value.clone()),
+            ),
+            "speech_openrouter_api_key" => (
+                "speech_openrouter_api_key",
+                JsonValue::String(field.value.clone()),
+            ),
+            "provider_openai_api_key" => (
+                "provider_openai_api_key",
+                JsonValue::String(field.value.clone()),
+            ),
+            "provider_openai_base_url" => (
+                "provider_openai_base_url",
+                JsonValue::String(field.value.clone()),
+            ),
+            "provider_openrouter_api_key" => (
+                "provider_openrouter_api_key",
+                JsonValue::String(field.value.clone()),
+            ),
+            "provider_gemini_api_key" => (
+                "provider_gemini_api_key",
+                JsonValue::String(field.value.clone()),
+            ),
+            "provider_volcengine_api_key" => (
+                "provider_volcengine_api_key",
+                JsonValue::String(field.value.clone()),
+            ),
+            "provider_volcengine_base_url" => (
+                "provider_volcengine_base_url",
+                JsonValue::String(field.value.clone()),
+            ),
+            "speech_stt_model" => ("speech_stt_model", JsonValue::String(field.value.clone())),
+            "speech_tts_model" => ("speech_tts_model", JsonValue::String(field.value.clone())),
+            "speech_tts_voice" => ("speech_tts_voice", JsonValue::String(field.value.clone())),
+            "ai_source" => ("ai_source", JsonValue::String(field.value.clone())),
+            "lite_ai_source" => ("lite_ai_source", JsonValue::String(field.value.clone())),
+            "pro_ai_source" => ("pro_ai_source", JsonValue::String(field.value.clone())),
+            "ai_image_source" => ("ai_image_source", JsonValue::String(field.value.clone())),
+            "speech_source" => ("speech_source", JsonValue::String(field.value.clone())),
+            "ai_vendor_sources" => {
+                let parsed = serde_json::from_str::<JsonValue>(&field.value)
+                    .unwrap_or_else(|_| JsonValue::Array(Vec::new()));
+                let parsed = merge_vendor_source_secrets(parsed);
+                ("ai_vendor_sources", parsed)
+            }
             _ => continue,
         };
         // 忽略屏蔽值（前端返回的掩码）- 保持数据库原值不变
-        if !field.value.is_empty() && !is_masked(&field.value) {
+        let allow_empty_speech = matches!(
+            field.key.as_str(),
+            "speech_provider"
+                | "speech_reuse_text_credentials"
+                | "speech_stt_model"
+                | "speech_tts_model"
+                | "speech_tts_voice"
+                | "provider_openai_base_url"
+                | "provider_volcengine_base_url"
+                | "ai_source"
+                | "lite_ai_source"
+                | "pro_ai_source"
+                | "ai_image_source"
+                | "speech_source"
+                | "ai_vendor_sources"
+        );
+        if (allow_empty_speech || !field.value.is_empty()) && !is_masked(&field.value) {
             updates.insert(key.to_string(), json_value);
         }
     }
@@ -4088,11 +4607,6 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                     continue;
                 }
             }
-            // legacy：已不再 emit，保留写入兼容旧客户端 payload
-            "wallpaper_parallax" => {
-                let enabled = field.value == "true";
-                ("ui_wallpaper_parallax", JsonValue::Bool(enabled))
-            }
             // Evocative 壁纸动效
             "evocative_parallax" => {
                 let enabled = field.value == "true";
@@ -4120,12 +4634,6 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                     continue;
                 }
             }
-            // legacy：pet_* 已不再 emit
-            "pet_enabled" => {
-                let enabled = field.value == "true";
-                ("pet_enabled", JsonValue::Bool(enabled))
-            }
-            "pet_image_url" => ("pet_image_url", JsonValue::String(field.value.clone())),
             "analytics_enabled" => {
                 let enabled = field.value != "false" && field.value != "0";
                 ("analytics_enabled", JsonValue::Bool(enabled))
@@ -4134,12 +4642,6 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                 let enabled = field.value != "false" && field.value != "0";
                 ("pwa_enabled", JsonValue::Bool(enabled))
             }
-            // legacy：github OAuth 凭证走专用端点；bag 写入仍兼容
-            "github_client_id" => ("github_client_id", JsonValue::String(field.value.clone())),
-            "github_client_secret" => (
-                "github_client_secret",
-                JsonValue::String(field.value.clone()),
-            ),
             // base_url 经独立域名 API 改写；bag 若带空串勿覆盖已生效域名
             "base_url" => {
                 if field.value.trim().is_empty() {
@@ -4200,13 +4702,12 @@ fn should_write_env_field(field_key: &str, value: &str) -> bool {
 ///
 /// Never dual-write UI / platform credentials / AI / Tripo / music / site bag
 /// to `.env` or process env. This path writes only:
-/// BASE_URL, GITHUB_CLIENT_ID / SECRET, PROXY_*, GEMINI_BASE_URL,
-/// GITHUB_API_BASE_URL (plus infra already outside this path).
+/// BASE_URL, PROXY_*, GEMINI_BASE_URL, GITHUB_API_BASE_URL
+/// (plus infra already outside this path).
 ///
 /// Kept in env:
 /// - infra: DATABASE_URL, SERVER_*, JWT_SECRET, CORS_ORIGINS, FRONTEND_*, RUST_LOG
 /// - site origin: BASE_URL (+ site-domain FRONTEND_URL / CORS adapt)
-/// - OAuth deploy: GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET
 /// - outbound runtime: PROXY_*, GEMINI_BASE_URL, GITHUB_API_BASE_URL
 async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::error::Error>> {
     use std::fs;
@@ -4238,12 +4739,10 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
         .or_else(|| std::env::var("BASE_URL").ok().filter(|s| !s.is_empty()));
 
     // Only deploy / outbound keys still dual-write to .env:
-    // BASE_URL, GitHub OAuth client, proxy, API base mirrors.
+    // BASE_URL, proxy, API base mirrors.
     let mut saved_base_url: Option<String> = None;
     for field in &config.ui_config.config_fields {
         let key = match field.key.as_str() {
-            "github_client_id" => "GITHUB_CLIENT_ID",
-            "github_client_secret" => "GITHUB_CLIENT_SECRET",
             "base_url" => "BASE_URL",
             "proxy_enabled" => "PROXY_ENABLED",
             "proxy_url" => "PROXY_URL",
@@ -4255,7 +4754,6 @@ async fn save_all_configs(config: &ConfigResponse) -> Result<(), Box<dyn std::er
         if field.key == "base_url" {
             saved_base_url = Some(field.value.clone());
         }
-        // github_client_secret must not write masks
         if !should_write_env_field(&field.key, &field.value) {
             continue;
         }

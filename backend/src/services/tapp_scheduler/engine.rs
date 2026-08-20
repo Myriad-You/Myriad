@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 use crate::services::tapp_registry::{self as shared_registry};
 use crate::services::tapp_storage::{
     read_storage_value, validate_sandbox_storage_key, validate_storage_value_size,
@@ -1334,8 +1335,10 @@ SELECT EXISTS (
         authority: &ScheduledExecutionAuthority,
         prompt: &str,
     ) -> Result<serde_json::Value, String> {
-        if prompt.len() > 2000 {
-            return Err("Prompt too long (max 2000 characters)".to_string());
+        if prompt.chars().count() > USER_TEXT_MAX_CHARS {
+            return Err(format!(
+                "Prompt too long (max {USER_TEXT_MAX_CHARS} characters)"
+            ));
         }
         if let Some(reason) = myriad_prompt_security::validate_prompt_security(prompt) {
             return Err(format!("Prompt contains disallowed content: {reason}"));

@@ -113,30 +113,6 @@ fn platform_json_from_row(p: &platforms::Model, with_data: &HashSet<String>) -> 
     )
 }
 
-/// 用种子目录补齐 DB 中缺失的平台（仅内存响应，不写库；写库由 schema_check 负责）
-fn merge_missing_seed_platforms(
-    mut platforms: Vec<Value>,
-    present_names: &[String],
-    with_data: &HashSet<String>,
-) -> Vec<Value> {
-    let mut next_id = platforms
-        .iter()
-        .filter_map(|p| p.get("id").and_then(|v| v.as_i64()))
-        .max()
-        .unwrap_or(0) as i32
-        + 1;
-
-    for seed in default_platform_seeds() {
-        if present_names.iter().any(|n| n == seed.name) {
-            continue;
-        }
-        platforms.push(platform_json_from_seed(seed, next_id, with_data));
-        next_id += 1;
-    }
-
-    platforms
-}
-
 /// Append cache-only platforms not present in catalog/seeds (defensive).
 fn merge_cache_only_platforms(
     mut platforms: Vec<Value>,
@@ -208,15 +184,11 @@ pub async fn list_platforms(State(db): State<DatabaseConnection>) -> (StatusCode
         .await
     {
         Ok(platform_list) => {
-            let present_names: Vec<String> = platform_list.iter().map(|p| p.name.clone()).collect();
-
             let mut platforms: Vec<Value> = platform_list
                 .iter()
                 .map(|p| platform_json_from_row(p, &with_data))
                 .collect();
 
-            // 兼容旧库尚未跑 seed 同步的情况：响应里补齐缺失平台
-            platforms = merge_missing_seed_platforms(platforms, &present_names, &with_data);
             platforms = merge_cache_only_platforms(platforms, &with_data);
 
             (StatusCode::OK, Json(json!({ "platforms": platforms })))
@@ -233,28 +205,6 @@ pub async fn list_platforms(State(db): State<DatabaseConnection>) -> (StatusCode
             (StatusCode::OK, Json(json!({ "platforms": platforms })))
         }
     }
-}
-
-pub async fn get_profiles(State(_db): State<DatabaseConnection>) -> (StatusCode, Json<Value>) {
-    // TODO: Fetch from database
-    (
-        StatusCode::OK,
-        Json(json!({
-            "profiles": [],
-            "message": "No profiles fetched yet"
-        })),
-    )
-}
-
-pub async fn trigger_fetch(State(_db): State<DatabaseConnection>) -> (StatusCode, Json<Value>) {
-    // TODO: Implement fetch logic
-    (
-        StatusCode::OK,
-        Json(json!({
-            "success": true,
-            "message": "Fetch triggered successfully"
-        })),
-    )
 }
 
 #[cfg(test)]

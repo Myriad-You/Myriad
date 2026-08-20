@@ -19,7 +19,7 @@ function makeInstance(permissions: string[]): TappInstance {
       id: 'com.example.trim',
       name: 'Trim Test',
       version: '1.0.0',
-      main: 'main.js',
+      core: { entry: 'core.js' },
       permissions: permissions as never[],
       category: 'utility',
     },

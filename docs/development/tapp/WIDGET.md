@@ -11,7 +11,7 @@
 > - 更好的可维护性，避免冗长的 Tailwind 类名列表
 > - 更小的体积，无需 Tailwind 运行时编译
 > - 更容易实现复杂的 hover/focus/动画效果
-> - 支持 CSS 架构分离模式（Widget 专用样式文件）
+> - Widget 层可声明自己的样式文件
 >
 > 详见 [样式规范 - 推荐原生 CSS](STYLING.md#-推荐语义化原生-css)。
 
@@ -44,7 +44,7 @@ Widget 不是纯静态展示层：共享 core 可在其中使用事件、调度�
 
 ## 基础结构
 
-使用分离模式时，Widget 代码应放在 `WIDGET_CODE` 中：
+Widget 层入口里写渲染逻辑：
 
 ```javascript
 // WIDGET_CODE - 小组件渲染代码

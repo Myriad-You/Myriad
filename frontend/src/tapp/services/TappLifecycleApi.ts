@@ -13,6 +13,8 @@ export interface TappListItem {
   /** manifest.locales 透传，用 resolveManifestText 按当前语言解析 */
   locales?: TappManifestLocales
   status: string
+  /** 失败原因，`status === 'error'` 时由后端带出 */
+  errorMessage?: string
   installedAt: string
   lastRunAt?: string
   isTemporary?: boolean
@@ -39,6 +41,8 @@ export interface TappDetail {
   theme_color?: string
   manifest: TappManifest
   status: string
+  /** 失败原因，`status === 'error'` 时由后端带出 */
+  error_message?: string
   granted_permissions: string[]
   needs_reauthorization?: boolean
   installed_at: string

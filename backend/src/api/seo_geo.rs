@@ -233,10 +233,7 @@ pub async fn generate_site_seo_copy(
         briefs = briefs,
     );
 
-    let analyzer = match create_ai_analyzer_for_tier(ModelTier::Lite).await {
-        Some(a) => Some(a),
-        None => create_ai_analyzer_for_tier(ModelTier::Standard).await,
-    };
+    let analyzer = create_ai_analyzer_for_tier(ModelTier::Lite).await;
     if let Some(analyzer) = analyzer {
         match analyzer
             .analyze_with_system(SYSTEM_PROMPT, &user_prompt)

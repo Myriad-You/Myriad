@@ -13,7 +13,7 @@ use super::{
     installation_conflict_owner_ids, lock_tapp_lifecycle, log_install_failure,
     log_tapp_filesystem_access, reconcile_manifest_widgets, tapp_dir_for,
     tapp_filesystem_error_message, tapp_filesystem_error_status, validate_tapp_id, ApiResponse,
-    TappDirStage, TappListItem, TappManifest, WidgetTemplateContents, MAX_TAPP_ARCHIVE_BYTES,
+    TappDirStage, TappListItem, TappManifest, WidgetTemplateContents, MAX_TAPP_GAME_ARCHIVE_BYTES,
 };
 use axum::{
     extract::{Path, State},
@@ -95,22 +95,24 @@ pub(super) struct InstallTappRequest {
     // direct 模式需要的字段
     /// Tapp 清单（direct 模式必需）
     manifest: Option<TappManifest>,
-    /// 主代码（direct 模式必需）
-    code: Option<String>,
-    /// CSS 样式（可选）
-    styles: Option<String>,
+    /// 包内 `.js` 文件：相对路径 → 源码（direct 模式必需，须覆盖每个层入口）
+    modules: Option<std::collections::HashMap<String, String>>,
+    /// 作者共享样式（`core.styles`）
+    core_styles: Option<String>,
+    /// 作者 Page 样式（`page.styles`）
+    page_styles: Option<String>,
+    /// 作者 Widget 样式：widget id → 内容
+    widget_styles: Option<std::collections::HashMap<String, String>>,
     /// 页面 HTML 模板（可选）
     page_template: Option<String>,
     /// 小组件 HTML 模板（可选，Widget ID → 尺寸）
     widget_templates: Option<WidgetTemplateContents>,
-    /// Widget 专用 Tailwind CSS（可选）
+    /// 宿主预编译的 Widget Tailwind CSS（可选）
     widget_css: Option<String>,
-    /// Page 专用 Tailwind CSS（可选）
+    /// 宿主预编译的 Page Tailwind CSS（可选）
     page_css: Option<String>,
     /// i18n 翻译数据（可选，lang_code → JSON 对象）
     i18n: Option<std::collections::HashMap<String, serde_json::Value>>,
-    /// Page 模块文件（可选，filename → code）
-    page_modules: Option<std::collections::HashMap<String, String>>,
     /// Package assets (optional, relative path → base64 or data-URL base64)
     assets: Option<std::collections::HashMap<String, String>>,
 
@@ -147,14 +149,15 @@ pub(super) async fn install_tapp(
     let InstallTappRequest {
         source,
         manifest: request_manifest,
-        code: request_code,
-        styles,
+        modules: request_modules,
+        core_styles,
+        page_styles,
+        widget_styles,
         page_template,
         widget_templates,
         widget_css,
         page_css,
         i18n,
-        page_modules,
         assets,
         store_source,
         tapp_id,
@@ -171,33 +174,25 @@ pub(super) async fn install_tapp(
                     "manifest is required for direct install",
                 )
             })?;
-            let code = request_code.ok_or_else(|| {
+            let modules = request_modules.ok_or_else(|| {
                 api_http_error(
                     StatusCode::BAD_REQUEST,
-                    "code is required for direct install",
+                    "modules is required for direct install",
                 )
             })?;
-            // Prefer declared manifest paths over cssMode string alone.
-            let css = map_direct_css_channels(
-                manifest.widget_styles.is_some(),
-                manifest.page_styles.is_some(),
-                widget_css,
-                page_css,
-            );
             (
                 PreparedTappPackage::from_resources(
                     manifest,
                     PreparedTappResources {
-                        code,
-                        styles,
+                        modules,
+                        core_styles,
+                        page_styles,
+                        widget_styles,
                         page_template,
                         widget_templates,
-                        widget_styles: css.widget_styles,
-                        page_styles: css.page_styles,
-                        generated_widget_css: css.generated_widget_css,
-                        generated_page_css: css.generated_page_css,
+                        generated_widget_css: widget_css,
+                        generated_page_css: page_css,
                         i18n,
-                        page_modules,
                         assets,
                     },
                 ),
@@ -220,7 +215,7 @@ pub(super) async fn install_tapp(
             validate_tapp_id(&tapp_id)
                 .map_err(|error| api_http_error(StatusCode::BAD_REQUEST, error))?;
             let mut package = fetch_from_store(&db, &store_source, &tapp_id).await?;
-            package.apply_resource_overrides(i18n, page_modules, assets);
+            package.apply_resource_overrides(i18n, request_modules, assets);
             (package, true)
         }
     };
@@ -553,11 +548,14 @@ pub(super) async fn install_tapp_file(
                     .await
                     .map_err(|_| api_http_error(StatusCode::BAD_REQUEST, "Failed to read file"))?
                 {
-                    if archive_upload_would_exceed(bytes.len(), chunk.len(), MAX_TAPP_ARCHIVE_BYTES)
-                    {
+                    if archive_upload_would_exceed(
+                        bytes.len(),
+                        chunk.len(),
+                        MAX_TAPP_GAME_ARCHIVE_BYTES,
+                    ) {
                         return Err(api_http_error(
                             StatusCode::PAYLOAD_TOO_LARGE,
-                            archive_upload_too_large_message(MAX_TAPP_ARCHIVE_BYTES),
+                            archive_upload_too_large_message(MAX_TAPP_GAME_ARCHIVE_BYTES),
                         ));
                     }
                     bytes.extend_from_slice(&chunk);
@@ -601,22 +599,24 @@ pub(super) struct UpdateTappRequest {
     // direct 模式需要的字段
     /// Tapp 清单（direct 模式必需）
     manifest: Option<TappManifest>,
-    /// 主代码（direct 模式必需）
-    code: Option<String>,
-    /// CSS 样式（可选）
-    styles: Option<String>,
+    /// 包内 `.js` 文件：相对路径 → 源码（direct 模式必需，须覆盖每个层入口）
+    modules: Option<std::collections::HashMap<String, String>>,
+    /// 作者共享样式（`core.styles`）
+    core_styles: Option<String>,
+    /// 作者 Page 样式（`page.styles`）
+    page_styles: Option<String>,
+    /// 作者 Widget 样式：widget id → 内容
+    widget_styles: Option<std::collections::HashMap<String, String>>,
     /// 页面 HTML 模板（可选）
     page_template: Option<String>,
     /// 小组件 HTML 模板（可选，Widget ID → 尺寸）
     widget_templates: Option<WidgetTemplateContents>,
-    /// Widget 专用 Tailwind CSS（可选）
+    /// 宿主预编译的 Widget Tailwind CSS（可选）
     widget_css: Option<String>,
-    /// Page 专用 Tailwind CSS（可选）
+    /// 宿主预编译的 Page Tailwind CSS（可选）
     page_css: Option<String>,
     /// i18n 翻译数据（可选，lang_code → JSON 对象）
     i18n: Option<std::collections::HashMap<String, serde_json::Value>>,
-    /// Page 模块文件（可选，filename → code）
-    page_modules: Option<std::collections::HashMap<String, String>>,
     /// Package assets (optional, relative path → base64 or data-URL base64)
     assets: Option<std::collections::HashMap<String, String>>,
 
@@ -655,14 +655,15 @@ pub(super) async fn update_tapp(
     let UpdateTappRequest {
         source,
         manifest: req_manifest,
-        code: req_code,
-        styles: req_styles,
+        modules: req_modules,
+        core_styles: req_core_styles,
+        page_styles: req_page_styles,
+        widget_styles: req_widget_styles,
         page_template: req_page_template,
         widget_templates: req_widget_templates,
         widget_css: req_widget_css,
         page_css: req_page_css,
         i18n: req_i18n,
-        page_modules: req_page_modules,
         assets: req_assets,
         store_source,
         permissions,
@@ -688,32 +689,25 @@ pub(super) async fn update_tapp(
                     "manifest is required for direct update",
                 )
             })?;
-            let code = req_code.ok_or_else(|| {
+            let modules = req_modules.ok_or_else(|| {
                 api_http_error(
                     StatusCode::BAD_REQUEST,
-                    "code is required for direct update",
+                    "modules is required for direct update",
                 )
             })?;
-            let css = map_direct_css_channels(
-                manifest.widget_styles.is_some(),
-                manifest.page_styles.is_some(),
-                req_widget_css,
-                req_page_css,
-            );
             (
                 PreparedTappPackage::from_resources(
                     manifest,
                     PreparedTappResources {
-                        code,
-                        styles: req_styles,
+                        modules,
+                        core_styles: req_core_styles,
+                        page_styles: req_page_styles,
+                        widget_styles: req_widget_styles,
                         page_template: req_page_template,
                         widget_templates: req_widget_templates,
-                        widget_styles: css.widget_styles,
-                        page_styles: css.page_styles,
-                        generated_widget_css: css.generated_widget_css,
-                        generated_page_css: css.generated_page_css,
+                        generated_widget_css: req_widget_css,
+                        generated_page_css: req_page_css,
                         i18n: req_i18n,
-                        page_modules: req_page_modules,
                         assets: req_assets,
                     },
                 ),

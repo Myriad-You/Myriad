@@ -12,9 +12,9 @@ use crate::services::agent::executor::utils::{
     is_valid_platform as validate_platform_name, VALID_PLATFORMS,
 };
 use crate::services::agent::system_op_pure::{
-    build_schedule_config, extract_legacy_cron, extract_raw_backend_actions, heartbeat_task_id,
-    heartbeat_update_has_fields, parse_brew_schedule_action, parse_execution_target,
-    parse_schedule_type, AgentExecutionTarget, AgentScheduleType, BrewScheduleAction,
+    extract_raw_backend_actions, heartbeat_task_id, heartbeat_update_has_fields,
+    parse_brew_schedule_action, parse_execution_target, parse_schedule_type, AgentExecutionTarget,
+    AgentScheduleType, BrewScheduleAction,
 };
 use crate::services::background_processor::BACKGROUND_PROCESSOR;
 use crate::services::brew_scheduler::get_brew_scheduler;
@@ -52,7 +52,7 @@ pub async fn execute(
         "export.data" => execute_export_data(params).await,
         "task.submit" => execute_task_submit(params).await,
         "brew.schedule" => execute_brew_schedule(params).await,
-        "setup.status" => execute_setup_status().await,
+        "setup.status" => execute_setup_status(ctx).await,
         _ => Err(format!("Unknown system_op capability: {}", capability_id)),
     }
 }
@@ -113,15 +113,11 @@ async fn execute_scheduler_create(
         .await
         .map_err(|err| err.to_string())?;
 
-    // Accept the old cronExpression form while steering new plans to the same
-    // schedule object used by the Tapp SDK.
-    let legacy_cron = extract_legacy_cron(params);
     let schedule_type_name = params
         .get("scheduleType")
         .or_else(|| params.get("schedule_type"))
         .and_then(Value::as_str);
-    let agent_schedule =
-        parse_schedule_type(schedule_type_name, legacy_cron.is_some())?;
+    let agent_schedule = parse_schedule_type(schedule_type_name)?;
     let schedule_type = match agent_schedule {
         AgentScheduleType::Cron => ScheduleType::Cron,
         AgentScheduleType::Interval => ScheduleType::Interval,
@@ -129,14 +125,11 @@ async fn execute_scheduler_create(
         AgentScheduleType::Daily => ScheduleType::Daily,
     };
 
-    let schedule_config = build_schedule_config(
-        agent_schedule,
-        params.get("schedule"),
-        legacy_cron,
-        params.get("interval").and_then(Value::as_i64),
-        params.get("at").and_then(Value::as_i64),
-        params.get("time").and_then(Value::as_str),
-    )?;
+    let schedule_config = params
+        .get("schedule")
+        .filter(|value| value.is_object())
+        .cloned()
+        .ok_or_else(|| "Missing schedule object".to_string())?;
 
     let raw_backend_actions = extract_raw_backend_actions(params);
     let backend_actions = normalize_backend_actions(raw_backend_actions)?;
@@ -903,12 +896,21 @@ async fn execute_brew_schedule(params: &HashMap<String, Value>) -> Result<Value,
                         Err(e) => Err(format!("Failed to refresh source: {}", e)),
                     }
                 } else {
-                    Ok(json!({
-                        "success": true,
-                        "action": "refresh",
-                        "status": "scheduled",
-                        "message": "Full refresh scheduled for next tick"
-                    }))
+                    match scheduler.refresh_all_enabled().await {
+                        Ok((attempted, refreshed, failed, new_items)) => Ok(json!({
+                            "success": failed == 0,
+                            "action": "refresh",
+                            "status": "refreshed",
+                            "attempted": attempted,
+                            "refreshed": refreshed,
+                            "failed": failed,
+                            "newItems": new_items,
+                            "message": format!(
+                                "Refreshed {refreshed} sources ({failed} failed), {new_items} new items"
+                            )
+                        })),
+                        Err(e) => Err(format!("Failed to refresh sources: {e}")),
+                    }
                 }
             } else {
                 Err("Brew scheduler not initialized".to_string())
@@ -926,26 +928,13 @@ async fn execute_brew_schedule(params: &HashMap<String, Value>) -> Result<Value,
     }
 }
 
-async fn execute_setup_status() -> Result<Value, String> {
-    let has_database = !crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed)
-        && std::env::var("DATABASE_URL").is_ok();
-
-    let mut missing_configs = Vec::new();
-
-    if std::env::var("DATABASE_URL").is_err() {
-        missing_configs.push("DATABASE_URL");
-    }
-    if std::env::var("JWT_SECRET").is_err() {
-        missing_configs.push("JWT_SECRET");
-    }
-    if std::env::var("OPENAI_API_KEY").is_err() && std::env::var("GEMINI_API_KEY").is_err() {
-        missing_configs.push("AI_API_KEY (OPENAI or GEMINI)");
-    }
-
+async fn execute_setup_status(ctx: &HandlerContext<'_>) -> Result<Value, String> {
+    let progress = crate::api::setup::inspect_setup_progress(ctx.db).await;
     Ok(json!({
-        "isSetupRequired": !has_database || !missing_configs.is_empty(),
-        "hasDatabase": has_database,
-        "missingConfigs": missing_configs,
+        "isSetupRequired": progress.is_setup_required,
+        "hasDatabase": progress.has_database,
+        "hasAdminUser": progress.has_admin_user,
+        "missingConfigs": progress.missing_configs,
         "checkedAt": chrono::Utc::now().to_rfc3339()
     }))
 }

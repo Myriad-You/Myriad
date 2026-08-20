@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { uniqPersonaTags } from './personaTags'
+import { keepSelectedPersonaTags, uniqPersonaTags } from './personaTags'
 
 test('drops short tags and dedupes case-insensitively', () => {
   assert.deepEqual(
@@ -9,7 +9,14 @@ test('drops short tags and dedupes case-insensitively', () => {
   )
 })
 
-test('caps at 24 tags', () => {
+test('drops selected tags that left the current deck', () => {
+  assert.deepEqual(
+    keepSelectedPersonaTags(['慢热', 'Night owl', '边界感强'], ['Night owl', 'Slow to warm up']),
+    ['Night owl'],
+  )
+})
+
+test('caps at 28 tags', () => {
   const tags = Array.from({ length: 30 }, (_, i) => `tag-${i}`)
-  assert.equal(uniqPersonaTags(tags).length, 24)
+  assert.equal(uniqPersonaTags(tags).length, 28)
 })

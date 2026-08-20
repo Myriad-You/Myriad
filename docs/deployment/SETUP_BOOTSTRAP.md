@@ -22,7 +22,7 @@
 - 没配这枚值 → 放行
 - **编排生成器**（`com.myriad.config-generator`）和 `deploy.sh` 会写入并注入 backend
 - 官方 `docker-compose.yml` 已经写好 `DATABASE_URL`，未设置 `MYRIAD_SETUP_SECRET` 时 compose 会拒绝启动
-- 向导的 `init-env` / `database-config` **不会**再自动生成
+- 向导的 `database-config` **不会**再自动生成安装暗号
 - HTTP 响应和启动日志都不回传正文
 
 ```bash

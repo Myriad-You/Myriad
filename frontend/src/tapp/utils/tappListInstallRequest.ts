@@ -17,14 +17,15 @@ export interface TappListInstallRequestInput {
   storeSource?: string
   permissions?: string[]
   manifest?: unknown
-  code?: string
-  styles?: string
+  modules?: Record<string, string>
+  coreStyles?: string
+  pageStyles?: string
+  widgetStyles?: Record<string, string>
   pageTemplate?: string
   widgetTemplates?: Record<string, Record<string, string>>
   widgetCss?: string
   pageCss?: string
   i18n?: Record<string, unknown>
-  pageModules?: Record<string, string>
   assets?: Record<string, string>
 }
 
@@ -32,14 +33,15 @@ export type TappListInstallResolved =
   | {
       kind: 'direct'
       manifest: unknown
-      code: string
-      styles?: string
+      modules: Record<string, string>
+      coreStyles?: string
+      pageStyles?: string
+      widgetStyles?: Record<string, string>
       pageTemplate?: string
       widgetTemplates?: Record<string, Record<string, string>>
       widgetCss?: string
       pageCss?: string
       i18n?: Record<string, unknown>
-      pageModules?: Record<string, string>
       assets?: Record<string, string>
       permissions?: string[]
     }
@@ -70,24 +72,29 @@ export function resolveTappListInstallRequest(
   ).trim()
 
   if (sourceLower === 'direct') {
-    if (!request?.manifest || typeof request.code !== 'string') {
+    if (
+      !request?.manifest ||
+      !request.modules ||
+      Object.keys(request.modules).length === 0
+    ) {
       return {
         kind: 'error',
         error:
-          'Direct install requires manifest and code (shared package missing)',
+          'Direct install requires manifest and modules (shared package missing)',
       }
     }
     return {
       kind: 'direct',
       manifest: request.manifest,
-      code: request.code,
-      styles: request.styles,
+      modules: request.modules,
+      coreStyles: request.coreStyles,
+      pageStyles: request.pageStyles,
+      widgetStyles: request.widgetStyles,
       pageTemplate: request.pageTemplate,
       widgetTemplates: request.widgetTemplates,
       widgetCss: request.widgetCss,
       pageCss: request.pageCss,
       i18n: request.i18n,
-      pageModules: request.pageModules,
       assets: request.assets,
       permissions: request.permissions,
     }

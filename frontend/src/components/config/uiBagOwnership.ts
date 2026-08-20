@@ -72,7 +72,6 @@ export const MODULE_UI_RESET_KEYS: readonly string[] = Object.freeze([
 /** 高级页：内存节约 + 网络代理 + API 镜像 */
 export const ADVANCED_RESET_KEYS: readonly string[] = Object.freeze([
   'memory_saver_enabled',
-  'agent_life_enabled',
   'proxy_enabled',
   'proxy_url',
   'proxy_bypass',
@@ -80,20 +79,31 @@ export const ADVANCED_RESET_KEYS: readonly string[] = Object.freeze([
   'github_api_base_url',
 ])
 
+/**
+ * AI 页：Agent 生命总开关。字段仍存在 ui bag 里，但控件挂在 Lite / Pro 旁边——
+ * 开口走 Lite、设定引导走 Pro，前提和开关不该分在两页。
+ */
+export const AI_UI_RESET_KEYS: readonly string[] = Object.freeze([
+  'agent_life_enabled',
+])
+
 /** 全量重置时允许写入的 bag key（不含 base_url） */
 export const ALL_OWNED_UI_BAG_KEYS: readonly string[] = Object.freeze([
   ...UI_RESET_KEYS,
   ...PLATFORMS_UI_RESET_KEYS,
   ...MODULE_UI_RESET_KEYS,
+  ...AI_UI_RESET_KEYS,
   ...ADVANCED_RESET_KEYS,
 ])
 
 /**
  * 变更后需要后端热重载（`reloadSystemConfig` / POST reload-config）的 bag key。
- * 代理与 API 镜像影响出站客户端；不再触发整页 `location.reload`。
+ * 代理与 API 镜像影响出站客户端；生命开关影响后端缓存的那份配置。
+ * 不再触发整页 `location.reload`。
  */
 export const RUNTIME_RELOAD_UI_BAG_KEYS: readonly string[] = Object.freeze([
   ...ADVANCED_RESET_KEYS,
+  ...AI_UI_RESET_KEYS,
 ])
 
 /**

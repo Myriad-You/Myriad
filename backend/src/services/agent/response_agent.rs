@@ -9,6 +9,7 @@
 
 use serde_json::Value;
 
+use super::ai_process_pure::USER_TEXT_MAX_CHARS;
 use super::identity;
 use super::types::AgentProgressEvent;
 
@@ -52,7 +53,7 @@ pub async fn generate_final_response(ctx: ResponseContext<'_>) -> String {
             if text.is_empty() {
                 return None;
             }
-            let truncated: String = text.chars().take(3000).collect();
+            let truncated: String = text.chars().take(USER_TEXT_MAX_CHARS).collect();
             Some(format!("[{}] {}", s.step_id, truncated))
         })
         .collect();
@@ -489,7 +490,7 @@ async fn ai_summarize(
         .map(|(i, s)| format!("{}. {}", i + 1, s))
         .collect::<Vec<_>>()
         .join("\n");
-    let steps_text: String = steps_text.chars().take(6000).collect();
+    let steps_text: String = steps_text.chars().take(USER_TEXT_MAX_CHARS).collect();
 
     tracing::debug!(
         steps_count = step_data.len(),

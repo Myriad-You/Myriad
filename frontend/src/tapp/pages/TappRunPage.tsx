@@ -72,9 +72,7 @@ export function TappRunPage() {
   // /tapp/run?multi=true — 无 seed id
   if (!tappId) {
     if (isMultiWindow) {
-      return (
-        <TappWindowManager onBack={() => navigate(TAPP_LIST_PATH)} />
-      )
+      return <TappWindowManager onBack={() => navigate(TAPP_LIST_PATH)} />
     }
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-neutral-900">
@@ -139,12 +137,9 @@ function TappRunPageStandard({
   const closeWindow = useCallback(() => {
     navigate(TAPP_LIST_PATH)
   }, [navigate])
-  const focusWindow = useCallback(
-    (_windowId: string) => {
-      /* single-window: already focused */
-    },
-    [],
-  )
+  const focusWindow = useCallback((_windowId: string) => {
+    /* single-window: already focused */
+  }, [])
   useWindowAgentHandler({
     windowsRef,
     activeWindowIdRef,
@@ -206,14 +201,14 @@ function TappRunPageStandard({
         if (cancelled) return
 
         const tappCode: TappCodeStructure = {
-          core: resources.core,
-          page: resources.page,
+          modules: resources.modules,
+          moduleResolutions: resources.moduleResolutions,
+          coreEntry: resources.coreEntry,
+          pageEntry: resources.pageEntry,
           pageHtml: resources.html,
           styles: resources.styles,
           pageCSS: resources.css,
           i18n: resources.i18n,
-          pageModules: resources.pageModules,
-          pageModuleOrder: resources.pageModuleOrder,
         }
 
         if (!runtime.isRunning(tappId)) {
@@ -520,9 +515,7 @@ function TappRunPageStandard({
                 initial={{ scale: 0.8, rotate: -10 }}
                 animate={{ scale: 1, rotate: 0 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-                whileHover={
-                  noAnimation ? undefined : { scale: 1.1, rotate: 5 }
-                }
+                whileHover={noAnimation ? undefined : { scale: 1.1, rotate: 5 }}
                 whileTap={noAnimation ? undefined : { scale: 0.95 }}
               >
                 <TappIconBadge
@@ -718,9 +711,7 @@ function TappRunPageStandard({
           <TappPageSandbox
             tappInstance={tapp}
             code={code}
-            onError={(err: Error) =>
-              console.error('[TappRunPage] Error:', err)
-            }
+            onError={(err: Error) => console.error('[TappRunPage] Error:', err)}
             safeInsets={safeInsets}
           />
         </div>

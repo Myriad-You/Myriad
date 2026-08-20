@@ -367,4 +367,20 @@ export async function checkSpeechStatus() {
   return response.data
 }
 
+export interface SpeechTestResponse {
+  success: boolean
+  provider?: string
+  tts_ok?: boolean
+  asr_ok?: boolean
+  tts_skipped?: boolean
+  audio?: string
+  transcript?: string
+  error?: string
+}
+
+export async function testSpeechService(): Promise<SpeechTestResponse> {
+  const response = await api.post('/api/speech/test')
+  return response.data
+}
+
 export default api

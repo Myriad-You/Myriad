@@ -1,21 +1,18 @@
 /**
  * Reports status bar — one card that carries the whole page state:
- * - Rotating tip carousel with clickable ticks that double as the timer
- * - Merged actions (play-all / stage transport + life CTA)
+ * - Rotating tip carousel; highlight copy scrolls before the next tip
+ * - Merged actions (play-all / stage transport)
  * - Large hero title that tracks the active tip
  * Controls follow the home page status bar (Home.tsx user card): rounded-xl
  * glass, round avatar, hairline divider, rounded-lg ghost buttons in the
  * theme color. Styling lives in reportsStatusBar.css.
  */
-import type { ReactNode } from 'react'
+import type { CSSProperties } from 'react'
 import type {
-  AgentLifeSnapshot,
-  LifeStatusKind,
-  ReportsDynamicTip,
+  ReportHighlight,
   ReportsStatusCopy,
 } from './reportsDynamicStatus'
 import {
-  LuChevronRight,
   LuPause,
   LuPlay,
   LuRefreshCw,
@@ -25,23 +22,25 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import LifeMark from '../../components/agent/LifeMark'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Avatar } from '../../components/Avatar'
 import {
   buildReportsDynamicTips,
-  resolveLifeActionLabel,
+  marqueeDurationMs,
 } from './reportsDynamicStatus'
 import './reportsStatusBar.css'
 
-const TIP_ROTATE_MS = 7000
+const FIT_DWELL_MS = 4200
+const MARQUEE_START_HOLD_MS = 1400
+const MARQUEE_END_HOLD_MS = 900
 const SLIDE_EASE = [0.32, 0.72, 0, 1] as const
-
-interface PlatformIconSource {
-  id: string
-  name: string
-  icon: ReactNode
-}
 
 /** Signed-in viewer, for the avatar on their own report tips. Null when guest. */
 export interface ViewerIdentity {
@@ -55,25 +54,17 @@ interface Props {
   stagePaused: boolean
   stagePlatformId?: string | null
   stagePlatformName?: string | null
-  /** Latin platform name for the hero — display names get localized to CJK */
+  /** Latin platform name for the stage hero — display names get localized to CJK */
   stagePlatformHero?: string | null
   enabledPlatformCount: number
   reportCount: number
   hasEnabledPlatforms: boolean
-  platforms: PlatformIconSource[]
-  showLife: boolean
-  lifeKind: LifeStatusKind
-  lifeSnapshot: AgentLifeSnapshot | null
   isAdmin: boolean
   refreshingStage: boolean
-  /** Null for guests — then report tips carry no glyph at all */
+  /** Null for guests — then empty-state tips carry no glyph at all */
   viewer?: ViewerIdentity | null
+  highlights?: ReportHighlight[]
   copy: ReportsStatusCopy
-  lifeActionLabels: {
-    create: string
-    open: string
-    login: string
-  }
   actionTitles: {
     playAll: string
     refreshing: string
@@ -94,53 +85,114 @@ interface Props {
   onPlayAll: () => void
   onRefreshStage: () => void
   onCloseStage: () => void
-  onOpenLife: () => void
-  onLogin: () => void
 }
 
-/**
- * Only ever shows *who* this tip is about — the platform mark on stage, the
- * life mark for life tips, and the signed-in user's
- * avatar for their own reports. No document icon: a page glyph next to
- * "9 reports ready" says nothing the sentence doesn't.
- */
-function TipGlyph({
-  tip,
-  platforms,
-  viewer,
+/** Reports are the viewer's own data — their face stays on the bar. */
+function TipGlyph({ viewer }: { viewer?: ViewerIdentity | null }) {
+  if (!viewer) return null
+  return (
+    <Avatar
+      src={viewer.avatarUrl}
+      name={viewer.name}
+      decorative
+      className="rsb-portrait"
+    />
+  )
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
+
+function MarqueeSub({
+  text,
+  paused,
+  canAdvance,
+  onFinished,
 }: {
-  tip: ReportsDynamicTip
-  platforms: PlatformIconSource[]
-  viewer?: ViewerIdentity | null
+  text: string
+  paused: boolean
+  canAdvance: boolean
+  onFinished: () => void
 }) {
-  if (tip.kind === 'stage' && tip.platformId) {
-    const platform = platforms.find((p) => p.id === tip.platformId)
-    if (platform) {
-      return (
-        <span className="rsb-glyph" aria-hidden>
-          {platform.icon}
-        </span>
-      )
+  const trackRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLSpanElement>(null)
+  const [overflow, setOverflow] = useState(0)
+  const [phase, setPhase] = useState<'hold-start' | 'scroll' | 'hold-end'>(
+    'hold-start',
+  )
+
+  useLayoutEffect(() => {
+    const track = trackRef.current
+    const node = textRef.current
+    if (!track || !node) return
+
+    const measure = () => {
+      setOverflow(Math.max(0, node.scrollWidth - track.clientWidth))
     }
-  }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(track)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [text])
 
-  if (tip.kind.startsWith('life')) {
-    return <LifeMark className="rsb-glyph" />
-  }
+  useEffect(() => {
+    setPhase('hold-start')
+  }, [text])
 
-  // Reports are the viewer's own data — their face belongs on them.
-  if (viewer) {
-    return (
-      <Avatar
-        src={viewer.avatarUrl}
-        name={viewer.name}
-        decorative
-        className="rsb-portrait"
-      />
-    )
-  }
+  const durationMs = marqueeDurationMs(overflow)
+  const shouldScroll = overflow > 0 && !prefersReducedMotion()
 
-  return null
+  useEffect(() => {
+    if (paused) return
+
+    if (phase === 'hold-start') {
+      if (!shouldScroll && !canAdvance) return
+      const wait = shouldScroll ? MARQUEE_START_HOLD_MS : FIT_DWELL_MS
+      const timer = window.setTimeout(() => {
+        if (shouldScroll) setPhase('scroll')
+        else if (canAdvance) onFinished()
+      }, wait)
+      return () => window.clearTimeout(timer)
+    }
+
+    if (phase === 'hold-end') {
+      if (!canAdvance) return
+      const timer = window.setTimeout(onFinished, MARQUEE_END_HOLD_MS)
+      return () => window.clearTimeout(timer)
+    }
+  }, [phase, paused, canAdvance, shouldScroll, onFinished])
+
+  return (
+    <div
+      ref={trackRef}
+      className={`rsb-sub rsb-sub-track${overflow > 0 ? ' is-overflow' : ''}`}
+    >
+      <span
+        ref={textRef}
+        className={`rsb-sub-text${phase === 'scroll' ? ' is-marquee' : ''}`}
+        style={
+          {
+            '--rsb-marquee-shift': `${overflow}px`,
+            '--rsb-marquee-ms': `${durationMs}ms`,
+            transform:
+              phase === 'hold-end' ? `translateX(-${overflow}px)` : undefined,
+          } as CSSProperties
+        }
+        onAnimationEnd={(event) => {
+          if (event.animationName === 'rsb-marquee' && phase === 'scroll') {
+            setPhase('hold-end')
+          }
+        }}
+      >
+        {text}
+      </span>
+    </div>
+  )
 }
 
 export default function ReportsStatusBar({
@@ -153,23 +205,17 @@ export default function ReportsStatusBar({
   enabledPlatformCount,
   reportCount,
   hasEnabledPlatforms,
-  platforms,
-  showLife,
-  lifeKind,
-  lifeSnapshot,
   isAdmin,
   refreshingStage,
   viewer,
+  highlights,
   copy,
-  lifeActionLabels,
   actionTitles,
   titleStyle,
   stageCompactHero = false,
   onPlayAll,
   onRefreshStage,
   onCloseStage,
-  onOpenLife,
-  onLogin,
 }: Props) {
   const tips = useMemo(
     () =>
@@ -182,9 +228,7 @@ export default function ReportsStatusBar({
         stagePlatformHero,
         enabledPlatformCount,
         reportCount,
-        showLife,
-        lifeKind,
-        lifeSnapshot,
+        highlights,
       }),
     [
       copy,
@@ -195,9 +239,7 @@ export default function ReportsStatusBar({
       stagePlatformHero,
       enabledPlatformCount,
       reportCount,
-      showLife,
-      lifeKind,
-      lifeSnapshot,
+      highlights,
     ],
   )
 
@@ -210,58 +252,20 @@ export default function ReportsStatusBar({
     setTipIndex(0)
   }, [tipsSignature])
 
-  useEffect(() => {
-    if (tips.length <= 1 || held) return
-    const timer = window.setInterval(() => {
-      setTipIndex((prev) => (prev + 1) % tips.length)
-    }, TIP_ROTATE_MS)
-    return () => window.clearInterval(timer)
-  }, [tips.length, tipsSignature, held])
+  const advanceTip = useCallback(() => {
+    setTipIndex((prev) => (prev + 1) % Math.max(tips.length, 1))
+  }, [tips.length])
 
   const tip = tips[tipIndex] || tips[0]
-  const lifeAction = showLife
-    ? resolveLifeActionLabel(lifeKind, lifeActionLabels)
-    : null
-  const lifeInteractive =
-    lifeKind === 'create' ||
-    lifeKind === 'ready' ||
-    lifeKind === 'guest'
-
-  const openLife = useCallback(() => {
-    if (lifeKind === 'guest') {
-      onLogin()
-      return
-    }
-    if (lifeKind === 'disabled' || lifeKind === 'loading' || !showLife) {
-      return
-    }
-    onOpenLife()
-  }, [lifeKind, onLogin, onOpenLife, showLife])
-
-  const tipClickable = tip?.action === 'open-life' || tip?.action === 'login'
-
-  const handleTipActivate = () => {
-    if (!tipClickable || !tip) return
-    if (tip.action === 'login') {
-      onLogin()
-      return
-    }
-    openLife()
-  }
 
   if (!tip) return null
 
-  // The action follows the tip: play-all belongs to the report tips, the life
-  // CTA to the life tip. Showing both at once made the right side a permanent
-  // toolbar that had nothing to do with the sentence on the left.
-  const isLifeTip = tip.kind.startsWith('life')
-  const showCta = !isStageMode && isLifeTip && Boolean(lifeAction && lifeInteractive)
-  const showPlay = !isStageMode && !isLifeTip && hasEnabledPlatforms
-  const hasActions = isStageMode || showCta || showPlay
+  const showPlay = !isStageMode && hasEnabledPlatforms
+  const hasActions = isStageMode || showPlay
 
   return (
     <div
-      className={`rsb ${isStageMode ? 'mb-2 md:mb-0' : ''}`}
+      className={`rsb mb-2${held ? ' is-held' : ''}`}
       onMouseEnter={() => setHeld(true)}
       onMouseLeave={() => setHeld(false)}
     >
@@ -311,19 +315,11 @@ export default function ReportsStatusBar({
           transition={{ duration: 0.42, ease: SLIDE_EASE }}
         >
           <div
-            className={`rsb-tip ${tipClickable ? 'is-clickable' : ''}`}
-            role={tipClickable ? 'button' : 'status'}
-            tabIndex={tipClickable ? 0 : undefined}
-            aria-label={`${tip.main}. ${tip.sub}`}
-            onClick={handleTipActivate}
-            onKeyDown={(event) => {
-              if (!tipClickable) return
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                handleTipActivate()
-              }
-            }}
+            className="rsb-tip"
+            role="status"
+            aria-label={tip.sub ? `${tip.main}. ${tip.sub}` : tip.main}
           >
+            <TipGlyph viewer={viewer} />
             <div className="rsb-stack">
               <AnimatePresence initial={false} mode="popLayout">
                 <motion.div
@@ -335,15 +331,25 @@ export default function ReportsStatusBar({
                   exit={{ opacity: 0, y: -8, filter: 'blur(5px)' }}
                   transition={{ duration: 0.34, ease: SLIDE_EASE }}
                 >
-                  <TipGlyph tip={tip} platforms={platforms} viewer={viewer} />
-                  <div className="rsb-lines">
+                  <div
+                    className={`rsb-lines${tip.scrollSub ? ' is-ticker' : ''}`}
+                  >
                     <div className="rsb-main">{tip.main}</div>
-                    <div className="rsb-sub">{tip.sub}</div>
+                    {tip.scrollSub && tip.sub ? (
+                      <MarqueeSub
+                        key={tip.id}
+                        text={tip.sub}
+                        paused={held}
+                        canAdvance={tips.length > 1}
+                        onFinished={advanceTip}
+                      />
+                    ) : tip.sub ? (
+                      <div className="rsb-sub">{tip.sub}</div>
+                    ) : null}
                   </div>
                 </motion.div>
               </AnimatePresence>
             </div>
-            {tipClickable && <LuChevronRight className="rsb-go" aria-hidden />}
           </div>
 
           {hasActions && <span className="rsb-sep" aria-hidden />}
@@ -395,20 +401,7 @@ export default function ReportsStatusBar({
               </>
             ) : (
               <AnimatePresence initial={false} mode="popLayout">
-                {showCta ? (
-                  <motion.button
-                    key="life-cta"
-                    type="button"
-                    onClick={openLife}
-                    className="rsb-btn"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.26, ease: SLIDE_EASE }}
-                  >
-                    {lifeAction}
-                  </motion.button>
-                ) : showPlay ? (
+                {showPlay ? (
                   <motion.button
                     key="play-all"
                     type="button"

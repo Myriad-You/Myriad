@@ -39,7 +39,7 @@ pub async fn execute(
         "search.fuzzy" => execute_fuzzy_search(params, ctx).await,
         "config.get" => execute_config_get(params).await,
         "time.info" => execute_time_info(params).await,
-        "auth.status" => execute_auth_status(params).await,
+        "auth.status" => execute_auth_status(ctx).await,
         // 音乐平台
         "netease.playlist" => execute_netease_playlist(params).await,
         "netease.searchPlaylist" => execute_netease_search_playlist(params, ctx).await,
@@ -49,7 +49,7 @@ pub async fn execute(
         "bilibili.bangumi" => execute_bilibili_bangumi(params).await,
         "steam.wishlist" => execute_steam_wishlist(params).await,
         "tapp.widget" => execute_tapp_widget(params, ctx).await,
-        "permission.check" => execute_permission_check(params).await,
+        "permission.check" => execute_permission_check(params, ctx).await,
         "platform.connection" => execute_platform_connection(params).await,
         "stats.overview" => execute_stats_overview(params).await,
         "profile.summary" => execute_profile_summary(params).await,
@@ -66,7 +66,7 @@ pub async fn execute(
             execute_database_query(capability_id, params).await
         }
         "random.content" => execute_random_content(params).await,
-        "report.list" => execute_report_list(params).await,
+        "report.list" => execute_report_list(params, ctx).await,
         _ => Err(format!("Unknown data_read capability: {}", capability_id)),
     }
 }
@@ -1969,21 +1969,35 @@ async fn execute_config_get(params: &HashMap<String, Value>) -> Result<Value, St
         .unwrap_or("all");
 
     let mut config = json!({});
+    let needs_dynamic =
+        section == "all" || section == "ai" || section == "platforms" || section == "ui";
+    let dynamic = if needs_dynamic {
+        Some(crate::GLOBAL_DYNAMIC_CONFIG.read().await)
+    } else {
+        None
+    };
 
-    if section == "all" || section == "ai" {
-        config["ai"] = json!({
-            "openai_enabled": std::env::var("OPENAI_API_KEY").is_ok(),
-            "gemini_enabled": std::env::var("GEMINI_API_KEY").is_ok()
-        });
-    }
+    if let Some(dynamic) = dynamic.as_ref() {
+        if section == "all" || section == "ai" {
+            let resolved = dynamic.resolve_ai_config(crate::config::ModelTier::Standard);
+            config["ai"] = json!({
+                "enabled": dynamic.text_ai_available(),
+                "provider": resolved.provider,
+                "model": resolved.model,
+            });
+        }
 
-    if section == "all" || section == "platforms" {
-        config["platforms"] = json!({
-            "bilibili": std::env::var("BILIBILI_COOKIE").is_ok(),
-            "steam": std::env::var("STEAM_API_KEY").is_ok(),
-            "github": std::env::var("GITHUB_TOKEN").is_ok(),
-            "netease": std::env::var("NETEASE_COOKIE").is_ok()
-        });
+        if section == "all" || section == "platforms" {
+            let mut platforms = serde_json::Map::new();
+            for (name, on) in crate::api::config::platform_configured_flags(dynamic) {
+                platforms.insert(name.to_string(), json!(on));
+            }
+            config["platforms"] = Value::Object(platforms);
+        }
+
+        if section == "all" || section == "ui" {
+            config["ui"] = crate::api::config::public_ui_config_value(dynamic);
+        }
     }
 
     Ok(json!({
@@ -1993,42 +2007,75 @@ async fn execute_config_get(params: &HashMap<String, Value>) -> Result<Value, St
 }
 
 async fn execute_time_info(params: &HashMap<String, Value>) -> Result<Value, String> {
-    use chrono::{Datelike, Timelike};
-
     let timezone = params
         .get("timezone")
         .and_then(|v| v.as_str())
         .unwrap_or("Asia/Shanghai");
-    let now = chrono::Utc::now();
-
-    let weekday = match now.weekday() {
-        chrono::Weekday::Mon => "星期一",
-        chrono::Weekday::Tue => "星期二",
-        chrono::Weekday::Wed => "星期三",
-        chrono::Weekday::Thu => "星期四",
-        chrono::Weekday::Fri => "星期五",
-        chrono::Weekday::Sat => "星期六",
-        chrono::Weekday::Sun => "星期日",
-    };
-
-    Ok(json!({
-        "datetime": now.to_rfc3339(),
-        "timestamp": now.timestamp(),
-        "timezone": timezone,
-        "weekday": weekday,
-        "year": now.year(),
-        "month": now.month(),
-        "day": now.day(),
-        "hour": now.hour(),
-        "minute": now.minute()
-    }))
+    crate::services::agent::data_read_pure::project_time_info(chrono::Utc::now(), timezone)
 }
 
-async fn execute_auth_status(_params: &HashMap<String, Value>) -> Result<Value, String> {
+async fn execute_auth_status(ctx: &HandlerContext<'_>) -> Result<Value, String> {
+    use crate::services::agent::life::is_logged_in_addressee;
+    use crate::services::agent::SYSTEM_USER_ID;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+    let user_id = ctx.user_id;
+    let (username, is_admin, row_exists) = if user_id == SYSTEM_USER_ID {
+        (None, true, false)
+    } else if user_id > 0 {
+        match ctx
+            .db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT username, is_admin FROM users WHERE id = $1 LIMIT 1",
+                [user_id.into()],
+            ))
+            .await
+        {
+            Ok(Some(row)) => (
+                row.try_get::<String>("", "username").ok(),
+                row.try_get::<bool>("", "is_admin").unwrap_or(false),
+                true,
+            ),
+            Ok(None) => (None, false, false),
+            Err(error) => {
+                tracing::warn!(
+                    user_id,
+                    %error,
+                    "[Agent] Failed to load auth.status user; using least privilege"
+                );
+                (None, false, false)
+            }
+        }
+    } else {
+        (None, false, false)
+    };
+
+    let is_authenticated = is_logged_in_addressee(user_id) && row_exists;
+
+    let configured = {
+        let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+        crate::api::config::platform_configured_flags(&dynamic)
+    };
+    let mut linked_platforms = Vec::new();
+    for (name, on) in configured {
+        if !on {
+            continue;
+        }
+        let path = crate::services::platform_cache::platform_filtered_cache_path(name)?;
+        if tokio::fs::metadata(&path).await.is_ok() {
+            linked_platforms.push(name);
+        }
+    }
+
     Ok(json!({
-        "isAuthenticated": true,
-        "message": "Auth status check - requires session context",
-        "linkedPlatforms": VALID_PLATFORMS
+        "isAuthenticated": is_authenticated,
+        "user": {
+            "id": user_id,
+            "username": username,
+            "isAdmin": is_admin,
+        },
+        "linkedPlatforms": linked_platforms
     }))
 }
 
@@ -2948,52 +2995,6 @@ async fn query_rsshub_routes(query: &str) -> Result<Vec<Value>, String> {
         }
     }
 
-    // 如果缓存中没有结果，使用硬编码的热门路由
-    if results.is_empty() {
-        let popular_routes = vec![
-            ("知乎日报", "/zhihu/daily", "知乎日报，每日推荐"),
-            ("知乎热榜", "/zhihu/hotlist", "知乎热门话题榜单"),
-            ("微博热搜", "/weibo/search/hot", "微博实时热搜榜"),
-            ("B站排行榜", "/bilibili/ranking/0/3/1", "B站全站排行榜"),
-            (
-                "GitHub Trending",
-                "/github/trending/daily/any",
-                "GitHub 每日趋势项目",
-            ),
-            ("Hacker News", "/hackernews/best", "Hacker News 最佳"),
-            ("少数派首页", "/sspai/index", "少数派首页文章"),
-            ("IT之家", "/ithome", "IT之家最新资讯"),
-            ("36氪", "/36kr/newsflashes", "36氪快讯"),
-            ("豆瓣电影", "/douban/movie/playing", "豆瓣正在上映"),
-            ("抖音热搜", "/douyin/trending", "抖音热搜榜"),
-            (
-                "即刻精选",
-                "/jike/topic/text/553870e8e4b0cafb0a1bef68",
-                "即刻精选内容",
-            ),
-        ];
-
-        for (name, path, desc) in popular_routes {
-            let name_lower = name.to_lowercase();
-            let desc_lower = desc.to_lowercase();
-
-            let score = calculate_fuzzy_score(&query_lower, &name_lower)
-                .max(calculate_fuzzy_score(&query_lower, &desc_lower) * 0.7);
-
-            if score > 0.3 {
-                results.push(json!({
-                    "name": name,
-                    "path": path,
-                    "url": format!("https://rsshub.app{}", path),
-                    "description": desc,
-                    "source": "rsshub",
-                    "score": score,
-                    "verified": true
-                }));
-            }
-        }
-    }
-
     // 按得分排序
     results.sort_by(|a, b| {
         let score_a = a.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -3055,7 +3056,7 @@ async fn fetch_rsshub_routes() -> Result<Value, String> {
             {
                 let content = String::from_utf8_lossy(&bytes).to_string();
                 // 解析 radar-rules.js 提取路由信息
-                let routes = parse_rsshub_radar_rules(&content);
+                let routes = crate::services::agent::data_read_pure::parse_rsshub_radar_rules(&content);
 
                 // 缓存到本地
                 let cache_data = json!({
@@ -3081,117 +3082,6 @@ async fn fetch_rsshub_routes() -> Result<Value, String> {
 
     // 如果获取失败，返回空数组
     Ok(json!([]))
-}
-
-/// 解析 RSSHub radar-rules.js 提取路由信息
-fn parse_rsshub_radar_rules(content: &str) -> Value {
-    let mut routes = Vec::new();
-
-    // radar-rules.js 的格式大致为:
-    // module.exports = {
-    // 'zhihu.com': { _name: '知乎', daily: [{ title: '日报', ... }] },
-    // ...
-    // }
-
-    // 使用正则提取域名和路由信息
-    let domain_re = regex::Regex::new(r#"'([^']+\.[^']+)':\s*\{"#).unwrap();
-    let name_re = regex::Regex::new(r#"_name:\s*['"]([^'"]+)['"]"#).unwrap();
-    let route_re = regex::Regex::new(r#"(\w+):\s*\[\s*\{\s*title:\s*['"]([^'"]+)['"]"#).unwrap();
-    let target_re = regex::Regex::new(r#"target:\s*['"]([^'"]+)['"]"#).unwrap();
-
-    // 按域名块分割
-    let blocks: Vec<&str> = content.split("': {").collect();
-
-    for block in blocks.iter().skip(1) {
-        // 提取域名
-        let domain = if let Some(prev_part) = blocks.iter().find(|b| !block.starts_with(*b)) {
-            // 从前一个块的末尾提取域名
-            domain_re
-                .captures(prev_part)
-                .and_then(|c| c.get(1))
-                .map(|m| m.as_str())
-                .unwrap_or("")
-        } else {
-            ""
-        };
-
-        // 提取名称
-        let name = name_re
-            .captures(block)
-            .and_then(|c| c.get(1))
-            .map(|m| m.as_str())
-            .unwrap_or("");
-
-        // 提取路由
-        for cap in route_re.captures_iter(block) {
-            let _route_key = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-            let title = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-
-            // 提取 target（RSSHub 路径）
-            if let Some(target_cap) = target_re.captures(block) {
-                let target = target_cap.get(1).map(|m| m.as_str()).unwrap_or("");
-
-                if !target.is_empty() && !name.is_empty() {
-                    // 检查是否需要额外参数（路径中包含 :param 且不是可选的）
-                    let requires_config = target.contains(":")
-                        && !target.contains("?")
-                        && target.matches(':').count() > 1;
-
-                    routes.push(json!({
-                        "name": format!("{} - {}", name, title),
-                        "path": target,
-                        "description": format!("{} 的 {} 订阅", name, title),
-                        "domain": domain,
-                        "requiresConfig": requires_config
-                    }));
-                }
-            }
-        }
-    }
-
-    // 添加一些已知的无需配置的热门路由（作为后备）
-    let popular_routes = vec![
-        ("知乎日报", "/zhihu/daily", "知乎日报，每日推荐"),
-        ("知乎热榜", "/zhihu/hotlist", "知乎热门话题榜单"),
-        ("微博热搜", "/weibo/search/hot", "微博实时热搜榜"),
-        ("B站排行榜", "/bilibili/ranking/0/3/1", "B站全站排行榜"),
-        (
-            "GitHub Trending",
-            "/github/trending/daily/any",
-            "GitHub 每日趋势项目",
-        ),
-        ("Hacker News", "/hackernews/best", "Hacker News 最佳"),
-        ("少数派首页", "/sspai/index", "少数派首页文章"),
-        ("IT之家", "/ithome", "IT之家最新资讯"),
-        ("36氪", "/36kr/newsflashes", "36氪快讯"),
-        ("抖音热搜", "/douyin/trending", "抖音热搜榜"),
-        ("豆瓣电影", "/douban/movie/playing", "豆瓣正在上映"),
-        (
-            "即刻精选",
-            "/jike/topic/text/553870e8e4b0cafb0a1bef68",
-            "即刻精选内容",
-        ),
-    ];
-
-    for (name, path, desc) in popular_routes {
-        // 检查是否已存在
-        let exists = routes
-            .iter()
-            .any(|r| r.get("path").and_then(|p| p.as_str()) == Some(path));
-
-        if !exists {
-            routes.push(json!({
-                "name": name,
-                "path": path,
-                "description": desc,
-                "domain": "",
-                "requiresConfig": false,
-                "verified": true
-            }));
-        }
-    }
-
-    json!(routes)
 }
 
 async fn discover_rss_from_website(url: &str) -> Result<Vec<Value>, String> {
@@ -4079,70 +3969,61 @@ async fn execute_tapp_widget(
     }))
 }
 
-/// 权限检查
-async fn execute_permission_check(params: &HashMap<String, Value>) -> Result<Value, String> {
+/// 权限检查：当前会话角色的授予权限；带 tappId 时再与该安装的批准权限求交。
+async fn execute_permission_check(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    use crate::services::permission_service::{
+        role_from_user_id, TappPermission, TappPermissionService,
+    };
+
     let permission = params
         .get("permission")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let role = params
-        .get("role")
-        .and_then(|v| v.as_str())
-        .unwrap_or("user");
+    let tapp_id = params
+        .get("tappId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
-    // 基础权限列表
-    let basic_permissions = [
-        "widget:register",
-        "platform:read",
-        "report:read",
-        "storage",
-        "ui:notification",
-        "ui:fullscreen",
-        "ui:theme",
-        "ui:confirm",
-        "media:read",
-        "media:control",
-        "event:subscribe",
-    ];
+    let is_admin = crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await;
+    let role = role_from_user_id(ctx.user_id, is_admin);
 
-    let elevated_permissions = [
-        "ai:generate",
-        "ai:analyze",
-        "ai:chat",
-        "report:write",
-        "network:fetch",
-        "component:theme",
-        "shortcut:register",
-        "event:publish",
-    ];
-
-    let privileged_permissions = ["platform:write", "platform:register", "component:agent"];
-
-    let has_permission = match role {
-        "admin" => true,
-        "user" => {
-            basic_permissions.contains(&permission) || elevated_permissions.contains(&permission)
-        }
-        "guest" => basic_permissions.contains(&permission),
-        _ => false,
+    let Some(parsed) = TappPermission::from_str(permission) else {
+        return Ok(json!({
+            "permission": permission,
+            "granted": false,
+            "role": role.as_str(),
+            "tappId": tapp_id,
+        }));
     };
 
-    let reason = if has_permission {
-        "Permission granted".to_string()
-    } else if privileged_permissions.contains(&permission) {
-        "This permission requires admin role".to_string()
+    let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+    let granted = if let Some(tapp_id) = tapp_id {
+        match crate::services::tapp_ownership::resolve_accessible_tapp(ctx.db, ctx.user_id, tapp_id)
+            .await
+        {
+            Ok(tapp) => {
+                let approved =
+                    crate::services::tapp_declared_api::installed_permissions_from_tapp(&tapp);
+                match TappPermissionService::filter_permissions_for_role(&config, role, &approved) {
+                    Ok(granted_list) => granted_list.iter().any(|p| p == parsed.as_str()),
+                    Err(_) => false,
+                }
+            }
+            Err(_) => false,
+        }
     } else {
-        format!(
-            "Permission '{}' not available for role '{}'",
-            permission, role
-        )
+        TappPermissionService::check(&config, role, parsed)
     };
 
     Ok(json!({
         "permission": permission,
-        "role": role,
-        "hasPermission": has_permission,
-        "reason": reason
+        "granted": granted,
+        "role": role.as_str(),
+        "tappId": tapp_id,
     }))
 }
 
@@ -4152,30 +4033,35 @@ async fn execute_platform_connection(params: &HashMap<String, Value>) -> Result<
         .get("platform")
         .and_then(|v| v.as_str())
         .unwrap_or("all");
+    validate_platform_name(platform)?;
+
+    let configured = {
+        let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+        crate::api::config::platform_configured_flags(&dynamic)
+    };
+    let configured_map: HashMap<&str, bool> = configured.iter().copied().collect();
 
     let platforms: Vec<&str> = if platform == "all" {
-        VALID_PLATFORMS.to_vec()
+        configured.iter().map(|(name, _)| *name).collect()
     } else {
         vec![platform]
     };
 
     let mut connections = Vec::new();
     for p in platforms {
-        let cache_file = format!("cache/platforms/{}_filtered.json", p);
-        let connected = tokio::fs::metadata(&cache_file).await.is_ok();
-        let last_sync = if connected {
-            tokio::fs::metadata(&cache_file)
-                .await
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
-        } else {
-            None
-        };
+        let configured = configured_map.get(p).copied().unwrap_or(false);
+        let cache_file = crate::services::platform_cache::platform_filtered_cache_path(p)?;
+        let meta = tokio::fs::metadata(&cache_file).await.ok();
+        let has_data = meta.is_some();
+        let last_sync = meta
+            .and_then(|m| m.modified().ok())
+            .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
 
         connections.push(json!({
             "platform": p,
-            "connected": connected,
+            "configured": configured,
+            "hasData": has_data,
+            "connected": configured && has_data,
             "lastSync": last_sync
         }));
     }
@@ -4273,7 +4159,6 @@ async fn execute_profile_summary(params: &HashMap<String, Value>) -> Result<Valu
         .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
         .unwrap_or_else(|| VALID_PLATFORMS.to_vec());
 
-    let interests: Vec<String> = Vec::new();
     let mut activities = Vec::new();
     let mut platform_stats = json!({});
 
@@ -4314,7 +4199,6 @@ async fn execute_profile_summary(params: &HashMap<String, Value>) -> Result<Valu
 
     Ok(json!({
         "summary": crate::services::agent::response_agent::active_platforms(platforms.len()),
-        "interests": interests,
         "activities": activities,
         "platformStats": platform_stats
     }))
@@ -4451,7 +4335,7 @@ async fn execute_task_status(
         };
     }
 
-    // 无 taskId：返回当前用户最近任务列表（非空成功假装“已完成”）
+    // 无 taskId：返回当前用户最近任务列表，不假装单任务已完成
     let mut tasks = get_user_tasks(ctx.user_id).await;
     tasks.sort_by_key(|t| std::cmp::Reverse(t.started_at));
     let limit = std::cmp::min(
@@ -4566,9 +4450,9 @@ async fn execute_tapp_list(
                 "description": tapp.description,
                 "icon": tapp.icon,
                 "status": format!("{:?}", tapp.status).to_lowercase(),
-                "hasCore": tapp.manifest.get("hasCore").and_then(Value::as_bool).unwrap_or(false),
-                "hasPage": tapp.manifest.get("hasPage").and_then(Value::as_bool).unwrap_or(false),
-                "hasWidget": tapp.manifest.get("hasWidget").and_then(Value::as_bool).unwrap_or(false),
+                "hasCore": crate::services::tapp_package_read::manifest_declares_core(&tapp.manifest),
+                "hasPage": crate::services::tapp_package_read::manifest_declares_page(&tapp.manifest),
+                "hasWidget": crate::services::tapp_package_read::manifest_declares_widgets(&tapp.manifest),
                 "backgroundRequirements": tapp.manifest
                     .get("backgroundRequirements")
                     .cloned()
@@ -4932,42 +4816,79 @@ fn extract_platform_items_for_random(platform: &str, data: &Value) -> Vec<Value>
     }
 }
 
-/// 报告列表
-async fn execute_report_list(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
-    let platform = params.get("platform").and_then(|v| v.as_str());
+/// 报告列表：平台报告走 `platform_reports`；Agent `report.create` 走 `tapp_storage`。
+async fn execute_report_list(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
+    use crate::models::entities::tapp_storage;
+    use crate::services::agent::resource_create_pure::AGENT_REPORTS_TAPP_ID;
+    use crate::services::tapp_reports::{list_user_platform_reports, platform_report_list_item};
 
-    let reports_dir = std::path::Path::new("data/reports");
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(10)
+        .clamp(1, 50) as usize;
+    let platform = params
+        .get("platform")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let preferred = crate::api::reports::public_report_owner_user_id(ctx.db).await;
+    let owner_id =
+        crate::api::reports::resolve_report_user_id_for_public_read(ctx.db, preferred)
+            .await
+            .unwrap_or(preferred);
+
+    let rows = list_user_platform_reports(ctx.db, owner_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut seen = std::collections::HashSet::new();
     let mut reports = Vec::new();
-
-    if reports_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(reports_dir) {
-            for entry in entries.flatten().take(limit) {
-                let path = entry.path();
-                if path.extension().map(|e| e == "json").unwrap_or(false) {
-                    let filename = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("unknown");
-
-                    // 按平台过滤
-                    if let Some(p) = platform {
-                        if !filename.contains(p) {
-                            continue;
-                        }
-                    }
-
-                    let metadata = std::fs::metadata(&path).ok();
-                    reports.push(json!({
-                        "id": filename,
-                        "path": path.to_string_lossy(),
-                        "size": metadata.as_ref().map(|m| m.len()),
-                        "modified": metadata.and_then(|m| m.modified().ok())
-                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                            .map(|d| d.as_secs())
-                    }));
-                }
+    for row in rows {
+        if row.platform == "all" {
+            continue;
+        }
+        if let Some(p) = platform {
+            if !row.platform.eq_ignore_ascii_case(p) {
+                continue;
             }
+        }
+        if !seen.insert(row.platform.clone()) {
+            continue;
+        }
+        reports.push(platform_report_list_item(&row));
+        if reports.len() >= limit {
+            break;
+        }
+    }
+
+    if platform.is_none() && reports.len() < limit {
+        let remaining = (limit - reports.len()) as u64;
+        let agent_rows = tapp_storage::Entity::find()
+            .filter(tapp_storage::Column::TappId.eq(AGENT_REPORTS_TAPP_ID))
+            .filter(tapp_storage::Column::UserId.eq(ctx.user_id))
+            .order_by_desc(tapp_storage::Column::CreatedAt)
+            .limit(remaining)
+            .all(ctx.db)
+            .await
+            .map_err(|e| format!("Failed to list agent reports: {e}"))?;
+        for row in agent_rows {
+            let value = &row.value;
+            reports.push(json!({
+                "id": value.get("id").cloned().unwrap_or(json!(row.key)),
+                "title": value.get("title").and_then(Value::as_str).unwrap_or(""),
+                "type": "agent",
+                "format": value.get("format").and_then(Value::as_str).unwrap_or("markdown"),
+                "createdAt": value
+                    .get("createdAt")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| row.created_at.to_rfc3339()),
+            }));
         }
     }
 
@@ -4988,31 +4909,16 @@ async fn trigger_ai_web_search_for_reading_list(
 ) -> Result<Vec<Value>, String> {
     use crate::GLOBAL_DYNAMIC_CONFIG;
 
-    // 从全局配置读取 Gemini API Key
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-
     tracing::info!(
-        has_key = config.gemini_api_key.is_some(),
+        has_key = config.shared_gemini_api_key().is_some(),
         "[AI Web Search] Checking Gemini API configuration"
     );
-
-    let api_key = config.gemini_api_key.clone().ok_or_else(|| {
+    let (api_key, model) = config.resolve_gemini_grounding().ok_or_else(|| {
         tracing::error!("[AI Web Search] Gemini API Key is not configured");
         crate::services::agent::response_agent::api_key_not_configured("Gemini")
             + "，请在设置中配置 API Key"
     })?;
-
-    if api_key.is_empty() {
-        tracing::error!("[AI Web Search] Gemini API Key is empty");
-        return Err(crate::services::agent::response_agent::api_key_not_configured("Gemini"));
-    }
-
-    let model = if config.gemini_model.is_empty() {
-        "gemini-2.0-flash".to_string()
-    } else {
-        config.gemini_model.clone()
-    };
-
     drop(config);
 
     // 构建搜索提示词 - 优化：更明确的指令，强调 JSON 格式和详细摘要
@@ -5072,16 +4978,9 @@ async fn trigger_ai_web_search_for_reading_list(
         }
     });
 
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-        model
-    );
+    let url = crate::services::http_client::GeminiApiUrl::generate_content_url(&model).await;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
+    let client = crate::services::http_client::get_gemini_grounding_client().await;
 
     tracing::info!(query = %query, "[AI Web Search] Searching for reading list content");
 

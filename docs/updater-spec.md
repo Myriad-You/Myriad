@@ -393,7 +393,7 @@ updater 会先从 `*:myriad-rollback` 重新创建原版本 tag，再交给 Comp
 3. preflight / maintenance 入口失败必须清维护  
 4. rollback 中途 Err 后仍 best-effort `compose up` 业务容器  
 
-回归：`./scripts/test-updater-smoke.sh`；`./scripts/test-updater-e2e.sh`；`cargo test -p myriad-updater --lib`。
+回归：`./scripts/extra/test-updater-smoke.sh`；`./scripts/extra/test-updater-e2e.sh`；`cargo test -p myriad-updater --lib`。
 
 ## 8. 网络与下载
 
@@ -516,7 +516,7 @@ docker-compose (v1)   ← fallback
 - 不直接修改 `compose.yaml`
 - 普通更新只修改 `.env` 中的 `MYRIAD_TAG`
 - updater 不修改自身或 docker-guard 的版本；`UPDATER_TAG` 与 Guard 摘要仅由宿主运维流程更新
-- `PROXY_TAG` 目前由人工编辑 `.env` 后运行 `scripts/docker/deploy.sh upgrade`
+- `PROXY_TAG` 目前由人工编辑 `.env` 后运行 `scripts/extra/deploy.sh upgrade`
 - compose 文件必须用 `${MYRIAD_TAG}` 引用版本变量
 - 启动时验证 compose 引用了这些变量，没有则拒绝启动
 
@@ -893,7 +893,7 @@ CLI 直接读 state + 调 docker，**不依赖 updater 进程活着**。
 ## 17. 测试矩阵
 
 M1 release 前必须跑通。状态：
-- **e2e** — 通过 `scripts/test-updater-e2e.sh` 自动验证（本地二进制 + /tmp testbed）
+- **e2e** — 通过 `scripts/extra/test-updater-e2e.sh` 自动验证（本地二进制 + /tmp testbed）
 - **unit** — 通过 `cargo test --lib` 验证
 - **manual** — 需要真实 docker stack（本地或预发环境），尚未自动化
 
@@ -968,4 +968,4 @@ E2E 实际覆盖（11 项 / 全过，2026-07-17）：
 8. `./state` 和 `./backups` 由部署脚本创建
 9. `UPDATE_TOKEN` 保存在同一个 `.env`，不暴露给浏览器，也不进入 backend 容器 env
 
-`scripts/docker/deploy.sh` 和 `scripts/docker/deploy.ps1` 是当前生产布局的 bootstrap 入口。
+`scripts/extra/deploy.sh` 是当前生产布局的 bootstrap 入口。

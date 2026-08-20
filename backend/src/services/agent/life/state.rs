@@ -69,6 +69,22 @@ pub fn should_apply_departure(
     silent >= 90 && silent < 12 * 3600 && departure_after_message_secs.is_none_or(|since| since < 0)
 }
 
+/// How long a non-idle `activity` is believed. Nothing clears the row if the
+/// process is killed between `working` and `idle`, and `working` is a gate in
+/// `decide_ingest` — without this the addressee would go permanently silent
+/// unless they happen to chat again. Far longer than any single turn.
+pub const ACTIVITY_STALE_SECS: i64 = 30 * 60;
+
+/// Reads through a stale activity. `age_secs` comes from `updated_at`, which
+/// other writes also touch, so this can only ever be generous, never early.
+pub fn effective_activity(activity: &str, age_secs: i64) -> &str {
+    if activity == "idle" || age_secs < ACTIVITY_STALE_SECS {
+        activity
+    } else {
+        "idle"
+    }
+}
+
 pub fn parse_mood_hint(raw: &str) -> Option<f64> {
     let trimmed = raw
         .trim()
@@ -171,6 +187,19 @@ mod tests {
         assert!(should_apply_departure(Some(600), Some(-1)));
         assert!(!should_apply_departure(Some(13 * 3600), None));
         assert_eq!(apply_departure(70.0), 68.0);
+    }
+
+    #[test]
+    fn stale_activity_reads_as_idle() {
+        assert_eq!(effective_activity("working", 5), "working");
+        assert_eq!(
+            effective_activity("thinking", ACTIVITY_STALE_SECS - 1),
+            "thinking"
+        );
+        // A process killed mid-task must not gate this person forever.
+        assert_eq!(effective_activity("working", ACTIVITY_STALE_SECS), "idle");
+        assert_eq!(effective_activity("talking", 10 * 3600), "idle");
+        assert_eq!(effective_activity("idle", 10 * 3600), "idle");
     }
 
     #[test]

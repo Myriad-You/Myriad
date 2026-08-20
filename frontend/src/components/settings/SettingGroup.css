@@ -28,7 +28,7 @@
  * 网格内的卡片必须排除：间距由 SettingGroupGrid 的 gap 负责，
  * 这里再补 margin-top 会把「除首张外」的每张卡整体压低一个 gap，
  * 首行左右卡因此错位（两条规则特异性同为 0,3,0，纯靠加载顺序决胜）。 */
-:not(.config-form)
+:not(.config-form, .ai-pane)
   > .setting-group:not(.setting-group--in-grid)
   + .setting-group:not(.setting-group--in-grid) {
   margin-top: var(--settings-gap-group, 1.25rem);

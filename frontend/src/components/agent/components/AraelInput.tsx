@@ -68,6 +68,7 @@ export const AraelInput: React.FC<AraelInputProps> = ({
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={dynamicPlaceholder}
+          maxLength={32680}
           className="arael-input"
           disabled={
             (isLoading && !allowSubmitWhileLoading) ||

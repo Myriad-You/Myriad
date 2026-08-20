@@ -7,6 +7,7 @@
 //! - scrape length clamp and text compression
 //! - simple HTML title extraction
 
+use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -15,7 +16,7 @@ pub const HTTP_FETCH_MAX_BODY_BYTES: u64 = 10 * 1024 * 1024;
 /// Max HTML size for web.scrape (bytes).
 pub const WEB_SCRAPE_MAX_HTML_BYTES: usize = 5 * 1024 * 1024;
 /// Default max extracted text length for web.scrape.
-pub const WEB_SCRAPE_DEFAULT_MAX_LENGTH: usize = 5000;
+pub const WEB_SCRAPE_DEFAULT_MAX_LENGTH: usize = USER_TEXT_MAX_CHARS;
 
 /// Non-empty trimmed string from params.
 pub fn optional_string_param(params: &HashMap<String, Value>, key: &str) -> Option<String> {

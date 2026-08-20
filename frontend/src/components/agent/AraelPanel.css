@@ -351,6 +351,12 @@ html.dark .arael-msg-list::-webkit-scrollbar-thumb {
   resize: vertical;
 }
 
+.arael-persona-vitals {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+}
+
 .arael-persona-dnd {
   display: flex;
   align-items: center;

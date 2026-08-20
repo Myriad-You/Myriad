@@ -398,11 +398,6 @@ impl ConfigService {
                 config.ui_wallpaper_blur = n as i32;
             }
         }
-        if let Some(v) = map.get("ui_wallpaper_parallax") {
-            if let Some(b) = v.as_bool() {
-                config.ui_wallpaper_parallax = b;
-            }
-        }
         // Evocative 壁纸动效
         if let Some(v) = map.get("ui_evocative_parallax") {
             if let Some(b) = v.as_bool() {
@@ -437,16 +432,6 @@ impl ConfigService {
         }
         if let Some(v) = map.get("ui_secondary_color") {
             config.ui_secondary_color = v.as_str().map(str::to_string);
-        }
-        if let Some(v) = map.get("pet_enabled") {
-            if let Some(b) = v.as_bool() {
-                config.pet_enabled = b;
-            } else if let Some(s) = v.as_str() {
-                config.pet_enabled = s == "true";
-            }
-        }
-        if let Some(v) = map.get("pet_image_url") {
-            config.pet_image_url = v.as_str().map(|s| s.to_string());
         }
         if let Some(v) = map.get("analytics_enabled") {
             if let Some(b) = v.as_bool() {
@@ -551,6 +536,102 @@ impl ConfigService {
         if let Some(v) = map.get("tencent_region") {
             config.tencent_region = v.as_str().map(|s| s.to_string());
         }
+        if let Some(v) = map.get("speech_provider") {
+            if let Some(s) = v.as_str() {
+                config.speech_provider = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("speech_reuse_text_credentials") {
+            if let Some(b) = v.as_bool() {
+                config.speech_reuse_text_credentials = b;
+            } else if let Some(s) = v.as_str() {
+                config.speech_reuse_text_credentials = s == "true" || s == "1";
+            }
+        }
+        if let Some(v) = map.get("speech_openai_api_key") {
+            config.speech_openai_api_key = v.as_str().map(|s| s.to_string());
+        }
+        if let Some(v) = map.get("speech_openai_base_url") {
+            if let Some(s) = v.as_str() {
+                config.speech_openai_base_url = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("speech_openrouter_api_key") {
+            config.speech_openrouter_api_key = v.as_str().map(|s| s.to_string());
+        }
+        if let Some(v) = map.get("provider_openai_api_key") {
+            config.provider_openai_api_key = v.as_str().map(|s| s.to_string());
+        }
+        if let Some(v) = map.get("provider_openai_base_url") {
+            if let Some(s) = v.as_str() {
+                config.provider_openai_base_url = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("provider_openrouter_api_key") {
+            config.provider_openrouter_api_key = v.as_str().map(|s| s.to_string());
+        }
+        if let Some(v) = map.get("provider_gemini_api_key") {
+            config.provider_gemini_api_key = v.as_str().map(|s| s.to_string());
+        }
+        if let Some(v) = map.get("provider_volcengine_api_key") {
+            config.provider_volcengine_api_key = v.as_str().map(|s| s.to_string());
+        }
+        if let Some(v) = map.get("provider_volcengine_base_url") {
+            if let Some(s) = v.as_str() {
+                config.provider_volcengine_base_url = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("ai_vendor_sources") {
+            if let Ok(parsed) =
+                serde_json::from_value::<Vec<crate::config::AiVendorSource>>(v.clone())
+            {
+                config.ai_vendor_sources = parsed;
+            } else if let Some(s) = v.as_str() {
+                if let Ok(parsed) = serde_json::from_str::<Vec<crate::config::AiVendorSource>>(s) {
+                    config.ai_vendor_sources = parsed;
+                }
+            }
+        }
+        if let Some(v) = map.get("ai_source") {
+            if let Some(s) = v.as_str() {
+                config.ai_source = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("lite_ai_source") {
+            if let Some(s) = v.as_str() {
+                config.lite_ai_source = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("pro_ai_source") {
+            if let Some(s) = v.as_str() {
+                config.pro_ai_source = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("ai_image_source") {
+            if let Some(s) = v.as_str() {
+                config.ai_image_source = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("speech_source") {
+            if let Some(s) = v.as_str() {
+                config.speech_source = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("speech_stt_model") {
+            if let Some(s) = v.as_str() {
+                config.speech_stt_model = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("speech_tts_model") {
+            if let Some(s) = v.as_str() {
+                config.speech_tts_model = s.to_string();
+            }
+        }
+        if let Some(v) = map.get("speech_tts_voice") {
+            if let Some(s) = v.as_str() {
+                config.speech_tts_voice = s.to_string();
+            }
+        }
 
         if let Some(v) = map.get("enable_auto_fetch") {
             if let Some(b) = v.as_bool() {
@@ -563,20 +644,7 @@ impl ConfigService {
             }
         }
 
-        // OAuth 配置
-        if let Some(v) = map.get("github_client_id") {
-            config.github_client_id = v.as_str().map(|s| s.to_string());
-        }
-        if let Some(v) = map.get("github_client_secret") {
-            config.github_client_secret = v.as_str().map(|s| s.to_string());
-        }
-        if let Some(v) = map.get("github_redirect_url") {
-            if let Some(s) = v.as_str() {
-                config.github_redirect_url = s.to_string();
-            }
-        }
-
-        // OIDC / 自定义 OAuth providers 列表
+        // OAuth providers 列表
         if let Some(v) = map.get("oauth_providers") {
             if let Ok(parsed) =
                 serde_json::from_value::<Vec<crate::config::OAuthProviderEntry>>(v.clone())
@@ -1052,6 +1120,7 @@ impl ConfigService {
 #[cfg(test)]
 mod tests {
     use super::ConfigService;
+    use crate::config::DynamicConfig;
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
     use syn::visit::Visit;
@@ -1113,6 +1182,90 @@ mod tests {
             json!(false),
         )]));
         assert!(!off.agent_life_enabled);
+    }
+
+    #[test]
+    fn parses_speech_provider_fields_from_database_config() {
+        let vendors = ConfigService::parse_config(HashMap::from([(
+            "ai_vendor_sources".into(),
+            json!([{
+                "slug": "openai-work",
+                "kind": "openai",
+                "display_name": "Work OpenAI",
+                "enabled": true,
+                "api_key": "sk-work",
+                "base_url": "https://api.openai.com/v1"
+            }]),
+        )]));
+        assert_eq!(vendors.ai_vendor_sources.len(), 1);
+        assert_eq!(vendors.ai_vendor_sources[0].slug, "openai-work");
+        assert_eq!(
+            vendors.ai_vendor_sources[0].api_key.as_deref(),
+            Some("sk-work")
+        );
+
+        let config = ConfigService::parse_config(HashMap::from([
+            ("speech_provider".into(), json!("openai")),
+            ("speech_reuse_text_credentials".into(), json!(false)),
+            ("speech_stt_model".into(), json!("gpt-transcribe")),
+            ("speech_tts_model".into(), json!("gpt-4o-mini-tts")),
+            ("speech_tts_voice".into(), json!("marin")),
+            ("speech_openai_api_key".into(), json!("sk-speech")),
+            (
+                "speech_openai_base_url".into(),
+                json!("https://api.openai.com/v1"),
+            ),
+            ("speech_openrouter_api_key".into(), json!("sk-or-speech")),
+        ]));
+        assert_eq!(config.speech_provider, "openai");
+        assert!(!config.speech_reuse_text_credentials);
+        assert_eq!(config.speech_openai_api_key.as_deref(), Some("sk-speech"));
+        assert_eq!(config.speech_openai_base_url, "https://api.openai.com/v1");
+        assert_eq!(
+            config.speech_openrouter_api_key.as_deref(),
+            Some("sk-or-speech")
+        );
+        assert_eq!(config.speech_stt_model, "gpt-transcribe");
+        assert_eq!(config.speech_tts_model, "gpt-4o-mini-tts");
+        assert_eq!(config.speech_tts_voice, "marin");
+    }
+
+    #[test]
+    fn agent_life_stays_off_without_required_models() {
+        // Holds whatever AGENT_LIFE_ENABLED says: Lite and Pro are hard
+        // prerequisites, so life never silently spends the standard model.
+        let no_lite = DynamicConfig {
+            agent_life_enabled: true,
+            lite_enabled: false,
+            pro_enabled: true,
+            ..DynamicConfig::default()
+        };
+        assert!(!no_lite.agent_life_enabled_resolved());
+        assert!(no_lite.agent_life_needs_lite());
+        assert!(!no_lite.agent_life_needs_pro());
+
+        let no_pro = DynamicConfig {
+            agent_life_enabled: true,
+            lite_enabled: true,
+            pro_enabled: false,
+            ..DynamicConfig::default()
+        };
+        assert!(!no_pro.agent_life_enabled_resolved());
+        assert!(!no_pro.agent_life_needs_lite());
+        assert!(no_pro.agent_life_needs_pro());
+
+        let with_tiers = DynamicConfig {
+            agent_life_enabled: true,
+            lite_enabled: true,
+            pro_enabled: true,
+            ..DynamicConfig::default()
+        };
+        assert_eq!(
+            with_tiers.agent_life_enabled_resolved(),
+            with_tiers.agent_life_switch_on()
+        );
+        assert!(!with_tiers.agent_life_needs_lite());
+        assert!(!with_tiers.agent_life_needs_pro());
     }
 
     #[test]

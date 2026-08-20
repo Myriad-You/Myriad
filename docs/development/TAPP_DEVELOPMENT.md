@@ -7,7 +7,6 @@
 
 | 文档 | 说明 |
 | ---- | ---- |
-| [愿景与用户故事](tapp/VISION.md) | 权限放宽的需求背景、三大痛点与五个用户故事 |
 | [架构总览](tapp/ARCHITECTURE.md) | 安装态、运行态、列表布局、私有安装清理、沙箱与调度器 |
 | [Tapp 商店](tapp/STORE.md) | 远程目录 `index.json`、源管理、安装链路、商店索引 UI 字段（如 `icon_shell`）与发布 |
 | [Tapp Playground](tapp/PLAYGROUND.md) | Pro AI 双模式（Page / Widget-only）生成、预览、导出与安装边界 |
@@ -29,59 +28,7 @@
 
 官方远程目录仓库：[Myriad-You/tapp-store](https://github.com/Myriad-You/tapp-store)（目录与发布说明以 [Tapp 商店](tapp/STORE.md) 为准）。
 
-## 快速导航
-
-### 新手入门
-
-1. 阅读 [快速入门](tapp/QUICKSTART.md) 创建第一个 Tapp  
-2. 了解 [Manifest 配置](tapp/MANIFEST.md) 完善应用信息  
-3. 查阅 [SDK API 参考](tapp/API_REFERENCE.md) 使用各种功能  
-4. 发布到远程目录时读 [Tapp 商店](tapp/STORE.md)
-
-### 开发小组件
-
-1. 查看 [小组件开发](tapp/WIDGET.md) 了解 Widget SDK 限制  
-2. 参考 [样式规范](tapp/STYLING.md) 与 [页面样式](tapp/PAGE.md)  
-3. 了解 [安全沙箱](tapp/SANDBOX.md) 避免 XSS 风险  
-4. 遇到问题查阅 [故障排除](tapp/TROUBLESHOOTING.md)
-
-### 高级功能
-
-1. [架构总览](tapp/ARCHITECTURE.md) — 宿主、沙箱和后端边界  
-2. [运行时契约](tapp/RUNTIME_CONTRACT_DESIGN.md) — Grant / 交换 / AI / Event  
-3. [Manifest · API 声明](tapp/MANIFEST.md#api-声明-apis) — 命名 API 与出站边界  
-4. [SDK · 定时任务](tapp/API_REFERENCE.md#定时任务-api) — 持久化调度  
-5. [Tapp 商店](tapp/STORE.md) — 目录安装与多源  
-6. [REST API](tapp/REST_API.md) — 宿主内部后端契约（Tapp 代码优先用 SDK）
-
-## 目录结构
-
-```text
-docs/development/
-├── TAPP_DEVELOPMENT.md          # 本索引
-└── tapp/
-    ├── ARCHITECTURE.md
-    ├── STORE.md                 # 远程商店 / 目录协议
-    ├── PLAYGROUND.md
-    ├── PLAYGROUND_GENERATION_CONTEXT.md
-    ├── QUICKSTART.md
-    ├── MANIFEST.md
-    ├── API_REFERENCE.md
-    ├── WIDGET.md
-    ├── PAGE.md
-    ├── SANDBOX.md
-    ├── GRAPHICS.md
-    ├── STYLING.md
-    ├── DESIGN_SPEC.md
-    ├── RUNTIME_CONTRACT_DESIGN.md
-    ├── REST_API.md
-    ├── TROUBLESHOOTING.md
-    └── fixtures/                # 权限对照 JSON
-docs/features/
-└── TAPP_FILE_FORMAT.md
-tools/tapp-cli/
-└── README.md                    # myriad-tapp CLI 契约
-```
+新手从 [快速入门](tapp/QUICKSTART.md) 开始；Widget 看 [WIDGET.md](tapp/WIDGET.md)；契约与宿主边界看 [架构](tapp/ARCHITECTURE.md) 和 [运行时契约](tapp/RUNTIME_CONTRACT_DESIGN.md)。CLI 见 `tools/tapp-cli/README.md`。
 
 ## 文档维护原则
 

@@ -20,22 +20,14 @@ export interface PlatformConfig {
 }
 
 export interface AiConfig {
-  provider: string
-  model: string
-  api_key: string
-  enabled: boolean
-  image_provider: string
   config_fields: ConfigField[]
 }
 
 export interface TripoConfig {
-  enabled: boolean
-  configured: boolean
   config_fields: ConfigField[]
 }
 
 export interface ReportConfig {
-  topic_style: string
   config_fields: ConfigField[]
 }
 

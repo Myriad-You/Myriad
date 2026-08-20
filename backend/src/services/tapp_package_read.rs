@@ -5,114 +5,147 @@
 
 use myriad_tapp_contract::manifest::TappManifest;
 
-/// CSS packaging mode from `manifest.cssMode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InstalledCssMode {
-    /// Default / legacy: shared styles + optional widget.css / page.css files.
-    Combined,
-    /// Separated: widgetStyles / pageStyles are first-class paths.
-    Separated,
-}
-
-impl InstalledCssMode {
-    pub fn as_str(self) -> Option<&'static str> {
-        match self {
-            Self::Combined => None,
-            Self::Separated => Some("separated"),
-        }
-    }
-}
-
-/// Parse cssMode from a raw manifest JSON value (DB-stored).
-pub fn installed_css_mode(manifest: &serde_json::Value) -> InstalledCssMode {
-    match manifest
-        .get("cssMode")
-        .and_then(serde_json::Value::as_str)
-    {
-        Some("separated") => InstalledCssMode::Separated,
-        _ => InstalledCssMode::Combined,
-    }
-}
+/// 宿主预编译 Tailwind 产物的固定路径。
+///
+/// 这是与作者样式并行的第二条通道：作者样式由 manifest 的层声明，预编译产物
+/// 由平台按固定名写入，两者不能收成同一套字段，否则安装期生成的 CSS 会被
+/// 当成作者声明去校验。
+/// 放在独立目录下，避免与作者声明的层样式撞名——作者完全可以把
+/// `page.styles` 命名为 `page.css`。
+pub const HOST_WIDGET_CSS: &str = "host/widget.css";
+pub const HOST_PAGE_CSS: &str = "host/page.css";
 
 /// Relative text paths to attempt when serving `GET …/resources`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledTextResourcePlan {
-    /// Wire `cssMode` field (only set for separated).
-    pub css_mode: Option<&'static str>,
-    /// Shared styles path when present (manifest.styles or default styles.css).
-    pub styles: Option<String>,
-    /// Separated-mode widget styles path.
-    pub widget_styles: Option<String>,
-    /// Separated-mode page styles path.
+    /// 作者共享样式（`core.styles`）。
+    pub core_styles: Option<String>,
+    /// 作者 Page 层样式（`page.styles`）。
     pub page_styles: Option<String>,
-    /// Combined-mode legacy widget.css (None when separated).
-    pub widget_css: Option<String>,
-    /// Combined-mode legacy page.css (None when separated).
-    pub page_css: Option<String>,
-    /// Page HTML template path (default `page.html`).
-    pub page_template: String,
+    /// 作者 Widget 层样式，按 widget id。
+    pub widget_styles: Vec<(String, String)>,
+    /// Page HTML 模板（`page.template`）。
+    pub page_template: Option<String>,
+}
+
+fn layer_string(manifest: &serde_json::Value, layer: &str, key: &str) -> Option<String> {
+    manifest
+        .get(layer)?
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(String::from)
 }
 
 /// Build the text-resource read plan from a stored manifest JSON object.
 pub fn installed_text_resource_plan(manifest: &serde_json::Value) -> InstalledTextResourcePlan {
-    let mode = installed_css_mode(manifest);
-    let is_separated = mode == InstalledCssMode::Separated;
-
-    let styles = if let Some(path) = manifest.get("styles").and_then(serde_json::Value::as_str) {
-        Some(path.to_string())
-    } else if !is_separated {
-        Some("styles.css".to_string())
-    } else {
-        None
-    };
-
-    let widget_styles = if is_separated {
-        Some(
-            manifest
-                .get("widgetStyles")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("widget.css")
-                .to_string(),
-        )
-    } else {
-        None
-    };
-
-    let page_styles = if is_separated {
-        Some(
-            manifest
-                .get("pageStyles")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("page.css")
-                .to_string(),
-        )
-    } else {
-        None
-    };
-
-    let page_template = manifest
-        .get("pageTemplate")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("page.html")
-        .to_string();
-
     InstalledTextResourcePlan {
-        css_mode: mode.as_str(),
-        styles,
-        widget_styles,
-        page_styles,
-        widget_css: if is_separated {
-            None
-        } else {
-            Some("widget.css".to_string())
-        },
-        page_css: if is_separated {
-            None
-        } else {
-            Some("page.css".to_string())
-        },
-        page_template,
+        core_styles: layer_string(manifest, "core", "styles"),
+        page_styles: layer_string(manifest, "page", "styles"),
+        widget_styles: installed_widget_layer_paths(manifest, "styles"),
+        page_template: layer_string(manifest, "page", "template"),
     }
+}
+
+/// `core.entry` from a stored manifest JSON.
+pub fn installed_core_entry(manifest: &serde_json::Value) -> Option<String> {
+    layer_string(manifest, "core", "entry")
+}
+
+/// `page.entry` from a stored manifest JSON.
+pub fn installed_page_entry(manifest: &serde_json::Value) -> Option<String> {
+    layer_string(manifest, "page", "entry")
+}
+
+/// Widget ids declared on a stored manifest, in declaration order.
+pub fn installed_widget_ids(manifest: &serde_json::Value) -> Vec<String> {
+    let Some(widgets) = manifest
+        .get("widgets")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    widgets
+        .iter()
+        .filter_map(|widget| {
+            widget
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+/// A `widget_id` query that does not name a declared widget.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownWidgetId(pub String);
+
+/// Accept a requested widget id only when the manifest actually declares it.
+///
+/// Omitted id keeps the all-widget projection. A typo must not silently shrink
+/// the graph to core-only — that looks like a successful empty widget.
+pub fn require_known_widget_id<'a>(
+    manifest: &serde_json::Value,
+    selected: Option<&'a str>,
+) -> Result<Option<&'a str>, UnknownWidgetId> {
+    let Some(id) = selected else {
+        return Ok(None);
+    };
+    if installed_widget_ids(manifest)
+        .iter()
+        .any(|declared| declared == id)
+    {
+        return Ok(Some(id));
+    }
+    Err(UnknownWidgetId(id.to_string()))
+}
+
+pub fn filter_widget_paths(
+    paths: Vec<(String, String)>,
+    selected: Option<&str>,
+) -> Vec<(String, String)> {
+    match selected {
+        None => paths,
+        Some(id) => paths
+            .into_iter()
+            .filter(|(widget_id, _)| widget_id == id)
+            .collect(),
+    }
+}
+
+/// `(widget id, path)` pairs for a per-widget layer key such as `entry` / `styles`.
+pub fn installed_widget_layer_paths(
+    manifest: &serde_json::Value,
+    key: &str,
+) -> Vec<(String, String)> {
+    let Some(widgets) = manifest
+        .get("widgets")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    widgets
+        .iter()
+        .filter_map(|widget| {
+            let id = widget.get("id").and_then(serde_json::Value::as_str)?;
+            let path = widget.get(key).and_then(serde_json::Value::as_str)?;
+            Some((id.to_string(), path.to_string()))
+        })
+        .collect()
+}
+
+/// Every layer entry declared by a stored manifest, in a stable order.
+pub fn installed_layer_entries(manifest: &serde_json::Value) -> Vec<String> {
+    let mut entries = Vec::new();
+    if let Some(entry) = installed_core_entry(manifest) {
+        entries.push(entry);
+    }
+    if let Some(entry) = installed_page_entry(manifest) {
+        entries.push(entry);
+    }
+    for (_, entry) in installed_widget_layer_paths(manifest, "entry") {
+        entries.push(entry);
+    }
+    entries
 }
 
 /// One widget template file declared under `manifest.widgets[].templates`.
@@ -157,31 +190,51 @@ pub fn installed_widget_template_paths(
     out
 }
 
-/// Ordered page module file names from `manifest.pageModules` (array of strings).
-pub fn installed_page_module_names(manifest: &serde_json::Value) -> Option<Vec<String>> {
-    manifest
-        .get("pageModules")
-        .and_then(serde_json::Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str().map(String::from))
-                .collect::<Vec<_>>()
-        })
-        .filter(|names| !names.is_empty())
+/// Page exists if the `page` object is declared. Replaces the old `hasPage` flag.
+pub fn manifest_declares_page(manifest: &serde_json::Value) -> bool {
+    manifest.get("page").is_some()
 }
 
-/// Relative path under the install dir for a page module file name.
-pub fn installed_page_module_relative_path(name: &str) -> String {
-    format!("page/{name}")
+/// Shared layer is present when `core` is declared.
+pub fn manifest_declares_core(manifest: &serde_json::Value) -> bool {
+    manifest.get("core").is_some()
+}
+
+/// At least one widget is declared.
+pub fn manifest_declares_widgets(manifest: &serde_json::Value) -> bool {
+    manifest
+        .get("widgets")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|widgets| !widgets.is_empty())
 }
 
 /// Whether `path` is declared in a typed manifest's `assets` list.
+///
+/// For payloads already validated against the current contract. Serving
+/// installed packages must use [`installed_manifest_declares_asset`], which
+/// reads by key and cannot fail on a manifest from another contract version.
 pub fn manifest_declares_asset(manifest: &TappManifest, path: &str) -> bool {
     manifest
         .assets
         .as_ref()
         .is_some_and(|declared| declared.iter().any(|entry| entry == path))
+}
+
+/// Whether `path` is declared in a stored manifest JSON's `assets` list.
+///
+/// Reads by key like the rest of the serve path, so a manifest shaped for a
+/// different contract version degrades to "not declared" instead of failing
+/// deserialization and surfacing as a 500.
+pub fn installed_manifest_declares_asset(manifest: &serde_json::Value, path: &str) -> bool {
+    manifest
+        .get("assets")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|declared| {
+            declared
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(|entry| entry == path)
+        })
 }
 
 /// Whether an asset byte length is within the single-file install limit.
@@ -195,45 +248,85 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn combined_mode_defaults_styles_and_legacy_css() {
+    fn layerless_manifest_declares_no_author_styles() {
         let plan = installed_text_resource_plan(&json!({}));
-        assert_eq!(plan.css_mode, None);
-        assert_eq!(plan.styles.as_deref(), Some("styles.css"));
-        assert_eq!(plan.widget_styles, None);
-        assert_eq!(plan.page_styles, None);
-        assert_eq!(plan.widget_css.as_deref(), Some("widget.css"));
-        assert_eq!(plan.page_css.as_deref(), Some("page.css"));
-        assert_eq!(plan.page_template, "page.html");
+        assert!(plan.core_styles.is_none());
+        assert!(plan.page_styles.is_none());
+        assert!(plan.widget_styles.is_empty());
+        assert!(plan.page_template.is_none());
     }
 
+    /// 作者样式来自层声明；宿主预编译产物走固定路径，不参与这份计划。
     #[test]
-    fn separated_mode_uses_declared_widget_and_page_styles() {
+    fn author_styles_come_from_layer_declarations() {
         let plan = installed_text_resource_plan(&json!({
-            "cssMode": "separated",
-            "widgetStyles": "w.css",
-            "pageStyles": "p.css",
-            "pageTemplate": "shell.html",
-            "styles": "shared.css"
+            "core": { "entry": "core.js", "styles": "shared.css" },
+            "page": { "entry": "page/index.js", "template": "shell.html", "styles": "p.css" },
+            "widgets": [{ "id": "card", "entry": "widget.js", "styles": "w.css" }]
         }));
-        assert_eq!(plan.css_mode, Some("separated"));
-        assert_eq!(plan.styles.as_deref(), Some("shared.css"));
-        assert_eq!(plan.widget_styles.as_deref(), Some("w.css"));
+        assert_eq!(plan.core_styles.as_deref(), Some("shared.css"));
         assert_eq!(plan.page_styles.as_deref(), Some("p.css"));
-        assert!(plan.widget_css.is_none());
-        assert!(plan.page_css.is_none());
-        assert_eq!(plan.page_template, "shell.html");
+        assert_eq!(
+            plan.widget_styles,
+            vec![("card".to_string(), "w.css".to_string())]
+        );
+        assert_eq!(plan.page_template.as_deref(), Some("shell.html"));
+        // 宿主产物在独立目录，作者可以放心把层样式命名成 page.css / widget.css
+        assert_eq!(HOST_WIDGET_CSS, "host/widget.css");
+        assert_eq!(HOST_PAGE_CSS, "host/page.css");
     }
 
     #[test]
-    fn separated_mode_defaults_when_paths_omitted() {
-        let plan = installed_text_resource_plan(&json!({ "cssMode": "separated" }));
-        assert!(plan.styles.is_none());
-        assert_eq!(plan.widget_styles.as_deref(), Some("widget.css"));
-        assert_eq!(plan.page_styles.as_deref(), Some("page.css"));
+    fn layer_entries_follow_core_page_widget_order() {
+        let manifest = json!({
+            "core": { "entry": "core.js" },
+            "page": { "entry": "page/index.js" },
+            "widgets": [{ "id": "card", "entry": "widget.js" }]
+        });
+        assert_eq!(installed_core_entry(&manifest).as_deref(), Some("core.js"));
+        assert_eq!(
+            installed_page_entry(&manifest).as_deref(),
+            Some("page/index.js")
+        );
+        assert_eq!(
+            installed_layer_entries(&manifest),
+            vec!["core.js", "page/index.js", "widget.js"]
+        );
+        assert!(installed_layer_entries(&json!({})).is_empty());
     }
 
     #[test]
-    fn widget_template_and_page_module_plans() {
+    fn requested_widget_id_must_be_declared() {
+        let manifest = json!({
+            "widgets": [
+                { "id": "card", "entry": "components/card.js" },
+                { "id": "list", "entry": "components/list.js" }
+            ]
+        });
+        assert_eq!(installed_widget_ids(&manifest), vec!["card", "list"]);
+        assert_eq!(require_known_widget_id(&manifest, None).unwrap(), None);
+        assert_eq!(
+            require_known_widget_id(&manifest, Some("card")).unwrap(),
+            Some("card")
+        );
+        assert_eq!(
+            require_known_widget_id(&manifest, Some("ghost")).unwrap_err(),
+            UnknownWidgetId("ghost".into())
+        );
+        assert_eq!(
+            filter_widget_paths(
+                vec![
+                    ("card".into(), "components/card.js".into()),
+                    ("list".into(), "components/list.js".into())
+                ],
+                Some("card")
+            ),
+            vec![("card".into(), "components/card.js".into())]
+        );
+    }
+
+    #[test]
+    fn widget_template_plans() {
         let manifest = json!({
             "widgets": [{
                 "id": "card",
@@ -241,20 +334,13 @@ mod tests {
                     "2x2": "templates/card-2x2.html",
                     "4x2": "templates/card-4x2.html"
                 }
-            }],
-            "pageModules": ["extra.js", "boot.js"]
+            }]
         });
         let templates = installed_widget_template_paths(&manifest);
         assert_eq!(templates.len(), 2);
-        assert!(templates.iter().any(|t| t.widget_id == "card" && t.size == "2x2"));
-
-        let names = installed_page_module_names(&manifest).unwrap();
-        assert_eq!(names, vec!["extra.js", "boot.js"]);
-        assert_eq!(
-            installed_page_module_relative_path("extra.js"),
-            "page/extra.js"
-        );
-        assert!(installed_page_module_names(&json!({})).is_none());
+        assert!(templates
+            .iter()
+            .any(|t| t.widget_id == "card" && t.size == "2x2"));
         assert!(installed_widget_template_paths(&json!({})).is_empty());
     }
 
@@ -264,7 +350,7 @@ mod tests {
             "id": "com.example.app",
             "name": "App",
             "version": "1.0.0",
-            "main": "main.js",
+            "core": { "entry": "core.js" },
             "category": "utility",
             "permissions": [],
             "assets": ["assets/icon.png", "assets/felt/table.png"]
@@ -277,7 +363,7 @@ mod tests {
                 "id": "com.example.app",
                 "name": "App",
                 "version": "1.0.0",
-                "main": "main.js",
+                "core": { "entry": "core.js" },
                 "category": "utility",
                 "permissions": []
             }))
@@ -286,5 +372,32 @@ mod tests {
         ));
         assert!(asset_bytes_within_limit(10, 100));
         assert!(!asset_bytes_within_limit(101, 100));
+    }
+
+    #[test]
+    fn installed_asset_declaration_degrades_instead_of_failing() {
+        let manifest = json!({ "assets": ["assets/icon.png"] });
+        assert!(installed_manifest_declares_asset(
+            &manifest,
+            "assets/icon.png"
+        ));
+        assert!(!installed_manifest_declares_asset(
+            &manifest,
+            "assets/missing.png"
+        ));
+
+        // 与当前契约不符的 manifest 只会退化为「未声明」，不会让调用方失败——
+        // 强类型反序列化在这里会变成 500。
+        for shape in [
+            json!({}),
+            json!({ "assets": "not-an-array" }),
+            json!({ "assets": [42] }),
+            json!({ "core": { "entry": "core.js" } }),
+        ] {
+            assert!(!installed_manifest_declares_asset(
+                &shape,
+                "assets/icon.png"
+            ));
+        }
     }
 }

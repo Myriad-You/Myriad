@@ -258,6 +258,12 @@ fn filtered_cache_path(platform_key: &str) -> std::path::PathBuf {
     std::path::Path::new("cache/platforms").join(format!("{platform_key}_filtered.json"))
 }
 
+/// On-disk path for a platform's filtered cache file.
+pub fn platform_filtered_cache_path(platform: &str) -> Result<std::path::PathBuf, String> {
+    validate_platform_name(platform)?;
+    Ok(filtered_cache_path(&platform.to_lowercase()))
+}
+
 /// Ensure `cache/platforms` exists.
 pub async fn ensure_platforms_dir() -> Result<(), PlatformCacheError> {
     tokio::fs::create_dir_all("cache/platforms")
@@ -384,7 +390,8 @@ pub fn build_tapp_written_item(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_tapp_written_item, filtered_cache_path, validate_platform_name, PlatformCacheError,
+        build_tapp_written_item, filtered_cache_path, platform_filtered_cache_path,
+        validate_platform_name, PlatformCacheError,
     };
     use serde_json::json;
 
@@ -401,6 +408,9 @@ mod tests {
     fn filtered_cache_path_is_platform_scoped() {
         let path = filtered_cache_path("steam");
         assert!(path.ends_with("cache/platforms/steam_filtered.json"));
+        let public = platform_filtered_cache_path("steam").expect("valid name");
+        assert_eq!(public, path);
+        assert!(platform_filtered_cache_path("../etc").is_err());
     }
 
     #[test]

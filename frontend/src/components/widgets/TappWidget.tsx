@@ -15,7 +15,11 @@
  * - 添加光晕背景效果，与普通小组件保持一致
  */
 
-import type { RegisteredWidget, TappCodeStructure, TappInstance } from '../../tapp/types'
+import type {
+  RegisteredWidget,
+  TappCodeStructure,
+  TappInstance,
+} from '../../tapp/types'
 import type { WidgetComponentProps } from '../WidgetGrid'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -210,8 +214,10 @@ const TappWidgetPreview = memo(
 
             // 转换为 TappWidgetSandbox 需要的 TappCodeStructure
             const tappCode: TappCodeStructure = {
-              core: resources.core,
-              widget: resources.widget,
+              modules: resources.modules,
+              moduleResolutions: resources.moduleResolutions,
+              coreEntry: resources.coreEntry,
+              widgetEntries: resources.widgetEntries,
               widgetHtml: resources.html,
               styles: resources.styles,
               widgetCSS: resources.css,
@@ -300,83 +306,83 @@ const TappWidgetPreview = memo(
 
     return (
       <div className="relative h-full w-full overflow-hidden rounded-xl">
-      <WidgetShell
-        padding={12}
-        style={{ pointerEvents: 'none' }}
-        contentClassName={`flex ${isCompact ? 'items-center justify-center' : 'flex-col justify-center items-center'}`}
-        background={
-          <>
-            <GlowBackground
-              color={themeColor}
-              animLevel={animLevel}
-              shouldAnimate={false}
-              variant="single"
-              size={isLarge ? 'lg' : 'md'}
-              opacity={0.15}
-            />
-            {/* 边框效果 */}
-            <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10 pointer-events-none" />
-          </>
-        }
-      >
-        {/* 图标 */}
-        <TappIconBadge
-          icon={previewInfo?.icon}
-          iconSvg={previewInfo?.iconSvg}
-          name={previewInfo?.name || 'Widget'}
-          id={previewInfo?.id}
-          themeColor={previewInfo?.themeColor}
-          category={previewInfo?.category}
-          permissions={previewInfo?.permissions}
-          iconStyle={iconStyle}
-          shellClassName={`tapp-page-icon ${
-            isCompact
-              ? 'w-8 h-8'
-              : isLarge
-                ? 'w-14 h-14 mb-3'
-                : 'w-10 h-10 mb-2'
-          }`}
-          glyphSizeClass={
-            isCompact ? 'w-5 h-5' : isLarge ? 'w-8 h-8' : 'w-6 h-6'
+        <WidgetShell
+          padding={12}
+          style={{ pointerEvents: 'none' }}
+          contentClassName={`flex ${isCompact ? 'items-center justify-center' : 'flex-col justify-center items-center'}`}
+          background={
+            <>
+              <GlowBackground
+                color={themeColor}
+                animLevel={animLevel}
+                shouldAnimate={false}
+                variant="single"
+                size={isLarge ? 'lg' : 'md'}
+                opacity={0.15}
+              />
+              {/* 边框效果 */}
+              <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10 pointer-events-none" />
+            </>
           }
-          glyphTextClass={
-            isCompact ? 'text-lg' : isLarge ? 'text-2xl' : 'text-xl'
-          }
-        />
+        >
+          {/* 图标 */}
+          <TappIconBadge
+            icon={previewInfo?.icon}
+            iconSvg={previewInfo?.iconSvg}
+            name={previewInfo?.name || 'Widget'}
+            id={previewInfo?.id}
+            themeColor={previewInfo?.themeColor}
+            category={previewInfo?.category}
+            permissions={previewInfo?.permissions}
+            iconStyle={iconStyle}
+            shellClassName={`tapp-page-icon ${
+              isCompact
+                ? 'w-8 h-8'
+                : isLarge
+                  ? 'w-14 h-14 mb-3'
+                  : 'w-10 h-10 mb-2'
+            }`}
+            glyphSizeClass={
+              isCompact ? 'w-5 h-5' : isLarge ? 'w-8 h-8' : 'w-6 h-6'
+            }
+            glyphTextClass={
+              isCompact ? 'text-lg' : isLarge ? 'text-2xl' : 'text-xl'
+            }
+          />
 
-        {/* 文本信息 - 紧凑模式不显示 */}
-        {!isCompact && (
-          <div className="text-center w-full px-2">
-            <div
-              className={`font-bold text-gray-800 dark:text-gray-100 truncate ${isLarge ? 'text-base mb-1' : 'text-sm'}`}
-            >
-              {previewInfo?.name || 'Widget'}
+          {/* 文本信息 - 紧凑模式不显示 */}
+          {!isCompact && (
+            <div className="text-center w-full px-2">
+              <div
+                className={`font-bold text-gray-800 dark:text-gray-100 truncate ${isLarge ? 'text-base mb-1' : 'text-sm'}`}
+              >
+                {previewInfo?.name || 'Widget'}
+              </div>
+
+              {/* 大尺寸显示描述 */}
+              {isLarge && previewInfo?.description && (
+                <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
+                  {previewInfo.description}
+                </div>
+              )}
+
+              {/* Tapp 名称 - 仅大尺寸显示 */}
+              {isLarge && previewInfo?.tappName && (
+                <div className="mt-2 flex items-center justify-center gap-1.5">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-gray-500 dark:text-gray-400">
+                    {previewInfo.tappName}
+                  </span>
+                </div>
+              )}
             </div>
-
-            {/* 大尺寸显示描述 */}
-            {isLarge && previewInfo?.description && (
-              <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
-                {previewInfo.description}
-              </div>
-            )}
-
-            {/* Tapp 名称 - 仅大尺寸显示 */}
-            {isLarge && previewInfo?.tappName && (
-              <div className="mt-2 flex items-center justify-center gap-1.5">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-gray-500 dark:text-gray-400">
-                  {previewInfo.tappName}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-      </WidgetShell>
-      <WidgetSkeletonCover
-        active={previewPhase === 'loading' && !previewData}
-        preset={TAPP_WIDGET_SKELETON.preset}
-        deferMs={TAPP_WIDGET_SKELETON.deferMs}
-        accent={themeColor}
-      />
+          )}
+        </WidgetShell>
+        <WidgetSkeletonCover
+          active={previewPhase === 'loading' && !previewData}
+          preset={TAPP_WIDGET_SKELETON.preset}
+          deferMs={TAPP_WIDGET_SKELETON.deferMs}
+          accent={themeColor}
+        />
       </div>
     )
   },
@@ -433,9 +439,7 @@ function TappWidgetRuntime({
   const [inViewport, setInViewport] = useState(true)
   const viewportObserverRef = useRef<IntersectionObserver | null>(null)
   const viewportNodeRef = useRef<HTMLDivElement | null>(null)
-  const viewportRecheckRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  )
+  const viewportRecheckRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const viewportRecheckCountRef = useRef(0)
   // 复查等待中：期间到达的非交叉回调直接忽略，只有超时后 re-observe
   // 投递的结果才能决定离屏，避免等待期内动画/滚动抖动把 debounce 击穿。
@@ -569,7 +573,12 @@ function TappWidgetRuntime({
 
         const running = runtime.isRunning(found.tappId)
         const widgetSize = config?.size || found.config.defaultSize || '4x2'
-        widgetPerfMark(found.tappId, found.config.id, 'host-load-start', widgetSize)
+        widgetPerfMark(
+          found.tappId,
+          found.config.id,
+          'host-load-start',
+          widgetSize,
+        )
 
         if (cancelled) return
         setWidget(found)
@@ -597,8 +606,10 @@ function TappWidgetRuntime({
           widgetSize,
         )
         setCode({
-          core: resources.core,
-          widget: resources.widget,
+          modules: resources.modules,
+          moduleResolutions: resources.moduleResolutions,
+          coreEntry: resources.coreEntry,
+          widgetEntries: resources.widgetEntries,
           widgetHtml: resources.html,
           styles: resources.styles,
           widgetCSS: resources.css,
@@ -690,8 +701,10 @@ function TappWidgetRuntime({
           widgetSize,
         )
         setCode({
-          core: resources.core,
-          widget: resources.widget,
+          modules: resources.modules,
+          moduleResolutions: resources.moduleResolutions,
+          coreEntry: resources.coreEntry,
+          widgetEntries: resources.widgetEntries,
           widgetHtml: resources.html,
           styles: resources.styles,
           widgetCSS: resources.css,
@@ -986,9 +999,7 @@ function TappWidgetRuntime({
 
         {/* 提示 */}
         <div className="text-xs text-gray-500 dark:text-gray-400 mb-4 text-center">
-          {canControlLifecycle
-            ? '需要启动 Tapp 以显示'
-            : 'Tapp 未启动'}
+          {canControlLifecycle ? '需要启动 Tapp 以显示' : 'Tapp 未启动'}
         </div>
 
         {/* 操作：仅所有者可启动；访客只能看详情，不能把站长已停的 Tapp 拉起来 */}
@@ -1019,8 +1030,7 @@ function TappWidgetRuntime({
 
   // Prefer CSS var over getComputedStyle (avoids forced style recalc on render).
   const runningThemeColor =
-    tappInstance.manifest.themeColor?.trim() ||
-    'var(--color-primary, #6366f1)'
+    tappInstance.manifest.themeColor?.trim() || 'var(--color-primary, #6366f1)'
 
   return (
     <div

@@ -9,10 +9,14 @@
  * - 使用 Canvas 对象池减少 DOM 创建
  *
  * @module colorExtractor
- * @version 3.3
+ * @version 3.4
  */
 
 import { syncCfgAccentColor } from './cfgAccent'
+import {
+  harmonizeGradientPalette,
+  pickGradientCompanion,
+} from './colorHarmony'
 import { coverUrlForColorExtract } from './coverUrlForColorExtract'
 import { imagePool, withPooledCanvas } from './objectPool'
 import { wallpaperState } from './wallpaperState'
@@ -61,7 +65,7 @@ interface ColorInfo {
 
 // 常量配置
 
-const CACHE_VERSION = 5
+const CACHE_VERSION = 6
 const CACHE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000 // 30天 (localStorage 长期缓存)
 const MAX_CANVAS_SIZE = 150
 const SAMPLE_STEP = 4
@@ -470,16 +474,23 @@ function paletteFromColorMap(
   if (selectedColors.length === 0) return null
 
   const primary = selectedColors[0]
-  const secondary = selectedColors[1] || primary
-  const accent = selectedColors[2] || secondary
+  const rest = selectedColors.slice(1)
+  const secondary = pickGradientCompanion(primary, rest)
+  const accent = pickGradientCompanion(
+    primary,
+    rest.filter(
+      (c) =>
+        c.r !== secondary.r || c.g !== secondary.g || c.b !== secondary.b,
+    ),
+  )
 
-  return {
+  return harmonizeGradientPalette({
     primary: rgbToHex(primary.r, primary.g, primary.b),
     secondary: rgbToHex(secondary.r, secondary.g, secondary.b),
     accent: rgbToHex(accent.r, accent.g, accent.b),
     light: lightenColor(primary.r, primary.g, primary.b),
     dark: darkenColor(primary.r, primary.g, primary.b),
-  }
+  })
 }
 
 /**

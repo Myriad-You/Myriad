@@ -164,8 +164,6 @@ export function useConfigReset(args: {
         ),
         ai_config: {
           ...data.ai_config,
-          enabled: false,
-          api_key: '',
           config_fields: data.ai_config.config_fields.map(
             (field: ConfigField) => ({
               ...field,
@@ -175,8 +173,6 @@ export function useConfigReset(args: {
         },
         tripo_config: {
           ...data.tripo_config,
-          enabled: false,
-          configured: false,
           config_fields: data.tripo_config.config_fields.map(
             (field: ConfigField) => ({
               ...field,
@@ -270,8 +266,6 @@ export function useConfigReset(args: {
           ...config,
           ai_config: {
             ...config.ai_config,
-            enabled: false,
-            api_key: '',
             config_fields: mapConfigFields(
               config.ai_config.config_fields,
               defaultAiFieldValue,
@@ -289,8 +283,6 @@ export function useConfigReset(args: {
           ...config,
           tripo_config: {
             ...config.tripo_config,
-            enabled: false,
-            configured: false,
             config_fields: mapConfigFields(
               config.tripo_config.config_fields,
               defaultTripoFieldValue,

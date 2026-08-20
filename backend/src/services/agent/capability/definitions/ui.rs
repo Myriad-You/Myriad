@@ -52,7 +52,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "music.status".to_string(),
         name: "音乐播放状态".to_string(),
-        description: "获取当前音乐播放器状态".to_string(),
+        description: "向浏览器请求当前播放器状态（状态只存在于前端，不在后端编造）".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -62,11 +62,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "isPlaying": { "type": "boolean" },
-                "currentSong": { "type": "object" },
-                "volume": { "type": "number" },
-                "position": { "type": "number" },
-                "duration": { "type": "number" }
+                "frontendAction": { "type": "object" }
             }
         }),
         required_permissions: vec!["music:read".to_string()],
@@ -366,8 +362,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "page.content".to_string(),
         name: "页面内容".to_string(),
-        description: "读取当前页面显示的实际内容，支持 Brew/平台/Tapp 等多种页面类型的层级结构"
-            .to_string(),
+        description: "读取当前页面内容：有快照用快照，否则转发 brew.page / tapp.page / platform.read / report.list".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -385,34 +380,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "pageType": { "type": "string" },
-                "hierarchy": {
-                    "type": "object",
-                    "description": "页面层级结构",
-                    "properties": {
-                        "level": { "type": "string", "enum": ["list", "detail", "nested"] },
-                        "parent": { "type": "object" },
-                        "current": { "type": "object" }
-                    }
-                },
-                "content": {
-                    "type": "object",
-                    "description": "页面实际内容",
-                    "properties": {
-                        "title": { "type": "string" },
-                        "items": { "type": "array" },
-                        "detail": { "type": "object" },
-                        "metadata": { "type": "object" }
-                    }
-                },
-                "navigation": {
-                    "type": "object",
-                    "properties": {
-                        "tabs": { "type": "array" },
-                        "activeTab": { "type": "string" },
-                        "filters": { "type": "object" },
-                        "sort": { "type": "object" }
-                    }
-                }
+                "currentPath": { "type": "string" },
+                "content": { "type": "any" },
+                "source": { "type": "string" }
             }
         }),
         required_permissions: vec!["page:read".to_string()],

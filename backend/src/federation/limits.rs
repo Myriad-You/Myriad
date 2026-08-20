@@ -713,12 +713,9 @@ mod constant_tests {
         assert_eq!(max_full, INBOX_PARSE_CONCURRENCY);
     }
 
-    /// Locks constants cited by `docs/development/BACKEND_MEMORY_AUDIT.md`.
-    ///
     /// Product single-request limits stay large (media); concurrent raw budget is
     /// the 1 GiB-host tension (512 MiB reserved buffering alone). Changing these
-    /// is a product/profile decision — this test fails loudly if they drift
-    /// without updating the audit.
+    /// is a product/profile decision — this test fails loudly if they drift.
     #[test]
     fn public_inbox_peak_stays_bounded_on_1g_host() {
         const ONE_GIB: usize = 1024 * 1024 * 1024;

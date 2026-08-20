@@ -91,7 +91,7 @@ describe('resolveTappListInstallRequest (shipped install shape)', () => {
     }
   })
 
-  it('accepts direct with manifest + code', () => {
+  it('accepts direct with manifest + modules', () => {
     const r = resolveTappListInstallRequest({
       source: 'direct',
       manifest: {
@@ -99,28 +99,40 @@ describe('resolveTappListInstallRequest (shipped install shape)', () => {
         name: 'App',
         version: '1.0.0',
         category: 'utility',
-        main: 'main.js',
+        core: { entry: 'core.js' },
         permissions: [],
       },
-      code: 'console.log(1)',
+      modules: { 'core.js': 'console.log(1)' },
       permissions: ['storage:read', 'storage:write'],
     })
     assert.equal(r.kind, 'direct')
     if (r.kind === 'direct') {
-      assert.equal(r.code, 'console.log(1)')
+      assert.equal(r.modules['core.js'], 'console.log(1)')
       assert.equal((r.manifest as { id: string }).id, TAPP_ID)
     }
   })
 
-  it('rejects direct without manifest or code', () => {
+  it('rejects direct without manifest or modules', () => {
     assert.equal(
-      resolveTappListInstallRequest({ source: 'direct', code: 'x' }).kind,
+      resolveTappListInstallRequest({
+        source: 'direct',
+        modules: { 'core.js': 'x' },
+      }).kind,
       'error',
     )
     assert.equal(
       resolveTappListInstallRequest({
         source: 'direct',
         manifest: { id: TAPP_ID },
+      }).kind,
+      'error',
+    )
+    // 空模块表等于没给源码
+    assert.equal(
+      resolveTappListInstallRequest({
+        source: 'direct',
+        manifest: { id: TAPP_ID },
+        modules: {},
       }).kind,
       'error',
     )
