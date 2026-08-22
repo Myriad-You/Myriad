@@ -554,6 +554,7 @@ mod tests {
             updated_at: now,
             error_message: None,
             visibility: TAPP_VISIBILITY_ADMIN.into(),
+            needs_reauthorization: false,
         };
         // Non-admin cannot see admin-only public install
         assert!(!install_visible_to_viewer(&public, 42, 1, false));

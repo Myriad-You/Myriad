@@ -186,6 +186,13 @@ pub async fn issue_runtime_grant(
 ) -> Result<Json<RuntimeGrantResponse>, HttpError> {
     let subject_id = parse_user_id(&claims)?;
     let tapp = resolve_accessible_tapp(&db, subject_id, &tapp_id).await?;
+    // Refuse to issue grants while the install needs re-authorization.
+    // After the migration, remaining permissions parse fine, so the persistent
+    // marker — not the unknown-permission check — carries this fail-closed gate.
+    // Shared pure decision lives in services::tapp_runtime_grant so issue and
+    // validate exercise the exact same branch.
+    tapp_runtime_grant::refuse_if_needs_reauthorization(tapp.needs_reauthorization)
+        .map_err(grant_http_error)?;
     let role = current_tapp_user_role(&db, &claims).await;
     let installed_permissions: Vec<String> =
         serde_json::from_value(tapp.approved_permissions.clone()).unwrap_or_default();
@@ -316,6 +323,14 @@ pub async fn revoke_all_tapp_runtime_grants(db: &DatabaseConnection, tapp_id: &s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn issue_gate_maps_marked_install_to_conflict_http_error() {
+        // L2: the issue path calls the shared pure gate then maps the error;
+        // assert the HTTP shape the runtime receives for a marked install.
+        let err = grant_http_error(RuntimeGrantError::NeedsReauthorization);
+        assert_eq!(err.0.status_u16(), 409);
+    }
 
     #[test]
     fn authorize_unknown_storage_responds_bad_request_with_replacement_hint() {

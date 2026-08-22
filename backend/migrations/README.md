@@ -25,6 +25,9 @@ sea-orm-cli migrate generate create_new_table
 5. `005_federation` - Federation identities and messages
 6. `006_oauth_identities` - OAuth/OIDC identity bindings
 7. Published `007`–`013` names - immutable no-op history entries retained for upgrade compatibility
+8. `014_federation_delivery_leases` - Outbound delivery claims gain an explicit owner and expiry
+9. `015_federation_delivery_health` - Outbound delivery health streak before relationship revocation
+10. `016_tapp_legacy_grant_clear` - Remove retired permission strings from installed TAPP rows and durably flag affected installs as needing re-authorization (`tapps.needs_reauthorization`; data cleanup, not a permission mapping)
 
 Base CREATE tables (001–006) include the current column set for greenfield installs.
 Thin ALTER-only migrations that only added columns or healed data remain registered

@@ -24,6 +24,7 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// **Support floor: product ≥ 0.3.10.** 不再为更旧版本维护逐列「字段对齐」
 /// heal（approved_permissions / engagement 过渡形态 / rate_* 专用 ALTER 等）。
 ///
+/// - 2026.08.19.2: tapps.needs_reauthorization（旧权限清理后的重新授权标记）
 /// - 2026.08.19.1: agent life 四表折入 004 + ensure_agent_life_tables
 /// - 2026.08.15.1: federation_inbox_receipts 折入 005；旧无 inbox_scope 表形自愈
 /// - 2026.08.03.2: users 名称/简介文案来源（profile_text_source_kind / profile_text_source_ref）
@@ -39,7 +40,7 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// - 2026.07.21–20: domain_aliases / interactions / heartbeat / policy / filters
 /// - ≤0.3.9 字段对齐（已删，见 git）：approved_permissions 专用 ADD、整表 create 兜底等
 /// Marker for ops/logs + `_schema_versions`. Bump only with real schema/heal work.
-pub const SCHEMA_VERSION: &str = "2026.08.19.1";
+pub const SCHEMA_VERSION: &str = "2026.08.19.2";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

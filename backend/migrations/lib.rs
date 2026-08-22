@@ -27,6 +27,9 @@ mod federation_delivery_leases;
 #[path = "015_federation_delivery_health.rs"]
 mod federation_delivery_health;
 
+#[path = "016_tapp_legacy_grant_clear.rs"]
+mod tapp_legacy_grant_clear;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -47,6 +50,7 @@ impl MigratorTrait for Migrator {
         migrations.extend(retired_history::migrations());
         migrations.push(Box::new(federation_delivery_leases::Migration));
         migrations.push(Box::new(federation_delivery_health::Migration));
+        migrations.push(Box::new(tapp_legacy_grant_clear::Migration));
         migrations
     }
 }
@@ -87,6 +91,10 @@ mod tests {
         assert!(
             unique.contains("015_federation_delivery_health"),
             "delivery health streak migration must remain registered"
+        );
+        assert!(
+            unique.contains("016_tapp_legacy_grant_clear"),
+            "legacy grant clear + re-authorization marker migration must remain registered"
         );
     }
 }

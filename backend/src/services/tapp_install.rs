@@ -197,6 +197,10 @@ pub struct NewInstallPersist {
     pub start_running: bool,
     pub granted_permissions: serde_json::Value,
     pub approved_permissions: serde_json::Value,
+    /// Re-authorization marker. Always `false` here: only the upgrade
+    /// migration sets `true`, and every successful install/update is an
+    /// explicit re-authorization that clears it.
+    pub needs_reauthorization: bool,
     pub file_path: String,
     pub code_path: String,
     pub installed_at: DateTime<FixedOffset>,
@@ -229,6 +233,7 @@ pub fn build_new_install_persist(
         start_running: true,
         granted_permissions: serde_json::to_value(granted).unwrap_or_default(),
         approved_permissions: serde_json::to_value(approved).unwrap_or_default(),
+        needs_reauthorization: false,
         file_path: paths.file_path,
         code_path: paths.code_path,
         installed_at: now,
@@ -249,6 +254,10 @@ pub struct UpdateInstallPersist {
     pub manifest: serde_json::Value,
     pub granted_permissions: serde_json::Value,
     pub approved_permissions: serde_json::Value,
+    /// Re-authorization marker. Always `false` here: only the upgrade
+    /// migration sets `true`, and every successful install/update is an
+    /// explicit re-authorization that clears it.
+    pub needs_reauthorization: bool,
     pub code_path: String,
     pub updated_at: DateTime<FixedOffset>,
 }
@@ -274,6 +283,7 @@ pub fn build_update_install_persist(
         manifest: manifest_json,
         granted_permissions: serde_json::to_value(granted).unwrap_or_default(),
         approved_permissions: serde_json::to_value(approved).unwrap_or_default(),
+        needs_reauthorization: false,
         code_path: paths.code_path,
         updated_at: now,
     })
@@ -498,6 +508,10 @@ mod tests {
         assert_eq!(snap.installed_at, now);
         assert_eq!(snap.last_run_at, now);
         assert_eq!(snap.granted_permissions, json!(["storage:read"]));
+        assert!(
+            !snap.needs_reauthorization,
+            "new installs are never pre-flagged"
+        );
         assert_eq!(snap.author.as_ref().unwrap()["name"], "Ada");
     }
 
@@ -521,6 +535,10 @@ mod tests {
         );
         assert_eq!(snap.updated_at, now);
         assert_eq!(snap.approved_permissions, json!(["storage:read"]));
+        assert!(
+            !snap.needs_reauthorization,
+            "successful update re-authorizes the install"
+        );
     }
 
     #[test]

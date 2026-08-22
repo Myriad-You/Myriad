@@ -2416,6 +2416,7 @@ version = "0.3.37"
 dependencies = [
  "sea-orm",
  "sea-orm-migration",
+ "serde_json",
  "tokio",
 ]
 

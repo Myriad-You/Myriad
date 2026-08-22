@@ -289,6 +289,24 @@ fn test_tapps_schema_includes_approved_permissions() {
 }
 
 #[test]
+fn test_tapps_schema_includes_needs_reauthorization_marker() {
+    // Durable re-authorization marker, non-null, default false.
+    let tables = get_expected_schema();
+    let tapps = tables
+        .iter()
+        .find(|t| t.name == "tapps")
+        .expect("tapps table");
+    let col = tapps
+        .columns
+        .iter()
+        .find(|c| c.name == "needs_reauthorization")
+        .expect("tapps.needs_reauthorization must be in expected schema (002 + 016 + generic ADD)");
+    assert_eq!(col.data_type, "boolean");
+    assert!(!col.is_nullable);
+    assert_eq!(col.default_value.as_deref(), Some("false"));
+}
+
+#[test]
 fn test_tapp_storage_schema_includes_credential_fields() {
     let tables = get_expected_schema();
     let storage = tables

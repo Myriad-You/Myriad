@@ -85,6 +85,11 @@ pub(super) async fn start_tapp(
     ) {
         StartOutcome::MutatePrivate => {
             let tapp = private_tapp.expect("has_private");
+            // Refuse startup while the install needs re-authorization.
+            // The frontend already blocks this; the backend gate is the server-side
+            // half of the same fail-closed contract. Both start branches share the
+            // pure decision below.
+            refuse_marked_start(tapp.needs_reauthorization)?;
             let mut active: tapps::ActiveModel = tapp.into();
             active.status = Set(tapps::TappStatus::Running);
             active.last_run_at = Set(Some(now));
@@ -98,6 +103,8 @@ pub(super) async fn start_tapp(
         }
         StartOutcome::MutatePublic => {
             let tapp = public_tapp.expect("has_public");
+            // Refuse startup while the install needs re-authorization.
+            refuse_marked_start(tapp.needs_reauthorization)?;
             let mut active: tapps::ActiveModel = tapp.into();
             active.status = Set(tapps::TappStatus::Running);
             active.last_run_at = Set(Some(now));
@@ -142,6 +149,20 @@ async fn record_user_activity(
     .await
     .map_err(|_| HttpError(AppError::internal("Database error")))?;
     Ok(())
+}
+
+/// 重新授权 start 生命周期闸门的最小纯判定。
+///
+/// 安装仍标记为需重新授权时不得把 status 置为 Running。`MutatePrivate` 与
+/// `MutatePublic` 两个启动分支共用此判定，测试直接覆盖它本身（不复制逻辑）。
+fn refuse_marked_start(needs_reauthorization: bool) -> Result<(), HttpError> {
+    if needs_reauthorization {
+        Err(HttpError(AppError::conflict(
+            "Tapp requires permission re-authorization before it can be started",
+        )))
+    } else {
+        Ok(())
+    }
 }
 
 /// 停止 Tapp
@@ -318,4 +339,23 @@ pub(super) async fn get_recent_tapps(
     }
 
     Ok(Json(ApiResponse::success(result)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_gate_refuses_marked_installs_with_conflict() {
+        // L2: both start branches (MutatePrivate / MutatePublic) call this
+        // shared pure decision; the test covers the exact branch the handlers
+        // execute for a marked vs unmarked install.
+        let err = refuse_marked_start(true).expect_err("marked install must be refused");
+        assert_eq!(err.0.status_u16(), 409);
+        assert!(err
+            .0
+            .to_string()
+            .contains("permission re-authorization"));
+        assert!(refuse_marked_start(false).is_ok(), "unmarked install starts");
+    }
 }
