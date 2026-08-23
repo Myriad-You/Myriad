@@ -21,6 +21,7 @@ import {
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import { agentService } from '../../services/agent'
 import { invalidatePublicConfigCache } from '../../utils/requestDedup'
 import {
@@ -657,7 +658,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       setSpeechTestResult({
         success: false,
         message:
-          error instanceof Error ? error.message : t.config.speechTestFailed,
+          userFacingError(error, t.config.speechTestFailed),
       })
     } finally {
       setSpeechTesting(false)
@@ -688,7 +689,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       window.dispatchEvent(new CustomEvent('arael-persona-updated'))
     } catch (error) {
       setPersonaError(
-        error instanceof Error ? error.message : t.config.agentLifeDeleteFailed,
+        userFacingError(error, t.config.agentLifeDeleteFailed),
       )
     } finally {
       setPersonaBusy(false)

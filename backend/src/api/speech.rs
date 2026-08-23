@@ -494,7 +494,7 @@ async fn batch_text_to_speech_inner(request: BatchTtsApiRequest) -> impl IntoRes
         if dialogue.text.is_empty() {
             errors.push(BatchTtsError {
                 index: dialogue.index,
-                error: "对话文本不能为空".to_string(),
+                error: "empty_dialogue_text".to_string(),
             });
             continue;
         }

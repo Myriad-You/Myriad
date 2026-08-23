@@ -78,13 +78,28 @@ impl Agent {
         );
 
         crate::services::agent::life::mark_activity(&self.db, user_id, "talking").await;
-        let mood_before = crate::services::agent::life::note_user_turn(
+        let mood_transition = crate::services::agent::life::note_user_turn(
             &self.db,
             user_id,
             &request.raw_input,
             utterance_index_in_session(&request),
         )
         .await;
+        let mood_before = mood_transition.as_ref().map(|transition| transition.before);
+        if let Some(mood) = mood_transition.clone() {
+            spawn_motion_directive(
+                crate::services::agent::life::MotionContext {
+                    user_id,
+                    phase: crate::services::agent::life::MotionPhase::Reaction,
+                    mood,
+                    activity: "talking".to_string(),
+                    user_text: request.raw_input.clone(),
+                    response_text: None,
+                    task_success: None,
+                },
+                None,
+            );
+        }
 
         // 1. Planner 规划
         let planner_output = match self.planner.plan(&request).await {
@@ -118,7 +133,7 @@ impl Agent {
         match planner_output.status {
             PlannerStatus::Chat => {
                 crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                return Ok(AgentResponse {
+                let response = AgentResponse {
                     response_type: AgentResponseType::Answer,
                     message: planner_output
                         .chat_reply
@@ -129,7 +144,16 @@ impl Agent {
                     task: None,
                     confirmation: None,
                     frontend_action: None,
-                });
+                    performance: None,
+                };
+                return attach_motion_to_result(
+                    Ok(response),
+                    user_id,
+                    &request.raw_input,
+                    mood_transition.clone(),
+                    None,
+                )
+                .await;
             }
             PlannerStatus::Clarify => {
                 let clarification = planner_output
@@ -139,7 +163,7 @@ impl Agent {
                         options: vec![],
                     });
                 crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                return Ok(AgentResponse {
+                let response = AgentResponse {
                     response_type: AgentResponseType::Clarification,
                     message: clarification.message.clone(),
                     data: Some(json!({
@@ -154,7 +178,16 @@ impl Agent {
                     task: None,
                     confirmation: None,
                     frontend_action: None,
-                });
+                    performance: None,
+                };
+                return attach_motion_to_result(
+                    Ok(response),
+                    user_id,
+                    &request.raw_input,
+                    mood_transition.clone(),
+                    None,
+                )
+                .await;
             }
             PlannerStatus::Unsupported => {
                 let reason = planner_output
@@ -167,7 +200,7 @@ impl Agent {
                 }
 
                 crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                return Ok(AgentResponse {
+                let response = AgentResponse {
                     response_type: AgentResponseType::Answer,
                     message: reason.clone(),
                     data: Some(json!({
@@ -179,7 +212,16 @@ impl Agent {
                     task: None,
                     confirmation: None,
                     frontend_action: None,
-                });
+                    performance: None,
+                };
+                return attach_motion_to_result(
+                    Ok(response),
+                    user_id,
+                    &request.raw_input,
+                    mood_transition.clone(),
+                    None,
+                )
+                .await;
             }
             PlannerStatus::Plan => {
                 if let Some(response) = self
@@ -190,7 +232,14 @@ impl Agent {
                     )
                     .await
                 {
-                    return Ok(response);
+                    return attach_motion_to_result(
+                        Ok(response),
+                        user_id,
+                        &request.raw_input,
+                        mood_transition.clone(),
+                        None,
+                    )
+                    .await;
                 }
                 // 低置信度时在 process() 中也记录警告
                 if planner_output.confidence < 0.3 && planner_output.confidence > 0.0 {
@@ -237,13 +286,20 @@ impl Agent {
                 Some(Ok(())) => {} // 系统任务已自动确认，继续执行
                 Some(Err(blocked)) => {
                     crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                    return Ok(blocked);
+                    return attach_motion_to_result(
+                        Ok(blocked),
+                        user_id,
+                        &request.raw_input,
+                        mood_transition.clone(),
+                        None,
+                    )
+                    .await;
                 }
                 None => {
                     let session_id = request.context.as_ref().and_then(|c| c.session_id.clone());
                     let run_id = request.context.as_ref().and_then(|c| c.run_id.clone());
                     crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                    return self
+                    let response = self
                         .request_confirmation_v2(
                             &recipe,
                             &planner_output,
@@ -253,6 +309,14 @@ impl Agent {
                             run_id,
                         )
                         .await;
+                    return attach_motion_to_result(
+                        response,
+                        user_id,
+                        &request.raw_input,
+                        mood_transition.clone(),
+                        None,
+                    )
+                    .await;
                 }
             }
         }
@@ -264,7 +328,14 @@ impl Agent {
         {
             Ok(Some(missing_response)) => {
                 crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                return Ok(missing_response);
+                return attach_motion_to_result(
+                    Ok(missing_response),
+                    user_id,
+                    &request.raw_input,
+                    mood_transition.clone(),
+                    None,
+                )
+                .await;
             }
             Ok(None) => {}
             Err(error) => {
@@ -335,7 +406,7 @@ impl Agent {
         let frontend_action = self.extract_frontend_action(&result);
         let data_display = self.infer_data_display_v2(&result, &planner_output);
 
-        Ok(AgentResponse {
+        let response = AgentResponse {
             response_type: AgentResponseType::Answer,
             message: self
                 .generate_response_message_v2(&planner_output, &task_state, user_id, None)
@@ -346,7 +417,16 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
-        })
+            performance: None,
+        };
+        attach_motion_to_result(
+            Ok(response),
+            user_id,
+            &request.raw_input,
+            mood_transition,
+            None,
+        )
+        .await
     }
 
     /// 处理用户请求（带实时进度回调）
@@ -384,13 +464,35 @@ impl Agent {
         );
 
         crate::services::agent::life::mark_activity(&self.db, user_id, "talking").await;
-        let mood_before = crate::services::agent::life::note_user_turn(
+        let mood_transition = crate::services::agent::life::note_user_turn(
             &self.db,
             user_id,
             &request.raw_input,
             utterance_index_in_session(&request),
         )
         .await;
+        let mood_before = mood_transition.as_ref().map(|transition| transition.before);
+
+        if let Some(mood) = mood_transition.clone() {
+            let _ = progress_tx
+                .send(AgentProgressEvent::LifeStateChanged {
+                    mood: mood.clone(),
+                    activity: "talking".to_string(),
+                })
+                .await;
+            spawn_motion_directive(
+                crate::services::agent::life::MotionContext {
+                    user_id,
+                    phase: crate::services::agent::life::MotionPhase::Reaction,
+                    mood,
+                    activity: "talking".to_string(),
+                    user_text: request.raw_input.clone(),
+                    response_text: None,
+                    task_success: None,
+                },
+                Some(progress_tx.clone()),
+            );
+        }
 
         // 1. Planner 规划（Pro AI 单次调用）
         let _ = progress_tx
@@ -506,10 +608,29 @@ impl Agent {
                     .chat_reply
                     .unwrap_or_else(response_agent::greeting);
 
+                let delivery = mood_transition.clone().map(|mood| {
+                    spawn_motion_directive(
+                        crate::services::agent::life::MotionContext {
+                            user_id,
+                            phase: crate::services::agent::life::MotionPhase::Delivery,
+                            mood,
+                            activity: "talking".to_string(),
+                            user_text: request.raw_input.clone(),
+                            response_text: Some(planner_reply.clone()),
+                            task_success: None,
+                        },
+                        Some(progress_tx.clone()),
+                    )
+                });
+
                 // 尝试真正的流式 AI 回复（token-by-token from model）
                 let reply = self
                     .stream_chat_response(&request, &planner_reply, &progress_tx)
                     .await;
+                let performance = match delivery {
+                    Some(handle) => handle.await.ok().flatten(),
+                    None => None,
+                };
                 crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
 
                 let _ = progress_tx
@@ -529,6 +650,7 @@ impl Agent {
                     task: None,
                     confirmation: None,
                     frontend_action: None,
+                    performance,
                 });
             }
             PlannerStatus::Clarify => {
@@ -542,7 +664,7 @@ impl Agent {
                 // 流式推送澄清消息
                 Self::stream_text_as_tokens(&progress_tx, &clarification.message).await;
                 crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                return Ok(AgentResponse {
+                let response = AgentResponse {
                     response_type: AgentResponseType::Clarification,
                     message: clarification.message.clone(),
                     data: Some(json!({
@@ -557,7 +679,16 @@ impl Agent {
                     task: None,
                     confirmation: None,
                     frontend_action: None,
-                });
+                    performance: None,
+                };
+                return attach_motion_to_result(
+                    Ok(response),
+                    user_id,
+                    &request.raw_input,
+                    mood_transition.clone(),
+                    Some(progress_tx.clone()),
+                )
+                .await;
             }
             PlannerStatus::Unsupported => {
                 let reason = planner_output
@@ -570,7 +701,7 @@ impl Agent {
                 }
 
                 crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                return Ok(AgentResponse {
+                let response = AgentResponse {
                     response_type: AgentResponseType::Answer,
                     message: reason.clone(),
                     data: Some(json!({
@@ -582,7 +713,16 @@ impl Agent {
                     task: None,
                     confirmation: None,
                     frontend_action: None,
-                });
+                    performance: None,
+                };
+                return attach_motion_to_result(
+                    Ok(response),
+                    user_id,
+                    &request.raw_input,
+                    mood_transition.clone(),
+                    Some(progress_tx.clone()),
+                )
+                .await;
             }
             PlannerStatus::Plan => {
                 if let Some(response) = self
@@ -593,7 +733,14 @@ impl Agent {
                     )
                     .await
                 {
-                    return Ok(response);
+                    return attach_motion_to_result(
+                        Ok(response),
+                        user_id,
+                        &request.raw_input,
+                        mood_transition.clone(),
+                        Some(progress_tx.clone()),
+                    )
+                    .await;
                 }
                 // 低置信度：降级为澄清请求，避免盲目执行
                 if planner_output.confidence < 0.3 && planner_output.confidence > 0.0 {
@@ -608,7 +755,7 @@ impl Agent {
                     );
                     Self::stream_text_as_tokens(&progress_tx, &msg).await;
                     crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                    return Ok(AgentResponse {
+                    let response = AgentResponse {
                         response_type: AgentResponseType::Clarification,
                         message: msg.clone(),
                         data: Some(json!({
@@ -620,7 +767,16 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
-                    });
+                        performance: None,
+                    };
+                    return attach_motion_to_result(
+                        Ok(response),
+                        user_id,
+                        &request.raw_input,
+                        mood_transition.clone(),
+                        Some(progress_tx.clone()),
+                    )
+                    .await;
                 }
             }
         }
@@ -705,13 +861,20 @@ impl Agent {
                 Some(Ok(())) => {} // 系统任务已自动确认，继续执行
                 Some(Err(blocked)) => {
                     crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                    return Ok(blocked);
+                    return attach_motion_to_result(
+                        Ok(blocked),
+                        user_id,
+                        &request.raw_input,
+                        mood_transition.clone(),
+                        Some(progress_tx.clone()),
+                    )
+                    .await;
                 }
                 None => {
                     let session_id = request.context.as_ref().and_then(|c| c.session_id.clone());
                     let run_id = request.context.as_ref().and_then(|c| c.run_id.clone());
                     crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                    return self
+                    let response = self
                         .request_confirmation_v2(
                             &recipe,
                             &planner_output,
@@ -721,6 +884,14 @@ impl Agent {
                             run_id,
                         )
                         .await;
+                    return attach_motion_to_result(
+                        response,
+                        user_id,
+                        &request.raw_input,
+                        mood_transition.clone(),
+                        Some(progress_tx.clone()),
+                    )
+                    .await;
                 }
             }
         }
@@ -737,7 +908,14 @@ impl Agent {
         {
             Ok(Some(missing_response)) => {
                 crate::services::agent::life::mark_activity(&self.db, user_id, "idle").await;
-                return Ok(missing_response);
+                return attach_motion_to_result(
+                    Ok(missing_response),
+                    user_id,
+                    &request.raw_input,
+                    mood_transition.clone(),
+                    Some(progress_tx.clone()),
+                )
+                .await;
             }
             Ok(None) => {}
             Err(error) => {
@@ -752,12 +930,12 @@ impl Agent {
                 recipe_id = %recipe.id,
                 "[Agent] Using fast path for simple query"
             );
-            return self
+            let result = self
                 .execute_simple_query_v2(
                     &recipe,
                     &planner_output,
                     user_id,
-                    progress_tx,
+                    progress_tx.clone(),
                     &request.raw_input,
                     request
                         .context
@@ -765,6 +943,14 @@ impl Agent {
                         .and_then(|c| c.conversation_history.as_deref()),
                 )
                 .await;
+            return attach_motion_to_result(
+                result,
+                user_id,
+                &request.raw_input,
+                mood_transition.clone(),
+                Some(progress_tx.clone()),
+            )
+            .await;
         }
         // 快速路径结束
 
@@ -864,7 +1050,14 @@ impl Agent {
             .await;
         }
 
-        result
+        attach_motion_to_result(
+            result,
+            user_id,
+            &request.raw_input,
+            mood_transition,
+            Some(progress_tx),
+        )
+        .await
     }
 
     /// 执行配方（带进度回调和升级）— 使用 Planner
@@ -925,6 +1118,7 @@ impl Agent {
                 task: Some(task_state),
                 confirmation: None,
                 frontend_action,
+                performance: None,
             });
         }
 
@@ -1012,6 +1206,7 @@ impl Agent {
                             task: Some(new_task_state),
                             confirmation: None,
                             frontend_action,
+                            performance: None,
                         });
                     }
                 }
@@ -1055,6 +1250,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
+            performance: None,
         })
     }
 
@@ -1249,6 +1445,7 @@ impl Agent {
             task: None,
             confirmation: None,
             frontend_action: None,
+            performance: None,
         })
     }
 
@@ -1405,6 +1602,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
+            performance: None,
         })
     }
 
@@ -1601,6 +1799,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
+            performance: None,
         })
     }
 
@@ -1656,4 +1855,58 @@ fn turn_task_id(request: &UserRequest) -> String {
         .as_ref()
         .and_then(|c| c.run_id.clone().or_else(|| c.session_id.clone()))
         .unwrap_or_else(|| format!("turn_{}", request.timestamp.timestamp_millis()))
+}
+
+fn spawn_motion_directive(
+    context: crate::services::agent::life::MotionContext,
+    progress_tx: Option<tokio::sync::mpsc::Sender<AgentProgressEvent>>,
+) -> tokio::task::JoinHandle<Option<crate::services::agent::life::PerformanceDirective>> {
+    tokio::spawn(async move {
+        let performance = crate::services::agent::life::direct_motion(context).await;
+        if let (Some(tx), Some(performance)) = (progress_tx, performance.as_ref()) {
+            let _ = tx
+                .send(AgentProgressEvent::PerformancePlan {
+                    performance: performance.clone(),
+                })
+                .await;
+        }
+        performance
+    })
+}
+
+async fn attach_motion_to_result(
+    result: Result<AgentResponse, String>,
+    user_id: i32,
+    user_text: &str,
+    mood: Option<crate::services::agent::life::MoodTransition>,
+    progress_tx: Option<tokio::sync::mpsc::Sender<AgentProgressEvent>>,
+) -> Result<AgentResponse, String> {
+    let mut response = result?;
+    let Some(mood) = mood else {
+        return Ok(response);
+    };
+    let task_success = response.task.as_ref().and_then(|task| match task.status {
+        TaskStatus::Completed => Some(true),
+        TaskStatus::Failed | TaskStatus::Cancelled => Some(false),
+        _ => None,
+    });
+    let phase = if task_success.is_some() {
+        crate::services::agent::life::MotionPhase::Outcome
+    } else {
+        crate::services::agent::life::MotionPhase::Delivery
+    };
+    let handle = spawn_motion_directive(
+        crate::services::agent::life::MotionContext {
+            user_id,
+            phase,
+            mood,
+            activity: "talking".to_string(),
+            user_text: user_text.to_string(),
+            response_text: Some(response.message.clone()),
+            task_success,
+        },
+        progress_tx,
+    );
+    response.performance = handle.await.ok().flatten();
+    Ok(response)
 }

@@ -1132,6 +1132,7 @@ mod tests {
             task: None,
             confirmation: None,
             frontend_action: None,
+            performance: None,
         };
 
         assert!(response(AgentResponseType::Answer, None).is_successful_outcome());

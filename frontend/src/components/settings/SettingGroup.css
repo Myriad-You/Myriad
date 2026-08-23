@@ -112,6 +112,58 @@
   gap: 0.5rem;
 }
 
+/* ⓘ / 指南入口不能放进折叠 <button>，否则会套 button */
+.setting-group-header-leading {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 0.15rem;
+  padding: 0.4rem 0.5rem;
+  margin: 0 -0.5rem;
+  border-radius: 0.5rem;
+  transition: background-color var(--sm-dur-base);
+}
+
+.setting-group-header-leading:hover {
+  background: rgb(0 0 0 / 3%);
+}
+
+html.dark .setting-group-header-leading:hover {
+  background: rgb(255 255 255 / 3%);
+}
+
+.setting-group-header-leading .setting-group-header-toggle {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.setting-group-header-leading .setting-group-header-toggle:hover {
+  background: transparent;
+}
+
+.setting-group-header-title-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.setting-group-chevron-hit {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
 .setting-group.is-collapsible > .setting-group-header--with-extra {
   margin-bottom: 0;
 }

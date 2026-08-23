@@ -12,6 +12,7 @@ import {
   isGenerationTimeout,
   isPortraitInProgress,
 } from '../generationError'
+import { userFacingError } from '../../../../utils/userFacingError'
 import { ActionBar, PrimaryButton, StepBody } from '../ui/Chrome'
 import { ErrorNote } from '../ui/Feedback'
 import { TextArea } from '../ui/Field'
@@ -166,9 +167,7 @@ export default function MasterPortraitStep({
       })
       .catch((reason) => {
         if (!cancelled) {
-          setError(
-            reason instanceof Error ? reason.message : o.portraitLoadFailed,
-          )
+          setError(userFacingError(reason, o.portraitLoadFailed))
         }
       })
       .finally(() => {

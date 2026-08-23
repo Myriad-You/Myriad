@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Spinner } from '../../components/Spinner'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { usePageSeo } from '../../hooks/usePageSeo'
 import { useBreakpoints } from '../../hooks/useSharedEventListener'
@@ -231,7 +232,7 @@ function TappRunPageStandard({
         setLoading(false)
       } catch (err) {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : t.tapp.loadAppFailed)
+        setError(userFacingError(err, t.tapp.loadAppFailed))
         setLoading(false)
       }
     }

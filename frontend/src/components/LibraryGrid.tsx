@@ -24,6 +24,7 @@ import {
   useState,
 } from 'react'
 import { useI18n } from '../contexts/I18nContext'
+import { userFacingError } from '../utils/userFacingError'
 import { useMusicLyricsSlice } from '../contexts/MusicPlayerContext'
 import { useLibraryIntersectionObserver } from '../hooks/animation'
 import { softLockWallpaperForLibraryCanvas } from '../hooks/useEvocativeWallpaper'
@@ -3385,11 +3386,10 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       }
     } catch (err) {
       if (generation !== libraryFetchGenerationRef.current) return
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      setError(message)
+      setError(userFacingError(err, t.library.emptyLibrary))
       setLoading(false)
     }
-  }, [filter])
+  }, [filter, t.library.emptyLibrary])
 
   useEffect(() => {
     void fetchLibraryData()

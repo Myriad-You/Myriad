@@ -96,8 +96,8 @@ export function AnnotationTooltip({
               }`}
             >
               {/* 只显示完整类型名，不要 label[0] + label 造成「背 背景」 */}
-              {brewliaApi.ANNOTATION_TYPE_CONFIG[hoveredAnnotation.type]
-                ?.label || t.brew.annotationFallback}
+              {brewliaApi.annotationTypeLabel(hoveredAnnotation.type) ||
+                t.brew.annotationFallback}
             </span>
             <span
               className={`text-sm font-medium ${currentTheme.text} min-w-0 flex-1 truncate`}
@@ -367,12 +367,12 @@ export function CommentInputPopup({
                 {copySuccess ? (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>{t.brew.copied || '已复制'}</span>
+                    <span>{t.brew.copied}</span>
                   </>
                 ) : (
                   <>
                     <Copy className="w-4 h-4" />
-                    <span>{t.brew.copy || '复制'}</span>
+                    <span>{t.brew.copy}</span>
                   </>
                 )}
               </button>
@@ -382,7 +382,7 @@ export function CommentInputPopup({
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${currentTheme.text} hover:bg-black/5 dark:hover:bg-white/10 transition-colors`}
               >
                 <MessageSquare className="w-4 h-4" />
-                <span>{t.brew.comment || '评论'}</span>
+                <span>{t.brew.comment}</span>
               </button>
             </div>
           ) : (

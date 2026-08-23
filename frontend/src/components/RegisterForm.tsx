@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
 import { fetchJson } from '../utils/apiHelper'
+import { messageForRegisterError } from '../utils/authErrorMessages'
 import { sanitizeUsername } from '../utils/inputSanitizer'
 import { setSessionHint } from '../utils/sessionDetection'
 import { Spinner } from './Spinner'
@@ -99,7 +100,7 @@ const RegisterForm: FC = () => {
         window.location.href = '/'
       }, 100)
     } catch (err: any) {
-      setError(err?.message || t.auth.registerFailed)
+      setError(messageForRegisterError(err, t))
     } finally {
       setSubmitting(false)
     }

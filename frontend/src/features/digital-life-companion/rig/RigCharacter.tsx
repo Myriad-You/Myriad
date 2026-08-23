@@ -1,4 +1,5 @@
 import type { CompanionActivity } from '../types'
+import type { PerformanceDirective } from '../../../services/agent/types'
 import type { SpeechArticulation } from './articulation'
 import type { GazeSource, GazeTarget } from './motion'
 import type { CompanionRigManifest } from './types'
@@ -23,7 +24,7 @@ export interface RigCharacterHandle {
   setSpeechEnergy: (energy: number | null) => void
   setSpeechArticulation: (articulation: SpeechArticulation) => void
   setGazeTarget: (target: GazeTarget | null, source?: GazeSource) => void
-  playMotionPlan: () => void
+  playMotionPlan: (performance: PerformanceDirective) => void
   stopMotionPlan: () => void
   captureFrame: () => string | null
   setDriver: (partial: Partial<Anime25DDriver>) => void
@@ -50,7 +51,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
         animeRef.current?.setSpeechArticulation(value),
       setGazeTarget: (target, source) =>
         animeRef.current?.setGazeTarget(target, source),
-      playMotionPlan: () => animeRef.current?.playMotionPlan(),
+      playMotionPlan: (performance) => animeRef.current?.playMotionPlan(performance),
       stopMotionPlan: () => animeRef.current?.stopMotionPlan(),
       captureFrame: () => animeRef.current?.captureFrame() ?? null,
       setDriver: (partial) => animeRef.current?.setDriver(partial),

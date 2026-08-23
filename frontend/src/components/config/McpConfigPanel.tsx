@@ -14,6 +14,7 @@ import type {
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   FaEdit,
   FaPlus,
@@ -181,7 +182,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
       const snap = await agentService.getMcpConfig()
       applySnapshot(snap)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : c.mcpLoadFailed
+      const msg = userFacingError(e, c.mcpLoadFailed)
       setError(msg)
       setServers([])
       setRuntime({})
@@ -205,7 +206,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         onMessage?.(successMsg, 'success')
         return true
       } catch (e) {
-        const msg = e instanceof Error ? e.message : c.mcpSaveFailed
+        const msg = userFacingError(e, c.mcpSaveFailed)
         setError(msg)
         onMessage?.(msg, 'error')
         return false

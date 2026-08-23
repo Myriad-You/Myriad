@@ -8,6 +8,10 @@ import {
 describe('classifyMusicLoadError', () => {
   it('maps rate-limit and copyright wording to dedicated keys', () => {
     assert.deepEqual(
+      classifyMusicLoadError(new Error('RATE_LIMITED')),
+      { key: 'playlistRateLimited', detail: '' },
+    )
+    assert.deepEqual(
       classifyMusicLoadError(new Error('Rate limited')),
       { key: 'playlistRateLimited', detail: '' },
     )
@@ -16,10 +20,18 @@ describe('classifyMusicLoadError', () => {
       { key: 'playlistRateLimited', detail: '' },
     )
     assert.deepEqual(
+      classifyMusicLoadError(new Error('PLAYLIST_BLOCKED')),
+      { key: 'playlistBlocked', detail: '' },
+    )
+    assert.deepEqual(
       classifyMusicLoadError(
         new Error('该歌单因版权或地理位置限制无法播放,建议使用QQ音乐'),
       ),
       { key: 'playlistBlocked', detail: '' },
+    )
+    assert.deepEqual(
+      classifyMusicLoadError(new Error('PLAYLIST_EMPTY')),
+      { key: 'playlistEmpty', detail: '' },
     )
     assert.deepEqual(
       classifyMusicLoadError(new Error('歌单为空或无可用歌曲')),

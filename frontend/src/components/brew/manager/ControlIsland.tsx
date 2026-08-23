@@ -32,6 +32,7 @@ import {
 } from '@lib/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
+import { userFacingError } from '../../../utils/userFacingError'
 
 import { BREW_SHORTCUTS } from '../../../hooks/useBrewKeyboard'
 import * as brewApi from '../../../services/brewApi'
@@ -76,7 +77,7 @@ function generateDynamicTips(
       icon: '',
       iconUrl: mostUnread.icon || undefined,
       main: `${mostUnread.name}`,
-      sub: (brewTranslations.tipUnreadCount || '{count} 条未读').replace(
+      sub: brewTranslations.tipUnreadCount.replace(
         '{count}',
         String(mostUnread.unread_count),
       ),
@@ -100,7 +101,7 @@ function generateDynamicTips(
       icon: '',
       iconUrl: source.icon || undefined,
       main: `${source.name}`,
-      sub: brewTranslations.tipJustUpdated || '刚刚更新',
+      sub: brewTranslations.tipJustUpdated,
     })
   }
 
@@ -121,7 +122,7 @@ function generateDynamicTips(
         icon: '',
         iconUrl: randomSource.icon || undefined,
         main: title,
-        sub: (brewTranslations.tipFromSource || '来自 {source}').replace(
+        sub: brewTranslations.tipFromSource.replace(
           '{source}',
           randomSource.name,
         ),
@@ -135,11 +136,11 @@ function generateDynamicTips(
     tips.push({
       icon: '📥',
       iconUrl: BREW_TIP_ICON_ASSETS.unreadInbox,
-      main: (brewTranslations.tipUnreadCount || '{count} 条未读').replace(
+      main: brewTranslations.tipUnreadCount.replace(
         '{count}',
         String(totalUnread),
       ),
-      sub: brewTranslations.tipClickToView || '点击卡片查看',
+      sub: brewTranslations.tipClickToView,
     })
   }
 
@@ -147,11 +148,11 @@ function generateDynamicTips(
   tips.push({
     icon: '☕',
     iconUrl: BREW_TIP_ICON_ASSETS.subscriptions,
-    main: (brewTranslations.tipSubscriptionCount || '{count} 个订阅').replace(
+    main: brewTranslations.tipSubscriptionCount.replace(
       '{count}',
       String(sources.length),
     ),
-    sub: brewTranslations.tipManageSources || '管理你的信息源',
+    sub: brewTranslations.tipManageSources,
   })
 
   // 时段问候（作为兜底）
@@ -160,22 +161,22 @@ function generateDynamicTips(
     tips.push({
       icon: '🌅',
       iconUrl: BREW_TIP_ICON_ASSETS.morning,
-      main: brewTranslations.tipMorning || '早安',
-      sub: brewTranslations.tipStartReading || '开启今日阅读',
+      main: brewTranslations.tipMorning,
+      sub: brewTranslations.tipStartReading,
     })
   } else if (hour >= 12 && hour < 18) {
     tips.push({
       icon: '🌤️',
       iconUrl: BREW_TIP_ICON_ASSETS.afternoon,
-      main: brewTranslations.tipAfternoon || '午后时光',
-      sub: brewTranslations.tipRelaxReading || '适合轻松阅读',
+      main: brewTranslations.tipAfternoon,
+      sub: brewTranslations.tipRelaxReading,
     })
   } else {
     tips.push({
       icon: '🌙',
       iconUrl: BREW_TIP_ICON_ASSETS.evening,
-      main: brewTranslations.tipEvening || '晚间阅读',
-      sub: brewTranslations.tipQuietTime || '享受安静时刻',
+      main: brewTranslations.tipEvening,
+      sub: brewTranslations.tipQuietTime,
     })
   }
 
@@ -557,8 +558,7 @@ export default function ControlIsland({
       URL.revokeObjectURL(url)
 
       setImportExportSuccess(
-        t.brew.exportSuccess?.replace('{count}', String(sources.length)) ||
-          `已导出 ${sources.length} 个订阅源`,
+        t.brew.exportSuccess.replace('{count}', String(sources.length)),
       )
       setTimeout(setImportExportSuccess, 3000, null)
     } catch (_err) {
@@ -579,14 +579,14 @@ export default function ControlIsland({
     setImportExportError(null)
     setImportExportSuccess(null)
     setImportProgress({
-      step: t.brew.importStepReading || '读取文件...',
+      step: t.brew.importStepReading,
       current: 0,
       total: 0,
     })
 
     try {
       setImportProgress({
-        step: t.brew.importStepUnzipping || '解压文件...',
+        step: t.brew.importStepUnzipping,
         current: 0,
         total: 0,
       })
@@ -594,14 +594,14 @@ export default function ControlIsland({
       const zip = await JSZip.loadAsync(file)
 
       setImportProgress({
-        step: t.brew.importStepParsing || '解析配置...',
+        step: t.brew.importStepParsing,
         current: 0,
         total: 0,
       })
       const manifestFile = zip.file('manifest.json')
       if (!manifestFile) {
         throw new Error(
-          t.brew.errorInvalidFormat || '无效的导入文件格式：缺少 manifest.json',
+          t.brew.errorInvalidFormat,
         )
       }
 
@@ -613,7 +613,7 @@ export default function ControlIsland({
         !manifest.sources ||
         !Array.isArray(manifest.sources)
       ) {
-        throw new Error(t.brew.errorInvalidFormat || '无效的导入文件格式')
+        throw new Error(t.brew.errorInvalidFormat)
       }
 
       const total = manifest.sources.length
@@ -624,8 +624,7 @@ export default function ControlIsland({
         const source = manifest.sources[i]
         setImportProgress({
           step:
-            t.brew.importStepImporting?.replace('{name}', source.name) ||
-            `导入: ${source.name}`,
+            t.brew.importStepImporting.replace('{name}', source.name),
           current: i + 1,
           total,
         })
@@ -681,7 +680,7 @@ export default function ControlIsland({
 
       setImportProgress(null)
       setImportExportSuccess(
-        (t.brew.importSuccess || '导入成功：{imported} 个，跳过：{skipped} 个')
+        t.brew.importSuccess
           .replace('{imported}', String(imported))
           .replace('{skipped}', String(skipped)),
       )
@@ -690,9 +689,7 @@ export default function ControlIsland({
     } catch (err) {
       setImportProgress(null)
       setImportExportError(
-        err instanceof Error
-          ? err.message
-          : t.brew.errorImportFailed || '导入失败',
+        userFacingError(err, t.brew.errorImportFailed),
       )
     } finally {
       setImportExportLoading(false)
@@ -790,8 +787,8 @@ export default function ControlIsland({
               refreshAllSources: brewT.refreshAllSources,
               markAllAsRead: brewT.markAllAsRead,
               exitEdit: brewT.exitEdit,
-              exportBrewpack: brewT.exportBrewpack || '导出订阅包',
-              importBrewpack: brewT.importBrewpack || '导入订阅包',
+              exportBrewpack: brewT.exportBrewpack,
+              importBrewpack: brewT.importBrewpack,
             }}
           />
         )
@@ -901,7 +898,10 @@ export default function ControlIsland({
                     } catch (err) {
                       return {
                         success: false,
-                        error: err instanceof Error ? err.message : 'Failed',
+                        error: userFacingError(
+                          err,
+                          t.brew.errorAddFailed,
+                        ),
                       }
                     }
                   }

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
+import { userFacingError } from '../../../utils/userFacingError'
 import { agentService } from '../../../services/agent'
 import { invalidatePublicConfigCache } from '../../../utils/requestDedup'
 import {
@@ -46,7 +47,7 @@ export const AraelPersonaSection: React.FC<{
       )
     } catch (e) {
       setDisabled(false)
-      setError(e instanceof Error ? e.message : a.manageLoadError)
+      setError(userFacingError(e, a.manageLoadError))
     } finally {
       setLoading(false)
     }
@@ -79,7 +80,7 @@ export const AraelPersonaSection: React.FC<{
       invalidatePublicConfigCache()
       window.dispatchEvent(new CustomEvent('arael-persona-updated'))
     } catch (e) {
-      setError(e instanceof Error ? e.message : a.manageActionError)
+      setError(userFacingError(e, a.manageActionError))
     } finally {
       setSaving(false)
     }
@@ -96,7 +97,7 @@ export const AraelPersonaSection: React.FC<{
       invalidatePublicConfigCache()
       window.dispatchEvent(new CustomEvent('arael-persona-updated'))
     } catch (e) {
-      setError(e instanceof Error ? e.message : a.manageActionError)
+      setError(userFacingError(e, a.manageActionError))
     } finally {
       setSaving(false)
     }
@@ -114,7 +115,7 @@ export const AraelPersonaSection: React.FC<{
       window.dispatchEvent(new CustomEvent(ADDRESSEE_UPDATED_EVENT))
     } catch (e) {
       setDoNotDisturb(!next)
-      setError(e instanceof Error ? e.message : a.manageActionError)
+      setError(userFacingError(e, a.manageActionError))
     }
   }, [doNotDisturb, a.manageActionError])
 

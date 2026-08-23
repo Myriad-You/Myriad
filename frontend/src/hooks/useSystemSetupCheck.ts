@@ -1,9 +1,11 @@
 import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { API_URL } from '../config'
+import { useI18n } from '../contexts/I18nContext'
 import { showError } from '../utils/toastManager'
 
 export function useSystemSetupCheck() {
+  const { t } = useI18n()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -30,10 +32,10 @@ export function useSystemSetupCheck() {
         }
       } catch (error) {
         console.error('Failed to check setup status:', error)
-        showError('无法连接到服务器检查系统状态')
+        showError(t.errors.setupCheckFailed)
       }
     }
 
     checkSetup()
-  }, [location.pathname, navigate])
+  }, [location.pathname, navigate, t.errors.setupCheckFailed])
 }

@@ -9,7 +9,9 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react'
+import { ApiError } from '../services/api'
 import { requestManager } from '../utils/concurrentRequestManager'
+import { httpStatusMessage } from '../utils/userFacingError'
 
 interface UseManagedFetchOptions {
   priority?: number
@@ -56,7 +58,10 @@ export function useManagedFetch() {
             })
 
             if (!response.ok) {
-              throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+              throw new ApiError(
+                httpStatusMessage(response.status),
+                response.status,
+              )
             }
 
             return response.json()

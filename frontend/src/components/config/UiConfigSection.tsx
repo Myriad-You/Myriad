@@ -19,6 +19,7 @@ import React, { useCallback, useMemo, useState } from 'react'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { getCSRFToken } from '../../utils/csrf'
+import { httpStatusMessage, userFacingError } from '../../utils/userFacingError'
 import {
   emptyFooterCustomItem,
   FOOTER_CUSTOM_MAX,
@@ -270,7 +271,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
           }),
         })
         if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
+          throw new Error(httpStatusMessage(res.status))
         }
         const data = (await res.json()) as {
           site_description?: string
@@ -306,10 +307,10 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
               ? t.config.siteAiGenerateFallback
               : t.config.siteAiGenerateSuccess,
         })
-      } catch {
+      } catch (err) {
         setAiGenFeedback({
           field,
-          message: t.config.siteAiGenerateError,
+          message: userFacingError(err, t.config.siteAiGenerateError),
         })
       } finally {
         setAiGenField(null)

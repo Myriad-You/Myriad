@@ -6,6 +6,7 @@
  * a generic error with no user-visible Retry-After hint.
  */
 
+import { currentCopy } from '../i18n/localeCopy'
 import { showToast } from './toastManager'
 
 const recentToastAt = { t: 0 }
@@ -50,21 +51,7 @@ export function formatRateLimitMessage(
   seconds: number,
   serverMessage?: string | null,
 ): string {
-  let locale = 'en-US'
-  try {
-    const saved = localStorage.getItem('locale')
-    if (saved) locale = saved
-  } catch {
-    /* ignore */
-  }
   const sec = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 60
-  if (locale.startsWith('zh')) {
-    return `请求过于频繁，请 ${sec} 秒后重试`
-  }
-  if (locale.startsWith('ja')) {
-    return `リクエストが多すぎます。${sec}秒後に再試行してください`
-  }
-  // en: only use a non-boilerplate server message if provided and not English RL text
   const msg = serverMessage?.trim() ?? ''
   if (
     msg &&
@@ -72,7 +59,7 @@ export function formatRateLimitMessage(
   ) {
     return msg
   }
-  return `Too many requests. Retry in ${sec}s`
+  return currentCopy().errors.rateLimitedRetry.replace('{sec}', String(sec))
 }
 
 /**

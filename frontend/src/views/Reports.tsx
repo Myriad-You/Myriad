@@ -48,6 +48,7 @@ import {
   useTitleFont,
 } from '../hooks/useTitleFont'
 import { getCSRFToken } from '../utils/csrf'
+import { reportUserFacingError } from '../utils/reportError'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
 import { buildModulePageSeo } from '../utils/modulePageSeo'
 import {
@@ -856,12 +857,14 @@ export default function Reports() {
           // 后端现在会在数据为空时返回 success:false + 可读原因
           const fetchBody = await fetchResponse.json().catch(() => null)
           if (!fetchResponse.ok || fetchBody?.success === false) {
-            fetchWarning =
-              (typeof fetchBody?.message === 'string' && fetchBody.message) ||
+            fetchWarning = reportUserFacingError(
+              typeof fetchBody?.message === 'string' ? fetchBody.message : null,
               t.reportsPage.refreshReportFailed.replace(
                 '{platform}',
                 platformName,
-              )
+              ),
+              t.reportsPage,
+            )
             console.warn(fetchWarning)
           } else {
             notifyRecentActivityUpdated()
@@ -890,10 +893,13 @@ export default function Reports() {
 
         const genBody = await response.json().catch(() => null)
         if (!response.ok) {
-          const msg =
-            (typeof genBody?.message === 'string' && genBody.message) ||
-            t.reportsPage.generateFailed
-          throw new Error(msg)
+          throw new Error(
+            reportUserFacingError(
+              typeof genBody?.message === 'string' ? genBody.message : null,
+              t.reportsPage.generateFailed,
+              t.reportsPage,
+            ),
+          )
         }
 
         if (!genBody) {
@@ -904,7 +910,11 @@ export default function Reports() {
         // 解析生成结果，把后端给出的跳过原因透出给用户
         if (genBody.success === false) {
           showToastMessage(
-            genBody.message || fetchWarning || t.reportsPage.generateFailed,
+            reportUserFacingError(
+              genBody.message || fetchWarning,
+              t.reportsPage.generateFailed,
+              t.reportsPage,
+            ),
             'error',
           )
           return
@@ -913,7 +923,14 @@ export default function Reports() {
           ? genBody.skipped.find((s: any) => s?.platform === platformId)?.reason
           : null
         if (skippedReason) {
-          showToastMessage(String(skippedReason), 'error')
+          showToastMessage(
+            reportUserFacingError(
+              skippedReason,
+              t.reportsPage.generateFailed,
+              t.reportsPage,
+            ),
+            'error',
+          )
           return
         }
 
@@ -939,9 +956,11 @@ export default function Reports() {
       } catch (err) {
         console.error('Generate platform report failed:', err)
         showToastMessage(
-          err instanceof Error && err.message
-            ? err.message
-            : t.reportsPage.generateFailedRetry,
+          reportUserFacingError(
+            err,
+            t.reportsPage.generateFailedRetry,
+            t.reportsPage,
+          ),
           'error',
         )
       } finally {

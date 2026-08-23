@@ -1,6 +1,4 @@
-use crate::{
-    chat_quality_guidance, deliberation_quality_guidance, CompanionPolicy, RuntimeState,
-};
+use crate::{chat_quality_guidance, deliberation_quality_guidance, CompanionPolicy, RuntimeState};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -26,10 +24,8 @@ pub fn build_chat_system_prompt(
          {quality}\n\
          Never claim you operated the site, accessed secrets, or performed actions you cannot perform. \
          Do not ask for passwords or tokens. Return only JSON: \
-         {{\"reply\":\"natural-language reply\",\"performance\":{{\"cues\":[up to 3 cues]}}}}. \
-         Each cue uses intent greet|respond|question|delight|emphasize|listen, atMs 0..5000, \
-         intensity 0.2..1.4, tempo 0.5..1.6, fadeInMs 40..600, fadeOutMs 60..800, and \
-         interrupt replace|queue|if-lower. Performance is acting direction, never hidden text.",
+         {{\"reply\":\"natural-language reply\"}}. Do not select gestures, expressions, posture, \
+         animation, or rig parameters; a separate strict-Lite motion director owns all semantic acting.",
         name = bounded(name, 120),
         persona = bounded_json(persona, 4_000),
         runtime = bounded_json(runtime, 2_000),

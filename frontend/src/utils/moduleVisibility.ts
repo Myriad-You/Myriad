@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { currentCopy } from '../i18n/localeCopy'
 import apiService from '../services/api'
 import { dedupedFetch } from './requestDedup'
 
@@ -320,7 +321,9 @@ export async function updateModuleVisibilityPreferences(
     normalized,
   )
   if (!response.success) {
-    throw new Error(response.message || 'Failed to save module visibility')
+    throw new Error(
+      response.message || currentCopy().errors.operationFailed,
+    )
   }
   const next = normalizeModuleVisibilityPreferences(response.preferences)
   rememberSessionPreferences(next)

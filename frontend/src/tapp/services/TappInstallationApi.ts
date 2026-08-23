@@ -4,6 +4,7 @@ import type { TappManifest } from '../types'
 import type { TappListItem } from './TappLifecycleApi'
 import type { TappPlaygroundCode } from './TappPlaygroundService'
 import { API_URL } from '../../config'
+import { currentCopy } from '../../i18n/localeCopy'
 import { getCSRFToken } from '../../utils/csrf'
 import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
 import { tappLayerEntries } from '../utils/manifestLayers'
@@ -290,13 +291,13 @@ export async function installTappFile(
     throw new Error(
       errorData.message ||
         errorData.error ||
-        `Install failed: ${response.status}`,
+        `${currentCopy().tapp.installFailed} (${response.status})`,
     )
   }
 
   const result = await response.json()
   if (result.success === false) {
-    throw new Error(result.error || 'Install failed')
+    throw new Error(result.error || currentCopy().tapp.installFailed)
   }
   return result.data || result
 }
@@ -661,7 +662,9 @@ async function installFromStoreViaClient(
 
   const app = storeIndex.apps.find((a) => a.id === request.tappId)
   if (!app) {
-    throw new Error(`商店中未找到应用: ${request.tappId}`)
+    throw new Error(
+      currentCopy().tapp.storeAppNotFound.replace('{id}', request.tappId),
+    )
   }
 
   report?.({
@@ -869,7 +872,9 @@ async function updateFromStoreViaClient(
     source.url.replace(/\/index\.json$/, '').replace(/\/$/, '')
   const storeIndex = { ...index, base_url: baseUrl }
   const app = storeIndex.apps.find((a) => a.id === tappId)
-  if (!app) throw new Error(`商店中未找到应用: ${tappId}`)
+  if (!app) {
+    throw new Error(currentCopy().tapp.storeAppNotFound.replace('{id}', tappId))
+  }
 
   report?.({ phase: 'download', message: 'download', percent: 5 })
   const pkg = await RemoteStoreService.downloadAppPackage(app, storeIndex, {

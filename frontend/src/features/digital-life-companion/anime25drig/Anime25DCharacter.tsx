@@ -1,4 +1,5 @@
 import type { CompanionActivity } from '../types'
+import type { PerformanceDirective } from '../../../services/agent/types'
 import type { SpeechArticulation } from '../rig/articulation'
 import type { GazeSource, GazeTarget } from '../rig/motion'
 import type { Anime25DPlayback } from './types'
@@ -10,10 +11,18 @@ import {
 } from 'react'
 import {
   Anime25DPlayer,
+  DEFAULT_FRONT_HAIR_SWAY,
+  DEFAULT_REAR_HAIR_SWAY,
   IDENTITY_DRIVER,
   type Anime25DDebugSnapshot,
   type Anime25DDriver,
 } from './player'
+import {
+  baselineDriverPatch,
+  cueDriverPatch,
+  cueDurationMs,
+  cuePriority,
+} from './performanceMotion'
 
 interface Props {
   activity: CompanionActivity
@@ -29,7 +38,7 @@ export interface Anime25DCharacterHandle {
   setSpeechEnergy: (energy: number | null) => void
   setSpeechArticulation: (articulation: SpeechArticulation) => void
   setGazeTarget: (target: GazeTarget | null, source?: GazeSource) => void
-  playMotionPlan: () => void
+  playMotionPlan: (performance: PerformanceDirective) => void
   stopMotionPlan: () => void
   captureFrame: () => string | null
   setDriver: (partial: Partial<Anime25DDriver>) => void
@@ -50,6 +59,13 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
     const activityRef = useRef(activity)
     const moodRef = useRef(mood)
     const manualRef = useRef(manualControl)
+    const baselineRef = useRef<Partial<Anime25DDriver> | null>(null)
+    const cueTimersRef = useRef<number[]>([])
+    const restoreTimerRef = useRef<number | null>(null)
+    const activePriorityRef = useRef(0)
+    const activeUntilRef = useRef(0)
+    const performanceRevisionRef = useRef(-1)
+    const performancePhaseRankRef = useRef(-1)
     activityRef.current = activity
     moodRef.current = mood
     manualRef.current = manualControl || manualRef.current
@@ -59,11 +75,47 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       const currentActivity = activityRef.current
       const smile = Math.max(0, (moodRef.current - 50) / 80)
       player.setTarget({
-        talk: currentActivity === 'talking',
-        mouthOpen: currentActivity === 'talking' ? 0.42 : smile * 0.12,
-        angleY: currentActivity === 'thinking' ? 0.08 : 0,
-        body: currentActivity === 'thinking' ? 0.4 : 0,
+        angleX: 0,
+        angleY: 0,
+        angleZ: 0,
+        eyeOpenL: 1,
+        eyeOpenR: 1,
+        eyeX: 0,
+        eyeY: 0,
+        irisScale: 1,
+        brow: 0,
+        mouthForm: smile * 0.28,
+        body: 0,
+        armY: 0,
+        armPos: 0,
+        bust: 2.5,
+        physAmp: DEFAULT_REAR_HAIR_SWAY,
+        soft: 2,
+        fhAmp: DEFAULT_FRONT_HAIR_SWAY,
+        idle: true,
+        blink: true,
+        rand: true,
+        phys: true,
+        ...(baselineRef.current || {
+          mouthForm: smile * 0.28,
+        }),
+        talk: false,
+        mouthOpen: 0,
+        ...(currentActivity === 'thinking'
+          ? { angleY: 0.08, body: 0.4 }
+          : {}),
       })
+    }
+
+    const clearCueTimers = () => {
+      for (const timer of cueTimersRef.current) window.clearTimeout(timer)
+      cueTimersRef.current = []
+      if (restoreTimerRef.current !== null) {
+        window.clearTimeout(restoreTimerRef.current)
+        restoreTimerRef.current = null
+      }
+      activePriorityRef.current = 0
+      activeUntilRef.current = 0
     }
 
     useImperativeHandle(ref, () => ({
@@ -74,13 +126,20 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         })
       },
       setSpeechArticulation(articulation) {
-        const openness =
+        const shape =
           articulation.viseme === 'closed' || articulation.viseme === 'rest'
-            ? 0.08
+            ? 0
             : articulation.viseme === 'wide'
-              ? 0.92
-              : 0.55
-        playerRef.current?.setTarget({ mouthOpen: openness, talk: true })
+              ? 1
+              : articulation.viseme === 'round'
+                ? 0.68
+                : 0.55
+        const openness = Math.max(0, Math.min(1, shape * articulation.amount))
+        playerRef.current?.setTarget({
+          mouthOpen: openness,
+          mouthForm: articulation.viseme === 'wide' ? 0.25 : articulation.viseme === 'round' ? -0.2 : baselineRef.current?.mouthForm || 0,
+          talk: openness > 0.02,
+        })
       },
       setGazeTarget(target) {
         playerRef.current?.setTarget({
@@ -88,22 +147,68 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
           angleY: target ? target.y * 0.28 : 0,
         })
       },
-      playMotionPlan() {
-        manualRef.current = true
-        playerRef.current?.setTarget({
-          talk: true,
-          mouthOpen: 0.45,
-          angleY: -0.08,
-          bust: 2.5,
-        })
+      playMotionPlan(directive) {
+        if (manualRef.current || manualControl) return
+        const phaseRank = {
+          mood: 0,
+          reaction: 1,
+          delivery: 2,
+          proactive: 2,
+          outcome: 3,
+        }[directive.phase]
+        if (directive.moodRevision < performanceRevisionRef.current) return
+        if (
+          directive.moodRevision === performanceRevisionRef.current &&
+          phaseRank < performancePhaseRankRef.current
+        ) return
+        if (directive.moodRevision > performanceRevisionRef.current) {
+          clearCueTimers()
+          performanceRevisionRef.current = directive.moodRevision
+          performancePhaseRankRef.current = -1
+        }
+        performancePhaseRankRef.current = phaseRank
+        if (directive.plan.baseline) {
+          baselineRef.current = baselineDriverPatch(directive.plan.baseline)
+        }
+        if (playerRef.current) applyDriver(playerRef.current)
+
+        for (const cue of directive.plan.cues) {
+          const timer = window.setTimeout(() => {
+            const run = () => {
+              const priority = cuePriority(cue)
+              const now = performance.now()
+              if (cue.interrupt === 'queue' && now < activeUntilRef.current) {
+                const queued = window.setTimeout(run, activeUntilRef.current - now)
+                cueTimersRef.current.push(queued)
+                return
+              }
+              if (cue.interrupt === 'if-lower' && priority <= activePriorityRef.current) return
+              if (restoreTimerRef.current !== null) window.clearTimeout(restoreTimerRef.current)
+              const duration = cueDurationMs(cue)
+              activePriorityRef.current = priority
+              activeUntilRef.current = performance.now() + duration
+              playerRef.current?.setTarget({
+                ...(baselineRef.current || {}),
+                ...cueDriverPatch(cue),
+              })
+              restoreTimerRef.current = window.setTimeout(() => {
+                activePriorityRef.current = 0
+                activeUntilRef.current = 0
+                restoreTimerRef.current = null
+                if (playerRef.current) applyDriver(playerRef.current)
+              }, duration)
+            }
+            run()
+          }, cue.atMs)
+          cueTimersRef.current.push(timer)
+        }
       },
       stopMotionPlan() {
-        playerRef.current?.setTarget({
-          mouthOpen: 0,
-          talk: false,
-          armY: 0,
-          armPos: 0,
-        })
+        clearCueTimers()
+        baselineRef.current = null
+        performanceRevisionRef.current = -1
+        performancePhaseRankRef.current = -1
+        if (playerRef.current) applyDriver(playerRef.current)
       },
       captureFrame() {
         return playerRef.current?.captureFrame() ?? null
@@ -117,6 +222,10 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         playerRef.current?.replaceTarget(driver)
       },
       resetDriver() {
+        clearCueTimers()
+        baselineRef.current = null
+        performanceRevisionRef.current = -1
+        performancePhaseRankRef.current = -1
         manualRef.current = false
         playerRef.current?.replaceTarget({ ...IDENTITY_DRIVER })
         if (playerRef.current) applyDriver(playerRef.current)
@@ -180,6 +289,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       })
       return () => {
         cancelled = true
+        clearCueTimers()
         window.cancelAnimationFrame(frame)
         observer.disconnect()
         canvas.removeEventListener('pointermove', onPointerMove)
@@ -192,13 +302,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
 
     useEffect(() => {
       if (manualRef.current || manualControl) return
-      const smile = Math.max(0, (mood - 50) / 80)
-      playerRef.current?.setTarget({
-        talk: activity === 'talking',
-        mouthOpen: activity === 'talking' ? 0.42 : smile * 0.12,
-        angleY: activity === 'thinking' ? 0.08 : 0,
-        body: activity === 'thinking' ? 0.4 : 0,
-      })
+      if (playerRef.current) applyDriver(playerRef.current)
     }, [activity, mood, manualControl])
 
     return (

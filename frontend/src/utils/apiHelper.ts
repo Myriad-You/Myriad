@@ -1,4 +1,6 @@
+import { currentCopy } from '../i18n/localeCopy'
 import { ApiError, parseApiErrorBody } from '../services/api'
+import { httpStatusMessage, isUselessErrorText } from './userFacingError'
 
 /**
  * 安全地解析 JSON 响应，处理各种错误情况
@@ -13,13 +15,20 @@ export async function parseJsonResponse(response: Response): Promise<any> {
   if (!hasJson) {
     // 响应不是 JSON 格式
     const text = await response.text()
-    throw new Error(text || response.statusText || `HTTP ${response.status}`)
+    throw new Error(
+      text || response.statusText || httpStatusMessage(response.status),
+    )
   }
 
   try {
     return await response.json()
   } catch (_error) {
-    throw new Error(`服务器返回了无效的响应格式 (${response.status})`)
+    throw new Error(
+      currentCopy().errors.invalidResponse.replace(
+        '{status}',
+        String(response.status),
+      ),
+    )
   }
 }
 
@@ -32,7 +41,7 @@ export async function parseJsonResponse(response: Response): Promise<any> {
  */
 export async function handleErrorResponse(
   response: Response,
-  defaultMessage: string = '操作失败',
+  defaultMessage: string = currentCopy().errors.operationFailed,
 ): Promise<never> {
   const contentType = response.headers.get('content-type')
   const hasJson = contentType && contentType.includes('application/json')
@@ -41,7 +50,7 @@ export async function handleErrorResponse(
     try {
       const parsed = parseApiErrorBody(await response.json(), response.status)
       const message =
-        parsed.message !== `API Error: ${response.status}`
+        !isUselessErrorText(parsed.message)
           ? parsed.message
           : defaultMessage
       throw new ApiError(
@@ -62,7 +71,7 @@ export async function handleErrorResponse(
 
   const text = await response.text()
   throw new ApiError(
-    text || response.statusText || `HTTP ${response.status}`,
+    text || response.statusText || httpStatusMessage(response.status),
     response.status,
   )
 }
@@ -95,7 +104,7 @@ function isIdempotent(method?: string): boolean {
 export async function fetchJson<T = any>(
   url: string,
   options?: RequestInit,
-  errorMessage: string = '请求失败',
+  errorMessage: string = currentCopy().errors.requestFailed,
 ): Promise<T> {
   const retryable = isIdempotent(options?.method)
 

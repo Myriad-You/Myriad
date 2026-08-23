@@ -22,6 +22,7 @@ import type {
 } from '../settings/ManagedList'
 import React, { useCallback, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import { FaRedo, FaSearch, FaSyncAlt, FaTrash } from '../../lib/icons'
 import { federationApi } from '../../services/federationApi'
 import {
@@ -225,7 +226,7 @@ export const FederationDeliveryQueue: React.FC<
   const fail = useCallback(
     (e: unknown) => {
       onMessage?.(
-        e instanceof Error ? e.message : c.federationDeliveryActionFailed,
+        userFacingError(e, c.federationDeliveryActionFailed),
         'error',
       )
     },

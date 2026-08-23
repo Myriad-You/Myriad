@@ -107,6 +107,26 @@ pub fn pick<'a>(locale: &str, zh: &'a str, ja: &'a str, en: &'a str) -> &'a str 
     }
 }
 
+pub fn missing_platform_data_message(locale: &str) -> String {
+    pick(
+        locale,
+        "该平台还没有可用数据。请先成功抓取后再生成报告。",
+        "このプラットフォームのデータがまだありません。先に取得してからレポートを生成してください。",
+        "This platform has no usable data yet. Fetch it first, then generate the report.",
+    )
+    .to_string()
+}
+
+pub fn generate_none_message(locale: &str) -> String {
+    pick(
+        locale,
+        "未能生成报告。请确保已获取平台数据。",
+        "レポートを生成できませんでした。先にプラットフォームデータを取得してください。",
+        "Could not generate a report. Fetch the platform data first.",
+    )
+    .to_string()
+}
+
 /// Instruction block: keep field names / enum keys; write user-visible copy in `locale`.
 pub fn language_rule(locale: &str) -> String {
     let loc = normalize_report_locale(locale);
@@ -145,6 +165,14 @@ mod tests {
     #[test]
     fn headerless_request_has_no_locale_signal() {
         assert_eq!(locale_from_headers(&HeaderMap::new()), None);
+    }
+
+    #[test]
+    fn missing_data_message_follows_locale() {
+        assert!(missing_platform_data_message("zh-CN").contains("可用数据"));
+        assert!(missing_platform_data_message("en-US").contains("usable data"));
+        assert!(missing_platform_data_message("ja-JP").contains("データ"));
+        assert!(!missing_platform_data_message("en-US").contains("cache/raw"));
     }
 
     #[test]

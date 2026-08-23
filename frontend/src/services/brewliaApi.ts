@@ -5,7 +5,10 @@
  */
 
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
+import { parseApiErrorBody } from './api'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
+import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
 
 const API_BASE = `${API_URL}/api/brewlia`
 
@@ -21,42 +24,52 @@ export type AnnotationType =
 export const ANNOTATION_TYPE_CONFIG: Record<
   AnnotationType,
   {
-    label: string
     color: string
     bgColor: string
     icon: string
   }
 > = {
   reference: {
-    label: '指代',
     color: 'text-blue-600 dark:text-blue-400',
     bgColor: 'bg-blue-100 dark:bg-blue-900/30',
     icon: 'T',
   },
   implicit: {
-    label: '隐含',
     color: 'text-purple-600 dark:text-purple-400',
     bgColor: 'bg-purple-100 dark:bg-purple-900/30',
     icon: 'I',
   },
   term: {
-    label: '术语',
     color: 'text-orange-600 dark:text-orange-400',
     bgColor: 'bg-orange-100 dark:bg-orange-900/30',
     icon: 'C',
   },
   context: {
-    label: '背景',
     color: 'text-green-600 dark:text-green-400',
     bgColor: 'bg-green-100 dark:bg-green-900/30',
     icon: 'B',
   },
   abbreviation: {
-    label: '缩写',
     color: 'text-pink-600 dark:text-pink-400',
     bgColor: 'bg-pink-100 dark:bg-pink-900/30',
     icon: 'W',
   },
+}
+
+export function annotationTypeLabel(type: AnnotationType): string {
+  const t = currentCopy().brew
+  switch (type) {
+    case 'reference':
+      return t.annotationReference
+    case 'implicit':
+      return t.annotationImplicit
+    case 'term':
+      return t.annotationTerm
+    case 'context':
+      return t.annotationContext
+    case 'abbreviation':
+      return t.annotationAbbreviation
+  }
 }
 
 /**
@@ -110,7 +123,7 @@ async function request<T>(
   if (needsCSRF) {
     const csrfToken = await getCSRFToken()
     if (!csrfToken) {
-      throw new Error('请先登录后再使用此功能')
+      throw new Error(currentCopy().userModal.pleaseLogin)
     }
     headers['X-CSRF-Token'] = csrfToken
   }
@@ -133,12 +146,17 @@ async function request<T>(
         clearCSRFToken()
         const fresh = await getCSRFToken(true)
         if (!fresh) {
-          throw new Error(data.error || 'CSRF token refresh failed')
+          throw new Error(currentCopy().errors.csrfUnavailable)
         }
         return request<T>(endpoint, options, false)
       }
     }
-    throw new Error(data.error || `HTTP ${response.status}`)
+    const parsed = parseApiErrorBody(data, response.status)
+    throw new Error(
+      isUselessErrorText(parsed.message)
+        ? httpStatusMessage(response.status)
+        : parsed.message,
+    )
   }
 
   return data

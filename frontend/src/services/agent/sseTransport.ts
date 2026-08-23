@@ -15,7 +15,9 @@ import type {
 } from './types'
 
 import { ApiError, parseApiErrorBody } from '../api'
+import { currentCopy } from '../../i18n/localeCopy'
 import { clearCSRFToken, getCSRFToken } from '../../utils/csrf'
+import { isUselessErrorText } from '../../utils/userFacingError'
 
 export function agentHttpFailure(status: number, text: string): ApiError {
   let parsed: unknown = text
@@ -30,10 +32,15 @@ export function agentHttpFailure(status: number, text: string): ApiError {
     typeof parsed === 'string' ? undefined : parsed,
     status,
   )
-  const message =
-    body.message !== `API Error: ${status}`
-      ? body.message
-      : text.trim() || body.message
+  const rawText = text.trim()
+  if (typeof parsed === 'string' && rawText && !isUselessErrorText(rawText)) {
+    return new ApiError(rawText, status, body.code, body.details, body.hint)
+  }
+  const message = !isUselessErrorText(body.message)
+    ? body.message
+    : rawText && !isUselessErrorText(rawText)
+      ? rawText
+      : body.message
   return new ApiError(message, status, body.code, body.details, body.hint)
 }
 
@@ -213,7 +220,7 @@ export async function executeSSERequest({
         }
 
         const reader = response.body?.getReader()
-        if (!reader) throw new Error('Unable to read response stream')
+        if (!reader) throw new Error(currentCopy().errors.streamUnreadable)
 
         const decoder = new TextDecoder()
         let buffer = ''

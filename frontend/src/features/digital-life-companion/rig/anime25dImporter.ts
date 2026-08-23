@@ -1,4 +1,5 @@
 import type { Layer, PixelData, Psd } from 'ag-psd'
+import type { Anime25DRiggerAnchors } from '../anime25drig/playback'
 import type { Anime25DLayerRole } from './anime25d'
 import type {
   CompanionRigImportSource,
@@ -9,7 +10,13 @@ import type {
   RigPoint,
   RigRect,
 } from './types'
+import { currentCopy } from '../../../i18n/localeCopy'
+import {
+  buildAnime25DPlayback,
+  remapRiggerAnchors,
+} from '../anime25drig/playback'
 import { ANIME25D_LAYER_DEPTH } from './anime25d'
+import { compensateSyntheticClosedEyeAngles } from './closedEyeCompensation'
 import {
   CHARACTER_ASSET_CONTRACT_VERSION,
   MAX_RIG_BONES,
@@ -18,11 +25,6 @@ import {
   RIG_IR_VERSION,
 } from './contract'
 import { inferOutfitProfileFromPartIds } from './outfit'
-import {
-  buildAnime25DPlayback,
-  remapRiggerAnchors,
-  type Anime25DRiggerAnchors,
-} from '../anime25drig/playback'
 import '../anime25drig/vendor/genericparts.js'
 import '../anime25drig/vendor/rigger.js'
 
@@ -43,6 +45,7 @@ const Rigger = (
           group: 'head' | 'body'
           side: 'L' | 'R' | null
           strands: Array<{ x: number; rootY: number; tipY: number }> | null
+          synthetic?: boolean
           img: { width: number; height: number; data: Uint8ClampedArray }
         }>
         anchors: Anime25DRiggerAnchors
@@ -191,11 +194,12 @@ export async function prepareAnime25DRigPsd(
   sourceGenerationFingerprint?: string,
 ): Promise<PreparedAnime25DRigImport> {
   if (!isAnime25DDocument(psd)) {
-    throw new Error('Anime2.5DRig PSD 缺少必需的 face 图层')
+    throw new Error(currentCopy().companion.anime25dMissingFace)
   }
   const working = flattenPsdForRigger(psd)
   Rigger.cleanPsdLayers(working)
   const rig = Rigger.buildRig(working, { generic: genericCloseParts() })
+  compensateSyntheticClosedEyeAngles(rig.layers)
   onStage?.('validated')
   const usedIds = new Set<string>()
   let layers = rig.layers.map((part) => rasterFromRiggerPart(part, usedIds))
@@ -207,7 +211,12 @@ export async function prepareAnime25DRigPsd(
     y: rig.anchors.face.cy,
   }
   if (layers.length === 0 || layers.length > MAX_RIG_PARTS) {
-    throw new Error(`Anime2.5DRig 部件数量必须为 1–${MAX_RIG_PARTS}`)
+    throw new Error(
+      currentCopy().companion.anime25dPartCount.replace(
+        '{max}',
+        String(MAX_RIG_PARTS),
+      ),
+    )
   }
   const frame = contentFrame(psd, layers)
   onStage?.('packing')
@@ -283,7 +292,7 @@ function flattenVisibleLayers(layers: Layer[]): Layer[] {
   return output
 }
 
-function toRiggerLayerName(value: string): string {
+function toRiggerLayerName(value: string | undefined): string {
   let kebab = normalizeAnime25DLayerName(value)
   const numbered = kebab.match(/-(\d+)$/)
   const number = numbered?.[1]
@@ -395,7 +404,9 @@ function validPixelData(value: PixelData | undefined): value is PixelData {
 
 function cleanedRaster(layer: Layer): RasterLayer {
   const pixels = layer.imageData
-  if (!validPixelData(pixels)) throw new Error('PSD 图层像素无效')
+  if (!validPixelData(pixels)) {
+    throw new Error(currentCopy().companion.anime25dInvalidPixels)
+  }
   const data = new Uint8ClampedArray(pixels.data)
   const opacity = clamp(layer.opacity ?? 1, 0, 1)
   for (let index = 3; index < data.length; index += 4) {
@@ -539,7 +550,12 @@ function validateCharacterAssetLayers(layers: readonly RasterLayer[]): void {
     missing.push('left/right sleeve-forearm-hand fragments')
   }
   if (missing.length > 0) {
-    throw new Error(`2.5D 形象契约缺少：${missing.join('、')}`)
+    throw new Error(
+      currentCopy().companion.anime25dContractMissing.replace(
+        '{missing}',
+        missing.join(', '),
+      ),
+    )
   }
 }
 
@@ -605,7 +621,11 @@ async function packAtlas(
     const drawWidth = Math.max(1, layer.width)
     const drawHeight = Math.max(1, layer.height)
     if (drawWidth + ATLAS_PADDING * 2 > MAX_ATLAS_EDGE) {
-      throw new Error(`图层 ${layer.id} 宽度超过 ${MAX_ATLAS_EDGE}`)
+      throw new Error(
+        currentCopy()
+          .companion.anime25dLayerTooWide.replace('{id}', layer.id)
+          .replace('{max}', String(MAX_ATLAS_EDGE)),
+      )
     }
     if (cursorX + drawWidth + ATLAS_PADDING > MAX_ATLAS_EDGE) {
       cursorX = ATLAS_PADDING
@@ -613,7 +633,12 @@ async function packAtlas(
       rowHeight = 0
     }
     if (cursorY + drawHeight + ATLAS_PADDING > MAX_ATLAS_EDGE) {
-      throw new Error(`图层原尺寸无法装入 ${MAX_ATLAS_EDGE} 画布`)
+      throw new Error(
+        currentCopy().companion.anime25dAtlasOverflow.replace(
+          '{max}',
+          String(MAX_ATLAS_EDGE),
+        ),
+      )
     }
     places.push({ x: cursorX, y: cursorY })
     cursorX += drawWidth + ATLAS_PADDING
@@ -670,7 +695,9 @@ async function packAtlas(
   const blob = await new Promise<Blob>((resolve, reject) =>
     atlas.toBlob(
       (value) =>
-        value ? resolve(value) : reject(new Error('Rig atlas PNG 生成失败')),
+        value
+          ? resolve(value)
+          : reject(new Error(currentCopy().companion.rigAtlasFailed)),
       'image/png',
     ),
   )
@@ -869,7 +896,12 @@ function buildBonesAndHandles(
     hairBones.set(layer.id, handles)
   }
   if (bones.length > MAX_RIG_BONES) {
-    throw new Error(`Anime2.5DRig 骨骼数量超过 ${MAX_RIG_BONES}`)
+    throw new Error(
+      currentCopy().companion.anime25dBoneLimit.replace(
+        '{max}',
+        String(MAX_RIG_BONES),
+      ),
+    )
   }
 
   const layerHandles = new Map<string, RigBoneHandle[]>()
@@ -1325,12 +1357,18 @@ function requiredLayer(
   role: Anime25DLayerRole,
 ): PreparedLayer {
   const layer = layers.find((candidate) => candidate.role === role)
-  if (!layer) throw new Error(`Anime2.5DRig 缺少 ${role} 图层`)
+  if (!layer) {
+    throw new Error(
+      currentCopy().companion.anime25dMissingLayer.replace('{role}', role),
+    )
+  }
   return layer
 }
 
 function unionLayerBounds(layers: PreparedLayer[]): RigRect {
-  if (layers.length === 0) throw new Error('Anime2.5DRig 缺少 handwear 图层')
+  if (layers.length === 0) {
+    throw new Error(currentCopy().companion.anime25dMissingHandwear)
+  }
   const left = Math.min(...layers.map((layer) => layer.bounds.x))
   const top = Math.min(...layers.map((layer) => layer.bounds.y))
   const right = Math.max(
@@ -1344,7 +1382,7 @@ function unionLayerBounds(layers: PreparedLayer[]): RigRect {
 
 function requiredContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const context = canvas.getContext('2d', { willReadFrequently: true })
-  if (!context) throw new Error('浏览器不支持 2D Canvas')
+  if (!context) throw new Error(currentCopy().companion.canvasUnsupported)
   return context
 }
 

@@ -1,6 +1,7 @@
 import type { PublishEventRequest, TappEvent, TappInstance } from '../types'
 import type { TappBridge } from './TappBridge'
 import { getDefaultLocale } from '../../i18n'
+import { userFacingError } from '../../utils/userFacingError'
 import { subscribeToTheme } from '../../utils/themeSubscriber'
 import * as TappApiService from '../services/TappApiService'
 import { onSpaNavigation } from './spaNavigation'
@@ -130,7 +131,7 @@ export function registerEventHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Event publish failed',
+        error: userFacingError(error),
       }
     }
   })

@@ -4,6 +4,7 @@
  */
 
 import type { TappBridge } from '../../TappBridge'
+import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'
 
 const ASSET_ID = /^[0-9a-f]{64}$/i
@@ -18,7 +19,7 @@ function argsOf(message: { payload?: unknown }): unknown[] {
 function fail(error: unknown, fallback: string) {
   return {
     success: false,
-    error: error instanceof Error ? error.message : fallback,
+    error: userFacingError(error, fallback),
   }
 }
 

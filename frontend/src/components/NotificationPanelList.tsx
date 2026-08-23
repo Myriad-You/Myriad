@@ -15,6 +15,7 @@ import { useI18n } from '../contexts/I18nContext'
 import { federationApi } from '../services/federationApi'
 import { notificationSourceFor } from '../services/notificationDelivery'
 import { getGreeting } from '../utils/dynamicContent'
+import { userFacingError } from '../utils/userFacingError'
 import { NotificationSourceIcon } from './notifications/NotificationIcons'
 
 /** metadata.actions 单项（后端 notify 写入） */
@@ -264,8 +265,9 @@ function NotificationPanelList({
           }
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Action failed'
-        setActionError(msg)
+        setActionError(
+          userFacingError(err, t.errors.notificationActionFailed),
+        )
       } finally {
         setActionBusyId(null)
       }

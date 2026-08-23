@@ -89,6 +89,9 @@ export interface AgentPersona {
   mood?: number
   activity?: string
   doNotDisturb?: boolean
+  doNotDisturbActive?: boolean
+  dndStart?: string | null
+  dndEnd?: string | null
   reportCount?: number
 }
 
@@ -930,10 +933,17 @@ class AgentService {
     await apiService.delete(`${this.baseUrl}/persona`)
   }
 
-  async putAddressee(body: { doNotDisturb: boolean }): Promise<{
+  async putAddressee(body: {
+    doNotDisturb?: boolean
+    dndStart?: string | null
+    dndEnd?: string | null
+  }): Promise<{
     mood: number
     activity: string
     doNotDisturb: boolean
+    doNotDisturbActive?: boolean
+    dndStart?: string | null
+    dndEnd?: string | null
   }> {
     return apiService.put(`${this.baseUrl}/addressee`, body)
   }

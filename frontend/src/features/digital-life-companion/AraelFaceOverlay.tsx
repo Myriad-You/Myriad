@@ -11,9 +11,16 @@ import { getPublicConfigDeduped } from '../../utils/requestDedup'
 import { getSiteFace } from './api'
 import { FACE_UPDATED_EVENT } from './events'
 import {
+  COMPANION_LIFE_STATE_EVENT,
   COMPANION_PERFORMANCE_EVENT,
+  companionLifeStateEventDetail,
   companionPerformanceEventDetail,
 } from './performanceEvents'
+import {
+  estimateSpeechDurationMs,
+  planVisemes,
+  visemeAmount,
+} from './rig/articulation'
 import RigCharacter from './rig/RigCharacter'
 import './companion.css'
 
@@ -33,6 +40,48 @@ export default function AraelFaceOverlay() {
   const [mood, setMood] = useState(70)
   const [activity, setActivity] = useState<CompanionActivity>('idle')
   const rigCharacterRef = useRef<RigCharacterHandle>(null)
+  const latestMoodRevisionRef = useRef(-1)
+  const lastDirectiveKeyRef = useRef('')
+  const lastSpeechKeyRef = useRef('')
+  const speechTimersRef = useRef<number[]>([])
+
+  const stopSpeech = useCallback(() => {
+    for (const timer of speechTimersRef.current) window.clearTimeout(timer)
+    speechTimersRef.current = []
+    rigCharacterRef.current?.setSpeechArticulation({
+      energy: 0,
+      viseme: 'rest',
+      amount: 0,
+    })
+  }, [])
+
+  const playSpeech = useCallback((text: string) => {
+    stopSpeech()
+    const spoken = Array.from(text).slice(0, 220).join('')
+    if (!spoken) return
+    const duration = Math.min(12_000, estimateSpeechDurationMs(spoken))
+    const cues = planVisemes(spoken, duration)
+    for (const cue of cues) {
+      const timer = window.setTimeout(() => {
+        const energy = cue.viseme === 'rest' ? 0 : 0.72
+        rigCharacterRef.current?.setSpeechArticulation({
+          energy,
+          viseme: cue.viseme,
+          amount: visemeAmount(cue.viseme, energy),
+        })
+      }, cue.atMs)
+      speechTimersRef.current.push(timer)
+    }
+    speechTimersRef.current.push(
+      window.setTimeout(() => {
+        rigCharacterRef.current?.setSpeechArticulation({
+          energy: 0,
+          viseme: 'rest',
+          amount: 0,
+        })
+      }, duration),
+    )
+  }, [stopSpeech])
 
   const refresh = useCallback(async () => {
     const publicConfig = await getPublicConfigDeduped()
@@ -61,6 +110,11 @@ export default function AraelFaceOverlay() {
       if (!cancelled) setVisible(false)
     })
     const onChange = () => {
+      rigCharacterRef.current?.stopMotionPlan()
+      stopSpeech()
+      latestMoodRevisionRef.current = -1
+      lastDirectiveKeyRef.current = ''
+      lastSpeechKeyRef.current = ''
       void refresh().catch(() => {
         if (!cancelled) setVisible(false)
       })
@@ -74,7 +128,7 @@ export default function AraelFaceOverlay() {
       window.removeEventListener(FACE_UPDATED_EVENT, onChange)
       window.removeEventListener('arael-persona-updated', onChange)
     }
-  }, [refresh])
+  }, [refresh, stopSpeech])
 
   useEffect(() => {
     const onPerformance = (event: Event) => {
@@ -82,13 +136,41 @@ export default function AraelFaceOverlay() {
         (event as CustomEvent<unknown>).detail,
       )
       if (!detail) return
-      rigCharacterRef.current?.playMotionPlan()
+      if (detail.performance) {
+        const directiveKey = `${detail.messageId || ''}:${detail.performance.phase}:${detail.performance.moodRevision}`
+        if (directiveKey !== lastDirectiveKeyRef.current) {
+          lastDirectiveKeyRef.current = directiveKey
+          rigCharacterRef.current?.playMotionPlan(detail.performance)
+        }
+      }
+      if (detail.text) {
+        const speechKey = `${detail.messageId || ''}:${detail.text}`
+        if (speechKey !== lastSpeechKeyRef.current) {
+          lastSpeechKeyRef.current = speechKey
+          playSpeech(detail.text)
+        }
+      }
+    }
+    const onLifeState = (event: Event) => {
+      const detail = companionLifeStateEventDetail(
+        (event as CustomEvent<unknown>).detail,
+      )
+      if (!detail || detail.mood.revision < latestMoodRevisionRef.current) return
+      if (detail.mood.revision > latestMoodRevisionRef.current) {
+        rigCharacterRef.current?.stopMotionPlan()
+        latestMoodRevisionRef.current = detail.mood.revision
+      }
+      setMood(detail.mood.after)
+      setActivity(toCompanionActivity(detail.activity))
     }
     window.addEventListener(COMPANION_PERFORMANCE_EVENT, onPerformance)
+    window.addEventListener(COMPANION_LIFE_STATE_EVENT, onLifeState)
     return () => {
       window.removeEventListener(COMPANION_PERFORMANCE_EVENT, onPerformance)
+      window.removeEventListener(COMPANION_LIFE_STATE_EVENT, onLifeState)
+      stopSpeech()
     }
-  }, [])
+  }, [playSpeech, stopSpeech])
 
   if (!visible || !portraitUrl || settingsOpen) return null
 

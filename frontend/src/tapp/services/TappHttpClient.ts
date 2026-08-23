@@ -1,6 +1,7 @@
 import { parseApiErrorBody } from '../../services/api'
 import { API_URL } from '../../config'
 import { getDefaultLocale } from '../../i18n'
+import { currentCopy } from '../../i18n/localeCopy'
 import { getCSRFToken } from '../../utils/csrf'
 import {
   notifyHttpRateLimit,
@@ -131,7 +132,9 @@ export async function apiRequest<T>(
 
   const result = await response.json()
   if (typeof result === 'object' && result !== null && 'success' in result) {
-    if (!result.success) throw new Error(result.error || 'Unknown error')
+    if (!result.success) {
+      throw new Error(result.error || currentCopy().errors.unknown)
+    }
     if ('data' in result) return result.data as T
     return result as T
   }

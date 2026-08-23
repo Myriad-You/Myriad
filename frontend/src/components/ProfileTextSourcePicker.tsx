@@ -13,6 +13,7 @@ import type {
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
+import { userFacingError } from '../utils/userFacingError'
 import profileTextSourceApi from '../services/profileTextSourceApi'
 import { Spinner } from './Spinner'
 import './AvatarSourcePicker.css'
@@ -88,8 +89,7 @@ export function ProfileTextSourcePicker({
       setCurrentKey(key)
       onApplied?.()
     } catch (e) {
-      const message = e instanceof Error ? e.message : ''
-      setError(message || t.userModal.profileTextSourceFailed)
+      setError(userFacingError(e, t.userModal.profileTextSourceFailed))
     } finally {
       setApplyingKey(null)
     }

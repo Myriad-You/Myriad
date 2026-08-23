@@ -32,6 +32,7 @@ import { Spinner } from '../../components/Spinner'
 import { API_URL as CONFIG_API_URL } from '../../config'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 // 统一动画调度器
 import { isPageVisible, startPage } from '../../hooks/animation'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
@@ -970,7 +971,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         } catch (error) {
           if (cancelled) return
           const message =
-            error instanceof Error ? error.message : t.tapp.loadAppFailed
+            userFacingError(error, t.tapp.loadAppFailed)
           setWindows((prev) =>
             prev.map((item) =>
               item.tappId === tappId
@@ -1153,7 +1154,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                   ...w,
                   loading: false,
                   error:
-                    err instanceof Error ? err.message : t.tapp.loadAppFailed,
+                    userFacingError(err, t.tapp.loadAppFailed),
                 }
               : w,
           ),
@@ -1426,7 +1427,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                     ...w,
                     loading: false,
                     error:
-                      err instanceof Error ? err.message : t.tapp.loadAppFailed,
+                      userFacingError(err, t.tapp.loadAppFailed),
                   }
                 : w,
             ),

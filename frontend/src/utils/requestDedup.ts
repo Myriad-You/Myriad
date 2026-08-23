@@ -9,7 +9,9 @@
 // 预定义的常用 API 去重函数
 
 import { API_URL } from '../config'
+import { ApiError } from '../services/api'
 import { normalizeJsonMediaUrls } from './proxyImageUrl'
+import { httpStatusMessage } from './userFacingError'
 
 const pendingRequests = new Map<string, Promise<any>>()
 
@@ -219,7 +221,9 @@ export async function getUIConfigDeduped(): Promise<any> {
     `${API_URL}/api/config/ui`,
     async () => {
       const response = await fetch(`${API_URL}/api/config/ui`)
-      if (!response.ok) throw new Error('Failed to fetch UI config')
+      if (!response.ok) {
+        throw new ApiError(httpStatusMessage(response.status), response.status)
+      }
       return response.json()
     },
     { cacheTTL: 30 * 1000 },
@@ -241,7 +245,9 @@ export async function getLatestReportDeduped(
       const response = await fetch(`${API_URL}/api/reports/latest`, {
         credentials: 'include',
       })
-      if (!response.ok) throw new Error('Failed to fetch latest report')
+      if (!response.ok) {
+        throw new ApiError(httpStatusMessage(response.status), response.status)
+      }
       return response.json()
     },
     { cacheTTL: 30 * 1000, forceRefresh: options.forceRefresh },
@@ -276,7 +282,9 @@ export async function getPublicConfigDeduped(): Promise<any> {
     `${API_URL}/api/config/public`,
     async () => {
       const response = await fetch(`${API_URL}/api/config/public`)
-      if (!response.ok) throw new Error('Failed to fetch public config')
+      if (!response.ok) {
+        throw new ApiError(httpStatusMessage(response.status), response.status)
+      }
       return response.json()
     },
     { cacheTTL: 30 * 1000 },
@@ -296,7 +304,9 @@ export async function getSetupStatusDeduped(): Promise<any> {
     `${API_URL}/api/setup/status`,
     async () => {
       const response = await fetch(`${API_URL}/api/setup/status`)
-      if (!response.ok) throw new Error('Failed to fetch setup status')
+      if (!response.ok) {
+        throw new ApiError(httpStatusMessage(response.status), response.status)
+      }
       return response.json()
     },
     { cacheTTL: 60 * 1000 },
@@ -316,7 +326,9 @@ export async function getLibraryDataDeduped(): Promise<any> {
         credentials: 'include',
         signal: AbortSignal.timeout(30000), // 30秒超时（数据量大）
       })
-      if (!response.ok) throw new Error('Failed to fetch library data')
+      if (!response.ok) {
+        throw new ApiError(httpStatusMessage(response.status), response.status)
+      }
       const data = await response.json()
       return normalizeJsonMediaUrls(data)
     },
@@ -348,7 +360,9 @@ export async function getLibraryDataPageDeduped(
         credentials: 'include',
         signal: AbortSignal.timeout(30000),
       })
-      if (!response.ok) throw new Error('Failed to fetch library data')
+      if (!response.ok) {
+        throw new ApiError(httpStatusMessage(response.status), response.status)
+      }
       const data = await response.json()
       return normalizeJsonMediaUrls(data)
     },

@@ -607,11 +607,11 @@ export default function BrewReader({
           .join('\n')
         return `<div class="web-search-summary">
           ${summaryHtml}
-          <p class="web-search-note">以上内容由 AI 根据网络搜索结果生成</p>
+          <p class="web-search-note">${escapeHtml(t.brew.webSearchNote)}</p>
         </div>`
       }
       return `<div class="web-search-summary">
-        <p class="opacity-60">暂无内容摘要</p>
+        <p class="opacity-60">${escapeHtml(t.brew.noSummary)}</p>
       </div>`
     }
 
@@ -640,6 +640,8 @@ export default function BrewReader({
     item.fromWebSearch,
     isDark,
     t.brew.noContent,
+    t.brew.webSearchNote,
+    t.brew.noSummary,
   ])
 
   // 内容渲染 ref（取代 dangerouslySetInnerHTML，避免 iframe 重建导致闪烁）
@@ -834,7 +836,7 @@ export default function BrewReader({
         copyBtn.className =
           'absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 bg-white/10 hover:bg-white/20 text-white/60 hover:text-white/90'
         copyBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`
-        copyBtn.title = '复制代码'
+        copyBtn.title = t.brew.copyCode
 
         copyBtn.addEventListener('click', async (e) => {
           e.preventDefault()
@@ -2568,12 +2570,12 @@ export default function BrewReader({
                               d="M15 19l-7-7 7-7"
                             />
                           </svg>
-                          上一篇
+                          {t.brew.prevArticle}
                         </div>
                         <div
                           className={`${currentTheme.text} font-medium truncate`}
                         >
-                          {prevItem?.title || '没有了'}
+                          {prevItem?.title || t.brew.noMore}
                         </div>
                       </button>
                       <button
@@ -2589,7 +2591,7 @@ export default function BrewReader({
                         <div
                           className={`text-xs ${currentTheme.secondary} mb-1 flex items-center justify-end gap-1`}
                         >
-                          下一篇
+                          {t.brew.nextArticle}
                           <svg
                             className="w-3 h-3 shrink-0"
                             fill="none"
@@ -2607,7 +2609,7 @@ export default function BrewReader({
                         <div
                           className={`${currentTheme.text} font-medium truncate`}
                         >
-                          {nextItem?.title || '没有了'}
+                          {nextItem?.title || t.brew.noMore}
                         </div>
                       </button>
                     </div>
@@ -2657,12 +2659,12 @@ export default function BrewReader({
                               d="M15 19l-7-7 7-7"
                             />
                           </svg>
-                          上一篇
+                          {t.brew.prevArticle}
                         </div>
                         <div
                           className={`${currentTheme.text} font-medium truncate`}
                         >
-                          {prevArticle?.title || '没有了'}
+                          {prevArticle?.title || t.brew.noMore}
                         </div>
                       </button>
                       <button
@@ -2675,7 +2677,7 @@ export default function BrewReader({
                         <div
                           className={`text-xs ${currentTheme.secondary} mb-1 flex items-center justify-end gap-1`}
                         >
-                          下一篇
+                          {t.brew.nextArticle}
                           <svg
                             className="w-3 h-3 shrink-0"
                             fill="none"
@@ -2693,7 +2695,7 @@ export default function BrewReader({
                         <div
                           className={`${currentTheme.text} font-medium truncate`}
                         >
-                          {nextArticle?.title || '没有了'}
+                          {nextArticle?.title || t.brew.noMore}
                         </div>
                       </button>
                     </div>

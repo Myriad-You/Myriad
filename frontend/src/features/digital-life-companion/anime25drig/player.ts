@@ -1,4 +1,5 @@
 import type { Anime25DPlayback, Anime25DPlaybackLayer } from './types'
+import { frontHairUpperParallaxScale } from './hairPhysics'
 
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_pos;
@@ -95,11 +96,15 @@ interface GpuLayer {
   indexCount: number
   texture: WebGLTexture
   frontHair: boolean
+  frontHairParallaxScale: Float32Array | null
   strandWeights: Float32Array | null
   alongStrand: Float32Array | null
   bangWeights: Float32Array | null
   springs: HairStrandSpring[] | null
 }
+
+export const DEFAULT_FRONT_HAIR_SWAY = 1
+export const DEFAULT_REAR_HAIR_SWAY = 0.5
 
 export const IDENTITY_DRIVER: Anime25DDriver = {
   angleX: 0,
@@ -114,7 +119,7 @@ export const IDENTITY_DRIVER: Anime25DDriver = {
   mouthForm: 0,
   mouthCY: 0,
   body: 0,
-  physAmp: 2,
+  physAmp: DEFAULT_REAR_HAIR_SWAY,
   soft: 2,
   browAngL: 0,
   browAngR: 0,
@@ -129,7 +134,7 @@ export const IDENTITY_DRIVER: Anime25DDriver = {
   irisScale: 1,
   mouthEase: 0.45,
   eyeEase: 0.3,
-  fhAmp: 2,
+  fhAmp: DEFAULT_FRONT_HAIR_SWAY,
   fhSoft: 0.4,
   eyeCY: 0,
   eyeCAng: 0,
@@ -154,6 +159,40 @@ export const WORKBENCH_DRIVER: Anime25DDriver = {
   blink: true,
   mouse: false,
   phys: true,
+}
+
+const DRIVER_LIMITS: Partial<Record<keyof Anime25DDriver, readonly [number, number]>> = {
+  angleX: [-1, 1], angleY: [-1, 1], angleZ: [-1, 1],
+  eyeOpenL: [0, 1], eyeOpenR: [0, 1], eyeX: [-1, 1], eyeY: [-1, 1],
+  brow: [-1, 1], mouthOpen: [0, 1], mouthForm: [-1, 1], mouthCY: [-1, 1],
+  body: [-1, 1], physAmp: [0, 3], soft: [0, 3],
+  browAngL: [-1, 1], browAngR: [-1, 1], browAngSym: [-1, 1],
+  bangL: [-1, 1], bangC: [-1, 1], bangR: [-1, 1], armY: [-1, 1], armPos: [-1, 1],
+  bust: [0, 4], bustY: [-3, 3], irisScale: [0.5, 1.3],
+  mouthEase: [0, 1], eyeEase: [0, 1], fhAmp: [0, 3], fhSoft: [0, 2],
+  eyeCY: [-1, 1], eyeCAng: [-1, 1], mouthCAng: [-1, 1],
+  eyeScaleL: [0.5, 1.5], eyeScaleR: [0.5, 1.5], mouthScale: [0.5, 1.5],
+}
+
+export function sanitizeDriverPatch(
+  partial: Partial<Anime25DDriver>,
+): Partial<Anime25DDriver> {
+  const sanitized: Partial<Anime25DDriver> = {}
+  const output = sanitized as Record<string, unknown>
+  for (const [rawKey, rawValue] of Object.entries(partial)) {
+    const key = rawKey as keyof Anime25DDriver
+    const identityValue = IDENTITY_DRIVER[key]
+    if (typeof identityValue === 'boolean') {
+      if (typeof rawValue === 'boolean') output[rawKey] = rawValue
+      continue
+    }
+    if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) continue
+    const limits = DRIVER_LIMITS[key]
+    output[rawKey] = limits
+      ? Math.max(limits[0], Math.min(limits[1], rawValue))
+      : rawValue
+  }
+  return sanitized
 }
 
 export interface Anime25DDebugSnapshot {
@@ -223,11 +262,11 @@ export class Anime25DPlayer {
   }
 
   setTarget(partial: Partial<Anime25DDriver>): void {
-    Object.assign(this.target, partial)
+    Object.assign(this.target, sanitizeDriverPatch(partial))
   }
 
   replaceTarget(driver: Anime25DDriver): void {
-    Object.assign(this.target, driver)
+    Object.assign(this.target, IDENTITY_DRIVER, sanitizeDriverPatch(driver))
   }
 
   getTarget(): Anime25DDriver {
@@ -557,16 +596,18 @@ export class Anime25DPlayer {
           const ry2 = rx * sz + ry * cz
           x += (rx2 - rx) * hw
           y += (ry2 - ry) * hw
-          const dd = source.depth
+          const depthOffset =
+            (source.depth - 1) * (layer.frontHairParallaxScale?.[vertex] ?? 1)
           x +=
             hw *
             fs *
-            (e.angleX * (14 + 40 * (dd - 1)) + e.angleX * (npy - y) * 0.028)
+            (e.angleX * (14 + 40 * depthOffset) +
+              e.angleX * (npy - y) * 0.028)
           y +=
             hw *
             fs *
-            (-e.angleY * (9 + 30 * (dd - 1)) -
-              e.angleY * (dd - 1) * (y - A.face.cy) * 0.05)
+            (-e.angleY * (9 + 30 * depthOffset) -
+              e.angleY * depthOffset * (y - A.face.cy) * 0.05)
         }
         y -= (source.group === 'body' ? breath * 2.0 : breathHead * 1.6) * fs
         if (bn === 'topwear' && y < chestCy) {
@@ -597,7 +638,13 @@ export class Anime25DPlayer {
               e.bangR * layer.bangWeights[vertex * 3 + 2]) *
             m
         }
-        if (nS && layer.springs && layer.strandWeights && layer.alongStrand && e.phys) {
+        if (
+          nS &&
+          layer.springs &&
+          layer.strandWeights &&
+          layer.alongStrand &&
+          e.phys
+        ) {
           const along = layer.alongStrand[vertex]
           const front = layer.frontHair
           const u = front ? Math.min(1, along * 1.6) : along
@@ -608,10 +655,13 @@ export class Anime25DPlayer {
             const weight = layer.strandWeights[vertex * nS + strand]
             if (weight < 0.001) continue
             const spring = layer.springs[strand]
-            dx += weight * (spring.stiff.dx * (1 - softMix) + spring.soft.dx * softMix)
+            dx +=
+              weight *
+              (spring.stiff.dx * (1 - softMix) + spring.soft.dx * softMix)
           }
-          x += dx * amp
-          y += Math.abs(dx) * amp * 0.12
+          const offset = dx * amp
+          x += offset
+          y += Math.abs(offset) * 0.12
         }
         deformed[index] = x
         deformed[index + 1] = y
@@ -727,7 +777,9 @@ export class Anime25DPlayer {
       rest,
       vertexCount,
       this.playback.anchors.face,
-      Number.isFinite(source.z) ? source.z : layerIndex,
+      typeof source.z === 'number' && Number.isFinite(source.z)
+        ? source.z
+        : layerIndex,
     )
     return {
       source,
@@ -804,13 +856,19 @@ function attachHairPhysics(
   layerZ: number,
 ): Pick<
   GpuLayer,
-  'frontHair' | 'strandWeights' | 'alongStrand' | 'bangWeights' | 'springs'
+  | 'frontHair'
+  | 'frontHairParallaxScale'
+  | 'strandWeights'
+  | 'alongStrand'
+  | 'bangWeights'
+  | 'springs'
 > {
   const frontHair = source.role === 'front-hair'
   const strands = source.strands
   if (strands.length === 0) {
     return {
       frontHair,
+      frontHairParallaxScale: null,
       strandWeights: null,
       alongStrand: null,
       bangWeights: null,
@@ -828,11 +886,21 @@ function attachHairPhysics(
     spacing = gaps[gaps.length >> 1]
   }
   const sigma = spacing * 0.6
+  const frontHairParallaxScale = frontHair
+    ? new Float32Array(vertexCount)
+    : null
   const strandWeights = new Float32Array(vertexCount * strandCount)
   const alongStrand = new Float32Array(vertexCount)
   for (let vertex = 0; vertex < vertexCount; vertex += 1) {
     const x = rest[vertex * 2]
     const y = rest[vertex * 2 + 1]
+    if (frontHairParallaxScale) {
+      frontHairParallaxScale[vertex] = frontHairUpperParallaxScale(
+        y,
+        source,
+        face,
+      )
+    }
     let total = 0
     for (let strand = 0; strand < strandCount; strand += 1) {
       const weight = Math.exp(-(((x - strands[strand].x) / sigma) ** 2))
@@ -872,6 +940,7 @@ function attachHairPhysics(
   }
   return {
     frontHair,
+    frontHairParallaxScale,
     strandWeights,
     alongStrand,
     bangWeights,

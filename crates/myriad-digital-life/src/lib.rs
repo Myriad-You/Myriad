@@ -34,7 +34,8 @@ pub use onboarding::{
     sanitize_onboarding_tags, MAX_ONBOARDING_TAGS, MAX_ONBOARDING_TAG_CHARS,
 };
 pub use performance::{
-    parse_chat_performance, ChatPerformanceCue, ChatPerformancePlan, ParsedChatPerformance,
+    parse_chat_performance, parse_performance_plan, ChatPerformanceBaseline, ChatPerformanceCue,
+    ChatPerformancePlan, ParsedChatPerformance,
 };
 pub use persona::{
     fallback_persona_draft, persona_draft_is_complete, sanitize_persona_draft,

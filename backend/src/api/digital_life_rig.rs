@@ -122,7 +122,10 @@ fn internal_error(error: impl std::fmt::Display) -> ApiError {
     tracing::error!(%error, "digital life rig failed");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "error": "Internal server error" })),
+        Json(json!({
+            "error": "Internal server error",
+            "code": "digital_life_rig_failed"
+        })),
     )
 }
 

@@ -8,6 +8,7 @@ import type { HeartbeatTask } from '../../../services/agent'
 import { LuClock, LuEdit3, LuPlus, LuTrash2, LuX } from '@lib/icons'
 import React, { useCallback, useMemo, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
+import { userFacingError } from '../../../utils/userFacingError'
 import { agentService } from '../../../services/agent'
 import { isImeComposing } from '../../../utils/ime'
 
@@ -475,7 +476,7 @@ export const AraelHeartbeatSection: React.FC<AraelHeartbeatSectionProps> = ({
             t.id === taskId ? { ...t, enabled: rolledBackEnabled } : t,
           ),
         )
-        setActionError(e instanceof Error ? e.message : a.manageActionError)
+        setActionError(userFacingError(e, a.manageActionError))
       } finally {
         setTogglingId(null)
       }
@@ -511,7 +512,7 @@ export const AraelHeartbeatSection: React.FC<AraelHeartbeatSectionProps> = ({
       }
       cancelForm()
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : a.manageActionError)
+      setActionError(userFacingError(e, a.manageActionError))
     } finally {
       setSaving(false)
     }
@@ -541,7 +542,7 @@ export const AraelHeartbeatSection: React.FC<AraelHeartbeatSectionProps> = ({
         await agentService.deleteHeartbeat(task.id)
       } catch (e) {
         if (snapshot) onTasksChange(snapshot)
-        setActionError(e instanceof Error ? e.message : a.manageActionError)
+        setActionError(userFacingError(e, a.manageActionError))
       }
     },
     [

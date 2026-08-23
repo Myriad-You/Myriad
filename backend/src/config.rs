@@ -1181,9 +1181,25 @@ impl DynamicConfig {
         }
     }
 
-    /// 根据模型层级解析 AI 配置
-    ///
-    /// Lite / Pro 仅在对应开关开启时使用独立配置；关闭或字段留空时回退到 Standard。
+    /// Resolve Lite only when its own model is explicit. Shared provider
+    /// credentials remain valid, but Standard's model is never inherited.
+    pub fn resolve_strict_lite_ai_config(&self) -> Option<ResolvedAiConfig> {
+        if !self.lite_enabled {
+            return None;
+        }
+        let configured_model = if self.lite_ai_provider == "gemini" {
+            self.lite_gemini_model.trim()
+        } else {
+            self.lite_openai_model.trim()
+        };
+        if configured_model.is_empty() {
+            return None;
+        }
+        Some(self.resolve_ai_config(ModelTier::Lite))
+    }
+
+    /// 根据模型层级解析 AI 配置。与严格 Lite 解析不同，这里保留平台级的
+    /// 兼容行为：Lite / Pro 关闭或对应模型留空时可回退到 Standard。
     pub fn resolve_ai_config(&self, tier: ModelTier) -> ResolvedAiConfig {
         if tier == ModelTier::Lite && self.lite_enabled {
             return self.resolve_tier(
@@ -1360,6 +1376,38 @@ mod tests {
         assert_eq!(resolved.api_key.as_deref(), Some("std-key"));
         assert_eq!(resolved.model, "std/model");
         assert_eq!(resolved.base_url, "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn strict_lite_resolution_never_inherits_the_standard_model() {
+        let disabled = DynamicConfig {
+            lite_enabled: false,
+            openai_model: "std/model".to_string(),
+            ..DynamicConfig::default()
+        };
+        assert!(disabled.resolve_strict_lite_ai_config().is_none());
+
+        let empty = DynamicConfig {
+            lite_enabled: true,
+            lite_ai_provider: "openai".to_string(),
+            lite_openai_model: String::new(),
+            openai_model: "std/model".to_string(),
+            ..DynamicConfig::default()
+        };
+        assert!(empty.resolve_strict_lite_ai_config().is_none());
+
+        let configured = DynamicConfig {
+            lite_enabled: true,
+            lite_ai_provider: "openai".to_string(),
+            lite_openai_model: "lite/model".to_string(),
+            ..DynamicConfig::default()
+        };
+        assert_eq!(
+            configured
+                .resolve_strict_lite_ai_config()
+                .map(|resolved| resolved.model),
+            Some("lite/model".to_string())
+        );
     }
 
     #[test]

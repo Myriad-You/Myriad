@@ -27,6 +27,8 @@ import {
   motionShim as motion,
 } from '@lib/motionShim'
 import { useRef, useState } from 'react'
+import { currentCopy } from '../../../../i18n/localeCopy'
+import { userFacingError } from '../../../../utils/userFacingError'
 import { Spinner } from '../../../Spinner'
 import { ISLAND_GLASS, SPRING_SMOOTH, TRANSITION_QUICK } from './constants'
 
@@ -183,7 +185,9 @@ export function AddMode({
         setName(result.title)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Discovery failed')
+      setError(
+        userFacingError(err, currentCopy().brew.errorDiscoverFailed),
+      )
     } finally {
       setDiscovering(false)
     }
@@ -223,7 +227,7 @@ export function AddMode({
         setDiscovering(true)
         const feed =
           discovered?.url === url ? discovered : await onDiscover(url.trim())
-        if (!feed) throw new Error('Unable to discover RSS/Atom feed')
+        if (!feed) throw new Error(currentCopy().brew.errorDiscoverFailed)
 
         resolvedUrl = feed.url
         resolvedName = name.trim() || feed.title
@@ -249,7 +253,7 @@ export function AddMode({
       })
 
       if (result.success) {
-        setSuccess(result.title || 'Added successfully')
+        setSuccess(result.title || currentCopy().brew.addSuccess)
         // 重置表单
         setUrl('')
         setName('')
@@ -258,10 +262,12 @@ export function AddMode({
         setDiscovered(null)
         setNotionToken('')
       } else {
-        setError(result.error || 'Failed to add')
+        setError(
+          userFacingError(result.error, currentCopy().brew.errorAddFailed),
+        )
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add')
+      setError(userFacingError(err, currentCopy().brew.errorAddFailed))
     } finally {
       setDiscovering(false)
       setLoading(false)
@@ -305,7 +311,7 @@ export function AddMode({
       setOpmlResult(result)
       setOpmlContent(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed')
+      setError(userFacingError(err, currentCopy().brew.errorImportFailed))
     } finally {
       setOpmlLoading(false)
     }

@@ -5,6 +5,8 @@
  * 注意：天气和一言功能已拆分到独立文件
  */
 
+import { currentCopy } from '../i18n/localeCopy'
+
 export * from './quote'
 // 重新导出类型和函数，保持向后兼容
 export * from './weather'
@@ -49,15 +51,15 @@ export function getGreeting(
   let text = ''
   let icon: GreetingIconName = 'sun'
 
-  // 默认中文翻译
+  const g = currentCopy().greeting
   const t = translations || {
-    morning: '早上好',
-    forenoon: '上午好',
-    noon: '中午好',
-    afternoon: '下午好',
-    dusk: '傍晚好',
-    evening: '晚上好',
-    night: '夜深了',
+    morning: g.morning,
+    forenoon: g.forenoon,
+    noon: g.noon,
+    afternoon: g.afternoon,
+    dusk: g.dusk,
+    evening: g.evening,
+    night: g.night,
   }
 
   // 细分时间段：图标跟随太阳实际状态
@@ -101,7 +103,8 @@ export function getThemeInfo(translations?: { dark: string; light: string }): {
   icon: ThemeIconName
 } {
   const isDark = document.documentElement.classList.contains('dark')
-  const t = translations || { dark: '深色模式', light: '浅色模式' }
+  const panel = currentCopy().controlPanel
+  const t = translations || { dark: panel.dark, light: panel.light }
   return {
     text: isDark ? t.dark : t.light,
     icon: isDark ? 'moon' : 'sun',

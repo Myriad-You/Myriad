@@ -99,10 +99,11 @@ pub async fn generate_platform_reports(
             skipped
         );
         // 有具体原因时透出首个原因，否则回退到通用文案
+        let locale_tag = locale.unwrap_or(super::locale::DEFAULT_AUTO_REGEN_LOCALE);
         let message = skipped
             .first()
-            .map(|(platform, reason)| format!("{} 未能生成报告：{}", platform, reason))
-            .unwrap_or_else(|| "未能生成报告。请确保已获取平台数据。".to_string());
+            .map(|(_, reason)| reason.clone())
+            .unwrap_or_else(|| super::locale::generate_none_message(locale_tag));
         return Ok(Json(json!({
             "success": false,
             "message": message,
@@ -256,7 +257,7 @@ pub(crate) async fn generate_platform_reports_internal(
                     tracing::warn!("⚠️ Skipping {}: {}", platform, e);
                     return Err((
                         platform.clone(),
-                        format!("平台数据未获取或处理失败（请先成功抓取该平台数据）：{}", e),
+                        super::locale::missing_platform_data_message(&locale),
                     ));
                 }
             };

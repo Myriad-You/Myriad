@@ -1,4 +1,5 @@
 import type { Layer, Psd } from 'ag-psd'
+import { currentCopy } from '../../../i18n/localeCopy'
 import type { PreparedAnime25DRigImport } from './anime25dImporter'
 import {
   normalizeAnime25DLayerName,
@@ -21,9 +22,9 @@ export async function prepareRigPsdImport(
   onStage?: (stage: 'validated' | 'packing') => void,
   sourceGenerationFingerprint?: string,
 ): Promise<PreparedRigPsdImport> {
-  if (!sourceMasterAssetId) throw new Error('当前主立绘缺少资产标识')
+  if (!sourceMasterAssetId) throw new Error(currentCopy().companion.psdNeedAsset)
   if (file.size <= 0 || file.size > MAX_PSD_BYTES) {
-    throw new Error('PSD 必须小于 32 MB')
+    throw new Error(currentCopy().companion.psdTooLarge)
   }
   const { readPsd } = await import('ag-psd')
   const psd = readPsd(await file.arrayBuffer(), {
@@ -44,7 +45,7 @@ export async function prepareRigPsdImport(
 
 export async function compositePsdToPng(file: File): Promise<File> {
   if (file.size <= 0 || file.size > MAX_PSD_BYTES) {
-    throw new Error('PSD 必须小于 32 MB')
+    throw new Error(currentCopy().companion.psdTooLarge)
   }
   const { readPsd } = await import('ag-psd')
   const psd = readPsd(await file.arrayBuffer(), {
@@ -59,11 +60,14 @@ export async function compositePsdToPng(file: File): Promise<File> {
   canvas.width = psd.width
   canvas.height = psd.height
   const context = canvas.getContext('2d')
-  if (!context) throw new Error('无法合成 PSD 预览')
+  if (!context) throw new Error(currentCopy().companion.psdPreviewFailed)
   paintPsdLayers(context, psd.children || [])
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
-      (next) => (next ? resolve(next) : reject(new Error('无法合成 PSD 预览'))),
+      (next) =>
+        next
+          ? resolve(next)
+          : reject(new Error(currentCopy().companion.psdPreviewFailed)),
       'image/png',
     )
   })
@@ -104,11 +108,11 @@ function validateFaceRigDocument(psd: Psd): void {
     psd.height > MAX_DOCUMENT_EDGE ||
     (psd.bitsPerChannel ?? 8) !== 8
   ) {
-    throw new Error('PSD 必须是 256–2048 像素、8 位 RGB 文档')
+    throw new Error(currentCopy().companion.psdSpecInvalid)
   }
   const layerCount = countVisiblePixelLayers(psd.children || [])
   if (layerCount === 0 || layerCount > MAX_LAYER_COUNT) {
-    throw new Error('PSD 可见像素层数量必须为 1–64')
+    throw new Error(currentCopy().companion.psdLayerCountInvalid)
   }
 }
 

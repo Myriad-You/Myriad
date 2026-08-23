@@ -9,11 +9,11 @@ import type { Anime25DDebugSnapshot, Anime25DDriver } from './player'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  ButtonItem,
   InfoActionCard,
   InputItem,
   SettingGroup,
   SettingsButton,
+  SettingTitleTag,
   SliderItem,
   SwitchItem,
 } from '../../../components/settings'
@@ -40,6 +40,8 @@ interface Props {
   ) => Promise<{ partCount: number; score: number }>
   reviewDock?: HTMLElement | null
   essentialsLead?: ReactNode
+  personaLead?: ReactNode
+  overviewLead?: ReactNode
   motionEnabled?: boolean
 }
 
@@ -136,10 +138,27 @@ export default function Anime25DWorkbench({
   onCommitRigPsd,
   reviewDock = null,
   essentialsLead = null,
+  personaLead = null,
+  overviewLead = null,
   motionEnabled = false,
 }: Props) {
   const { t } = useI18n()
   const labels = t.companion
+  type FacePanel = 'overview' | 'persona' | 'portrait' | 'rig' | 'motion'
+  type RigPath = 'upload' | 'seeThrough'
+  const [panel, setPanel] = useState<FacePanel>('overview')
+  const [rigPath, setRigPath] = useState<RigPath>('upload')
+  const panels: Array<{ value: FacePanel; label: string }> = [
+    { value: 'overview', label: labels.overviewGroup },
+    { value: 'persona', label: labels.personaGroup },
+    { value: 'portrait', label: labels.portraitGroup },
+    { value: 'rig', label: labels.rigGroup },
+    { value: 'motion', label: labels.anime25dDebug },
+  ]
+  const rigPaths: Array<{ value: RigPath; label: string }> = [
+    { value: 'upload', label: labels.rigPathUpload },
+    { value: 'seeThrough', label: labels.rigPathSeeThrough },
+  ]
   const seeThroughErrors = {
     see_through_token_required: labels.motionSeeThroughTokenRequired,
     see_through_busy: labels.motionSeeThroughBusy,
@@ -422,152 +441,208 @@ export default function Anime25DWorkbench({
 
   return (
     <>
+      <FaceTabs
+        ariaLabel={labels.assetGroup}
+        value={panel}
+        options={panels}
+        onChange={setPanel}
+      />
+      {panel === 'overview' ? (
+      <SettingGroup
+        title={labels.overviewGroup}
+        description={labels.overviewGroupDescription}
+        id="life-motion-overview"
+      >
+        {overviewLead}
+      </SettingGroup>
+      ) : null}
+      {panel === 'persona' ? (
+      <SettingGroup
+        title={labels.personaGroup}
+        description={labels.personaGroupDescription}
+        id="life-motion-persona"
+      >
+        {personaLead}
+      </SettingGroup>
+      ) : null}
+      {panel === 'portrait' ? (
       <SettingGroup
         title={labels.portraitGroup}
         description={labels.portraitGroupDescription}
         id="life-motion-portrait"
       >
         {essentialsLead}
-        <ButtonItem
-          itemKey="motion-review"
-          label={labels.motionReviewEnter}
-          description={
-            motionEnabled
-              ? labels.motionReviewDescription
-              : labels.motionNeedsRig
-          }
-          buttonText={labels.motionReviewEnter}
-          disabled={!motionEnabled}
-          onClick={() => onReviewModeChange(true)}
-          layout="horizontal"
-        />
       </SettingGroup>
+      ) : null}
+      {panel === 'rig' ? (
       <SettingGroup
         title={labels.rigGroup}
         description={labels.rigGroupDescription}
-        id="life-motion-rig"
+        id="life-motion-asset"
       >
-        <InputItem
-          itemKey="see-through-hf-token"
-          label={labels.motionSeeThroughToken}
-          labelAccessory={
-            <a
-              href="https://huggingface.co/settings/tokens"
-              target="_blank"
-              rel="noreferrer"
-            >
-              {labels.motionSeeThroughTokenCreate}
-            </a>
-          }
-          description={labels.motionSeeThroughTokenDescription}
-          value={
-            seeThroughTokenDraft ||
-            (seeThroughTokenConfigured ? '••••••••' : '')
-          }
-          onChange={(value) => {
-            setSeeThroughTokenDraft(value)
-            setSeeThroughTokenError(undefined)
-          }}
-          inputType="password"
-          autoComplete="off"
-          placeholder="hf_…"
-          variant="clickToEdit"
-          emptyLabel={labels.motionSeeThroughTokenMissing}
-          editLabel={labels.motionSeeThroughTokenEdit}
-          saveLabel={labels.motionSeeThroughTokenSave}
-          cancelLabel={labels.motionSeeThroughTokenCancel}
-          onCommit={saveSeeThroughToken}
-          error={seeThroughTokenError}
-          clearable={false}
-        />
-        <InfoActionCard
-          copyable={false}
-          tone={rigImportError ? 'danger' : rigPreflight ? 'info' : 'default'}
-          title={labels.motionPsd}
-          empty={!rigPreflight && !rigImportResult}
-          emptyText={labels.motionPsdDescription}
-          actions={[
-            {
-              key: 'see-through',
-              label:
-                rigImportOperation === 'decompose'
-                  ? labels.motionSeeThroughGenerating
-                  : labels.motionSeeThroughGenerate,
-              disabled:
-                importingRig ||
-                !sourceMasterAssetId ||
-                !seeThroughTokenConfigured,
-              loading: rigImportOperation === 'decompose',
-              onClick: () => void decomposeRigPsd(),
-            },
-            {
-              key: 'preflight',
-              label:
-                rigImportOperation === 'manual'
-                  ? labels.motionPsdUploading
-                  : labels.motionPsdUpload,
-              disabled: importingRig,
-              loading: rigImportOperation === 'manual',
-              onClick: () => rigPsdInputRef.current?.click(),
-            },
-            ...(rigPreflight
-              ? [
-                  {
-                    key: 'commit',
-                    label: labels.motionPsdCommit,
-                    disabled:
+        {!sourceMasterAssetId ? (
+          <p className="life-motion-home__help">{labels.assetNeedsPortrait}</p>
+        ) : (
+          <div className="life-motion-rig">
+            <FaceTabs
+              className="life-motion-rig__tabs"
+              ariaLabel={labels.rigGroup}
+              value={rigPath}
+              options={rigPaths}
+              onChange={setRigPath}
+            />
+            {rigPath === 'upload' ? (
+              <section className="life-motion-rig__path">
+                <p className="life-motion-rig__hint">{labels.rigPathUploadHint}</p>
+                <SettingsButton
+                  type="button"
+                  size="sm"
+                  disabled={importingRig}
+                  loading={rigImportOperation === 'manual'}
+                  onClick={() => rigPsdInputRef.current?.click()}
+                >
+                  {rigImportOperation === 'manual'
+                    ? labels.motionPsdUploading
+                    : labels.motionPsdUpload}
+                </SettingsButton>
+              </section>
+            ) : (
+              <section className="life-motion-rig__path">
+                <p className="life-motion-rig__hint">
+                  {labels.rigPathSeeThroughHint}
+                </p>
+                {seeThroughTokenConfigured ? (
+                  <p className="life-motion-rig__token-ready">
+                    {labels.rigTokenReady}
+                  </p>
+                ) : null}
+                <InputItem
+                  itemKey="see-through-hf-token"
+                  label={labels.motionSeeThroughToken}
+                  labelAccessory={
+                    <SettingTitleTag
+                      onClick={() =>
+                        window.open(
+                          'https://huggingface.co/settings/tokens',
+                          '_blank',
+                          'noopener,noreferrer',
+                        )
+                      }
+                    >
+                      {labels.motionSeeThroughTokenCreate}
+                    </SettingTitleTag>
+                  }
+                  description={labels.motionSeeThroughTokenDescription}
+                  value={
+                    seeThroughTokenDraft ||
+                    (seeThroughTokenConfigured ? '••••••••' : '')
+                  }
+                  onChange={(value) => {
+                    setSeeThroughTokenDraft(value)
+                    setSeeThroughTokenError(undefined)
+                  }}
+                  inputType="password"
+                  autoComplete="off"
+                  placeholder="hf_…"
+                  variant="clickToEdit"
+                  emptyLabel={labels.motionSeeThroughTokenMissing}
+                  editLabel={labels.motionSeeThroughTokenEdit}
+                  saveLabel={labels.motionSeeThroughTokenSave}
+                  cancelLabel={labels.motionSeeThroughTokenCancel}
+                  onCommit={saveSeeThroughToken}
+                  error={seeThroughTokenError}
+                  clearable={false}
+                />
+                <SettingsButton
+                  type="button"
+                  size="sm"
+                  disabled={importingRig || !seeThroughTokenConfigured}
+                  loading={rigImportOperation === 'decompose'}
+                  onClick={() => void decomposeRigPsd()}
+                >
+                  {rigImportOperation === 'decompose'
+                    ? labels.motionSeeThroughGenerating
+                    : labels.motionSeeThroughGenerate}
+                </SettingsButton>
+              </section>
+            )}
+            <input
+              ref={rigPsdInputRef}
+              type="file"
+              accept=".psd,image/vnd.adobe.photoshop"
+              hidden
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                event.currentTarget.value = ''
+                if (file) void preflightRigPsd(file)
+              }}
+            />
+            {rigImportStage ||
+            rigImportResult ||
+            rigImportError ||
+            rigPreflight ? (
+              <section className="life-motion-rig__status" aria-live="polite">
+                <strong>{labels.rigPreflightTitle}</strong>
+                {rigImportStage && !rigImportResult && !rigImportError ? (
+                  <p className="life-motion-home__help" role="status">
+                    {rigImportStage.stage} · {rigImportStage.status}
+                  </p>
+                ) : null}
+                {rigImportResult ? (
+                  <p className="life-motion-home__help" role="status">
+                    {rigImportResult}
+                  </p>
+                ) : null}
+                {rigPreflight && rigPreflight.report.issues.length > 0 ? (
+                  <ul className="life-motion-rig__issues">
+                    {rigPreflight.report.issues.slice(0, 6).map((item) => (
+                      <li
+                        key={`${item.code}:${item.clipId || item.boneId || ''}`}
+                      >
+                        {item.severity}: {item.message}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {rigImportError ? (
+                  <p className="life-motion-home__help" role="alert">
+                    {rigImportError}
+                  </p>
+                ) : null}
+                {rigPreflight ? (
+                  <SettingsButton
+                    type="button"
+                    size="sm"
+                    disabled={
                       importingRig ||
                       rigPreflight.report.issues.some(
                         (item) => item.severity === 'error',
-                      ),
-                    loading: rigImportOperation === 'commit',
-                    onClick: () => void commitRigPsd(),
-                  },
-                ]
-              : []),
-          ]}
-          footer={
-            <>
-              <input
-                ref={rigPsdInputRef}
-                type="file"
-                accept=".psd,image/vnd.adobe.photoshop"
-                hidden
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0]
-                  event.currentTarget.value = ''
-                  if (file) void preflightRigPsd(file)
-                }}
-              />
-              {rigImportStage && !rigImportResult && !rigImportError ? (
-                <p className="life-motion-home__help" role="status">
-                  {rigImportStage.stage} · {rigImportStage.status}
-                </p>
-              ) : null}
-              {rigImportResult ? (
-                <p className="life-motion-home__help" role="status">
-                  {rigImportResult}
-                </p>
-              ) : null}
-              {rigPreflight && rigPreflight.report.issues.length > 0 ? (
-                <ul>
-                  {rigPreflight.report.issues.slice(0, 6).map((item) => (
-                    <li
-                      key={`${item.code}:${item.clipId || item.boneId || ''}`}
-                    >
-                      {item.severity}: {item.message}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {rigImportError ? (
-                <p className="life-motion-home__help" role="alert">
-                  {rigImportError}
-                </p>
-              ) : null}
-            </>
-          }
-        />
+                      )
+                    }
+                    loading={rigImportOperation === 'commit'}
+                    onClick={() => void commitRigPsd()}
+                  >
+                    {labels.motionPsdCommit}
+                  </SettingsButton>
+                ) : null}
+              </section>
+            ) : null}
+            {motionEnabled ? (
+              <section className="life-motion-rig__status">
+                <strong>{labels.rigReadyTitle}</strong>
+                <p className="life-motion-rig__hint">{labels.rigReadyHint}</p>
+                <SettingsButton
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => onReviewModeChange(true)}
+                >
+                  {labels.motionReviewEnter}
+                </SettingsButton>
+              </section>
+            ) : null}
+          </div>
+        )}
         <p className="life-character-home__credit">
           {labels.anime25dRuntimeCredit}{' '}
           <a
@@ -579,6 +654,9 @@ export default function Anime25DWorkbench({
           </a>
         </p>
       </SettingGroup>
+      ) : null}
+      {panel === 'motion' ? (
+        <>
       <SettingGroup
         title={labels.expressionGroup}
         description={
@@ -737,31 +815,45 @@ export default function Anime25DWorkbench({
                   {
                     key: 'layers',
                     label: labels.anime25dInspectLayers,
-                    value: String(snapshot.layerCount),
+                    value: fillInspect(labels.anime25dInspectLayersValue, {
+                      count: snapshot.layerCount,
+                    }),
                     copyable: false,
                   },
                   {
                     key: 'strands',
                     label: labels.anime25dInspectStrands,
-                    value: `${snapshot.strandCount} / ${snapshot.hairLayerCount}`,
+                    value: fillInspect(labels.anime25dInspectStrandsValue, {
+                      strands: snapshot.strandCount,
+                      layers: snapshot.hairLayerCount,
+                    }),
                     copyable: false,
                   },
                   {
                     key: 'eyes',
                     label: labels.anime25dInspectEyes,
-                    value: `${snapshot.eyeOpenLayers} / ${snapshot.eyeCloseLayers}`,
+                    value: fillInspect(labels.anime25dInspectEyesValue, {
+                      open: snapshot.eyeOpenLayers,
+                      close: snapshot.eyeCloseLayers,
+                    }),
                     copyable: false,
                   },
                   {
                     key: 'mouth',
                     label: labels.anime25dInspectMouth,
-                    value: `${snapshot.mouthOpenLayers} / ${snapshot.mouthCloseLayers}`,
+                    value: fillInspect(labels.anime25dInspectMouthValue, {
+                      open: snapshot.mouthOpenLayers,
+                      close: snapshot.mouthCloseLayers,
+                    }),
                     copyable: false,
                   },
                   {
                     key: 'canvas',
                     label: labels.anime25dInspectCanvas,
-                    value: `${Math.round(snapshot.canvas.width)}×${Math.round(snapshot.canvas.height)}`,
+                    value: fillInspect(labels.anime25dInspectCanvasValue, {
+                      width: Math.round(snapshot.canvas.width),
+                      height: Math.round(snapshot.canvas.height),
+                    }),
                     copyable: false,
                   },
                 ]
@@ -771,8 +863,54 @@ export default function Anime25DWorkbench({
           emptyText={labels.anime25dInspectEmpty}
         />
       </SettingGroup>
+        </>
+      ) : null}
       {reviewBar}
     </>
+  )
+}
+
+function fillInspect(
+  template: string,
+  vars: Record<string, string | number>,
+): string {
+  return template.replace(/\{(\w+)\}/g, (_, key: string) =>
+    String(vars[key] ?? ''),
+  )
+}
+
+function FaceTabs<T extends string>({
+  ariaLabel,
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  ariaLabel: string
+  value: T
+  options: Array<{ value: T; label: string }>
+  onChange: (value: T) => void
+  className?: string
+}) {
+  return (
+    <div
+      className={['life-motion-page__tabs', className].filter(Boolean).join(' ')}
+      role="tablist"
+      aria-label={ariaLabel}
+    >
+      {options.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          role="tab"
+          aria-selected={value === item.value}
+          className={`life-motion-page__tab${value === item.value ? ' is-active' : ''}`}
+          onClick={() => onChange(item.value)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
   )
 }
 

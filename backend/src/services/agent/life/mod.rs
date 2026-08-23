@@ -2,6 +2,7 @@
 
 pub mod gates;
 pub mod ingest;
+pub mod motion;
 pub mod onboarding_ai;
 pub mod onboarding_prompts;
 pub mod report_dna;
@@ -12,11 +13,13 @@ pub mod store;
 pub use ingest::{
     allow_existing_notify, life_enabled, spawn as spawn_ingest, spawn_diary, spawn_presence,
 };
+pub use motion::{direct_motion, MotionContext, MotionPhase, PerformanceDirective};
 pub use store::{
     acquire_portrait_generation, clear_persona_on, complete_portrait_generation,
     get_or_create_state, get_persona, get_persona_on, insert_diary, insert_proactive, latest_diary,
     list_diary, normalize_persona_fields, portrait_generation_is_pending, recent_proactive,
-    release_portrait_generation, save_departure_mood, save_mood, set_activity, set_do_not_disturb,
+    release_portrait_generation, save_departure_mood, save_mood, set_activity, set_dnd_schedule,
+    set_do_not_disturb,
     upsert_persona_on, JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate,
 };
 
@@ -96,13 +99,13 @@ pub async fn maybe_refuse_new_task(
     refuse_new_task_message(Some(state.mood))
 }
 
-/// Returns the mood before this utterance, if life applied.
+/// Returns the persisted mood transition for this utterance, if life applied.
 pub async fn note_user_turn(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
     text: &str,
     utterance_index: u32,
-) -> Option<f64> {
+) -> Option<MoodTransition> {
     if !is_logged_in_addressee(user_id) {
         return None;
     }
@@ -131,14 +134,36 @@ pub async fn note_user_turn(
         first_today,
         gap_hours,
     );
-    let _ = save_mood(db, user_id, next, true).await;
+    let saved = save_mood(db, user_id, next, true).await.ok()?;
     if !praised && !scolded && text.chars().count() >= CHAT_DIARY_MIN_CHARS {
         spawn_mood_hint(user_id, text);
     }
     if !is_extremely_low(state.mood) && is_extremely_low(next) {
         spawn_ingest(user_id, "agent.life.mood_floor", "跟这个人的心情掉到了极低");
     }
-    Some(previous)
+    let cause = if scolded {
+        "user_scold"
+    } else if praised {
+        "user_praise"
+    } else if first_today {
+        "first_turn_today"
+    } else if gap_hours >= 12.0 {
+        "return_after_gap"
+    } else {
+        "user_turn"
+    };
+    Some(MoodTransition {
+        before: previous,
+        after: saved.mood,
+        band_before: mood_band(previous).to_string(),
+        band_after: mood_band(saved.mood).to_string(),
+        delta: saved.mood - previous,
+        cause: cause.to_string(),
+        revision: saved
+            .updated_at
+            .with_timezone(&chrono::Utc)
+            .timestamp_millis(),
+    })
 }
 
 /// After planning, so this turn is not already sitting in the diary the model just read.
@@ -352,8 +377,8 @@ pub fn has_custom_persona(persona: &agent_persona::Model) -> bool {
 pub use gates::{decide_ingest, is_chatting, is_valuable_event, IngestDecision};
 pub use state::{
     apply_departure, apply_mood_hint, apply_task_outcome, apply_user_utterance, clamp_mood,
-    detect_mood_cue, effective_activity, is_extremely_low, parse_mood_hint, should_apply_departure,
-    ACTIVITY_STALE_SECS, MOOD_FLOOR,
+    detect_mood_cue, effective_activity, is_extremely_low, mood_band, parse_mood_hint,
+    should_apply_departure, MoodTransition, ACTIVITY_STALE_SECS, MOOD_FLOOR,
 };
 
 /// The activity to act on, with a stale one read as idle.
@@ -362,9 +387,56 @@ pub fn current_activity(state: &crate::models::entities::agent_addressee_state::
     effective_activity(&state.activity, age)
 }
 
+pub fn parse_clock_minute(raw: &str) -> Option<i32> {
+    let raw = raw.trim();
+    let (hour, minute) = raw.split_once(':')?;
+    let hour: i32 = hour.parse().ok()?;
+    let minute: i32 = minute.parse().ok()?;
+    if (0..24).contains(&hour) && (0..60).contains(&minute) {
+        Some(hour * 60 + minute)
+    } else {
+        None
+    }
+}
+
+pub fn format_clock_minute(minute: i32) -> Option<String> {
+    if !(0..1440).contains(&minute) {
+        return None;
+    }
+    Some(format!("{:02}:{:02}", minute / 60, minute % 60))
+}
+
+pub fn minute_in_window(now: i32, start: i32, end: i32) -> bool {
+    if start == end {
+        return false;
+    }
+    if start < end {
+        now >= start && now < end
+    } else {
+        now >= start || now < end
+    }
+}
+
+pub fn effective_do_not_disturb(
+    state: &crate::models::entities::agent_addressee_state::Model,
+) -> bool {
+    if state.do_not_disturb {
+        return true;
+    }
+    match (state.dnd_start_minute, state.dnd_end_minute) {
+        (Some(start), Some(end)) if (0..1440).contains(&start) && (0..1440).contains(&end) => {
+            use chrono::Timelike;
+            let now = chrono::Local::now();
+            let minute = (now.hour() * 60 + now.minute()) as i32;
+            minute_in_window(minute, start, end)
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::should_write_chat_diary;
+    use super::{minute_in_window, parse_clock_minute, should_write_chat_diary};
 
     #[test]
     fn chat_diary_skips_short_and_recent_turns() {
@@ -393,6 +465,17 @@ mod tests {
         assert!(!super::is_logged_in_addressee(0));
         assert!(!super::is_logged_in_addressee(-1));
         assert!(super::is_logged_in_addressee(1));
+    }
+
+    #[test]
+    fn dnd_window_covers_same_day_and_overnight() {
+        assert_eq!(parse_clock_minute("22:30"), Some(22 * 60 + 30));
+        assert!(minute_in_window(23 * 60, 22 * 60, 7 * 60));
+        assert!(minute_in_window(6 * 60, 22 * 60, 7 * 60));
+        assert!(!minute_in_window(12 * 60, 22 * 60, 7 * 60));
+        assert!(minute_in_window(13 * 60, 12 * 60, 14 * 60));
+        assert!(!minute_in_window(14 * 60, 12 * 60, 14 * 60));
+        assert!(!minute_in_window(12 * 60, 12 * 60, 12 * 60));
     }
 
     #[test]

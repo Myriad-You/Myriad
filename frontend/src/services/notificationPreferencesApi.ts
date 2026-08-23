@@ -1,3 +1,4 @@
+import { currentCopy } from '../i18n/localeCopy'
 import apiService from './api'
 
 export const NOTIFICATION_SOURCE_KEYS = [
@@ -161,7 +162,7 @@ export const notificationPreferencesApi = {
     }>(BASE, preferences)
     if (!response.success || !response.preferences) {
       throw new Error(
-        response.message || 'Failed to save notification preferences',
+        response.message || currentCopy().errors.operationFailed,
       )
     }
     window.dispatchEvent(

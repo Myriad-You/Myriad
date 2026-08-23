@@ -38,6 +38,10 @@ import {
   shouldDeliverNotification,
 } from '../services/notificationDelivery'
 import {
+  dispatchCompanionLifeState,
+  dispatchCompanionPerformance,
+} from '../features/digital-life-companion/performanceEvents'
+import {
   getGreeting,
   getRandomQuote,
   getWeatherInfo,
@@ -265,6 +269,15 @@ const GlobalControlPanel: React.FC = () => {
   /** 新通知到达：按统一投递策略分发到面板之外的展示位置。 */
   const handleNewNotification = useCallback(
     (n: AppNotification) => {
+      if (n.metadata?.performance) {
+        dispatchCompanionLifeState(n.metadata.life_state)
+        dispatchCompanionPerformance({
+          text: n.body,
+          source: 'proactive',
+          messageId: n.id,
+          performance: n.metadata.performance,
+        })
+      }
       const source = notificationSourceFor(n)
       const icon = (
         <NotificationSourceIcon source={source} className="h-4 w-4" />

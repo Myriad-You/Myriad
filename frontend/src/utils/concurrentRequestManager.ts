@@ -7,6 +7,9 @@
  * 3. 支持请求优先级
  */
 
+import { ApiError } from '../services/api'
+import { httpStatusMessage } from './userFacingError'
+
 interface QueuedRequest {
   key: string
   fetcher: () => Promise<any>
@@ -210,7 +213,7 @@ export async function managedFetch<T = any>(
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        throw new ApiError(httpStatusMessage(response.status), response.status)
       }
 
       return response.json()

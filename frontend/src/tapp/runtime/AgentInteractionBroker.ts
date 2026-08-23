@@ -1,7 +1,9 @@
 import type { AgentInteractionV2, TappInstance } from '../types'
 import type { TappBridge } from './TappBridge'
+import { currentCopy } from '../../i18n/localeCopy'
 import { executeFrontendAction } from '../../services/agent'
 import * as TappApiService from '../services/TappApiService'
+import { userFacingError } from '../../utils/userFacingError'
 import { requestDataExchangeFromHost } from './DataExchangeBroker'
 
 const RECONNECT_DELAY_MS = 500
@@ -32,7 +34,7 @@ async function executeHostIntent(
         timestamp: Date.now(),
       })
       if (result === null) {
-        throw new Error('ui.open host adapter is not available')
+        throw new Error(currentCopy().errors.operationFailed)
       }
       return result
     }
@@ -103,7 +105,7 @@ export function registerAgentInteractionHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Accept failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -121,7 +123,7 @@ export function registerAgentInteractionHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Submit failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -139,7 +141,7 @@ export function registerAgentInteractionHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Reject failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -155,7 +157,13 @@ export function registerAgentInteractionHandlers(
     const confirmed =
       intent.type === 'dataExchange.request' ||
       window.confirm(
-        `${tappInstance.manifest.name} 请求宿主操作：${intent.type || 'unknown'}\n\n${intent.reason || ''}\n\n仅授权本次请求。`,
+        currentCopy()
+          .tapp.agentIntentConfirm.replace(
+            '{name}',
+            tappInstance.manifest.name,
+          )
+          .replace('{type}', intent.type || 'unknown')
+          .replace('{reason}', intent.reason || ''),
       )
     if (!confirmed) return { success: false, error: 'User denied Agent intent' }
     try {
@@ -181,7 +189,7 @@ export function registerAgentInteractionHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Intent failed',
+        error: userFacingError(error),
       }
     }
   })

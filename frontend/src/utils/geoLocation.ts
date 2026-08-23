@@ -13,7 +13,9 @@
  */
 
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import { dedupedFetch } from './requestDedup'
+import { httpStatusMessage } from './userFacingError'
 
 // 类型定义
 
@@ -270,7 +272,9 @@ async function getClientGeoFromBackend(): Promise<GeoLocationData | null> {
       const response = await fetch(`${API_URL}/api/proxy/client-geo`, {
         signal: AbortSignal.timeout(10000),
       })
-      if (!response.ok) throw new Error('Failed to fetch client geo')
+      if (!response.ok) {
+        throw new Error(httpStatusMessage(response.status))
+      }
       return response.json()
     },
     { cacheTTL: GEO_CACHE_TTL },
@@ -297,7 +301,7 @@ async function getClientGeoFromBackend(): Promise<GeoLocationData | null> {
     return {
       latitude: data.lat!,
       longitude: data.lon!,
-      city: data.city || data.regionName || data.country || '未知',
+      city: data.city || data.regionName || data.country || currentCopy().common.unknown,
       country: data.country,
       // Backend may send camelCase (ip-api) or snake_case (ipapi.co alias).
       countryCode: data.countryCode || data.country_code,
@@ -326,7 +330,7 @@ async function getGeoFromFallbackServices(): Promise<GeoLocationData | null> {
         return {
           latitude: data.latitude,
           longitude: data.longitude,
-          city: data.city || data.region || data.country_name || '未知',
+          city: data.city || data.region || data.country_name || currentCopy().common.unknown,
           country: data.country_name,
           countryCode: data.country_code,
           region: data.region,
@@ -354,7 +358,7 @@ async function getGeoFromFallbackServices(): Promise<GeoLocationData | null> {
         return {
           latitude: data.lat,
           longitude: data.lon,
-          city: data.city || data.regionName || data.country || '未知',
+          city: data.city || data.regionName || data.country || currentCopy().common.unknown,
           country: data.country,
           countryCode: data.countryCode,
           region: data.regionName,
@@ -387,7 +391,7 @@ async function getGeoFromFallbackServices(): Promise<GeoLocationData | null> {
         return {
           latitude: lat,
           longitude: lon,
-          city: data.city || data.region || data.country || '未知',
+          city: data.city || data.region || data.country || currentCopy().common.unknown,
           country: data.country,
           countryCode: data.country_code,
           region: data.region,
@@ -526,7 +530,7 @@ async function reverseGeocodeCity(
         'User-Agent': 'Myriad Weather App',
       },
     })
-    if (!reverseResponse.ok) return '当前位置'
+    if (!reverseResponse.ok) return currentCopy().common.currentLocation
     const reverseData = await reverseResponse.json()
     return (
       reverseData.address?.city ||
@@ -534,10 +538,10 @@ async function reverseGeocodeCity(
       reverseData.address?.village ||
       reverseData.address?.county ||
       reverseData.address?.state ||
-      '当前位置'
+      currentCopy().common.currentLocation
     )
   } catch {
-    return '当前位置'
+    return currentCopy().common.currentLocation
   }
 }
 

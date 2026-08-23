@@ -10,6 +10,7 @@ import { fetchJson } from '../../utils/apiHelper'
 import { getCSRFToken } from '../../utils/csrf'
 import { resolvePlatformId } from '../../utils/platformId'
 import { notifyRecentActivityUpdated } from '../../utils/recentActivity'
+import { userFacingError } from '../../utils/userFacingError'
 import { ButtonItem, SettingGroup, useSettingGuide } from '../settings'
 import { TaskStatus } from '../TaskStatus'
 import PlatformDataPreview from './PlatformDataPreview'
@@ -179,7 +180,10 @@ export default function PlatformDataManagement({
       const data = await response.json()
 
       if (!response.ok || !data.success) {
-        throw new Error(data.message || `HTTP ${response.status}`)
+        throw new Error(
+          data.message ||
+            t.errors.httpStatus.replace('{status}', String(response.status)),
+        )
       }
 
       notifyRecentActivityUpdated()
@@ -192,8 +196,11 @@ export default function PlatformDataManagement({
       // 原始数据已更新，智能过滤可能仍是旧的；仍刷新预览以同步时间戳/状态
       void previewRef.current?.reload()
     } catch (error) {
-      const detail = error instanceof Error ? `: ${error.message}` : ''
-      showMessage(`${t.dataManagement.refreshFailed}${detail}`, 'error', 5000)
+      showMessage(
+        userFacingError(error, t.dataManagement.refreshFailed),
+        'error',
+        5000,
+      )
     } finally {
       setRefreshing(false)
     }

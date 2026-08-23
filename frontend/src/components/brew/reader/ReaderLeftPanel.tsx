@@ -566,7 +566,7 @@ export default memo(
                               <span
                                 className={`text-xs px-1 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0 whitespace-nowrap`}
                               >
-                                {typeConfig.label}
+                                {brewliaApi.annotationTypeLabel(annotation.type)}
                               </span>
                               <span
                                 className={`text-sm font-medium ${currentTheme.text} min-w-0 flex-1 truncate`}

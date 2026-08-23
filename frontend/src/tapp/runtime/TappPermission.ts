@@ -5,6 +5,7 @@
  */
 
 import type { TappManifest } from '../types'
+import { currentCopy } from '../../i18n/localeCopy'
 import { PERMISSION_LEVELS } from './permissionConfig'
 
 export class TappPermissionController {
@@ -20,7 +21,12 @@ export class TappPermissionController {
 
     for (const permission of manifest.permissions) {
       if (!PERMISSION_LEVELS[permission]) {
-        errors.push(`未知权限: ${permission}`)
+        errors.push(
+          currentCopy().tapp.unknownPermission.replace(
+            '{permission}',
+            String(permission),
+          ),
+        )
       }
     }
 
@@ -28,7 +34,7 @@ export class TappPermissionController {
       manifest.permissions.includes('platform:write') &&
       manifest.permissions.includes('ai:generate')
     ) {
-      warnings.push('同时请求写入数据和 AI 生成权限，请确保应用来源可信')
+      warnings.push(currentCopy().tapp.sensitivePermissionCombo)
     }
 
     return { valid: errors.length === 0, errors, warnings }

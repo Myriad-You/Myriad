@@ -22,7 +22,9 @@
 import type { ComposeXShareRequest } from '../../services/xShareApi'
 import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge'
+import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError } from '../../services/api'
+import { userFacingError } from '../../utils/userFacingError'
 import { federationApi } from '../../services/federationApi'
 import { xShareApi } from '../../services/xShareApi'
 import { isKnownGuest } from '../../utils/authState'
@@ -68,7 +70,7 @@ function federationFail(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
     return {
       success: false as const,
-      error: error.message || fallback,
+      error: userFacingError(error, fallback),
       code: error.code,
       status: error.status,
       // Pending invite: Aro can show accept/reject instead of generic 403
@@ -78,7 +80,7 @@ function federationFail(error: unknown, fallback: string) {
   }
   return {
     success: false as const,
-    error: error instanceof Error ? error.message : fallback,
+    error: userFacingError(error, fallback),
   }
 }
 
@@ -267,7 +269,7 @@ export function registerFederationHandlers(
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : 'Failed to get identity',
+          userFacingError(error),
       }
     }
   })
@@ -294,13 +296,7 @@ export function registerFederationHandlers(
         )
         return { success: true, data }
       } catch (error) {
-        return {
-          success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Failed to rotate federation keys',
-        }
+        return federationFail(error, currentCopy().errors.operationFailed)
       }
     },
   )
@@ -315,7 +311,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to get feed',
+        error: userFacingError(error),
       }
     }
   })
@@ -329,7 +325,7 @@ export function registerFederationHandlers(
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : 'Failed to get rooms feed',
+          userFacingError(error),
       }
     }
   })
@@ -343,7 +339,7 @@ export function registerFederationHandlers(
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : 'Failed to get timeline',
+          userFacingError(error),
       }
     }
   })
@@ -363,7 +359,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to get object',
+            userFacingError(error),
         }
       }
     },
@@ -382,7 +378,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to follow',
+        error: userFacingError(error),
       }
     }
   })
@@ -400,7 +396,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to unfollow',
+          error: userFacingError(error),
         }
       }
     },
@@ -414,7 +410,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -427,7 +423,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -470,7 +466,7 @@ export function registerFederationHandlers(
       console.error('[FederationBridge] publish failed', error)
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to publish',
+        error: userFacingError(error),
       }
     }
   })
@@ -533,7 +529,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to create note',
+            userFacingError(error),
         }
       }
     },
@@ -556,13 +552,7 @@ export function registerFederationHandlers(
         const data = await fn(objectId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
-        return {
-          success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : `Failed to ${action}`,
-        }
+        return federationFail(error, currentCopy().errors.operationFailed)
       }
     }
 
@@ -596,7 +586,7 @@ export function registerFederationHandlers(
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : 'Failed to announce',
+          userFacingError(error),
       }
     }
   })
@@ -614,7 +604,7 @@ export function registerFederationHandlers(
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : 'Failed to get bookmarks',
+          userFacingError(error),
       }
     }
   })
@@ -627,13 +617,7 @@ export function registerFederationHandlers(
       const data = await xShareApi.getStatus()
       return { success: true, data }
     } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to get external share status',
-      }
+      return federationFail(error, currentCopy().errors.operationFailed)
     }
   })
 
@@ -685,13 +669,7 @@ export function registerFederationHandlers(
         }
         return { success: true, data }
       } catch (error) {
-        return {
-          success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Failed to compose external share',
-        }
+        return federationFail(error, currentCopy().errors.operationFailed)
       }
     },
   )
@@ -740,7 +718,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to upload media',
+            userFacingError(error),
         }
       }
     },
@@ -762,7 +740,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to unpublish',
+          error: userFacingError(error),
         }
       }
     },
@@ -776,7 +754,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -807,7 +785,7 @@ export function registerFederationHandlers(
       }
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -829,7 +807,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to create channel',
+            userFacingError(error),
         }
       }
     },
@@ -849,7 +827,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to accept channel',
+            userFacingError(error),
         }
       }
     },
@@ -866,13 +844,7 @@ export function registerFederationHandlers(
         const data = await federationApi.acceptRoomInvite(roomId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
-        return {
-          success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Failed to accept room invite',
-        }
+        return federationFail(error, currentCopy().errors.operationFailed)
       }
     },
   )
@@ -888,13 +860,7 @@ export function registerFederationHandlers(
         const data = await federationApi.rejectRoomInvite(roomId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
-        return {
-          success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Failed to reject room invite',
-        }
+        return federationFail(error, currentCopy().errors.operationFailed)
       }
     },
   )
@@ -913,7 +879,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to close channel',
+            userFacingError(error),
         }
       }
     },
@@ -933,7 +899,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to delete channel',
+            userFacingError(error),
         }
       }
     },
@@ -952,7 +918,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -977,7 +943,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1001,7 +967,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1029,7 +995,7 @@ export function registerFederationHandlers(
       if (status === 401 || status === 403) return guestEmptyRooms()
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -1045,7 +1011,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -1067,7 +1033,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to create room',
+            userFacingError(error),
         }
       }
     },
@@ -1093,7 +1059,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to update room',
+            userFacingError(error),
         }
       }
     },
@@ -1113,7 +1079,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to get members',
+            userFacingError(error),
         }
       }
     },
@@ -1140,7 +1106,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to invite',
+          error: userFacingError(error),
         }
       }
     },
@@ -1167,7 +1133,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to remove member',
+            userFacingError(error),
         }
       }
     },
@@ -1203,7 +1169,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to set member role',
+            userFacingError(error),
         }
       }
     },
@@ -1223,7 +1189,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to leave room',
+            userFacingError(error),
         }
       }
     },
@@ -1249,7 +1215,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1285,7 +1251,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1341,7 +1307,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to add sticker',
+            userFacingError(error),
         }
       }
     },
@@ -1368,7 +1334,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to remove sticker',
+            userFacingError(error),
         }
       }
     },
@@ -1388,7 +1354,7 @@ export function registerFederationHandlers(
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Failed to delete room',
+            userFacingError(error),
         }
       }
     },
@@ -1463,7 +1429,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1479,7 +1445,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -1495,7 +1461,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -1513,7 +1479,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1532,7 +1498,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1551,7 +1517,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1570,7 +1536,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -1591,7 +1557,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1610,7 +1576,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1626,7 +1592,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -1647,7 +1613,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1661,7 +1627,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -1680,7 +1646,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1705,7 +1671,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1731,7 +1697,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1751,7 +1717,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1771,7 +1737,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1796,7 +1762,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1823,7 +1789,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1855,7 +1821,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to join room',
+          error: userFacingError(error),
         }
       }
     },
@@ -1869,7 +1835,7 @@ export function registerFederationHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -1890,7 +1856,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1912,7 +1878,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1947,7 +1913,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1966,7 +1932,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -1999,7 +1965,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -2018,7 +1984,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -2048,7 +2014,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -2067,7 +2033,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -2131,7 +2097,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Download failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -2161,7 +2127,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -2180,7 +2146,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed',
+          error: userFacingError(error),
         }
       }
     },
@@ -2221,7 +2187,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to subscribe',
+          error: userFacingError(error),
         }
       }
     },
@@ -2273,7 +2239,7 @@ export function registerFederationHandlers(
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to subscribe',
+          error: userFacingError(error),
         }
       }
     },

@@ -8,7 +8,7 @@ import type {
 } from '../../services/siteDomainApi'
 import React, { useCallback, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { ApiError } from '../../services/api'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   changeSiteDomain,
   checklistItems,
@@ -100,12 +100,7 @@ export const SiteUrlField: React.FC<SiteUrlFieldProps> = ({
         setResultOk(t.config.domainChangeSuccess)
       } catch (err) {
         if (err instanceof Error && err.message === 'cancelled') throw err
-        const message =
-          err instanceof ApiError
-            ? err.message
-            : err instanceof Error
-              ? err.message
-              : t.config.domainChangeFailed
+        const message = userFacingError(err, t.config.domainChangeFailed)
         setError(message)
         throw err instanceof Error ? err : new Error(message)
       }

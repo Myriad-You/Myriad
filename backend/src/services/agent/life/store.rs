@@ -340,6 +340,8 @@ pub async fn get_or_create_state(
         mood: Set(70.0),
         activity: Set("idle".to_string()),
         do_not_disturb: Set(false),
+        dnd_start_minute: Set(None),
+        dnd_end_minute: Set(None),
         last_user_message_at: Set(None),
         last_proactive_at: Set(None),
         last_departure_at: Set(None),
@@ -513,6 +515,23 @@ pub async fn set_do_not_disturb(
     }
     let mut active: agent_addressee_state::ActiveModel = state.into();
     active.do_not_disturb = Set(do_not_disturb);
+    active.updated_at = Set(Utc::now().into());
+    Ok(active.update(db).await?)
+}
+
+pub async fn set_dnd_schedule(
+    db: &DatabaseConnection,
+    user_id: i32,
+    start_minute: Option<i32>,
+    end_minute: Option<i32>,
+) -> Result<agent_addressee_state::Model, anyhow::Error> {
+    let state = get_or_create_state(db, user_id).await?;
+    if state.dnd_start_minute == start_minute && state.dnd_end_minute == end_minute {
+        return Ok(state);
+    }
+    let mut active: agent_addressee_state::ActiveModel = state.into();
+    active.dnd_start_minute = Set(start_minute);
+    active.dnd_end_minute = Set(end_minute);
     active.updated_at = Set(Utc::now().into());
     Ok(active.update(db).await?)
 }

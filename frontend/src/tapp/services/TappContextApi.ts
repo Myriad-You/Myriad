@@ -1,4 +1,5 @@
 import { API_URL } from '../../config'
+import { currentCopy } from '../../i18n/localeCopy'
 import { getCSRFToken } from '../../utils/csrf'
 import { apiRequest } from './TappHttpClient'
 
@@ -238,7 +239,7 @@ export async function getContextGeo(
   if (result.success && result.data) {
     return result.data
   }
-  throw new Error('Failed to get geo info')
+  throw new Error(currentCopy().errors.operationFailed)
 }
 
 // Tapp API 声明系统

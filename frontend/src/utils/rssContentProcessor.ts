@@ -23,6 +23,7 @@
 
 import DOMPurify from 'isomorphic-dompurify'
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import { proxyImageUrl } from './proxyImageUrl'
 
 export interface ProcessOptions {
@@ -1091,7 +1092,7 @@ export function processRssContent(
   const opts: ProcessOptions = { ...DEFAULT_OPTIONS, ...options }
 
   if (!html || typeof html !== 'string') {
-    return '<p class="opacity-50">暂无内容</p>'
+    return `<p class="opacity-50">${currentCopy().common.noContent}</p>`
   }
 
   let result = html

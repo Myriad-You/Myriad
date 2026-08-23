@@ -53,9 +53,13 @@ export type {
   FrontendActionType,
   // Heartbeat
   HeartbeatTask,
+  LifeStateChangedEvent,
   // 记忆
   MemoryEntry,
   PageElementTarget,
+  PerformanceDirective,
+  PerformancePlanEvent,
+  PerformancePhase,
   PlannerDecisionEvent,
   // 预设
   PresetType,

@@ -3,6 +3,7 @@
  */
 
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import {
   getCachedIsChinaMainland,
   isUserInChinaMainland,
@@ -730,11 +731,11 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
       const body = await response.json().catch(() => null)
       const { notifyHttpRateLimit } = await import('./httpRateLimitToast')
       notifyHttpRateLimit(response, body)
-      throw new Error('Rate limited')
+      throw new Error('RATE_LIMITED')
     }
 
     if (!response.ok) {
-      throw new Error('Failed to fetch playlist')
+      throw new Error('FETCH_FAILED')
     }
 
     const data = await response.json()
@@ -747,16 +748,20 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
       // -460: 地理位置限制(海外IP)
       // -462: 版权限制
       if (data.code === -447) {
-        throw new Error('网易云API访问频率过高,请稍后再试或使用QQ音乐')
+        throw new Error('RATE_LIMITED')
       } else if (data.code === -460 || data.code === -462) {
-        throw new Error('该歌单因版权或地理位置限制无法播放,建议使用QQ音乐')
+        throw new Error('PLAYLIST_BLOCKED')
       }
-      throw new Error(data.message || `网易云API错误 (${data.code})`)
+      throw new Error(
+        typeof data.message === 'string' && data.message.trim()
+          ? data.message
+          : `NETEASE_${data.code}`,
+      )
     }
 
     const tracks = data.result?.playlist?.tracks || data.playlist?.tracks || []
     if (tracks.length === 0) {
-      throw new Error('歌单为空或无可用歌曲')
+      throw new Error('PLAYLIST_EMPTY')
     }
 
     // 等待地理位置检测结果
@@ -837,17 +842,17 @@ export async function getQQPlaylist(playlistId: string): Promise<Song[]> {
       const body = await response.json().catch(() => null)
       const { notifyHttpRateLimit } = await import('./httpRateLimitToast')
       notifyHttpRateLimit(response, body)
-      throw new Error('Rate limited')
+      throw new Error('RATE_LIMITED')
     }
 
     if (!response.ok) {
-      throw new Error('Failed to fetch playlist')
+      throw new Error('FETCH_FAILED')
     }
 
     const data = await response.json()
 
     if (!data.cdlist || data.cdlist.length === 0) {
-      throw new Error('Invalid playlist response')
+      throw new Error('INVALID_PLAYLIST')
     }
 
     const playlist = data.cdlist[0]
@@ -926,7 +931,12 @@ export async function getNeteaseLyrics(songId: string): Promise<LyricLine[]> {
     }
 
     if (!response.ok) {
-      throw new Error('Failed to fetch lyrics')
+      throw new Error(
+        currentCopy().errors.lyricsFailed.replace(
+          '{status}',
+          String(response.status),
+        ),
+      )
     }
 
     const data = await response.json()
@@ -972,7 +982,12 @@ export async function getNeteaseVerbatimLyrics(
     }
 
     if (!response.ok) {
-      throw new Error('Failed to fetch verbatim lyrics')
+      throw new Error(
+        currentCopy().errors.lyricsFailed.replace(
+          '{status}',
+          String(response.status),
+        ),
+      )
     }
 
     const data = await response.json()
@@ -1118,7 +1133,14 @@ export async function getKugouVerbatimLyrics(
       notifyHttpRateLimit(response)
       return []
     }
-    if (!response.ok) throw new Error('Failed to fetch kugou verbatim lyrics')
+    if (!response.ok) {
+      throw new Error(
+        currentCopy().errors.lyricsFailed.replace(
+          '{status}',
+          String(response.status),
+        ),
+      )
+    }
 
     const data = await response.json()
     const verbatim: WordLyricLine[] = data.krc ? parseKrc(data.krc) : []
@@ -1186,7 +1208,12 @@ export async function getQQLyricsWithTranslation(
       } catch {
         /* ignore body parse */
       }
-      throw new Error('Failed to fetch lyrics')
+      throw new Error(
+        currentCopy().errors.lyricsFailed.replace(
+          '{status}',
+          String(response.status),
+        ),
+      )
     }
 
     const data = await response.json()

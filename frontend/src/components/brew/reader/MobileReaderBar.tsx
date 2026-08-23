@@ -181,7 +181,7 @@ export const MobileReaderBar = memo(
                     <button
                       onClick={() => setShowMobileControls(!showMobileControls)}
                       className={`p-2 rounded-xl ${showMobileControls ? currentTheme.text : currentTheme.secondary} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
-                      title={t.brew.settings || '更多选项'}
+                      title={t.brew.moreOptions}
                     >
                       <ChevronUp
                         className={`w-5 h-5 transition-transform ${showMobileControls ? 'rotate-180' : ''}`}
@@ -329,7 +329,7 @@ export const MobileReaderBar = memo(
                           <button
                             onClick={handleShare}
                             className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text}`}
-                            title={t.brew.share || '分享'}
+                            title={t.brew.share}
                           >
                             <svg
                               className="w-5 h-5"
@@ -506,7 +506,7 @@ export const MobileReaderBar = memo(
                   <button
                     onClick={closePanel}
                     className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
-                    title={t.brew.close || '关闭'}
+                    title={t.brew.close}
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -641,7 +641,9 @@ export const MobileReaderBar = memo(
                                   <span
                                     className={`text-xs px-1.5 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0 whitespace-nowrap`}
                                   >
-                                    {typeConfig.label}
+                                    {brewliaApi.annotationTypeLabel(
+                                      annotation.type,
+                                    )}
                                   </span>
                                   <span
                                     className={`text-sm font-medium ${currentTheme.text} min-w-0 flex-1 truncate`}
@@ -731,7 +733,7 @@ export const MobileReaderBar = memo(
                             onClick={handlePrevious}
                             disabled={podcastCurrentIndex === 0}
                             className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text} disabled:opacity-30`}
-                            title={t.brew.previousDialogue || '上一条'}
+                            title={t.brew.previousDialogue}
                           >
                             <SkipBack className="w-5 h-5" />
                           </button>
@@ -756,14 +758,14 @@ export const MobileReaderBar = memo(
                               podcastCurrentIndex >= podcastDialogues.length - 1
                             }
                             className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text} disabled:opacity-30`}
-                            title={t.brew.nextDialogue || '下一条'}
+                            title={t.brew.nextDialogue}
                           >
                             <SkipForward className="w-5 h-5" />
                           </button>
                           <button
                             onClick={handleStop}
                             className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text}`}
-                            title={t.brew.stop || '停止'}
+                            title={t.brew.stop}
                           >
                             <Square className="w-5 h-5" />
                           </button>
@@ -786,14 +788,14 @@ export const MobileReaderBar = memo(
                             <div className="flex flex-col items-center gap-2">
                               <Mic className="w-8 h-8 opacity-30" />
                               <p className="text-sm">
-                                {t.brew.noPodcast || '暂无播客内容'}
+                                {t.brew.noPodcast}
                               </p>
                               {isAdmin && (
                                 <button
                                   onClick={loadPodcast}
                                   className="text-sm text-emerald-500 hover:text-emerald-600 font-medium"
                                 >
-                                  {t.brew.generate || '生成播客'}
+                                  {t.brew.generatePodcast}
                                 </button>
                               )}
                             </div>
@@ -828,8 +830,8 @@ export const MobileReaderBar = memo(
                                     }`}
                                   >
                                     {isHost
-                                      ? t.brew.podcastHostLabel || '主'
-                                      : t.brew.podcastGuestLabel || '嘉'}
+                                      ? t.brew.podcastHostLabel
+                                      : t.brew.podcastGuestLabel}
                                   </span>
                                   <p
                                     className={`text-sm ${isCurrent ? currentTheme.text : currentTheme.secondary} leading-relaxed`}

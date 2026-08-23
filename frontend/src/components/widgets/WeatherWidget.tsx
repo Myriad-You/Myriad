@@ -26,6 +26,7 @@ import {
   WEATHER_DETAIL_ICON_ASSETS,
   WEATHER_ICON_ASSETS,
 } from '../../utils/dynamicContent'
+import { userFacingError } from '../../utils/userFacingError'
 import { WeatherAssetIcon } from '../weather/WeatherAssetIcon'
 import { FitText } from './shared/FitText'
 import { GlowBackground } from './shared/GlowBackground'
@@ -183,11 +184,8 @@ export const WeatherWidget = memo(
         }
       } catch (error) {
         console.error(`${t.weatherWidget.fetchWeatherFailed}:`, error)
-        const detail = error instanceof Error ? error.message.trim() : ''
         setFetchError(
-          detail && detail !== t.weatherWidget.fetchWeatherFailed
-            ? `${t.weatherWidget.fetchWeatherFailed} · ${detail}`
-            : t.weatherWidget.fetchWeatherFailed,
+          userFacingError(error, t.weatherWidget.fetchWeatherFailed),
         )
       } finally {
         setLoading(false)

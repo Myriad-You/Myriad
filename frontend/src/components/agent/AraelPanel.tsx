@@ -13,6 +13,8 @@
 import type { TranslationKeys } from '../../i18n'
 import type {
   AgentResponse,
+  LifeStateChangedEvent,
+  PerformancePlanEvent,
   PlannerDecisionEvent,
   ProgressEvent,
   ProgressUpdateEvent,
@@ -46,7 +48,11 @@ import {
   errorCode,
   generationFailureMessage,
 } from './onboarding/generationError'
-import { dispatchCompanionPerformance } from '../../features/digital-life-companion/performanceEvents'
+import { userFacingError } from '../../utils/userFacingError'
+import {
+  dispatchCompanionLifeState,
+  dispatchCompanionPerformance,
+} from '../../features/digital-life-companion/performanceEvents'
 import {
   agentService,
   executeFrontendAction,
@@ -993,6 +999,26 @@ export const AraelPanel: React.FC = () => {
             break
           }
 
+          case 'life_state_changed': {
+            const lifeEvent = event as LifeStateChangedEvent
+            dispatchCompanionLifeState({
+              mood: lifeEvent.mood,
+              activity: lifeEvent.activity,
+            })
+            break
+          }
+
+          case 'performance_plan': {
+            const performanceEvent = event as PerformancePlanEvent
+            dispatchCompanionPerformance({
+              text: '',
+              source: 'reply',
+              messageId: assistantMessageId,
+              performance: performanceEvent.performance,
+            })
+            break
+          }
+
           case 'task_completed': {
             // 检查任务是否真正完成（多轮问答时可能仍在等待用户输入）
             const completedEvent =
@@ -1192,8 +1218,7 @@ export const AraelPanel: React.FC = () => {
             statusMessage: result.message,
           })
         } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : t.arael.unknownError
+          const errorMessage = userFacingError(error, t.arael.unknownError)
           setLastError(errorMessage)
           setMessages((prev) => [
             ...prev,
@@ -1539,12 +1564,12 @@ export const AraelPanel: React.FC = () => {
       })
 
       const spokenReply = displayMessage || response.message
-      if (isSuccess && spokenReply?.trim()) {
+      if (isSuccess && (spokenReply?.trim() || response.performance)) {
         dispatchCompanionPerformance({
-          text: spokenReply,
+          text: spokenReply || '',
           source: 'reply',
           messageId,
-          motionPlan: responseData?.motionPlan,
+          performance: response.performance,
         })
       }
 
@@ -1749,8 +1774,7 @@ export const AraelPanel: React.FC = () => {
             )
         handleAgentResponseRef.current?.(messageId, response)
       } catch (error) {
-        const errorMsg =
-          error instanceof Error ? error.message : t.arael.unknownError
+        const errorMsg = userFacingError(error, t.arael.unknownError)
         updateMessage(messageId, {
           content: format(t.arael.answerFailed, { error: errorMsg }),
         })

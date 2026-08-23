@@ -13,6 +13,7 @@ import type { TappInstance } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
 import type { TaskRegistrationOptions } from '../../TappScheduler'
 import { API_URL } from '../../../../config'
+import { userFacingError } from '../../../../utils/userFacingError'
 import { getTappScheduler } from '../../TappScheduler'
 
 let schedulerInitialized = false
@@ -31,7 +32,7 @@ function ensureScheduler() {
 function errResult(error: unknown) {
   return {
     success: false,
-    error: error instanceof Error ? error.message : 'Failed',
+    error: userFacingError(error),
   }
 }
 

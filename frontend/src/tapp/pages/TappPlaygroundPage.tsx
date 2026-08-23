@@ -34,6 +34,10 @@ import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { usePageSeo } from '../../hooks/usePageSeo'
 import { useBreakpoints } from '../../hooks/useSharedEventListener'
 import { buildPrivatePageSeo } from '../../utils/modulePageSeo'
+import {
+  isUselessErrorText,
+  userFacingError,
+} from '../../utils/userFacingError'
 import { PlaygroundComposer } from '../components/PlaygroundComposer'
 import { TappPlaygroundIcon } from '../components/PlaygroundIcons'
 import { getTappRuntime } from '../runtime'
@@ -1235,9 +1239,11 @@ export function TappPlaygroundPage() {
           'Failed to sync/start Tapp after playground install:',
           startError,
         )
+        const raw =
+          startError instanceof Error ? startError.message.trim() : ''
         const detail =
-          startError instanceof Error && startError.message
-            ? startError.message
+          raw && !isUselessErrorText(raw)
+            ? userFacingError(startError, t.tapp.unknownError)
             : ''
         setNotice(
           detail
@@ -1248,11 +1254,7 @@ export function TappPlaygroundPage() {
 
       window.setTimeout(navigate, 450, tappDetailPath(installed.id))
     } catch (installError) {
-      setError(
-        installError instanceof Error
-          ? installError.message
-          : t.tapp.installFailed,
-      )
+      setError(userFacingError(installError, t.tapp.installFailed))
     } finally {
       setInstalling(false)
     }
@@ -1273,9 +1275,7 @@ export function TappPlaygroundPage() {
         setError(packageValidationErrorMessage(exportError.errors))
       } else {
         setError(
-          exportError instanceof Error
-            ? exportError.message
-            : t.tapp.playgroundExportFailed,
+          userFacingError(exportError, t.tapp.playgroundExportFailed),
         )
       }
     } finally {

@@ -11,6 +11,7 @@
  * PageLoader 另有首屏副本。此处不再 import CSS。
  */
 import type { CSSProperties } from 'react'
+import { currentCopy } from '../i18n/localeCopy'
 
 export type SpinnerSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | number
 export type SpinnerColor = 'current' | 'primary' | 'white' | (string & {})
@@ -56,7 +57,7 @@ export function Spinner({
   speed,
   delay,
   center = false,
-  label = '加载中',
+  label = currentCopy().common.loading,
   className = '',
   variant,
 }: SpinnerProps) {

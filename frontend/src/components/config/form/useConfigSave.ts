@@ -13,6 +13,7 @@ import type {
   ShowMessage,
 } from './types'
 import { useCallback } from 'react'
+import { userFacingError } from '../../../utils/userFacingError'
 import { API_URL } from '../../../config'
 import {
   reloadSystemConfig,
@@ -546,8 +547,7 @@ export function useConfigSave(args: {
         }
       }
       const partial = applied.length > 0
-      const detail =
-        error instanceof Error ? error.message : t.errors.networkError
+      const detail = userFacingError(error, t.errors.networkError)
       const errorMsg = partial
         ? `${t.config.partialSaveWarning}: ${detail}`
         : `${t.config.configSaveFailed}: ${detail}`

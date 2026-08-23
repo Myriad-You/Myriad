@@ -2,6 +2,18 @@ pub const MOOD_FLOOR: f64 = 10.0;
 const DEFAULT_MOOD: f64 = 70.0;
 const MAX_STEP: f64 = 10.0;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoodTransition {
+    pub before: f64,
+    pub after: f64,
+    pub band_before: String,
+    pub band_after: String,
+    pub delta: f64,
+    pub cause: String,
+    pub revision: i64,
+}
+
 pub fn clamp_mood(value: f64) -> f64 {
     if value.is_finite() {
         value.clamp(0.0, 100.0)
@@ -12,6 +24,19 @@ pub fn clamp_mood(value: f64) -> f64 {
 
 pub fn is_extremely_low(mood: f64) -> bool {
     clamp_mood(mood) <= MOOD_FLOOR
+}
+
+pub fn mood_band(mood: f64) -> &'static str {
+    let mood = clamp_mood(mood);
+    if mood <= MOOD_FLOOR {
+        "floor"
+    } else if mood < 40.0 {
+        "low"
+    } else if mood >= 85.0 {
+        "high"
+    } else {
+        "normal"
+    }
 }
 
 fn apply_delta(mood: f64, delta: f64) -> f64 {
@@ -145,6 +170,10 @@ mod tests {
     fn extreme_low_includes_floor() {
         assert!(is_extremely_low(10.0));
         assert!(!is_extremely_low(10.1));
+        assert_eq!(mood_band(10.0), "floor");
+        assert_eq!(mood_band(39.9), "low");
+        assert_eq!(mood_band(40.0), "normal");
+        assert_eq!(mood_band(85.0), "high");
     }
 
     #[test]

@@ -87,6 +87,7 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
+                        performance: None,
                     })));
                 }
 
@@ -103,6 +104,7 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
+                        performance: None,
                     })));
                 }
 
@@ -120,6 +122,7 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
+                        performance: None,
                     })));
                 }
 
@@ -156,6 +159,7 @@ impl Agent {
                 task: None,
                 confirmation: None,
                 frontend_action: None,
+                performance: None,
             }))),
         }
     }
@@ -207,6 +211,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
+            performance: None,
         })
     }
 
@@ -312,6 +317,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action: None,
+            performance: None,
         }))
     }
 
@@ -353,6 +359,7 @@ impl Agent {
                 task: None,
                 confirmation: None,
                 frontend_action: None,
+                performance: None,
             }));
         }
         tracing::info!(
@@ -514,6 +521,7 @@ impl Agent {
             task: None,
             confirmation: Some(confirmation_request),
             frontend_action: None,
+            performance: None,
         })
     }
 
@@ -938,6 +946,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
+            performance: None,
         })
     }
 
@@ -1017,6 +1026,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
+            performance: None,
         })
     }
 

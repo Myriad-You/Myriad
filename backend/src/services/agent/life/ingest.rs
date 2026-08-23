@@ -161,7 +161,12 @@ pub async fn ingest(
     let state = get_or_create_state(db, user_id).await?;
     let chatting = addressee_is_chatting(db, user_id).await;
     let working = super::current_activity(&state) == "working";
-    let decision = decide_ingest(event_key, state.do_not_disturb, chatting, working);
+    let decision = decide_ingest(
+        event_key,
+        super::effective_do_not_disturb(&state),
+        chatting,
+        working,
+    );
     apply_task_mood(db, user_id, event_key, state.mood).await;
 
     if !decision.allow_model {
@@ -200,12 +205,53 @@ pub async fn ingest(
         }
     }
 
+    // Direct motion only after the line has passed every suppression check. This
+    // keeps the Lite budget tied to speech the addressee will actually receive.
+    let (performance, motion_mood) = if shown {
+        match get_or_create_state(db, user_id).await {
+            Ok(current) => {
+                let band = super::mood_band(current.mood).to_string();
+                let mood = super::MoodTransition {
+                    before: current.mood,
+                    after: current.mood,
+                    band_before: band.clone(),
+                    band_after: band,
+                    delta: 0.0,
+                    cause: event_key.to_string(),
+                    revision: current.updated_at.with_timezone(&Utc).timestamp_millis(),
+                };
+                let performance = super::direct_motion(super::MotionContext {
+                    user_id,
+                    phase: super::MotionPhase::Proactive,
+                    mood: mood.clone(),
+                    activity: "talking".to_string(),
+                    user_text: summary.clone(),
+                    response_text: Some(spoken.clone()),
+                    task_success: None,
+                })
+                .await;
+                (performance, Some(mood))
+            }
+            Err(_) => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+
     let _ = insert_diary(db, user_id, &summary, "event").await;
     insert_proactive(db, user_id, &spoken, Some(event_key), shown).await?;
     let _ = touch_proactive(db, user_id).await;
 
     if shown {
-        emit_speech_notification(db, user_id, event_key, &spoken).await;
+        emit_speech_notification(
+            db,
+            user_id,
+            event_key,
+            &spoken,
+            performance.as_ref(),
+            motion_mood.as_ref(),
+        )
+        .await;
     }
     Ok(())
 }
@@ -396,6 +442,8 @@ async fn emit_speech_notification(
     user_id: i32,
     event_key: &str,
     spoken: &str,
+    performance: Option<&super::PerformanceDirective>,
+    mood: Option<&super::MoodTransition>,
 ) {
     let Some(manager) = get_notification_manager() else {
         return;
@@ -409,6 +457,25 @@ async fn emit_speech_notification(
         .ok()
         .flatten()
         .map(|(id, _)| id);
+    let mut metadata = serde_json::json!({
+        "event_key": event_key,
+        "action": "open_arael",
+        "session_id": session_id,
+    });
+    if let Some(object) = metadata.as_object_mut() {
+        if let Some(performance) = performance {
+            object.insert(
+                "performance".to_string(),
+                serde_json::to_value(performance).unwrap_or_default(),
+            );
+        }
+        if let Some(mood) = mood {
+            object.insert(
+                "life_state".to_string(),
+                serde_json::json!({ "mood": mood, "activity": "talking" }),
+            );
+        }
+    }
     let notification = Notification::new(
         user_id,
         NotificationType::SystemInfo,
@@ -416,11 +483,7 @@ async fn emit_speech_notification(
         title,
         spoken,
     )
-    .with_metadata(serde_json::json!({
-        "event_key": event_key,
-        "action": "open_arael",
-        "session_id": session_id,
-    }));
+    .with_metadata(metadata);
     manager.notify(notification).await;
 }
 

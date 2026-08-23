@@ -90,6 +90,18 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: Some("false".into()),
                 },
                 ColumnDef {
+                    name: "dnd_start_minute".into(),
+                    data_type: "integer".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "dnd_end_minute".into(),
+                    data_type: "integer".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
                     name: "last_user_message_at".into(),
                     data_type: "timestamp with time zone".into(),
                     is_nullable: true,

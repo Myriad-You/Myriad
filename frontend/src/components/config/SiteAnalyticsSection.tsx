@@ -37,6 +37,7 @@ import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { fetchJson } from '../../utils/apiHelper'
 import { getCSRFHeaderName, getCSRFToken } from '../../utils/csrf'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   guideDomProps,
   SettingGroup,
@@ -524,10 +525,7 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
       showMessage?.(a.exportSuccess, 'success')
     } catch (e) {
       console.error('analytics export failed', e)
-      showMessage?.(
-        `${a.exportFailed}${e instanceof Error && e.message ? `: ${e.message}` : ''}`,
-        'error',
-      )
+      showMessage?.(userFacingError(e, a.exportFailed), 'error')
     } finally {
       setIoBusy(false)
     }
@@ -585,11 +583,7 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
           await load(undefined)
         } catch (err) {
           console.error('analytics import failed', err)
-          const msg =
-            err instanceof Error && err.message
-              ? err.message
-              : a.importFailed
-          showMessage?.(msg, 'error')
+          showMessage?.(userFacingError(err, a.importFailed), 'error')
         } finally {
           setIoBusy(false)
         }

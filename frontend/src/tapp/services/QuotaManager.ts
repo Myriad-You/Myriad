@@ -12,6 +12,8 @@
  * - 自动清理过期记录
  */
 
+import { currentCopy } from '../../i18n/localeCopy'
+
 /** 默认配额配置 */
 const DEFAULT_QUOTA = {
   platform: {
@@ -251,7 +253,10 @@ class TappQuotaManager {
       return {
         allowed: false,
         remaining: 0,
-        reason: `速率限制：请求过于频繁，请在 ${Math.ceil((rateCheck.retryAfter || 0) / 1000)} 秒后重试`,
+        reason: currentCopy().errors.rateLimitedRetry.replace(
+          '{sec}',
+          String(Math.ceil((rateCheck.retryAfter || 0) / 1000)),
+        ),
         retryAfter: rateCheck.retryAfter,
       }
     }

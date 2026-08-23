@@ -1,5 +1,7 @@
 /** Pinned host runtime libraries injected into the Page sandbox with a nonce. */
 
+import { currentCopy } from '../../../i18n/localeCopy'
+
 export const THREE_RUNTIME_ID = 'three'
 export const THREE_RUNTIME_PATH = '/tapp-runtime/three.0.170.iife.js'
 
@@ -21,7 +23,12 @@ export function loadHostRuntimeModule(id: string): Promise<string> {
   const pending = fetch(THREE_RUNTIME_PATH, { credentials: 'same-origin' })
     .then((response) => {
       if (!response.ok) {
-        throw new Error(`Failed to load ${id} runtime (${response.status})`)
+        throw new Error(
+          `${currentCopy().errors.httpStatus.replace(
+            '{status}',
+            String(response.status),
+          )} (${id})`,
+        )
       }
       return response.text()
     })

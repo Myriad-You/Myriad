@@ -9,6 +9,8 @@ import type { PermissionLevel, TappInstance } from '../../../types'
 import type { OpenUrlRequest } from '../../../utils/openUrlAllowlist'
 import type { TappBridge } from '../../TappBridge'
 import type { TappNotificationOptions } from '../types'
+import { currentCopy } from '../../../../i18n/localeCopy'
+import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'
 import {
   listOpenUrlDeclarations,
@@ -112,7 +114,7 @@ export function registerUIHandlers(
       const notificationId = await TappApiService.createTappNotification(
         {
           tappId: tappInstance.id,
-          title: opts.title || 'Tapp 通知',
+          title: opts.title || currentCopy().tapp.defaultNotificationTitle,
           message: opts.message || '',
           notificationType: opts.type || 'info',
         },
@@ -122,10 +124,7 @@ export function registerUIHandlers(
     } catch (error) {
       return {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to publish notification',
+        error: userFacingError(error),
       }
     }
   })
@@ -189,7 +188,7 @@ export function registerUIHandlers(
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : 'Failed to open URL',
+          userFacingError(error),
       }
     }
   })
@@ -311,7 +310,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -353,7 +352,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -384,7 +383,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -399,7 +398,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -414,7 +413,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -431,7 +430,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -446,7 +445,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -464,7 +463,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -486,7 +485,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -498,7 +497,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -516,7 +515,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -548,7 +547,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -572,7 +571,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -584,7 +583,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -596,7 +595,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -613,7 +612,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -625,7 +624,7 @@ export function registerStorageHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -758,10 +757,7 @@ export function registerUserHandlers(
     } catch (error) {
       return {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to load permission levels',
+        error: userFacingError(error),
       }
     }
   })
@@ -778,10 +774,7 @@ export function registerUserHandlers(
     } catch (error) {
       return {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to load permission levels',
+        error: userFacingError(error),
       }
     }
   })
@@ -827,7 +820,7 @@ export function registerAssetHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to load asset',
+        error: userFacingError(error),
       }
     }
   })
@@ -898,7 +891,7 @@ export function registerFileHandlers(bridge: TappBridge): void {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Download failed',
+        error: userFacingError(error),
       }
     }
   })

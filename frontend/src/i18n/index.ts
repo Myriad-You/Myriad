@@ -32,6 +32,14 @@ export interface TranslationKeys {
     copied: string
     open: string
     optional: string
+    unknown: string
+    closeNotification: string
+    currentLocation: string
+    noDescription: string
+    noContent: string
+    durationSeconds: string
+    durationMinutes: string
+    durationMinutesSeconds: string
   }
 
   // 导航
@@ -117,6 +125,22 @@ export interface TranslationKeys {
     deleteConfirm: string
     loadFailed: string
     sendFailed: string
+    psdNeedAsset: string
+    psdTooLarge: string
+    psdPreviewFailed: string
+    psdSpecInvalid: string
+    psdLayerCountInvalid: string
+    canvasUnsupported: string
+    anime25dMissingFace: string
+    anime25dInvalidPixels: string
+    anime25dMissingHandwear: string
+    anime25dMissingLayer: string
+    anime25dPartCount: string
+    anime25dContractMissing: string
+    anime25dLayerTooWide: string
+    anime25dAtlasOverflow: string
+    anime25dBoneLimit: string
+    rigAtlasFailed: string
     statusIdle: string
     statusThinking: string
     statusTalking: string
@@ -142,8 +166,40 @@ export interface TranslationKeys {
     anime25dRuntimeCredit: string
     anime25dDebug: string
     anime25dDebugDescription: string
+    overviewGroup: string
+    overviewGroupDescription: string
+    overviewName: string
+    overviewMood: string
+    overviewActivity: string
+    overviewDoNotDisturb: string
+    overviewDoNotDisturbHint: string
+    overviewDndWindow: string
+    overviewDndStart: string
+    overviewDndEnd: string
+    overviewDndScheduled: string
+    overviewOn: string
+    overviewOff: string
+    overviewPortrait: string
+    overviewPortraitReady: string
+    overviewPortraitEmpty: string
+    overviewRig: string
+    overviewRigReady: string
+    overviewRigEmpty: string
+    overviewSummary: string
+    overviewEmpty: string
+    personaGroup: string
+    personaGroupDescription: string
+    personaEmpty: string
     portraitGroup: string
     portraitGroupDescription: string
+    visualSourceTitle: string
+    visualSourceEmpty: string
+    assetGroup: string
+    assetGroupDescription: string
+    assetEmpty: string
+    assetMake: string
+    assetRig: string
+    assetNeedsPortrait: string
     rigGroup: string
     rigGroupDescription: string
     expressionGroup: string
@@ -153,6 +209,11 @@ export interface TranslationKeys {
     hairBodyGroup: string
     hairBodyGroupDescription: string
     inspectGroupDescription: string
+    anime25dInspectLayersValue: string
+    anime25dInspectStrandsValue: string
+    anime25dInspectEyesValue: string
+    anime25dInspectMouthValue: string
+    anime25dInspectCanvasValue: string
     clusterHead: string
     clusterEyes: string
     clusterBrows: string
@@ -222,6 +283,14 @@ export interface TranslationKeys {
     anime25dInspectEmpty: string
     motionPsd: string
     motionPsdDescription: string
+    rigPathUpload: string
+    rigPathUploadHint: string
+    rigPathSeeThrough: string
+    rigPathSeeThroughHint: string
+    rigTokenReady: string
+    rigPreflightTitle: string
+    rigReadyTitle: string
+    rigReadyHint: string
     motionSeeThroughToken: string
     motionSeeThroughTokenCreate: string
     motionSeeThroughTokenDescription: string
@@ -252,6 +321,11 @@ export interface TranslationKeys {
     adminEnabled: string
     adminWorker: string
     adminInterval: string
+    personaLabelTemperament: string
+    personaLabelLikes: string
+    personaLabelDrives: string
+    personaLabelSocial: string
+    personaLabelSpeech: string
   }
 
   // 控制面板
@@ -334,6 +408,9 @@ export interface TranslationKeys {
     emailOptional: string
     emailPlaceholder: string
     registerFailed: string
+    registerDisabled: string
+    registerSetupRequired: string
+    usernameTaken: string
     registerResponseIncomplete: string
     usernameRange3to20: string
     passwordRule: string
@@ -1314,6 +1391,7 @@ export interface TranslationKeys {
     proxyUrl: string
     proxyUrlHint: string
     proxyUrlDisabledHint: string
+    proxyUrlPlaceholder: string
     proxyBypass: string
     proxyBypassHint: string
     geminiBaseUrl: string
@@ -2258,6 +2336,40 @@ export interface TranslationKeys {
   errors: {
     networkError: string
     unknown: string
+    setupCheckFailed: string
+    requestRejected: string
+    requestFailed: string
+    invalidResponse: string
+    operationFailed: string
+    rateLimited: string
+    rateLimitedLogin: string
+    rateLimitedFetch: string
+    rateLimitedAnalysis: string
+    rateLimitedRetry: string
+    passwordMinLength: string
+    passwordNeedLower: string
+    passwordNeedUpper: string
+    passwordNeedDigit: string
+    passwordNeedSpecial: string
+    passwordTooCommon: string
+    timeout: string
+    unauthorized: string
+    forbidden: string
+    notFound: string
+    serverError: string
+    httpStatus: string
+    lyricsFailed: string
+    weatherFailed: string
+    widgetsLoadFailed: string
+    taskSubmitFailed: string
+    notificationActionFailed: string
+    settingsBackupPreviewFailed: string
+    settingsBackupRestoreFailed: string
+    backendUnreachable: string
+    setupConfigFailed: string
+    emptyDialogueText: string
+    csrfUnavailable: string
+    streamUnreadable: string
   }
 
   wallpaperStatus: {
@@ -2580,6 +2692,8 @@ export interface TranslationKeys {
     adminOnlyGenerate: string
     generateFailed: string
     generateFailedRetry: string
+    generateNeedData: string
+    generateEmptySummary: string
 
     // UI 文本
     close: string
@@ -3302,6 +3416,12 @@ export interface TranslationKeys {
     loadAppFailed: string
     startAppFailed: string
     widgetNotFound: string
+    needStartToShow: string
+    defaultNotificationTitle: string
+    officialStoreName: string
+    officialStoreDescription: string
+    unknownPermission: string
+    sensitivePermissionCombo: string
     backToAppList: string
     exitFullscreen: string
     fullscreen: string
@@ -3440,6 +3560,20 @@ export interface TranslationKeys {
     storeSortByDownloads: string
     loadingRemoteApps: string
     loadRemoteFailed: string
+    storeAdminRequired: string
+    storeSourceExists: string
+    storeCannotRemoveOfficial: string
+    storeSourceNotFound: string
+    storeCannotEditOfficialUrl: string
+    storeUrlExists: string
+    storeInvalidIndex: string
+    storeDownloadFailed: string
+    storeAddFailed: string
+    storeRemoveFailed: string
+    storeUpdateFailed: string
+    storeInvalidSource: string
+    storeAppNotFound: string
+    agentIntentConfirm: string
     noMatchingApps: string
     totalApps: string
     installedCount: string
@@ -3495,6 +3629,8 @@ export interface TranslationKeys {
     source: string
     articles: string
     article: string
+    loadSourcesFailed: string
+    loadArticlesFailed: string
     subscription: string
     subscriptions: string
     unread: string
@@ -4059,6 +4195,28 @@ export interface TranslationKeys {
     lightboxDownload: string
     lightboxClose: string
     lightboxCloseHint: string
+    share: string
+    copy: string
+    copied: string
+    comment: string
+    noPodcast: string
+    generatePodcast: string
+    previousDialogue: string
+    nextDialogue: string
+    noMore: string
+    webSearch: string
+    copyCode: string
+    smartReadingList: string
+    prevArticle: string
+    nextArticle: string
+    webSearchNote: string
+    noSummary: string
+    repoLoadFailed: string
+    annotationReference: string
+    annotationImplicit: string
+    annotationTerm: string
+    annotationContext: string
+    annotationAbbreviation: string
   }
 
   // Arael AI 助手

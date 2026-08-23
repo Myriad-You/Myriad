@@ -206,18 +206,22 @@ pub async fn get_persona(
         ))
     })?;
 
-    let (mood, activity, do_not_disturb) = if life::is_logged_in_addressee(user_id) {
-        match life::get_or_create_state(&db, user_id).await {
-            Ok(state) => (
-                state.mood,
-                life::current_activity(&state).to_string(),
-                state.do_not_disturb,
-            ),
-            Err(_) => (70.0, "idle".to_string(), false),
-        }
-    } else {
-        (70.0, "idle".to_string(), false)
-    };
+    let (mood, activity, do_not_disturb, dnd_start, dnd_end, dnd_active) =
+        if life::is_logged_in_addressee(user_id) {
+            match life::get_or_create_state(&db, user_id).await {
+                Ok(state) => (
+                    state.mood,
+                    life::current_activity(&state).to_string(),
+                    state.do_not_disturb,
+                    state.dnd_start_minute.and_then(life::format_clock_minute),
+                    state.dnd_end_minute.and_then(life::format_clock_minute),
+                    life::effective_do_not_disturb(&state),
+                ),
+                Err(_) => (70.0, "idle".to_string(), false, None, None, false),
+            }
+        } else {
+            (70.0, "idle".to_string(), false, None, None, false)
+        };
 
     let report_count = report_platform_count(&db, user_id).await.unwrap_or(0);
 
@@ -229,6 +233,9 @@ pub async fn get_persona(
             "mood": mood,
             "activity": activity,
             "doNotDisturb": do_not_disturb,
+            "doNotDisturbActive": dnd_active,
+            "dndStart": dnd_start,
+            "dndEnd": dnd_end,
             "reportCount": report_count,
         });
         if is_owner {
@@ -250,6 +257,9 @@ pub async fn get_persona(
         "mood": mood,
         "activity": activity,
         "doNotDisturb": do_not_disturb,
+        "doNotDisturbActive": dnd_active,
+        "dndStart": dnd_start,
+        "dndEnd": dnd_end,
         "reportCount": report_count,
     });
     if is_owner {
@@ -437,7 +447,48 @@ pub async fn delete_persona(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PutAddresseeRequest {
-    pub do_not_disturb: bool,
+    pub do_not_disturb: Option<bool>,
+    pub dnd_start: Option<String>,
+    pub dnd_end: Option<String>,
+}
+
+fn parse_schedule(
+    start: Option<&str>,
+    end: Option<&str>,
+) -> Result<(Option<i32>, Option<i32>), HttpError> {
+    let start = start.map(str::trim).filter(|value| !value.is_empty());
+    let end = end.map(str::trim).filter(|value| !value.is_empty());
+    match (start, end) {
+        (None, None) => Ok((None, None)),
+        (Some(start), Some(end)) => {
+            let start = life::parse_clock_minute(start).ok_or_else(|| {
+                HttpError::from((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Invalid do-not-disturb start time",
+                        "code": "dnd_schedule_invalid"
+                    })),
+                ))
+            })?;
+            let end = life::parse_clock_minute(end).ok_or_else(|| {
+                HttpError::from((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Invalid do-not-disturb end time",
+                        "code": "dnd_schedule_invalid"
+                    })),
+                ))
+            })?;
+            Ok((Some(start), Some(end)))
+        }
+        _ => Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Set both start and end, or clear both",
+                "code": "dnd_schedule_incomplete"
+            })),
+        ))),
+    }
 }
 
 /// PUT /api/agent/addressee — current speaker only. Never another person's state.
@@ -457,19 +508,44 @@ pub async fn put_addressee(
             })),
         )));
     }
-    let state = life::set_do_not_disturb(&db, user_id, body.do_not_disturb)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "[Agent addressee] save failed");
+    let mut state = if let Some(do_not_disturb) = body.do_not_disturb {
+        life::set_do_not_disturb(&db, user_id, do_not_disturb)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "[Agent addressee] save failed");
+                HttpError::from((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "Database error" })),
+                ))
+            })?
+    } else {
+        life::get_or_create_state(&db, user_id).await.map_err(|error| {
+            tracing::error!(%error, "[Agent addressee] load failed");
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "Database error" })),
             ))
-        })?;
+        })?
+    };
+    if body.dnd_start.is_some() || body.dnd_end.is_some() {
+        let (start, end) = parse_schedule(body.dnd_start.as_deref(), body.dnd_end.as_deref())?;
+        state = life::set_dnd_schedule(&db, user_id, start, end)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "[Agent addressee] schedule save failed");
+                HttpError::from((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "Database error" })),
+                ))
+            })?;
+    }
     Ok(Json(json!({
         "mood": state.mood,
         "activity": life::current_activity(&state),
         "doNotDisturb": state.do_not_disturb,
+        "doNotDisturbActive": life::effective_do_not_disturb(&state),
+        "dndStart": state.dnd_start_minute.and_then(life::format_clock_minute),
+        "dndEnd": state.dnd_end_minute.and_then(life::format_clock_minute),
     })))
 }
 

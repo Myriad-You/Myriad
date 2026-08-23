@@ -3,6 +3,7 @@ import type {
   CompanionRigManifest,
 } from './rig/types'
 import api from '../../lib/api'
+import { httpStatusMessage } from '../../utils/userFacingError'
 import { isLiveCompanionManifest, isRigManifest } from './rig/types'
 
 const PREFIX = '/api/digital-life/rig'
@@ -46,7 +47,7 @@ function payloadCode(payload: Record<string, unknown>): string | undefined {
     : undefined
 }
 
-function assertSuccess(status: number, data: unknown, fallback: string): void {
+function assertSuccess(status: number, data: unknown, _fallback: string): void {
   if (status < 400) return
   const payload =
     data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
@@ -57,7 +58,7 @@ function assertSuccess(status: number, data: unknown, fallback: string): void {
         ? payload.message
         : typeof data === 'string' && data.trim()
           ? data
-          : `${fallback} (HTTP ${status})`,
+          : httpStatusMessage(status),
     status,
     payloadCode(payload),
   )

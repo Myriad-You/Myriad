@@ -63,6 +63,8 @@ pub struct ApiResponse {
     /// 前端操作指令（路由导航、音乐控制等）
     #[serde(rename = "frontendAction", skip_serializing_if = "Option::is_none")]
     pub frontend_action: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub performance: Option<crate::services::agent::life::PerformanceDirective>,
     #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
 }
@@ -594,6 +596,7 @@ impl From<AgentResponse> for ApiResponse {
 
         // 转换前端操作指令
         let frontend_action = response.frontend_action;
+        let performance = response.performance;
 
         Self {
             success: !matches!(response.response_type, AgentResponseType::Error),
@@ -605,6 +608,7 @@ impl From<AgentResponse> for ApiResponse {
             task: response.task.as_ref().map(TaskInfo::from),
             confirmation,
             frontend_action,
+            performance,
             session_id: None,
         }
     }
@@ -753,11 +757,11 @@ mod api_contract_tests {
             task: None,
             confirmation: None,
             frontend_action: Some(action.clone()),
+            performance: None,
         };
 
         let api_response = ApiResponse::from(response);
         assert_eq!(api_response.frontend_action, Some(action));
     }
 }
-
 

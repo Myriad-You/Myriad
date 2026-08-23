@@ -43,3 +43,29 @@ pub async fn create_ai_analyzer_for_tier_with_timeout(
         None => AiAnalyzer::new(provider, api_key, resolved.model, base_url).await,
     })
 }
+
+/// Creates an analyzer only when an explicit Lite model is configured.
+/// Credentials may still come from the shared provider vault, but the model
+/// itself never falls back to the Standard tier.
+pub async fn create_strict_lite_ai_analyzer_with_timeout(
+    request_timeout: Option<std::time::Duration>,
+) -> Option<AiAnalyzer> {
+    let resolved = GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .resolve_strict_lite_ai_config()?;
+    let api_key = resolved.api_key.filter(|key| !key.is_empty())?;
+    let provider = AiProvider::from_str(&resolved.provider);
+    let base_url = if resolved.base_url.is_empty() {
+        None
+    } else {
+        Some(resolved.base_url)
+    };
+
+    Some(match request_timeout {
+        Some(timeout) => {
+            AiAnalyzer::new_with_timeout(provider, api_key, resolved.model, base_url, timeout).await
+        }
+        None => AiAnalyzer::new(provider, api_key, resolved.model, base_url).await,
+    })
+}
