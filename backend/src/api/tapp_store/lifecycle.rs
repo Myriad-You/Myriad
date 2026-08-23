@@ -350,9 +350,9 @@ mod tests {
 
     #[test]
     fn start_gate_refuses_marked_installs_with_conflict() {
-        // L2: both start branches (MutatePrivate / MutatePublic) call this
-        // shared pure decision; the test covers the exact branch the handlers
-        // execute for a marked vs unmarked install.
+        // L2: all three start success branches (MutatePrivate / MutatePublic /
+        // RecordActivityOnly) call this shared pure decision; the test covers
+        // the exact branch the handlers execute for a marked vs unmarked install.
         let err = refuse_marked_start(true).expect_err("marked install must be refused");
         assert_eq!(err.0.status_u16(), 409);
         assert!(err
