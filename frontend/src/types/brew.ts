@@ -97,6 +97,8 @@ export interface BrewItemPreview {
   image: string | null
   published_at: number | null
   is_read: boolean
+  /** 预定义主题 key（如 "engineering"）；不是展示文案，展示走 i18n。 */
+  topic?: string | null
 }
 
 // 卡片尺寸类型：full(4行) | mini(2行) | tiny(1行)
@@ -135,6 +137,11 @@ export interface BrewSource {
   created_at: number
   // 最新文章预览（最多3篇）
   recent_items?: BrewItemPreview[]
+  /**
+   * 近两年每篇文章距今天数，最多 60 个，已按新→旧排序。派生字段，不落库。
+   * 缺失时节律型磁贴降级为 feature（见 components/brew/logic/layout.ts）。
+   */
+  pulses?: number[]
 }
 
 // 文章项
@@ -165,6 +172,11 @@ export interface BrewItem {
   has_ai_podcast?: boolean
   /** 是否来自 AI 网络搜索（非数据库文章） */
   fromWebSearch?: boolean
+  /**
+   * 预定义主题 key（如 "engineering"），不是展示文案。
+   * null / 缺失的文章不参与聚类。关键词或 AI 离线写入，读接口只读已有列。
+   */
+  topic?: string | null
 }
 
 // 分类
@@ -218,6 +230,8 @@ export interface BrewStatsResponse {
 export interface BrewItemsQuery {
   source_id?: number
   category?: string
+  /** 预定义主题 key；与 category 同级过滤，`topic IS NULL` 的文章不入结果 */
+  topic?: string
   filter?: 'all' | 'unread' | 'starred'
   sort_order?: 'asc' | 'desc'
   page?: number
