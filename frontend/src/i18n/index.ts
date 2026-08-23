@@ -3597,6 +3597,29 @@ export interface TranslationKeys {
     sortByCategory: string
     sortByRandom: string
     sortByPinyin: string
+    sortBySmart: string
+    sortByTopic: string
+
+    // 磁贴墙
+    tileUnreadItems: string
+    tileReadingTime: string
+    tileQuietMonths: string
+    tileToday: string
+    tileFailedTimes: string
+    tileOpenSite: string
+    topicAggregate: string
+    topicSourceCount: string
+    topicFeedTitle: string
+    topicEngineering: string
+    topicSystems: string
+    topicAi: string
+    topicProduct: string
+    topicWriting: string
+    topicTools: string
+    topicCulture: string
+    topicSecurity: string
+    topicOss: string
+    topicHardware: string
 
     // 快捷键分类
     shortcutNavigation: string

@@ -152,6 +152,9 @@ struct ItemPreview {
     image: Option<String>,
     published_at: Option<i64>,
     is_read: bool,
+    /// 预定义主题 key。首页「精选」磁贴靠预览里的 topic 聚类，
+    /// 这样主题卡不需要额外接口。
+    topic: Option<String>,
 }
 
 /// 带最新文章的订阅源响应
@@ -267,11 +270,11 @@ pub(crate) async fn list_sources(
                     .join(", ");
                 // $1 = user_id（游客传 -1，不存在的 ID，LEFT JOIN 不会匹配任何行）
                 let sql = format!(
-                    "SELECT id, source_id, title, summary, image, published_at, \
+                    "SELECT id, source_id, title, summary, image, published_at, topic, \
                             COALESCE(is_read, false) AS is_read \
                      FROM ( \
                        SELECT i.id, i.source_id, i.title, i.summary, i.image, \
-                              i.published_at, s.is_read, \
+                              i.published_at, i.topic, s.is_read, \
                               ROW_NUMBER() OVER \
                                 (PARTITION BY i.source_id ORDER BY i.published_at DESC NULLS LAST) AS rn \
                        FROM brew_items i \
@@ -295,6 +298,7 @@ pub(crate) async fn list_sources(
                         let published_at: Option<sea_orm::entity::prelude::DateTimeWithTimeZone> =
                             row.try_get("", "published_at").ok();
                         let is_read: bool = row.try_get("", "is_read").unwrap_or(false);
+                        let topic: Option<String> = row.try_get("", "topic").ok().flatten();
                         map.entry(source_id).or_default().push(ItemPreview {
                             id,
                             title,
@@ -302,6 +306,7 @@ pub(crate) async fn list_sources(
                             image,
                             published_at: published_at.map(|dt| dt.timestamp_millis()),
                             is_read,
+                            topic,
                         });
                     }
                 }

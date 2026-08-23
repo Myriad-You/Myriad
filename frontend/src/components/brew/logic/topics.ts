@@ -13,6 +13,24 @@
 
 import type { BrewItem } from '../../../types/brew'
 
+/**
+ * 聚类需要的最小条目形状。
+ *
+ * `BrewItem`（文章列表）与「源预览 + 源信息」两条数据源都能满足它 ——
+ * 主题卡不需要正文，也就不该为它多开一个接口。
+ */
+export interface TopicItem {
+  id: number
+  title: string
+  image: string | null
+  published_at: number | null
+  /** 预定义主题 key；null / 缺失不参与聚类 */
+  topic?: string | null
+  /** 用于「N 个源」统计 */
+  source_id: number
+  source_name?: string | null
+}
+
 export interface BrewTopic {
   /** 稳定 key，如 "engineering"。与后端词表必须一致。 */
   key: string
@@ -21,7 +39,7 @@ export interface BrewTopic {
   /** 身份色，给 Glow / 字标 */
   hue: string
   /** 该主题下的文章，已按发布时间新→旧 */
-  items: BrewItem[]
+  items: TopicItem[]
 }
 
 /** 不足这个篇数不成卡。 */
@@ -188,11 +206,11 @@ export function inferTopicByKeywords(
  * - 主题按篇数降序，同篇数按预定义顺序（稳定，不随刷新抖动）
  */
 export function clusterTopics(
-  items: readonly BrewItem[],
+  items: readonly TopicItem[],
   now: number,
 ): BrewTopic[] {
   const cutoff = now - TOPIC_WINDOW_DAYS * MS_PER_DAY
-  const buckets = new Map<string, BrewItem[]>()
+  const buckets = new Map<string, TopicItem[]>()
 
   for (const item of items) {
     const key = item.topic
@@ -225,6 +243,41 @@ export function clusterTopics(
       if (b.items.length !== a.items.length) return b.items.length - a.items.length
       return (orderOf.get(a.key) ?? 0) - (orderOf.get(b.key) ?? 0)
     })
+}
+
+/**
+ * 把源列表里的预览摊平成 `TopicItem[]`（补上 source_id / source_name）。
+ *
+ * 首页磁贴靠这一步只用 `getSources()` 就能聚类 —— 不为主题卡新开接口。
+ */
+export function previewsToTopicItems(
+  sources: readonly {
+    id: number
+    name: string
+    recent_items?: {
+      id: number
+      title: string
+      image: string | null
+      published_at: number | null
+      topic?: string | null
+    }[]
+  }[],
+): TopicItem[] {
+  const out: TopicItem[] = []
+  for (const s of sources) {
+    for (const p of s.recent_items ?? []) {
+      out.push({
+        id: p.id,
+        title: p.title,
+        image: p.image,
+        published_at: p.published_at,
+        topic: p.topic ?? null,
+        source_id: s.id,
+        source_name: s.name,
+      })
+    }
+  }
+  return out
 }
 
 /** 这个主题覆盖了多少个源（主题卡上的「N 个源」）。 */

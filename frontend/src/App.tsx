@@ -64,6 +64,9 @@ const TappBackgroundRunner = lazy(
 const Home = lazy(() => import('./views/Home.tsx'))
 const Library = lazy(() => import('./views/Library.tsx'))
 const Brew = lazy(() => import('./views/Brew.tsx'))
+// DEV 专用磁贴预览。仓库没有视觉回归，磁贴靠这一页人工扫；
+// 路由本身包在 import.meta.env.DEV 里，生产构建不会打进这个 chunk。
+const BrewTilePreview = lazy(() => import('./views/BrewTilePreview.tsx'))
 const Reports = lazy(() => import('./views/Reports.tsx'))
 const Config = lazy(() => import('./views/Config.tsx'))
 const Login = lazy(() => import('./views/Login.tsx'))
@@ -478,6 +481,16 @@ function AppRoutes() {
             </ModuleVisibilityGuard>
           }
         />
+        {import.meta.env.DEV && (
+          <Route
+            path="/dev/brew-tiles"
+            element={
+              <SuspensePage>
+                <BrewTilePreview />
+              </SuspensePage>
+            }
+          />
+        )}
         <Route
           path="/reports"
           element={
