@@ -21,6 +21,7 @@ import {
   setCachedPalette,
 } from '../utils/colorExtractor'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
+import { classifyMusicLoadError } from '../utils/musicError'
 import {
   audioManager,
   createPlaybackAudioElement,
@@ -89,6 +90,7 @@ export interface UseMusicPlayerReturn {
   musicSource: MusicSource
   playlistId: string
   musicErrorKey: string // 翻译键名，由组件端使用 t.music[key] 翻译
+  musicErrorDetail: string
   musicPlayerView: MusicPlayerView
   playMode: PlayMode
   musicColors: MusicColors | null
@@ -209,6 +211,29 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
   const [musicSource, setMusicSource] = useState<MusicSource>('netease')
   const [playlistId, setPlaylistId] = useState('')
   const [musicErrorKey, setMusicErrorKey] = useState<string>('')
+  const [musicErrorDetail, setMusicErrorDetail] = useState('')
+  const musicErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flashMusicError = useCallback((key: string, detail = '') => {
+    if (musicErrorTimerRef.current) {
+      clearTimeout(musicErrorTimerRef.current)
+    }
+    setMusicErrorKey(key)
+    setMusicErrorDetail(detail)
+    musicErrorTimerRef.current = setTimeout(() => {
+      setMusicErrorKey('')
+      setMusicErrorDetail('')
+      musicErrorTimerRef.current = null
+    }, 4000)
+  }, [])
+  useEffect(
+    () => () => {
+      if (musicErrorTimerRef.current) {
+        clearTimeout(musicErrorTimerRef.current)
+      }
+    },
+    [],
+  )
   const [musicPlayerView, setMusicPlayerView] =
     useState<MusicPlayerView>('info')
   const [playMode, setPlayMode] = useState<PlayMode>('loop')
@@ -1274,6 +1299,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       loadResource.medium(`music-playlist-${plistId}`, async () => {
         try {
           setMusicErrorKey('')
+          setMusicErrorDetail('')
           // 换歌单后允许重新尝试直连（方案 C 降级标记重置）
           neteaseProxyFallbackTriedRef.current.clear()
           const songs =
@@ -1306,24 +1332,18 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
           } else {
             // 空结果与异常同样视为加载失败：无效歌单 ID（如 Agent 传参错误）
             // 通常返回空列表而非抛错，静默会让"叫了没反应"无从排查
-            setMusicErrorKey('loadPlaylistFailed')
-            setTimeout(() => {
-              setMusicErrorKey('')
-            }, 3000)
+            flashMusicError('playlistEmpty')
           }
         } catch (error) {
           console.error('Failed to load music playlist:', error)
-          setMusicErrorKey('loadPlaylistFailed')
+          const classified = classifyMusicLoadError(error)
+          flashMusicError(classified.key, classified.detail)
           playlistRef.current = []
           setPlaylist([])
-
-          setTimeout(() => {
-            setMusicErrorKey('')
-          }, 3000)
         }
       })
     },
-    [selectSong, excludeVipSongs],
+    [selectSong, excludeVipSongs, flashMusicError],
   )
 
   // 加载音乐配置
@@ -1396,8 +1416,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
 
           if (retries >= maxRetries) {
             console.error('播放失败，已达到最大重试次数:', error)
-            setMusicErrorKey('playFailed')
-            setTimeout(setMusicErrorKey, 3000, '')
+            flashMusicError('playFailed')
             setIsPlaying(false)
             userWantsPlayingRef.current = false
           } else {
@@ -1409,7 +1428,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
     // 不在此处调用 broadcastStateChange()：
     // 闭包捕获的是旧 isPlaying 值，await audio.play() 后执行会覆盖
     // useEffect 已在 isPlaying 变化时自动广播正确状态（line ~1513）
-  }, [isPlaying, currentSong, musicSource])
+  }, [isPlaying, currentSong, musicSource, flashMusicError])
 
   // 上一首
   const playPrevious = useCallback(() => {
@@ -1889,8 +1908,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
         generation: selectGenerationRef.current,
       })
       // 单曲临时播放（资料库 VIP 等）失败时给用户可见反馈，避免「假在播」
-      setMusicErrorKey(song.isVip ? 'vipPlayFailed' : 'playFailed')
-      setTimeout(setMusicErrorKey, 4000, '')
+      flashMusicError(song.isVip ? 'vipPlayFailed' : 'playFailed')
 
       if (playlist.length > 1 && playMode !== 'single') {
         if (errorAdvanceTimer !== null) clearTimeout(errorAdvanceTimer)
@@ -2157,6 +2175,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
     rememberCoverColors,
     resetLyrics,
     extractCoverColorsForSong,
+    flashMusicError,
   ])
 
   // 播放列表变化时清除预加载缓存
@@ -2635,6 +2654,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
     musicSource,
     playlistId,
     musicErrorKey,
+    musicErrorDetail,
     musicPlayerView,
     playMode,
     musicColors,

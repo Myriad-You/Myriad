@@ -107,6 +107,49 @@ impl std::fmt::Display for ImageGenerationError {
 
 impl std::error::Error for ImageGenerationError {}
 
+/// Stable code for UI + logs. Keep the Display message as the detail.
+pub fn image_generation_failure_code(error: &ImageGenerationError) -> &'static str {
+    match error {
+        ImageGenerationError::NotConfigured(_) => "image_provider_unconfigured",
+        ImageGenerationError::UnsupportedProvider(_) => "image_provider_unsupported",
+        ImageGenerationError::InvalidResponse(_) => "image_provider_invalid_response",
+        ImageGenerationError::Provider(message) => classify_provider_message(message),
+    }
+}
+
+fn classify_provider_message(message: &str) -> &'static str {
+    let lower = message.to_ascii_lowercase();
+    if provider_status_is(&lower, 402)
+        || lower.contains("insufficient")
+        || lower.contains("payment required")
+        || lower.contains("credit")
+        || lower.contains("balance")
+        || lower.contains("quota")
+    {
+        return "image_provider_credits";
+    }
+    if provider_status_is(&lower, 401)
+        || provider_status_is(&lower, 403)
+        || lower.contains("unauthorized")
+        || lower.contains("invalid api key")
+        || lower.contains("invalid_api_key")
+    {
+        return "image_provider_unauthorized";
+    }
+    if provider_status_is(&lower, 429) || lower.contains("rate limit") || lower.contains("rate-limit")
+    {
+        return "image_provider_rate_limited";
+    }
+    if provider_status_is(&lower, 400) || provider_status_is(&lower, 422) {
+        return "image_provider_rejected";
+    }
+    "portrait_generation_failed"
+}
+
+fn provider_status_is(lower: &str, status: u16) -> bool {
+    lower.contains(&format!("http {status}"))
+}
+
 pub fn config_from_dynamic(
     dynamic: &DynamicConfig,
 ) -> Result<ImageGenerationConfig, ImageGenerationError> {
@@ -231,19 +274,27 @@ pub async fn generate_image_with_background(
     let result = generate_image_provider(config, prompt, width, height, reference, background).await;
     let (input_tokens, output_tokens) =
         crate::services::ai_cost_ledger::estimate_image_tokens(prompt, width, height);
+    let error_code = result.as_ref().err().map(image_generation_failure_code);
     crate::services::ai_cost_ledger::record_ai_tokens_from_attribution(
         &config.provider,
         &config.model,
         input_tokens,
         output_tokens,
         if result.is_ok() { "completed" } else { "failed" },
-        if result.is_ok() {
-            None
-        } else {
-            Some("AI_PROVIDER_ERROR")
-        },
+        error_code,
     )
     .await;
+    if let Err(error) = &result {
+        tracing::error!(
+            provider = %config.provider,
+            model = %config.model,
+            width,
+            height,
+            code = image_generation_failure_code(error),
+            %error,
+            "image generation failed"
+        );
+    }
     result
 }
 
@@ -1308,6 +1359,41 @@ mod tests {
         let value = decode_provider_body(&body, Some("application/json")).unwrap();
         let parsed = parse_image_response(&value, 1024, 1024).unwrap();
         assert_eq!(parsed.source, "data:image/png;base64,AA==");
+    }
+
+    #[test]
+    fn classifies_provider_http_failures() {
+        assert_eq!(
+            image_generation_failure_code(&ImageGenerationError::Provider(
+                "OpenRouter image API returned HTTP 402: {\"error\":\"Insufficient credits\"}"
+                    .into()
+            )),
+            "image_provider_credits"
+        );
+        assert_eq!(
+            image_generation_failure_code(&ImageGenerationError::Provider(
+                "OpenRouter image API returned HTTP 401: unauthorized".into()
+            )),
+            "image_provider_unauthorized"
+        );
+        assert_eq!(
+            image_generation_failure_code(&ImageGenerationError::Provider(
+                "OpenRouter image API returned HTTP 429: rate limit".into()
+            )),
+            "image_provider_rate_limited"
+        );
+        assert_eq!(
+            image_generation_failure_code(&ImageGenerationError::Provider(
+                "OpenRouter image API returned HTTP 400: bad input_references".into()
+            )),
+            "image_provider_rejected"
+        );
+        assert_eq!(
+            image_generation_failure_code(&ImageGenerationError::NotConfigured(
+                "image provider is not configured".into()
+            )),
+            "image_provider_unconfigured"
+        );
     }
 
     #[test]

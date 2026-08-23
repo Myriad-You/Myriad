@@ -132,20 +132,44 @@ export const enUS: TranslationKeys = {
     visualRegenerate: 'Regenerate',
     visualGenerating: 'Generating. You can keep using settings.',
     visualReady: 'Master portrait is ready',
+    visualDownload: 'Download portrait',
     visualFailed: 'Could not generate the master portrait',
+    motionPsdUpload: 'Upload layered PSD',
+    motionPsdUploading: 'Reading PSD…',
+
     visualConfirm:
       'The image model may incur charges. Generate the master portrait now? Regenerating clears the imported rig.',
     motionWorkbench: 'Motion Workbench',
     motionWorkbenchDescription:
       'Preview the Anime2.5DRig player: blinks, mouth, hair, breathing, and head turns.',
-    essentials: 'Essentials',
-    essentialsDescription:
-      'Master portrait, layered PSD, and the breath, blink, and hair follow you see on the page.',
+    essentials: 'Portrait',
+    essentialsDescription: 'Generate and preview the 3:4 master portrait.',
     anime25dRuntimeCredit:
       'After See-through, motion is replicated from Anime2.5DRig (MIT).',
-    anime25dDebug: 'Anime2.5DRig debug',
+    anime25dDebug: 'Motion',
     anime25dDebugDescription:
-      'Our settings page, their original parameters: auto motion, face, eyes, brows, mouth, bangs, rear hair, and body.',
+      'Adjust Anime2.5DRig by head, face, hair, and body.',
+    portraitGroup: 'Portrait',
+    portraitGroupDescription:
+      'Generate and preview the master portrait. Light and framing can be tweaked here; hair and clothes stay locked by the visual contract.',
+    rigGroup: 'Layered rig',
+    rigGroupDescription:
+      'Split with See-through or import a handmade PSD. Expression and pose need a preflighted rig.',
+    expressionGroup: 'Expression',
+    expressionGroupDescription:
+      'Presets plus ongoing blink, talk, and idle motion.',
+    poseGroup: 'Head and face',
+    poseGroupDescription: 'Turn, gaze, brows, and mouth.',
+    hairBodyGroup: 'Hair and body',
+    hairBodyGroupDescription: 'Bangs, rear-hair physics, lean, and arms.',
+    inspectGroupDescription:
+      'After a layered PSD is imported, check that layers match the player.',
+    clusterHead: 'Head',
+    clusterEyes: 'Eyes',
+    clusterBrows: 'Brows',
+    clusterMouth: 'Mouth',
+    clusterHair: 'Hair',
+    clusterBody: 'Body',
     anime25dHeadX: 'Angle X',
     anime25dHeadY: 'Angle Y',
     anime25dHeadZ: 'Angle Z',
@@ -209,7 +233,7 @@ export const enUS: TranslationKeys = {
     anime25dInspectEmpty: 'Import a layered PSD to inspect the Anime2.5DRig playback.',
     motionPsd: 'Layered PSD',
     motionPsdDescription:
-      'Decompose with remote See-through or import an artist PSD. Either source must pass the same preflight before activation.',
+      'Upload your own layered PSD, or split the master portrait with See-through. Either source must pass preflight before activation.',
     motionSeeThroughToken: 'Hugging Face API Token',
     motionSeeThroughTokenCreate: 'Create read token',
     motionSeeThroughTokenDescription:
@@ -220,12 +244,23 @@ export const enUS: TranslationKeys = {
     motionSeeThroughTokenSave: 'Save securely',
     motionSeeThroughTokenCancel: 'Cancel',
     motionSeeThroughTokenFailed: 'Could not save the Hugging Face token',
+    motionSeeThroughTokenRequired:
+      'Save a Hugging Face token before using See-through.',
+    motionSeeThroughBusy: 'See-through is already running. Try again shortly.',
+    motionSeeThroughAuthFailed:
+      'Hugging Face rejected this token. Check its permissions and try again.',
+    motionSeeThroughQuota:
+      'See-through ZeroGPU is unavailable. Check the token and quota.',
+    motionSeeThroughTimeout: 'See-through inference timed out. Try again.',
+    motionSeeThroughUpstream:
+      'See-through returned an invalid or unavailable result.',
     motionSeeThroughGenerate: 'Decompose and preflight with See-through',
     motionSeeThroughGenerating:
       'Remote decomposition is running. Local PSD preflight starts automatically when it finishes…',
     motionReviewEnter: 'Open cinematic review',
     motionReviewDescription:
       'Inspect Anime2.5DRig breath, blink, mouth, and hair at full size.',
+    motionNeedsRig: 'Finish the layered rig first. These controls can drive the portrait only after that.',
     motionReviewExit: 'Back to workbench',
     motionPsdPreflight: 'Preflight layered PSD',
     motionPsdValidating: 'Validating PSD…',
@@ -233,7 +268,7 @@ export const enUS: TranslationKeys = {
     faceStage: 'Arael',
     adminTitle: 'Arael face',
     adminDescription:
-      'One site-wide face. Portrait, rig, and motion are edited on the face page.',
+      'One site-wide face. Portrait first, then the rig, then expression and pose.',
     faceOpen: 'Open face settings',
     adminEnabled: 'Enable Agent life',
     adminWorker: 'Enable autonomy worker',
@@ -2558,6 +2593,14 @@ export const enUS: TranslationKeys = {
       portraitInputsChanged: 'The visual design changed during generation. Generate again.',
       imageProviderUnconfigured:
         'No image provider is configured. Connect one in settings before generating a portrait.',
+      imageProviderCredits: 'The image provider is out of credit.',
+      imageProviderUnauthorized: 'The image provider key is invalid or unauthorized.',
+      imageProviderRateLimited: 'The image provider rate-limited this request. Try again shortly.',
+      imageProviderRejected: 'The image provider rejected this request.',
+      imageProviderInvalidResponse: 'The image provider returned a result that could not be read.',
+      nameUnusable: 'That name did not pass checks. Roll again.',
+      personaUnusable: 'That persona draft could not be used. Generate again.',
+      visualDesignUnusable: 'That visual design could not be used. Generate again.',
       portraitLoadFailed: 'Could not load the master portrait',
       portraitFinish: 'Finish setup',
     },
@@ -2567,6 +2610,12 @@ export const enUS: TranslationKeys = {
   errors: {
     networkError: 'Network connection failed',
     unknown: 'Unknown error',
+  },
+
+  wallpaperStatus: {
+    unsafeUrl: 'The wallpaper URL is unsafe or invalid.',
+    imageLoadFailed: 'The wallpaper image failed to load.',
+    unknown: 'Something went wrong with the wallpaper.',
   },
 
   // Dev performance monitor (bottom-right)
@@ -2686,6 +2735,9 @@ export const enUS: TranslationKeys = {
     shuffle: 'Shuffle',
     listRepeat: 'List Repeat',
     loadPlaylistFailed: 'Failed to load playlist',
+    playlistEmpty: 'This playlist is empty, or the ID has no playable songs.',
+    playlistRateLimited: 'The music source rate-limited this request. Try again later or switch to QQ Music.',
+    playlistBlocked: 'This playlist is blocked by copyright or region limits. Try QQ Music.',
     playFailed: 'Playback failed, please check network or song availability',
     vipPlayFailed: 'VIP song unavailable (membership or trial required)',
   },
@@ -3632,6 +3684,8 @@ export const enUS: TranslationKeys = {
     appNotExist: 'App does not exist or has been uninstalled',
     appCodeLoadFailed: 'App code loading failed',
     loadAppFailed: 'Failed to load app',
+    startAppFailed: 'Failed to start the app',
+    widgetNotFound: 'This widget could not be found',
     backToAppList: 'Back to app list',
     exitFullscreen: 'Exit fullscreen',
     fullscreen: 'Fullscreen',
@@ -4542,6 +4596,8 @@ export const enUS: TranslationKeys = {
     errorWithDetail: 'Error: {error}',
     quotaCooldown: 'Slow down a moment, then try again.',
     quotaExhausted: 'The AI budget for today is used up; it resets tomorrow.',
+    queueBusy: 'The agent queue is full. Try again in a moment.',
+    accessDenied: 'You do not have permission to do that.',
     aiGeneratedImage: 'AI generated image',
     memTierLong: 'Long',
     memTierMid: 'Mid',

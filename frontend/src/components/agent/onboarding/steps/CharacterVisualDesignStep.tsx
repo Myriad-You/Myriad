@@ -131,6 +131,7 @@ export default function CharacterVisualDesignStep({
               visual_design_language: o.visualDesignLanguageFailed,
               visual_language_required: o.visualDesignLanguageFailed,
               visual_design_failed: o.visualDesignFailed,
+              visual_design_unusable: o.visualDesignUnusable,
               visual_identity_invalid: o.visualDesignFailed,
               clothing_style_required: o.clothingStyleRequired,
               gender_required: o.genderRequired,

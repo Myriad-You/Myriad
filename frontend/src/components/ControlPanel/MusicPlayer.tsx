@@ -21,6 +21,7 @@ import React, {
   useState,
 } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { formatMusicError } from '../../utils/musicError'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import {
   formatTime,
@@ -69,6 +70,7 @@ function musicInfoHiddenEqual(
     a.playlist.length === b.playlist.length &&
     a.lyrics.length === b.lyrics.length &&
     a.musicErrorKey === b.musicErrorKey &&
+    a.musicErrorDetail === b.musicErrorDetail &&
     a.volume === b.volume &&
     a.showVolumePopup === b.showVolumePopup &&
     a.playMode === b.playMode &&
@@ -113,11 +115,15 @@ const MusicInfoView = memo(({
     showVolumePopup,
     setShowVolumePopup,
     musicErrorKey,
+    musicErrorDetail,
   } = player
 
   // 获取翻译后的错误消息
   const musicError = musicErrorKey
-    ? (t.music as Record<string, string>)[musicErrorKey] || musicErrorKey
+    ? formatMusicError(
+        (t.music as Record<string, string>)[musicErrorKey] || musicErrorKey,
+        musicErrorDetail,
+      )
     : ''
 
   const volumeBtnRef = useRef<HTMLButtonElement>(null)

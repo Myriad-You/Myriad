@@ -2,6 +2,7 @@ import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 
 import axios from 'axios'
 
 import { API_URL } from '../config'
+import { parseApiErrorBody } from '../services/api'
 import { clearCSRFToken, getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
 import {
   formatRateLimitMessage,
@@ -59,14 +60,9 @@ function extractApiErrorMessage(
   data: unknown,
   fallback: string,
 ): string {
-  if (data && typeof data === 'object') {
-    const body = data as { message?: unknown; error?: unknown }
-    if (typeof body.message === 'string' && body.message.trim()) {
-      return body.message
-    }
-    if (typeof body.error === 'string' && body.error.trim()) {
-      return body.error
-    }
+  const parsed = parseApiErrorBody(data, 400)
+  if (parsed.message && parsed.message !== 'API Error: 400') {
+    return parsed.message
   }
   return fallback
 }

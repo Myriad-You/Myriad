@@ -25,9 +25,33 @@ const MIN_GUIDANCE_CHARS: usize = 36;
 #[derive(Debug)]
 pub enum OnboardingAiError {
     AnalyzerUnavailable,
-    ProviderFailed,
-    UnusableResponse,
+    ProviderFailed(String),
+    UnusableResponse(&'static str),
     LanguageMismatch,
+}
+
+impl OnboardingAiError {
+    pub fn public_detail(&self) -> Option<&str> {
+        match self {
+            Self::ProviderFailed(detail) if !detail.trim().is_empty() => Some(detail),
+            Self::UnusableResponse(reason) => Some(reason),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for OnboardingAiError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AnalyzerUnavailable => formatter.write_str("analyzer unavailable"),
+            Self::ProviderFailed(detail) if detail.trim().is_empty() => {
+                formatter.write_str("provider failed")
+            }
+            Self::ProviderFailed(detail) => write!(formatter, "provider failed: {detail}"),
+            Self::UnusableResponse(reason) => write!(formatter, "unusable response ({reason})"),
+            Self::LanguageMismatch => formatter.write_str("language mismatch"),
+        }
+    }
 }
 
 pub async fn suggest_display_name(
@@ -54,7 +78,9 @@ pub async fn suggest_display_name(
     .to_string();
     let raw = run_name_call(NAME_SYSTEM_PROMPT, &input).await?;
     let name = parse_display_name_suggestion(&raw, avoid.as_deref(), style)
-        .ok_or(OnboardingAiError::UnusableResponse)?;
+        .ok_or(OnboardingAiError::UnusableResponse(
+            "name had no usable meaning or script",
+        ))?;
     Ok(name)
 }
 
@@ -88,16 +114,33 @@ pub async fn suggest_persona(
     })
     .to_string();
     let raw = run_onboarding_call(PERSONA_SYSTEM_PROMPT, &input).await?;
-    let parsed = parse_json_object(&raw).ok_or(OnboardingAiError::UnusableResponse)?;
-    if !persona_draft_meets_generation_quality(&parsed)
-        || !persona_matches_ui_language(&parsed, language)
-        || myriad_digital_life::persona_has_literary_sludge(&parsed)
-    {
-        return Err(OnboardingAiError::UnusableResponse);
+    let parsed = parse_json_object(&raw).ok_or(OnboardingAiError::UnusableResponse(
+        "persona draft was not valid JSON",
+    ))?;
+    if !persona_draft_meets_generation_quality(&parsed) {
+        tracing::warn!(language, "persona draft failed fullness checks");
+        return Err(OnboardingAiError::UnusableResponse(
+            "persona draft failed fullness checks",
+        ));
+    }
+    if !persona_matches_ui_language(&parsed, language) {
+        tracing::warn!(language, "persona draft failed language check");
+        return Err(OnboardingAiError::UnusableResponse(
+            "persona draft failed language check",
+        ));
+    }
+    if myriad_digital_life::persona_has_literary_sludge(&parsed) {
+        tracing::warn!(language, "persona draft failed literary-sludge check");
+        return Err(OnboardingAiError::UnusableResponse(
+            "persona draft used literary sludge",
+        ));
     }
     let persona = myriad_digital_life::sanitize_persona_draft(&parsed, &fallback)
         .filter(myriad_digital_life::persona_draft_is_complete)
-        .ok_or(OnboardingAiError::UnusableResponse)?;
+        .ok_or_else(|| {
+            tracing::warn!(language, "persona draft failed sanitize/complete check");
+            OnboardingAiError::UnusableResponse("persona draft failed sanitize/complete check")
+        })?;
     Ok(persona)
 }
 
@@ -113,7 +156,7 @@ pub async fn suggest_visual_design(
     keep_character: bool,
 ) -> Result<Value, OnboardingAiError> {
     let persona_input = visual_design_persona_input(persona);
-    let mut last_error = OnboardingAiError::UnusableResponse;
+    let mut last_error = OnboardingAiError::UnusableResponse("visual design was unusable");
     for _ in 0..VISUAL_DESIGN_ATTEMPTS {
         match suggest_visual_design_once(
             name,
@@ -129,9 +172,10 @@ pub async fn suggest_visual_design(
         .await
         {
             Ok(identity) => return Ok(identity),
-            Err(error @ (OnboardingAiError::AnalyzerUnavailable | OnboardingAiError::ProviderFailed)) => {
-                return Err(error)
-            }
+            Err(
+                error @ (OnboardingAiError::AnalyzerUnavailable
+                | OnboardingAiError::ProviderFailed(_)),
+            ) => return Err(error),
             Err(error) => last_error = error,
         }
     }
@@ -150,9 +194,13 @@ async fn suggest_visual_design_once(
     keep_character: bool,
 ) -> Result<Value, OnboardingAiError> {
     let clothing_style = myriad_digital_life::normalize_clothing_style(clothing_style)
-        .ok_or(OnboardingAiError::UnusableResponse)?;
+        .ok_or(OnboardingAiError::UnusableResponse(
+            "clothing style is invalid",
+        ))?;
     let clothing_grammar = myriad_digital_life::clothing_style_grammar(clothing_style)
-        .ok_or(OnboardingAiError::UnusableResponse)?;
+        .ok_or(OnboardingAiError::UnusableResponse(
+            "clothing style grammar is missing",
+        ))?;
     let kept_character = keep_character
         .then(|| existing_visual_identity.and_then(myriad_digital_life::character_module))
         .flatten();
@@ -197,29 +245,55 @@ async fn suggest_visual_design_once(
     })
     .to_string();
     let raw = run_onboarding_call(&visual_design_system_prompt(), &input).await?;
-    let parsed = parse_json_object(&raw).ok_or(OnboardingAiError::UnusableResponse)?;
+    let parsed = parse_json_object(&raw).ok_or_else(|| {
+        tracing::warn!("visual design returned non-JSON");
+        OnboardingAiError::UnusableResponse("visual design was not valid JSON")
+    })?;
     let mut identity = myriad_digital_life::sanitize_upper_body_visual_identity(&parsed)
-        .ok_or(OnboardingAiError::UnusableResponse)?;
+        .ok_or_else(|| {
+            tracing::warn!("visual design failed field sanitize");
+            OnboardingAiError::UnusableResponse("visual design failed field sanitize")
+        })?;
     if let Some(character) = kept_character {
         if let Some(root) = identity.as_object_mut() {
             root.insert("character".into(), character);
         }
         identity = myriad_digital_life::sanitize_upper_body_visual_identity(&identity)
-            .ok_or(OnboardingAiError::UnusableResponse)?;
+            .ok_or(OnboardingAiError::UnusableResponse(
+                "visual design failed field sanitize",
+            ))?;
     }
     myriad_digital_life::stamp_clothing_style(&mut identity, clothing_style);
-    if myriad_digital_life::visual_identity_violates_style_lock(&identity)
-        || myriad_digital_life::visual_identity_has_body_proportion_drift(&identity)
-        || myriad_digital_life::visual_identity_has_camera_composition_drift(&identity)
-        || myriad_digital_life::visual_identity_has_literary_sludge(&identity)
-        || (validate_new_face_construction
-            && (myriad_digital_life::visual_identity_has_facial_construction_drift(&identity)
-                || !myriad_digital_life::visual_identity_matches_gender_presentation(
-                    &identity,
-                    gender,
-                )))
+    let reject = if myriad_digital_life::visual_identity_violates_style_lock(&identity) {
+        Some("style-lock")
+    } else if myriad_digital_life::visual_identity_has_body_proportion_drift(&identity) {
+        Some("body-proportion")
+    } else if myriad_digital_life::visual_identity_has_camera_composition_drift(&identity) {
+        Some("camera-composition")
+    } else if myriad_digital_life::visual_identity_has_literary_sludge(&identity) {
+        Some("literary-sludge")
+    } else if validate_new_face_construction
+        && myriad_digital_life::visual_identity_has_facial_construction_drift(&identity)
     {
-        return Err(OnboardingAiError::UnusableResponse);
+        Some("facial-construction")
+    } else if validate_new_face_construction
+        && !myriad_digital_life::visual_identity_matches_gender_presentation(&identity, gender)
+    {
+        Some("gender-presentation")
+    } else {
+        None
+    };
+    if let Some(reason) = reject {
+        tracing::warn!(reason, language, "visual design failed quality check");
+        return Err(OnboardingAiError::UnusableResponse(match reason {
+            "style-lock" => "visual design failed style-lock check",
+            "body-proportion" => "visual design failed body-proportion check",
+            "camera-composition" => "visual design failed camera-composition check",
+            "literary-sludge" => "visual design used literary sludge",
+            "facial-construction" => "visual design failed facial-construction check",
+            "gender-presentation" => "visual design failed gender-presentation check",
+            _ => "visual design failed quality check",
+        }));
     }
     if !visual_design_matches_ui_language(&identity, language) {
         return Err(OnboardingAiError::LanguageMismatch);
@@ -271,7 +345,16 @@ async fn run_onboarding_call_on_tier(
     .await
     {
         Ok(raw) if !raw.trim().is_empty() => Ok(raw),
-        _ => Err(OnboardingAiError::ProviderFailed),
+        Ok(_) => {
+            tracing::warn!(?tier, "onboarding model returned empty text");
+            Err(OnboardingAiError::ProviderFailed(
+                "onboarding model returned empty text".into(),
+            ))
+        }
+        Err(error) => {
+            tracing::error!(%error, ?tier, "onboarding model call failed");
+            Err(OnboardingAiError::ProviderFailed(error.to_string()))
+        }
     }
 }
 

@@ -559,20 +559,11 @@ pub async fn suggest_name(
         Ok(name) => Ok(Json(json!({
             "name": name,
         }))),
-        Err(life::onboarding_ai::OnboardingAiError::AnalyzerUnavailable) => Err(HttpError::from((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "error": "Standard model is unavailable",
-                "code": "standard_unavailable"
-            })),
-        ))),
-        Err(_) => Err(HttpError::from((
-            StatusCode::BAD_GATEWAY,
-            Json(json!({
-                "error": "Failed to suggest a name",
-                "code": "name_suggest_failed"
-            })),
-        ))),
+        Err(error) => Err(onboarding_generation_error(
+            "name",
+            "Failed to suggest a name",
+            error,
+        )),
     }
 }
 
@@ -600,23 +591,12 @@ pub async fn draft_persona(
     .await
     {
         Ok(value) => value,
-        Err(life::onboarding_ai::OnboardingAiError::AnalyzerUnavailable) => {
-            return Err(HttpError::from((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({
-                    "error": "Pro model is unavailable",
-                    "code": "pro_unavailable"
-                })),
-            )))
-        }
-        Err(_) => {
-            return Err(HttpError::from((
-                StatusCode::BAD_GATEWAY,
-                Json(json!({
-                    "error": "Failed to draft a persona",
-                    "code": "persona_draft_failed"
-                })),
-            )))
+        Err(error) => {
+            return Err(onboarding_generation_error(
+                "persona",
+                "Failed to draft a persona",
+                error,
+            ))
         }
     };
     Ok(Json(json!({
@@ -747,37 +727,102 @@ pub async fn suggest_visual_design(
     .await
     {
         Ok(value) => value,
-        Err(life::onboarding_ai::OnboardingAiError::AnalyzerUnavailable) => {
-            return Err(HttpError::from((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({
-                    "error": "Pro model is unavailable",
-                    "code": "pro_unavailable"
-                })),
-            )))
-        }
-        Err(life::onboarding_ai::OnboardingAiError::LanguageMismatch) => {
-            return Err(HttpError::from((
-                StatusCode::BAD_GATEWAY,
-                Json(json!({
-                    "error": "Visual design did not match the interface language",
-                    "code": "visual_design_language"
-                })),
-            )))
-        }
-        Err(_) => {
-            return Err(HttpError::from((
-                StatusCode::BAD_GATEWAY,
-                Json(json!({
-                    "error": "Failed to design upper-body appearance",
-                    "code": "visual_design_failed"
-                })),
-            )))
+        Err(error) => {
+            return Err(onboarding_generation_error(
+                "visual",
+                "Failed to design upper-body appearance",
+                error,
+            ))
         }
     };
     Ok(Json(json!({
         "visualIdentity": identity,
     })))
+}
+
+fn onboarding_error_body(
+    error: &str,
+    code: &str,
+    message: Option<&str>,
+) -> serde_json::Value {
+    let mut body = json!({ "error": error, "code": code });
+    if let Some(message) = message.map(str::trim).filter(|value| !value.is_empty()) {
+        if message != error {
+            body["message"] = json!(message);
+        }
+    }
+    body
+}
+
+fn onboarding_generation_error(
+    kind: &str,
+    failed_message: &str,
+    error: life::onboarding_ai::OnboardingAiError,
+) -> HttpError {
+    use life::onboarding_ai::OnboardingAiError;
+    tracing::error!(%error, kind, "onboarding generation failed");
+    let detail = error.public_detail().map(str::to_string);
+    match error {
+        OnboardingAiError::AnalyzerUnavailable => HttpError::from((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(onboarding_error_body(
+                if kind == "name" {
+                    "Standard model is unavailable"
+                } else {
+                    "Pro model is unavailable"
+                },
+                if kind == "name" {
+                    "standard_unavailable"
+                } else {
+                    "pro_unavailable"
+                },
+                None,
+            )),
+        )),
+        OnboardingAiError::LanguageMismatch => HttpError::from((
+            StatusCode::BAD_GATEWAY,
+            Json(onboarding_error_body(
+                "Visual design did not match the interface language",
+                "visual_design_language",
+                None,
+            )),
+        )),
+        OnboardingAiError::UnusableResponse(_) => {
+            let (label, code) = match kind {
+                "name" => (
+                    "The model returned a name without a usable meaning or script",
+                    "name_unusable",
+                ),
+                "persona" => (
+                    "The model returned an unusable persona draft",
+                    "persona_unusable",
+                ),
+                _ => (
+                    "The model returned an unusable visual design",
+                    "visual_design_unusable",
+                ),
+            };
+            HttpError::from((
+                StatusCode::BAD_GATEWAY,
+                Json(onboarding_error_body(label, code, detail.as_deref())),
+            ))
+        }
+        OnboardingAiError::ProviderFailed(_) => {
+            let code = match kind {
+                "name" => "name_suggest_failed",
+                "persona" => "persona_draft_failed",
+                _ => "visual_design_failed",
+            };
+            HttpError::from((
+                StatusCode::BAD_GATEWAY,
+                Json(onboarding_error_body(
+                    failed_message,
+                    code,
+                    detail.as_deref(),
+                )),
+            ))
+        }
+    }
 }
 
 /// Site assets only. The public face must not be able to point off-site, so a

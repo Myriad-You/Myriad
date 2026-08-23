@@ -145,6 +145,17 @@ export const IDENTITY_DRIVER: Anime25DDriver = {
   phys: true,
 }
 
+/** Settings workbench: automations off so each slider can be seen. */
+export const WORKBENCH_DRIVER: Anime25DDriver = {
+  ...IDENTITY_DRIVER,
+  idle: false,
+  rand: false,
+  talk: false,
+  blink: true,
+  mouse: false,
+  phys: true,
+}
+
 export interface Anime25DDebugSnapshot {
   layerCount: number
   hairLayerCount: number

@@ -3,22 +3,25 @@ import type { CompanionRigManifest } from './rig/types'
 import type { CompanionActivity } from './types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { InfoActionCard, InputItem, SettingGroup } from '../../components/settings'
+import { InfoActionCard, InputItem } from '../../components/settings'
 import { useI18n } from '../../contexts/I18nContext'
 import Anime25DWorkbench from './anime25drig/Anime25DWorkbench'
+import { generationFailureMessage } from '../../components/agent/onboarding/generationError'
 import {
-  CompanionApiError,
   decomposeSitePortraitWithSeeThrough,
   generateSitePortrait,
   getSeeThroughStatus,
   getSiteFace,
   updateSeeThroughToken,
+  uploadSitePortrait,
 } from './api'
+import { compositePsdToPng } from './rig/psdImporter'
 import {
   commitRigPsdAsset,
   preflightRigPsdAsset,
 } from './assets/pipeline'
 import { notifyFaceUpdated } from './events'
+import { isAnime25DPlayback } from './anime25drig/types'
 import RigCharacter from './rig/RigCharacter'
 import './companion.css'
 import './life-motion-home.css'
@@ -106,14 +109,31 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
       await loadFace()
       notifyFaceUpdated()
     } catch (reason) {
+      const o = t.life.onboarding
       setError(
-        reason instanceof CompanionApiError &&
-          (reason.code === 'portrait_adjustment_invalid' ||
-            reason.code === 'portrait_adjustment_out_of_scope')
-          ? t.companion.visualRequirementsDescription
-          : reason instanceof Error
-            ? reason.message
-            : t.companion.visualFailed,
+        generationFailureMessage(
+          reason,
+          t.companion.visualFailed,
+          o.generationTimeout,
+          {
+            image_provider_unconfigured: o.imageProviderUnconfigured,
+            image_provider_credits: o.imageProviderCredits,
+            image_provider_unauthorized: o.imageProviderUnauthorized,
+            image_provider_rate_limited: o.imageProviderRateLimited,
+            image_provider_rejected: o.imageProviderRejected,
+            image_provider_invalid_response: o.imageProviderInvalidResponse,
+            image_provider_unsupported: o.imageProviderUnconfigured,
+            portrait_generation_in_progress: o.portraitInProgress,
+            character_visual_inputs_changed: o.portraitInputsChanged,
+            portrait_generation_failed: o.portraitGenerateFailed,
+            portrait_edit_notes_required: o.portraitEditNeedsNotes,
+            portrait_adjustment_invalid: o.portraitAdjustmentOutOfScope,
+            portrait_adjustment_out_of_scope: o.portraitAdjustmentOutOfScope,
+            portrait_required_for_edit: o.portraitEmpty,
+            visual_design_required: o.visualDesignRequired,
+            visual_gender_required: o.genderRequired,
+          },
+        ),
       )
     } finally {
       setGenerating(false)
@@ -124,6 +144,7 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
     portraitRequirements,
     t.companion.visualConfirm,
     t.companion.visualFailed,
+    t.life.onboarding,
   ])
 
   const preflightRigPsd = useCallback(
@@ -131,15 +152,19 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
       file: File,
       onStage: NonNullable<Parameters<typeof preflightRigPsdAsset>[2]>,
     ) => {
-      if (!portraitUrl) throw new Error(t.companion.visualFailed)
-      return preflightRigPsdAsset(
-        file,
-        portraitUrl,
-        onStage,
-        generationFingerprint || undefined,
-      )
+      let master = portraitUrl
+      let fingerprint = generationFingerprint || undefined
+      if (!master) {
+        const png = await compositePsdToPng(file)
+        const uploaded = await uploadSitePortrait(png)
+        master = uploaded.portraitUrl
+        fingerprint = undefined
+        setPortraitUrl(master)
+        notifyFaceUpdated()
+      }
+      return preflightRigPsdAsset(file, master, onStage, fingerprint)
     },
-    [generationFingerprint, portraitUrl, t.companion.visualFailed],
+    [generationFingerprint, portraitUrl],
   )
 
   const saveSeeThroughToken = useCallback(async (token: string) => {
@@ -194,6 +219,25 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
     }
   }, [exitReview, reviewMode])
 
+  const downloadPortrait = useCallback(async () => {
+    if (!portraitUrl) return
+    try {
+      const response = await fetch(portraitUrl)
+      if (!response.ok) throw new Error(t.companion.visualFailed)
+      const blob = await response.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = 'arael-portrait.png'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000)
+    } catch {
+      window.open(portraitUrl, '_blank', 'noopener,noreferrer')
+    }
+  }, [portraitUrl, t.companion.visualFailed])
+
   const portraitCard = (
     <>
       <InputItem
@@ -208,22 +252,16 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
         disabled={generating}
       />
       <InfoActionCard
+        className="life-motion-portrait-card"
         copyable={false}
         tone={portraitUrl ? 'default' : 'info'}
         title={t.companion.visualTitle}
         empty={!portraitUrl}
         emptyText={t.companion.visualDescription}
-        fields={
-          portraitUrl
-            ? [
-                {
-                  key: 'portrait',
-                  label: t.companion.visualTitle,
-                  value: t.companion.visualReady,
-                  copyable: false,
-                },
-              ]
-            : undefined
+        preview={
+          portraitUrl ? (
+            <img src={portraitUrl} alt={t.companion.visualTitle} />
+          ) : undefined
         }
         actions={[
           {
@@ -237,33 +275,34 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
             disabled: generating,
             loading: generating,
           },
+          ...(portraitUrl
+            ? [
+                {
+                  key: 'download',
+                  label: t.companion.visualDownload,
+                  onClick: () => void downloadPortrait(),
+                  disabled: generating,
+                },
+              ]
+            : []),
         ]}
         footer={error || undefined}
       />
     </>
   )
 
-  if (!portraitUrl) {
-    return (
-      <SettingGroup
-        title={t.companion.essentials}
-        description={t.companion.essentialsDescription}
-        id="life-motion-essentials"
-      >
-        {portraitCard}
-        <p className="life-character-home__empty">
-          {t.companion.visualDescription}
-        </p>
-      </SettingGroup>
-    )
-  }
+  const motionEnabled = Boolean(
+    rigManifest?.anime25dPlayback &&
+      isAnime25DPlayback(rigManifest.anime25dPlayback) &&
+      rigManifest.textures[0]?.url,
+  )
 
   const studioTarget = reviewMode ? document.body : studioHost
   const studio = (
     <section
       className={`life-motion-home life-motion-home--settings${reviewMode ? ' is-reviewing' : ''}`}
       aria-label={
-        reviewMode ? t.companion.motionReviewEnter : t.companion.essentials
+        reviewMode ? t.companion.motionReviewEnter : t.companion.portraitGroup
       }
       aria-modal={reviewMode || undefined}
       role={reviewMode ? 'dialog' : undefined}
@@ -273,9 +312,10 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
           <RigCharacter
             ref={rigCharacterRef}
             activity={toCompanionActivity(activity)}
-            fallbackUrl={portraitUrl}
+            fallbackUrl={portraitUrl || ''}
             manifest={rigManifest}
             mood={mood}
+            manualControl
           />
         </div>
         <div ref={setReviewDock} className="life-motion-home__dock" />
@@ -290,16 +330,6 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
         <>
           {portraitCard}
           <div ref={setStudioHost} className="life-motion-home__host" />
-          <p className="life-character-home__credit">
-            {t.companion.anime25dRuntimeCredit}{' '}
-            <a
-              href="https://github.com/852wa/Anime2.5DRig"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Anime2.5DRig
-            </a>
-          </p>
         </>
       }
       reviewMode={reviewMode}
@@ -308,7 +338,7 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
         else exitReview()
       }}
       characterRef={rigCharacterRef}
-      sourceMasterAssetId={portraitUrl}
+      sourceMasterAssetId={portraitUrl || ''}
       sourceGenerationFingerprint={generationFingerprint || undefined}
       seeThroughTokenConfigured={seeThroughTokenConfigured}
       onSaveSeeThroughToken={saveSeeThroughToken}
@@ -316,8 +346,9 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
       onPreflightRigPsd={preflightRigPsd}
       onCommitRigPsd={commitRigPsd}
       reviewDock={reviewDock}
+      motionEnabled={motionEnabled}
     />
-    {studioTarget ? createPortal(studio, studioTarget) : null}
+    {portraitUrl && studioTarget ? createPortal(studio, studioTarget) : null}
     </>
   )
 }

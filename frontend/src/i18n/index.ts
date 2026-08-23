@@ -130,7 +130,10 @@ export interface TranslationKeys {
     visualRegenerate: string
     visualGenerating: string
     visualReady: string
+    visualDownload: string
     visualFailed: string
+    motionPsdUpload: string
+    motionPsdUploading: string
     visualConfirm: string
     motionWorkbench: string
     motionWorkbenchDescription: string
@@ -139,6 +142,23 @@ export interface TranslationKeys {
     anime25dRuntimeCredit: string
     anime25dDebug: string
     anime25dDebugDescription: string
+    portraitGroup: string
+    portraitGroupDescription: string
+    rigGroup: string
+    rigGroupDescription: string
+    expressionGroup: string
+    expressionGroupDescription: string
+    poseGroup: string
+    poseGroupDescription: string
+    hairBodyGroup: string
+    hairBodyGroupDescription: string
+    inspectGroupDescription: string
+    clusterHead: string
+    clusterEyes: string
+    clusterBrows: string
+    clusterMouth: string
+    clusterHair: string
+    clusterBody: string
     anime25dHeadX: string
     anime25dHeadY: string
     anime25dHeadZ: string
@@ -210,10 +230,17 @@ export interface TranslationKeys {
     motionSeeThroughTokenSave: string
     motionSeeThroughTokenCancel: string
     motionSeeThroughTokenFailed: string
+    motionSeeThroughTokenRequired: string
+    motionSeeThroughBusy: string
+    motionSeeThroughAuthFailed: string
+    motionSeeThroughQuota: string
+    motionSeeThroughTimeout: string
+    motionSeeThroughUpstream: string
     motionSeeThroughGenerate: string
     motionSeeThroughGenerating: string
     motionReviewEnter: string
     motionReviewDescription: string
+    motionNeedsRig: string
     motionReviewExit: string
     motionPsdPreflight: string
     motionPsdValidating: string
@@ -2214,6 +2241,14 @@ export interface TranslationKeys {
       portraitInProgress: string
       portraitInputsChanged: string
       imageProviderUnconfigured: string
+      imageProviderCredits: string
+      imageProviderUnauthorized: string
+      imageProviderRateLimited: string
+      imageProviderRejected: string
+      imageProviderInvalidResponse: string
+      nameUnusable: string
+      personaUnusable: string
+      visualDesignUnusable: string
       portraitLoadFailed: string
       portraitFinish: string
     }
@@ -2222,6 +2257,12 @@ export interface TranslationKeys {
   // 错误信息
   errors: {
     networkError: string
+    unknown: string
+  }
+
+  wallpaperStatus: {
+    unsafeUrl: string
+    imageLoadFailed: string
     unknown: string
   }
 
@@ -2343,6 +2384,9 @@ export interface TranslationKeys {
     shuffle: string
     listRepeat: string
     loadPlaylistFailed: string
+    playlistEmpty: string
+    playlistRateLimited: string
+    playlistBlocked: string
     playFailed: string
     vipPlayFailed: string
   }
@@ -3256,6 +3300,8 @@ export interface TranslationKeys {
     appNotExist: string
     appCodeLoadFailed: string
     loadAppFailed: string
+    startAppFailed: string
+    widgetNotFound: string
     backToAppList: string
     exitFullscreen: string
     fullscreen: string
@@ -4166,6 +4212,8 @@ export interface TranslationKeys {
     errorWithDetail: string
     quotaCooldown: string
     quotaExhausted: string
+    queueBusy: string
+    accessDenied: string
     aiGeneratedImage: string
     // 记忆 tier
     memTierLong: string

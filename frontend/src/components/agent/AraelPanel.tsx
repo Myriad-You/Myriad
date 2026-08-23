@@ -42,10 +42,13 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
+import {
+  errorCode,
+  generationFailureMessage,
+} from './onboarding/generationError'
 import { dispatchCompanionPerformance } from '../../features/digital-life-companion/performanceEvents'
 import {
   agentService,
-  AgentStreamError,
   executeFrontendAction,
 } from '../../services/agent'
 import {
@@ -1280,17 +1283,27 @@ export const AraelPanel: React.FC = () => {
         // A budget rejection arrives on the same channel as a real failure and
         // reads as "出错了" without this: the stream is already HTTP 200 by then,
         // so the quota code on the error event is the only signal.
-        const errorMsg =
-          error instanceof AgentStreamError && error.isQuotaRejection
-            ? error.code === 'AI_COOLDOWN_ACTIVE'
-              ? t.arael.quotaCooldown
-              : t.arael.quotaExhausted
-            : error instanceof Error
-              ? error.message
-              : t.arael.unknownError
+        const errorMsg = generationFailureMessage(
+          error,
+          t.arael.unknownError,
+          t.arael.requestTimeout,
+          {
+            AI_COOLDOWN_ACTIVE: t.arael.quotaCooldown,
+            AI_DAILY_CALL_LIMIT: t.arael.quotaExhausted,
+            AI_ANONYMOUS_DAILY_CALL_LIMIT: t.arael.quotaExhausted,
+            AI_DAILY_TOKEN_LIMIT: t.arael.quotaExhausted,
+            AI_ANONYMOUS_DAILY_TOKEN_LIMIT: t.arael.quotaExhausted,
+            AI_QUOTA_EXCEEDED: t.arael.quotaExhausted,
+            QUEUE_FULL: t.arael.queueBusy,
+            agent_access_denied: t.arael.accessDenied,
+            admin_required: t.arael.accessDenied,
+            agent_processing_failed: t.arael.executionFailed,
+            NETWORK_ERROR: t.arael.streamError,
+          },
+        )
         pushDebugLog('error', {
           message: errorMsg,
-          code: error instanceof AgentStreamError ? error.code : undefined,
+          code: errorCode(error),
           stack: error instanceof Error ? error.stack : undefined,
         })
         setLastError(errorMsg)

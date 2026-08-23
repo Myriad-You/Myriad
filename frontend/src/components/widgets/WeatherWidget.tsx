@@ -136,6 +136,7 @@ export const WeatherWidget = memo(
 
     const [weatherData, setWeatherData] = useState<WeatherData | null>(null)
     const [loading, setLoading] = useState(true)
+    const [fetchError, setFetchError] = useState('')
 
     // 从缓存加载
     const loadFromCache = useCallback(() => {
@@ -177,10 +178,17 @@ export const WeatherWidget = memo(
         const weather = await getWeatherInfo()
         if (weather) {
           setWeatherData(weather)
+          setFetchError('')
           saveToCache(weather)
         }
       } catch (error) {
         console.error(`${t.weatherWidget.fetchWeatherFailed}:`, error)
+        const detail = error instanceof Error ? error.message.trim() : ''
+        setFetchError(
+          detail && detail !== t.weatherWidget.fetchWeatherFailed
+            ? `${t.weatherWidget.fetchWeatherFailed} · ${detail}`
+            : t.weatherWidget.fetchWeatherFailed,
+        )
       } finally {
         setLoading(false)
       }
@@ -247,8 +255,8 @@ export const WeatherWidget = memo(
 
     if (!weatherData) {
       return (
-        <div className="h-full w-full flex items-center justify-center text-gray-400">
-          <span>{t.weather.unavailable}</span>
+        <div className="h-full w-full flex items-center justify-center text-gray-400 px-3 text-center text-sm">
+          <span>{fetchError || t.weather.unavailable}</span>
         </div>
       )
     }

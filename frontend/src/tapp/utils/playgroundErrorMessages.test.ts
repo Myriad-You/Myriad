@@ -173,6 +173,24 @@ describe('mapPlaygroundGenerateError', () => {
       '包校验失败：缺少 main.js',
     )
   })
+
+  it('prefers a stable backend code over English wording', () => {
+    assert.equal(
+      mapPlaygroundGenerateError('Pro AI model is not enabled or configured', copy, {
+        format,
+        code: 'playground_ai_unconfigured',
+      }),
+      'AI_OFF',
+    )
+    assert.equal(
+      mapPlaygroundGenerateError(
+        'Generated Tapp did not pass validation after 3 attempts: missing core.js',
+        copy,
+        { format, code: 'playground_validation_failed' },
+      ),
+      'VALIDATION\nDetail: missing core.js',
+    )
+  })
 })
 
 describe('mapPlaygroundRuntimeError', () => {

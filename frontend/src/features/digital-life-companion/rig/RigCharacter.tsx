@@ -16,6 +16,7 @@ interface Props {
   fallbackUrl: string
   manifest: CompanionRigManifest | null
   mood: number
+  manualControl?: boolean
 }
 
 export interface RigCharacterHandle {
@@ -35,7 +36,7 @@ export interface RigCharacterHandle {
 }
 
 const RigCharacter = forwardRef<RigCharacterHandle, Props>(
-  ({ activity, fallbackUrl, manifest, mood }, ref) => {
+  ({ activity, fallbackUrl, manifest, mood, manualControl = false }, ref) => {
     const animeRef = useRef<Anime25DCharacterHandle>(null)
     const playback =
       manifest?.anime25dPlayback && isAnime25DPlayback(manifest.anime25dPlayback)
@@ -70,6 +71,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
           playback={playback}
           atlasUrl={atlasUrl}
           mood={mood}
+          manualControl={manualControl}
         />
       )
     }

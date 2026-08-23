@@ -34,9 +34,45 @@ export class ApiError extends Error {
     public status: number,
     public code?: string,
     public details?: unknown,
+    public hint?: string,
   ) {
     super(message)
     this.name = 'ApiError'
+  }
+}
+
+const STABLE_ERROR_CODE = /^[A-Za-z][A-Za-z0-9_]{2,64}$/
+
+function readErrorString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+export function parseApiErrorBody(
+  body: unknown,
+  status: number,
+): { message: string; code?: string; hint?: string; details?: unknown } {
+  const fallback = `API Error: ${status}`
+  if (!body || typeof body !== 'object') {
+    return { message: fallback }
+  }
+  const payload = body as {
+    message?: unknown
+    error?: unknown
+    code?: unknown
+    hint?: unknown
+    details?: unknown
+  }
+  const label = readErrorString(payload.error)
+  const message = readErrorString(payload.message) || label || fallback
+  const explicitCode = readErrorString(payload.code)
+  const code =
+    explicitCode ||
+    (label && STABLE_ERROR_CODE.test(label) ? label : undefined)
+  return {
+    message,
+    code,
+    hint: readErrorString(payload.hint),
+    details: payload.details ?? body,
   }
 }
 
@@ -123,17 +159,17 @@ async function request<T>(
       let errorMessage = `API Error: ${response.status}`
       let errorCode: string | undefined
       let errorDetails: unknown
+      let errorHint: string | undefined
       let errorBody: { message?: unknown; error?: unknown; code?: string; details?: unknown } | null =
         null
 
       try {
         errorBody = await response.json()
-        errorMessage =
-          (typeof errorBody?.message === 'string' && errorBody.message) ||
-          (typeof errorBody?.error === 'string' && errorBody.error) ||
-          errorMessage
-        errorCode = errorBody?.code
-        errorDetails = errorBody?.details
+        const parsed = parseApiErrorBody(errorBody, response.status)
+        errorMessage = parsed.message
+        errorCode = parsed.code
+        errorDetails = parsed.details
+        errorHint = parsed.hint
       } catch {
         // 忽略 JSON 解析错误
       }
@@ -159,7 +195,13 @@ async function request<T>(
         }
       }
 
-      throw new ApiError(errorMessage, response.status, errorCode, errorDetails)
+      throw new ApiError(
+        errorMessage,
+        response.status,
+        errorCode,
+        errorDetails,
+        errorHint,
+      )
     }
 
     // 处理空响应
@@ -222,19 +264,25 @@ async function requestBlob(
 
     if (!response.ok) {
       let errorMessage = `API Error: ${response.status}`
+      let errorCode: string | undefined
+      let errorDetails: unknown
+      let errorHint: string | undefined
       try {
-        const errorBody = (await response.json()) as {
-          message?: string
-          error?: string
-        }
-        errorMessage =
-          (typeof errorBody?.message === 'string' && errorBody.message) ||
-          (typeof errorBody?.error === 'string' && errorBody.error) ||
-          errorMessage
+        const parsed = parseApiErrorBody(await response.json(), response.status)
+        errorMessage = parsed.message
+        errorCode = parsed.code
+        errorDetails = parsed.details
+        errorHint = parsed.hint
       } catch {
         /* ignore */
       }
-      throw new ApiError(errorMessage, response.status)
+      throw new ApiError(
+        errorMessage,
+        response.status,
+        errorCode,
+        errorDetails,
+        errorHint,
+      )
     }
 
     const disposition = response.headers.get('content-disposition') || ''

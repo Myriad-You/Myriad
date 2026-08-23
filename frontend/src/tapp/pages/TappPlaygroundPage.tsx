@@ -1000,6 +1000,13 @@ export function TappPlaygroundPage() {
       const friendly = mapPlaygroundGenerateError(messageForMap, t.tapp, {
         userCancelled,
         format,
+        code:
+          requestError &&
+          typeof requestError === 'object' &&
+          'code' in requestError &&
+          typeof requestError.code === 'string'
+            ? requestError.code
+            : undefined,
       })
 
       if (userCancelled) {

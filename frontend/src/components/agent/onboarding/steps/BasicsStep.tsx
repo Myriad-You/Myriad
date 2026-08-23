@@ -81,7 +81,11 @@ export default function BasicsStep({
             reason,
             o.randomNameFailed,
             o.generationTimeout,
-            { standard_unavailable: o.standardUnavailable },
+            {
+              standard_unavailable: o.standardUnavailable,
+              name_suggest_failed: o.randomNameFailed,
+              name_unusable: o.nameUnusable,
+            },
           ),
         )
       })

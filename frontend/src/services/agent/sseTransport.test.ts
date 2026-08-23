@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { ApiError } from '../api'
 import {
   abortSseSubscriptions,
+  agentHttpFailure,
   AgentStreamError,
   decideStreamDropAction,
 } from './sseTransport'
@@ -146,5 +148,27 @@ describe('AgentStreamError', () => {
     assert.ok(error instanceof Error)
     assert.equal(error.message, 'boom')
     assert.equal(error.name, 'AgentStreamError')
+  })
+})
+
+describe('agentHttpFailure', () => {
+  it('keeps the machine code and public message instead of dumping JSON', () => {
+    const error = agentHttpFailure(
+      429,
+      JSON.stringify({
+        error: 'Agent queue is full',
+        code: 'QUEUE_FULL',
+      }),
+    )
+    assert.ok(error instanceof ApiError)
+    assert.equal(error.status, 429)
+    assert.equal(error.code, 'QUEUE_FULL')
+    assert.equal(error.message, 'Agent queue is full')
+  })
+
+  it('falls back to the raw body when the response is not JSON', () => {
+    const error = agentHttpFailure(502, 'upstream exploded')
+    assert.equal(error.status, 502)
+    assert.equal(error.message, 'upstream exploded')
   })
 })

@@ -63,6 +63,9 @@ pub fn status_json_to_http(err: (StatusCode, axum::Json<serde_json::Value>)) -> 
     if let Some(h) = v.get("hint").and_then(|x| x.as_str()) {
         app = app.with_hint(h);
     }
+    if let Some(c) = v.get("code").and_then(|x| x.as_str()) {
+        app = app.with_code(c);
+    }
     HttpError(app)
 }
 
@@ -145,6 +148,27 @@ mod tests {
         assert_eq!(v["error"], "Key rotation requires confirm");
         assert_eq!(v["hint"], "pass {\"confirm\": true}");
         assert_eq!(v["message"], "rotation aborted");
+    }
+
+    #[tokio::test]
+    async fn status_json_to_http_preserves_machine_code() {
+        let err = status_json_to_http((
+            StatusCode::BAD_GATEWAY,
+            axum::Json(serde_json::json!({
+                "error": "Failed to suggest a name",
+                "code": "name_suggest_failed",
+                "message": "provider timed out",
+            })),
+        ));
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+        let bytes = to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .expect("body");
+        let v: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(v["error"], "Failed to suggest a name");
+        assert_eq!(v["code"], "name_suggest_failed");
+        assert_eq!(v["message"], "provider timed out");
     }
 
     #[tokio::test]

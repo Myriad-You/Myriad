@@ -1,3 +1,5 @@
+import { ApiError, parseApiErrorBody } from '../services/api'
+
 /**
  * 安全地解析 JSON 响应，处理各种错误情况
  * @param response Fetch API 响应对象
@@ -35,21 +37,34 @@ export async function handleErrorResponse(
   const contentType = response.headers.get('content-type')
   const hasJson = contentType && contentType.includes('application/json')
 
-  let errorMessage = defaultMessage
-
   if (hasJson) {
     try {
-      const errorData = await response.json()
-      errorMessage = errorData.message || errorData.error || defaultMessage
-    } catch (_jsonError) {
-      errorMessage = `${defaultMessage} (${response.status})`
+      const parsed = parseApiErrorBody(await response.json(), response.status)
+      const message =
+        parsed.message !== `API Error: ${response.status}`
+          ? parsed.message
+          : defaultMessage
+      throw new ApiError(
+        message,
+        response.status,
+        parsed.code,
+        parsed.details,
+        parsed.hint,
+      )
+    } catch (error) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(
+        `${defaultMessage} (${response.status})`,
+        response.status,
+      )
     }
-  } else {
-    const text = await response.text()
-    errorMessage = text || response.statusText || `HTTP ${response.status}`
   }
 
-  throw new Error(errorMessage)
+  const text = await response.text()
+  throw new ApiError(
+    text || response.statusText || `HTTP ${response.status}`,
+    response.status,
+  )
 }
 
 /** 开发代理或网络层可能短暂产生的瞬时状态码。 */
