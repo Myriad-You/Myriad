@@ -22,13 +22,21 @@ import type {
   SourceType,
 } from '../../../types/brew'
 
-import type { ControlMode, DynamicTip, SortMode, SortOption } from './modes'
+import type {
+  ControlMode,
+  DynamicTip,
+  SortMode,
+  SortOption,
+  TopicFeedModeConfig,
+} from './modes'
 import {
   LuClock as Clock,
   LuFolderOpen as FolderOpen,
   LuGripVertical as GripVertical,
   LuShuffle as Shuffle,
   LuSortAsc as SortAsc,
+  LuSparkles as Sparkles,
+  LuTag as Tag,
 } from '@lib/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -46,6 +54,7 @@ import {
   SearchMode,
   StarredEditMode,
   StarredMode,
+  TopicFeedMode,
 } from './modes'
 import RSSHubConfigComponent from './RSSHubConfig'
 
@@ -303,8 +312,14 @@ interface ControlIslandProps {
     onBatchUnstar: () => void
     isProcessing?: boolean
   }
+  /** 主题 feed（跨源列表）模式；抄 categoryFeedMode 的形状 */
+  topicFeedMode?: TopicFeedModeConfig
+  /** 主题身份色（TopicFeedMode 的字标底色） */
+  topicHue?: string
   isAdmin?: boolean
   isAuthenticated?: boolean
+  /** 当期成卡的主题数；< 3 时 `topic` 排序置灰 */
+  topicCount?: number
 }
 
 export default function ControlIsland({
@@ -325,14 +340,17 @@ export default function ControlIsland({
   isRefreshing = false,
   onAddSource,
   onSourcesChange,
-  sortMode = 'update',
+  sortMode = 'smart',
   onSortModeChange,
   isSubCategory = false,
   feedMode,
   categoryFeedMode,
+  topicFeedMode,
+  topicHue,
   starredMode,
   isAdmin = false,
   isAuthenticated = false,
+  topicCount = 0,
 }: ControlIslandProps) {
   const { t } = useI18n()
 
@@ -341,6 +359,7 @@ export default function ControlIsland({
     if (starredMode?.isEditMode) return 'starred-edit'
     if (starredMode) return 'starred'
     if (categoryFeedMode) return 'category-feed'
+    if (topicFeedMode) return 'topic-feed'
     if (feedMode) return 'feed'
     return 'default'
   }
@@ -360,12 +379,20 @@ export default function ControlIsland({
       setMode('starred')
     } else if (categoryFeedMode) {
       setMode('category-feed')
+    } else if (topicFeedMode) {
+      setMode('topic-feed')
     } else if (feedMode) {
       setMode('feed')
     } else {
       setMode('default')
     }
-  }, [feedMode, categoryFeedMode, starredMode, starredMode?.isEditMode])
+  }, [
+    feedMode,
+    categoryFeedMode,
+    topicFeedMode,
+    starredMode,
+    starredMode?.isEditMode,
+  ])
 
   // 导入/导出状态
   const [importExportLoading, setImportExportLoading] = useState(false)
@@ -413,6 +440,18 @@ export default function ControlIsland({
 
   // 排序选项
   const allSortOptions: SortOption[] = [
+    {
+      value: 'smart',
+      labelKey: 'sortBySmart',
+      icon: <Sparkles className="w-4 h-4" />,
+    },
+    {
+      value: 'topic',
+      labelKey: 'sortByTopic',
+      icon: <Tag className="w-4 h-4" />,
+      // 主题不够多时聚合没有意义（不足 3 篇的主题本来就不成卡）
+      disabled: topicCount < 3,
+    },
     {
       value: 'update',
       labelKey: 'sortByUpdate',
@@ -834,6 +873,20 @@ export default function ControlIsland({
               totalArticles: brewT.totalArticles,
               tipUnreadCount: brewT.tipUnreadCount,
               markAllAsRead: brewT.markAllAsRead,
+            }}
+          />
+        )
+
+      case 'topic-feed':
+        if (!topicFeedMode) return null
+        return (
+          <TopicFeedMode
+            variant={variant}
+            topicFeedMode={topicFeedMode}
+            hue={topicHue}
+            t={{
+              backToAllSources: brewT.backToAllSources,
+              totalArticles: brewT.totalArticles,
             }}
           />
         )

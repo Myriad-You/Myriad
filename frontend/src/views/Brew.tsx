@@ -39,6 +39,7 @@ import {
   brewOwnItemPath,
   isOwnBrewSource,
 } from '../components/brew/constants'
+import { topicHue, topicNameKey } from '../components/brew/logic/topics'
 import ControlIsland from '../components/brew/manager/ControlIsland'
 import { Spinner } from '../components/Spinner'
 import { useAuth } from '../contexts/AuthContext'
@@ -147,7 +148,13 @@ type CategoryKey = PresetCategoryId | 'all'
 // - items: 单个订阅源的文章列表
 // - starred: 收藏文章列表
 // - category-feed: 分类下所有文章的合并列表（特殊分类使用）
-type ViewMode = 'sources' | 'items' | 'starred' | 'category-feed'
+// - topic-feed: 一个主题下的跨源文章列表（主题磁贴进入）
+type ViewMode =
+  | 'sources'
+  | 'items'
+  | 'starred'
+  | 'category-feed'
+  | 'topic-feed'
 
 /** Secondary-nav ids accepted via `/brew?category=` deep-link */
 const BREW_CATEGORY_QUERY_IDS = new Set([
@@ -216,6 +223,11 @@ export default function Brew() {
 
   // 视图状态
   const [viewMode, setViewMode] = useState<ViewMode>('sources')
+  /** 当前主题（topic-feed）。key 用于过滤，nameKey 用于查 t.brew 的展示文案。 */
+  const [selectedTopic, setSelectedTopic] = useState<{
+    key: string
+    nameKey: string
+  } | null>(null)
   const [selectedSource, setSelectedSource] = useState<BrewSource | null>(null)
   const [selectedItem, setSelectedItem] = useState<BrewItem | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<CategoryKey>('all')
@@ -829,6 +841,7 @@ export default function Brew() {
       sourceId?: number,
       mode?: ViewMode,
       categoryFilter?: string,
+      topicFilter?: string,
     ) => {
       // 生成新的请求 ID，用于防止竞态条件
       const requestId = ++loadRequestIdRef.current
@@ -841,6 +854,8 @@ export default function Brew() {
         const data = await brewApi.getItems({
           source_id: sourceId || undefined,
           category: categoryFilter || undefined,
+          // 主题过滤：`topic IS NULL` 的文章天然落空，打标是离线的
+          topic: topicFilter || undefined,
           filter,
           page: currentPage,
           per_page: 20,
@@ -959,8 +974,11 @@ export default function Brew() {
       const categoryDbValue =
         PRESET_CATEGORY_DB_VALUES[selectedCategory as PresetCategoryId]
       loadItems(true, undefined, viewMode, categoryDbValue)
+    } else if (viewMode === 'topic-feed' && selectedTopic) {
+      // 主题跨源列表：只按 topic 过滤，不限源
+      loadItems(true, undefined, viewMode, undefined, selectedTopic.key)
     }
-  }, [viewMode, selectedSource, selectedCategory, loadItems])
+  }, [viewMode, selectedSource, selectedCategory, selectedTopic, loadItems])
 
   // 处理源点击 - 进入该源的文章列表
   const handleSourceClick = useCallback((source: BrewSource) => {
@@ -1005,6 +1023,71 @@ export default function Brew() {
     setSelectedCategory('all')
     setActiveId('all')
   }, [setActiveId])
+
+  /** 主题磁贴 → 跨源列表 */
+  const handleTopicClick = useCallback(
+    (topicKey: string, topicNameKey: string) => {
+      setSelectedTopic({ key: topicKey, nameKey: topicNameKey })
+      setSelectedSource(null)
+      setViewMode('topic-feed')
+    },
+    [],
+  )
+
+  const handleBackFromTopicFeed = useCallback(() => {
+    setSelectedItem(null)
+    setSelectedTopic(null)
+    setViewMode('sources')
+  }, [])
+
+  /**
+   * Deep-link: `/brew?source=<id>` 与 `/brew?topic=<key>`。
+   *
+   * 首页磁贴点击落到这里 —— 首页不打开阅读器，只把「看哪个源 / 哪个主题」
+   * 交给 Brew 页。`source=` 需要等 sources 加载完才能拿到对象。
+   */
+  useEffect(() => {
+    const topicParam = searchParams.get('topic')
+    if (topicParam) {
+      const nameKey = topicNameKey(topicParam)
+      if (nameKey) {
+        handleTopicClick(topicParam, nameKey)
+      }
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('topic')
+          return next
+        },
+        { replace: true },
+      )
+      return
+    }
+
+    const sourceParam = searchParams.get('source')
+    if (!sourceParam) return
+    const id = Number(sourceParam)
+    if (!Number.isFinite(id)) return
+    // sources 还没到就先留着 query，下一轮再试
+    const target = sources.find((x) => x.id === id)
+    if (!target) return
+
+    handleSourceClick(target)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('source')
+        return next
+      },
+      { replace: true },
+    )
+  }, [
+    searchParams,
+    sources,
+    handleTopicClick,
+    handleSourceClick,
+    setSearchParams,
+  ])
 
   // 处理文章选择
   const handleItemSelect = async (item: BrewItem) => {
@@ -1462,6 +1545,7 @@ export default function Brew() {
                 loadStats()
               }}
               onAddSource={handleAddSource}
+              onTopicClick={handleTopicClick}
               isAuthenticated={isAuthenticated}
               isAdmin={isAdmin}
             />
@@ -1541,6 +1625,43 @@ export default function Brew() {
               />
 
               {/* 文章列表 */}
+              <BrewFeedList
+                items={items}
+                selectedItem={selectedItem}
+                loading={itemsLoading}
+                hasMore={hasMore}
+                total={total}
+                onItemSelect={handleItemSelect}
+                onToggleStar={handleToggleStar}
+                onLoadMore={handleLoadMore}
+                sourceColors={sourceColors}
+                isAuthenticated={isAuthenticated}
+              />
+            </div>
+          )}
+
+          {/* 主题跨源文章视图 - 主题磁贴进入 */}
+          {viewMode === 'topic-feed' && selectedTopic && (
+            <div className="relative pb-24 sm:pb-16">
+              <ControlIsland
+                sources={sources}
+                filteredSources={sources}
+                categories={[]}
+                isAdmin={isAdmin}
+                isAuthenticated={isAuthenticated}
+                topicFeedMode={{
+                  topicKey: selectedTopic.key,
+                  // 主题名走 i18n，跟界面语言；不在组件里写死中文
+                  topicLabel:
+                    (t.brew as unknown as Record<string, string | undefined>)[
+                      selectedTopic.nameKey
+                    ] ?? selectedTopic.key,
+                  total,
+                  onBack: handleBackFromTopicFeed,
+                }}
+                topicHue={topicHue(selectedTopic.key) ?? undefined}
+              />
+
               <BrewFeedList
                 items={items}
                 selectedItem={selectedItem}

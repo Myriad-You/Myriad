@@ -29,7 +29,8 @@ import BrewTileWall from './BrewTileWall'
 import { SourceCard } from './cards'
 // 共享常量
 import { brewMainCategory, PRESET_CATEGORY_DB_VALUES } from './constants'
-import { roleFromAuth } from './logic/score'
+import { compareByScore, roleFromAuth } from './logic/score'
+import { clusterTopics, previewsToTopicItems } from './logic/topics'
 import ControlIsland from './manager/ControlIsland'
 // 管理组件
 import EditModal from './manager/EditModal'
@@ -43,6 +44,8 @@ interface BrewSourceGridProps {
   onSourceUpdate?: (source: BrewSource) => void
   onSourcesChange?: () => void
   onAddSource?: (input: AddSourceInput) => Promise<void>
+  /** 点主题卡：进入跨源列表（viewMode: 'topic-feed'） */
+  onTopicClick?: (topicKey: string, topicNameKey: string) => void
   isAuthenticated?: boolean // 是否已登录（用于已读状态等普通用户功能）
   isAdmin?: boolean // 是否是管理员（用于添加、编辑、删除等管理功能）
 }
@@ -55,6 +58,7 @@ export default function BrewSourceGrid({
   onSourceUpdate,
   onSourcesChange,
   onAddSource,
+  onTopicClick,
   isAuthenticated = false, // 默认游客模式（用于已读状态）
   isAdmin = false, // 默认非管理员（用于管理功能）
 }: BrewSourceGridProps) {
@@ -72,7 +76,11 @@ export default function BrewSourceGrid({
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   // 排序状态
-  const [sortMode, setSortMode] = useState<SortMode>('custom') // 默认自由排序
+  // 默认智能排序：打开 /brew 第一眼要能判断「现在有什么可看的」，
+  // 而不是先扫一遍站名。旧的 custom / update 等模式依据一行未改。
+  const [sortMode, setSortMode] = useState<SortMode>(
+    tileGrid ? 'smart' : 'custom',
+  )
   const [customOrder, setCustomOrder] = useState<number[]>([]) // 自由排序的顺序
   const [randomSeed, setRandomSeed] = useState(Date.now()) // 随机排序种子
 
@@ -215,11 +223,37 @@ export default function BrewSourceGrid({
     }
   }, [filteredSources, customOrder.length])
 
+  /**
+   * 会话内冻结的时钟。切排序 / 手动刷新 / 重新进入才重算 —— 未读数字可以实时
+   * 变，位置不能跟着动，否则每读一篇整墙都在挪。
+   */
+  const [scoreNow, setScoreNow] = useState(() => Date.now())
+
+  /**
+   * 跨源主题。只看 `item.topic`（离线打标写入），窗口近 30 天、不足 3 篇不成卡。
+   * 数据来自源预览，不额外拉接口。
+   */
+  const topics = useMemo(
+    () =>
+      tileGrid
+        ? clusterTopics(previewsToTopicItems(filteredSources), scoreNow)
+        : [],
+    [tileGrid, filteredSources, scoreNow],
+  )
+
   // 排序后的源列表
   const sortedSources = useMemo(() => {
     const result = [...filteredSources]
 
     switch (sortMode) {
+      case 'smart':
+      case 'topic':
+        // 两种新模式的源排序依据相同（分档分数），差别只在主题卡放几张、放哪 ——
+        // 那是磁贴墙的事，见 BrewTileWall 的 topicMode。
+        return result.sort((a, b) =>
+          compareByScore(a, b, viewerRole, scoreNow),
+        )
+
       case 'update':
         // 按最新成功更新 / 文章时间排序（最新的在前）。
         // Never fall back to last_fetched_at — failed fetches update it and
@@ -286,7 +320,7 @@ export default function BrewSourceGrid({
       default:
         return result
     }
-  }, [filteredSources, sortMode, customOrder, randomSeed])
+  }, [filteredSources, sortMode, customOrder, randomSeed, viewerRole, scoreNow])
 
   // 分类排序时的分类标题生成（与磁贴墙的分类换页共用同一口径）
   const getMainCategoryForRender = (cat: string | null): string =>
@@ -300,6 +334,8 @@ export default function BrewSourceGrid({
 
       // 2. 更新排序模式（触发重排序）
       setSortMode(mode)
+      // 切排序是「重算时机」之一：分数与尺寸都按新的 now 重算
+      setScoreNow(Date.now())
 
       // 如果切换到随机排序，更新种子
       if (mode === 'random') {
@@ -762,6 +798,14 @@ export default function BrewSourceGrid({
     [onSourceUpdate],
   )
 
+  /** 主题卡点击：把主题 key 与 i18n key 一起交出去，文案由上层查 t.brew */
+  const handleTopicClick = useCallback(
+    (topic: { key: string; nameKey: string }) => {
+      onTopicClick?.(topic.key, topic.nameKey)
+    },
+    [onTopicClick],
+  )
+
   // 处理编辑保存
   const handleEditSave = useCallback(
     async (
@@ -830,6 +874,7 @@ export default function BrewSourceGrid({
           isSubCategory={!!category}
           isAdmin={isAdmin}
           isAuthenticated={isAuthenticated}
+          topicCount={topics.length}
         />
 
         <div className="flex flex-col items-start py-8">
@@ -882,6 +927,7 @@ export default function BrewSourceGrid({
         isSubCategory={!!category}
         isAdmin={isAdmin}
         isAuthenticated={isAuthenticated}
+        topicCount={topics.length}
       />
 
       {/* 空搜索结果 */}
@@ -900,6 +946,9 @@ export default function BrewSourceGrid({
       {tileGrid && sortedSources.length > 0 && (
         <BrewTileWall
           sources={sortedSources}
+          topics={sortMode === 'smart' || sortMode === 'topic' ? topics : []}
+          topicMode={sortMode === 'topic' ? 'topic' : 'smart'}
+          onTopicClick={handleTopicClick}
           role={viewerRole}
           isSearching={Boolean(searchQuery.trim())}
           scope={`${category ?? 'all'}:${sortMode}`}

@@ -14,7 +14,16 @@ import type {
 // 排序类型
 
 /** 排序模式 */
-export type SortMode = 'update' | 'custom' | 'category' | 'random' | 'pinyin'
+export type SortMode =
+  /** 六因子分档评分；主题卡插到最前。默认。 */
+  | 'smart'
+  /** 主题卡全部在前，再接源 */
+  | 'topic'
+  | 'update'
+  | 'custom'
+  | 'category'
+  | 'random'
+  | 'pinyin'
 
 // 卡片组件类型
 
@@ -104,6 +113,7 @@ export type ControlMode =
   | 'add'
   | 'feed'
   | 'category-feed'
+  | 'topic-feed'
   | 'starred'
   | 'starred-edit'
 
@@ -133,6 +143,14 @@ export interface CategoryFeedModeConfig {
   unreadCount: number
   onBack: () => void
   onMarkAllRead: () => void
+}
+
+/** 主题 Feed 模式配置 */
+export interface TopicFeedModeConfig {
+  topicKey: string
+  topicLabel: string
+  total: number
+  onBack: () => void
 }
 
 /** 收藏模式配置 */
@@ -177,10 +195,13 @@ export interface ControlIslandProps {
   // 模式配置
   feedMode?: FeedModeConfig
   categoryFeedMode?: CategoryFeedModeConfig
+  topicFeedMode?: TopicFeedModeConfig
   starredMode?: StarredModeConfig
   // 权限
   isAdmin?: boolean
   isAuthenticated?: boolean
+  /** 当期成卡的主题数；< 3 时 `topic` 排序置灰 */
+  topicCount?: number
 }
 
 // 导入/导出类型

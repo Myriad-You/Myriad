@@ -5,7 +5,16 @@
 import type { BrewSource, FeedType, SourceType } from '../../../../types/brew'
 
 /** 排序模式 */
-export type SortMode = 'update' | 'custom' | 'category' | 'random' | 'pinyin'
+export type SortMode =
+  /** 六因子分档评分；主题卡插到最前。默认。 */
+  | 'smart'
+  /** 主题卡全部在前，再接源 */
+  | 'topic'
+  | 'update'
+  | 'custom'
+  | 'category'
+  | 'random'
+  | 'pinyin'
 
 /** 控制岛模式 */
 export type ControlMode =
@@ -16,6 +25,7 @@ export type ControlMode =
   | 'add'
   | 'feed'
   | 'category-feed'
+  | 'topic-feed'
   | 'starred'
   | 'starred-edit'
 
@@ -32,6 +42,8 @@ export interface SortOption {
   value: SortMode
   labelKey: string
   icon: React.ReactNode
+  /** 置灰不可选（如主题不足 3 个时的 `topic`） */
+  disabled?: boolean
 }
 
 /** 导入进度 */
@@ -59,6 +71,14 @@ export interface CategoryFeedModeConfig {
   unreadCount: number
   onBack: () => void
   onMarkAllRead: () => void
+}
+
+/** 主题 Feed 模式配置 */
+export interface TopicFeedModeConfig {
+  topicKey: string
+  topicLabel: string
+  total: number
+  onBack: () => void
 }
 
 /** 收藏模式配置 */

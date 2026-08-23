@@ -14,6 +14,7 @@ export { KeyboardMode } from './KeyboardMode'
 export { SearchMode } from './SearchMode'
 export { StarredEditMode } from './StarredEditMode'
 export { StarredMode } from './StarredMode'
+export { TopicFeedMode } from './TopicFeedMode'
 // 共享类型
 export type {
   BrewExportManifest,
@@ -25,4 +26,5 @@ export type {
   SortMode,
   SortOption,
   StarredModeConfig,
+  TopicFeedModeConfig,
 } from './types'

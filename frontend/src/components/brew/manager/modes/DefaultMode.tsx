@@ -148,19 +148,25 @@ export function DefaultMode({
                 {sortOptions.map((option) => (
                   <button
                     key={option.value}
+                    // 不用 native disabled：全局 button:disabled 的 opacity
+                    // 会把整行洗灰到读不清，这里只做「不可点 + 降权」
+                    aria-disabled={option.disabled || undefined}
                     onClick={() => {
+                      if (option.disabled) return
                       onSortModeChange?.(option.value)
                       setShowSortDropdown(false)
                     }}
                     className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
-                      sortMode === option.value
-                        ? 'text-orange-500 bg-orange-500/10'
-                        : 'text-gray-600 dark:text-gray-300 hover:bg-black/4 dark:hover:bg-white/6'
+                      option.disabled
+                        ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                        : sortMode === option.value
+                          ? 'text-orange-500 bg-orange-500/10'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-black/4 dark:hover:bg-white/6'
                     }`}
                   >
                     {option.icon}
                     <span>{t[option.labelKey]}</span>
-                    {sortMode === option.value && (
+                    {sortMode === option.value && !option.disabled && (
                       <Check className="w-3 h-3 ml-auto" />
                     )}
                   </button>
@@ -254,19 +260,25 @@ export function DefaultMode({
                 {sortOptions.map((option) => (
                   <button
                     key={option.value}
+                    // 不用 native disabled：全局 button:disabled 的 opacity
+                    // 会把整行洗灰到读不清，这里只做「不可点 + 降权」
+                    aria-disabled={option.disabled || undefined}
                     onClick={() => {
+                      if (option.disabled) return
                       onSortModeChange?.(option.value)
                       setShowSortDropdown(false)
                     }}
                     className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
-                      sortMode === option.value
-                        ? 'text-orange-500 bg-orange-500/10'
-                        : 'text-gray-600 dark:text-gray-300 hover:bg-black/4 dark:hover:bg-white/6'
+                      option.disabled
+                        ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                        : sortMode === option.value
+                          ? 'text-orange-500 bg-orange-500/10'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-black/4 dark:hover:bg-white/6'
                     }`}
                   >
                     {option.icon}
                     <span>{t[option.labelKey]}</span>
-                    {sortMode === option.value && (
+                    {sortMode === option.value && !option.disabled && (
                       <Check className="w-3 h-3 ml-auto" />
                     )}
                   </button>
