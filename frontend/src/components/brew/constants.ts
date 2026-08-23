@@ -47,6 +47,21 @@ export function isOwnBrewSource(source: {
   return brewCategoryParts(source.category).includes(BREW_MINE_CATEGORY)
 }
 
+/**
+ * 主分类：忽略预置分类（友情链接 / 我），取第一个真实分类。
+ *
+ * `category` 排序、分类页标题、磁贴墙的分类换页共用这一个口径 ——
+ * 分散写三份必然分叉。
+ */
+export function brewMainCategory(
+  category: string | null | undefined,
+  fallback: string,
+): string {
+  const parts = brewCategoryParts(category)
+  const main = parts.find((c) => !PRESET_CATEGORY_DB_VALUES.includes(c))
+  return main || fallback
+}
+
 /** 自有文章的站内规范路径（sitemap / OG / 分享） */
 export function brewOwnItemPath(itemId: number | string): string {
   return `/brew/item/${encodeURIComponent(String(itemId))}`

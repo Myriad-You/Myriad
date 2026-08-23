@@ -268,7 +268,11 @@ export interface UpdateSourceRequest {
   category?: string
   update_interval?: number
   enabled?: boolean
-  card_size?: CardSize
+  /**
+   * 磁贴尺寸锁定。空字符串 = 解锁（回到按分数派生），与 theme_color / icon
+   * 的清除约定一致。
+   */
+  card_size?: CardSize | ''
   theme_color?: string
   /** 自定义图标 URL 或 Base64 数据 */
   icon?: string

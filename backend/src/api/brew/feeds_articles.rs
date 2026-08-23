@@ -698,7 +698,14 @@ pub(crate) async fn update_source(
                 active.enabled = Set(enabled);
             }
             if let Some(card_size) = req.card_size {
-                active.card_size = Set(Some(card_size));
+                // 空字符串清除锁定（与 theme_color / icon 同一约定）。
+                // card_size 现在的语义是「用户锁定磁贴尺寸」，必须可解锁 ——
+                // 否则锁一次就再也回不到按分数派生。
+                active.card_size = Set(if card_size.is_empty() {
+                    None
+                } else {
+                    Some(card_size)
+                });
             }
             if let Some(theme_color) = req.theme_color {
                 // 支持空字符串清除主题色

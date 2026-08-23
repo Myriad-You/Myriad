@@ -23,13 +23,17 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useI18n } from '../../contexts/I18nContext'
 import * as brewApi from '../../services/brewApi'
+// 磁贴墙（localStorage flag 后面走这条路；旧网格在 PR 9 清退）
+import BrewTileWall from './BrewTileWall'
 // 卡片组件
 import { SourceCard } from './cards'
 // 共享常量
-import { PRESET_CATEGORY_DB_VALUES } from './constants'
+import { brewMainCategory, PRESET_CATEGORY_DB_VALUES } from './constants'
+import { roleFromAuth } from './logic/score'
 import ControlIsland from './manager/ControlIsland'
 // 管理组件
 import EditModal from './manager/EditModal'
+import { isBrewTileGridEnabled } from './tileGridFlag'
 
 interface BrewSourceGridProps {
   sources: BrewSource[]
@@ -55,6 +59,9 @@ export default function BrewSourceGrid({
   isAdmin = false, // 默认非管理员（用于管理功能）
 }: BrewSourceGridProps) {
   const { t } = useI18n()
+  // 磁贴墙开关。一次读定：中途切 flag 需要刷新，避免两套布局在同一会话里混用。
+  const [tileGrid] = useState(isBrewTileGridEnabled)
+  const viewerRole = roleFromAuth(isAuthenticated, isAdmin)
   // 管理功能状态（仅登录用户可用）
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -281,16 +288,9 @@ export default function BrewSourceGrid({
     }
   }, [filteredSources, sortMode, customOrder, randomSeed])
 
-  // 分类排序时的分类标题生成
-  const getMainCategoryForRender = (cat: string | null): string => {
-    if (!cat) return t.brew.uncategorized
-    const cats = cat
-      .split(',')
-      .map((c) => c.trim())
-      .filter(Boolean)
-    const mainCat = cats.find((c) => !PRESET_CATEGORY_DB_VALUES.includes(c))
-    return mainCat || t.brew.uncategorized
-  }
+  // 分类排序时的分类标题生成（与磁贴墙的分类换页共用同一口径）
+  const getMainCategoryForRender = (cat: string | null): string =>
+    brewMainCategory(cat, t.brew.uncategorized)
 
   // 切换排序模式时的处理 - 带 FLIP 动画
   const handleSortModeChange = useCallback(
@@ -729,6 +729,39 @@ export default function BrewSourceGrid({
     playFlipAnimations,
   ])
 
+  /**
+   * 「锁定当前尺寸」：把当前派生出来的尺寸写回 `card_size`，或清空解锁。
+   *
+   * 取代了右下角拖拉 resize —— 尺寸本来由分数派生，手拉一个再被下次装箱
+   * 推走只会让人以为坏了。零 migration：`card_size` 的语义从「手工尺寸」
+   * 变成「用户锁定」，映射见 logic/layout。
+   */
+  const handleToggleSizeLock = useCallback(
+    async (source: BrewSource, next: '2x2' | '4x2' | '4x4' | null) => {
+      const CARD_SIZE_BY_TILE = {
+        '2x2': 'tiny',
+        '4x2': 'mini',
+        '4x4': 'full',
+      } as const
+      const nextCardSize: CardSize | null = next
+        ? CARD_SIZE_BY_TILE[next]
+        : null
+
+      // 乐观更新：磁贴尺寸立刻生效，失败再回滚
+      onSourceUpdate?.({ ...source, card_size: nextCardSize })
+      try {
+        await brewApi.updateSource(source.id, {
+          // 空字符串 = 解锁（后端与 theme_color / icon 同一约定）
+          card_size: nextCardSize ?? '',
+        })
+      } catch (err) {
+        console.error('Failed to save size lock:', err)
+        onSourceUpdate?.(source)
+      }
+    },
+    [onSourceUpdate],
+  )
+
   // 处理编辑保存
   const handleEditSave = useCallback(
     async (
@@ -862,8 +895,28 @@ export default function BrewSourceGrid({
         </div>
       )}
 
-      {/* 卡片网格 */}
-      {sortedSources.length > 0 && (
+      {/* 磁贴墙（flag 开）：虚拟坐标 + 横向分页。
+          flag 关时下面的旧 CSS Grid 保持像素级不变，观察两周后在 PR 9 一起清退。 */}
+      {tileGrid && sortedSources.length > 0 && (
+        <BrewTileWall
+          sources={sortedSources}
+          role={viewerRole}
+          isSearching={Boolean(searchQuery.trim())}
+          scope={`${category ?? 'all'}:${sortMode}`}
+          breakOnCategory={sortMode === 'category'}
+          uncategorizedLabel={t.brew.uncategorized}
+          onSourceClick={onSourceClick}
+          registerCardRef={setCardRef}
+          isEditMode={isEditMode}
+          onDragStart={handleCardDragStart}
+          draggingSourceId={draggingSourceId}
+          dragOverSourceId={dragOverSourceId}
+          onToggleSizeLock={handleToggleSizeLock}
+        />
+      )}
+
+      {/* 卡片网格（旧） */}
+      {!tileGrid && sortedSources.length > 0 && (
         <div
           className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-4"
           style={{ gridAutoRows: '1.5rem' }}
