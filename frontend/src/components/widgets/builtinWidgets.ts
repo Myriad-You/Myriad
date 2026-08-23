@@ -29,6 +29,20 @@ function lazyWidget<K extends string>(
   return component
 }
 
+// Brew 磁贴：与 /brew 页共用同一组组件（`components/brew/tiles`），
+// 首页与 Brew 的差异全靠 props / 注册配置，不复制第二份实现。
+const BrewFeaturedWidget = lazyWidget(
+  () => import('../brew/tiles/BrewFeaturedTile'),
+  'BrewFeaturedWidget',
+)
+const BrewSourceWidget = lazyWidget(
+  () => import('../brew/tiles/BrewSourceTile'),
+  'BrewSourceWidget',
+)
+const BrewTopicWidget = lazyWidget(
+  () => import('../brew/tiles/BrewTopicTile'),
+  'BrewTopicWidget',
+)
 const FriendLinksWidget = lazyWidget(
   () => import('./FriendLinksWidget'),
   'FriendLinksWidget',
@@ -185,6 +199,23 @@ export const BUILTIN_WIDGET_BASE_CONFIG = {
     component: VisitorStatsWidget,
     supportedSizes: ['2x2', '4x2'] as WidgetSize[],
   },
+  // 三档尺寸与 Brew 页一致（logic/layout 的 BREW_TILE_SIZES）；
+  // 首页由用户手摆，Brew 页由 tileSize() 派生，物理格子是同一套。
+  'brew-source': {
+    defaultSize: '4x2' as WidgetSize,
+    component: BrewSourceWidget,
+    supportedSizes: ['2x2', '4x2', '4x4'] as WidgetSize[],
+  },
+  'brew-topic': {
+    defaultSize: '4x2' as WidgetSize,
+    component: BrewTopicWidget,
+    supportedSizes: ['2x2', '4x2', '4x4'] as WidgetSize[],
+  },
+  'brew-featured': {
+    defaultSize: '4x4' as WidgetSize,
+    component: BrewFeaturedWidget,
+    supportedSizes: ['4x2', '4x4'] as WidgetSize[],
+  },
 } as const
 
 export type BuiltinWidgetId = keyof typeof BUILTIN_WIDGET_BASE_CONFIG
@@ -213,6 +244,9 @@ const BUILTIN_WIDGET_ORDER: BuiltinWidgetId[] = [
   'tapp-shortcut',
   'game-presence',
   'visitor-stats',
+  'brew-featured',
+  'brew-topic',
+  'brew-source',
 ]
 
 /** Map widget id → t.widgets key */
@@ -239,6 +273,11 @@ const WIDGET_NAME_KEY: Record<BuiltinWidgetId, keyof WidgetsI18n> = {
   'tapp-shortcut': 'tappShortcut',
   'game-presence': 'gamePresence',
   'visitor-stats': 'visitorStats',
+  // id 是 kebab、i18n key 是 camel；getWidgetTranslationKey 也做这个转换，
+  // 但这张表仍要显式写，别指望隐式推导。
+  'brew-source': 'brewSource',
+  'brew-topic': 'brewTopic',
+  'brew-featured': 'brewFeatured',
 }
 
 /**

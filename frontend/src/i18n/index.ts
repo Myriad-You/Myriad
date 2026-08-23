@@ -1943,6 +1943,9 @@ export interface TranslationKeys {
     tappShortcut: string
     gamePresence: string
     visitorStats: string
+    brewSource: string
+    brewTopic: string
+    brewFeatured: string
     library: string
     dataReport: string
     multiPlatformAggregation: string
