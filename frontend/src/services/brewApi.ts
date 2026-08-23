@@ -329,6 +329,7 @@ export async function getItems(
   const params = new URLSearchParams()
   if (query.source_id) params.set('source_id', String(query.source_id))
   if (query.category) params.set('category', query.category)
+  if (query.topic) params.set('topic', query.topic)
   if (query.filter) params.set('filter', query.filter)
   if (query.sort_order) params.set('sort_order', query.sort_order)
   if (query.page) params.set('page', String(query.page))

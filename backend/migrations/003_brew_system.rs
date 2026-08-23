@@ -246,6 +246,9 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
+                    // 预定义主题 key（关键词或 AI 离线写入）。NULL = 未分类，
+                    // 聚类侧靠 NULL 把文章留在源磁贴里，不建「其他」桶。
+                    .col(ColumnDef::new(BrewItems::Topic).text())
                     .to_owned(),
             )
             .await?;
@@ -286,6 +289,16 @@ impl MigrationTrait for Migration {
                     .col(BrewItems::PublishedAt)
                     .if_not_exists()
                     .to_owned(),
+            )
+            .await?;
+
+        // 索引：主题过滤。绝大多数行的 topic 是 NULL，做成部分索引。
+        // 与 `schema_check::ensure_brew_item_topic_index` 的 DDL 必须一字不差 ——
+        // 通用索引路径不支持 WHERE 子句，两边形状不一致就会一直报漂移。
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "CREATE INDEX IF NOT EXISTS idx_brew_items_topic                  ON brew_items (topic) WHERE topic IS NOT NULL",
             )
             .await?;
 
@@ -960,6 +973,7 @@ enum BrewItems {
     WordCount,
     ReadingTime,
     FulltextFetched,
+    Topic,
 }
 
 #[derive(DeriveIden)]

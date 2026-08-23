@@ -96,6 +96,7 @@ pub mod updater_client;
 // Brew reading system
 pub mod brew_parser;
 pub mod brew_scheduler;
+pub mod brew_topics;
 pub mod icon_service;
 pub mod image_cache; // e.g. Notion temporary URLs
 pub mod notion_service;

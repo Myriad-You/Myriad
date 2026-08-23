@@ -281,6 +281,13 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     is_nullable: false,
                     default_value: Some("false".into()),
                 },
+                // 预定义主题 key。NULL = 未分类，不进主题聚类。
+                ColumnDef {
+                    name: "topic".into(),
+                    data_type: "text".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
             ],
         },
         TableDef {

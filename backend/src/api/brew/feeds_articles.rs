@@ -160,6 +160,28 @@ struct SourceWithRecentItems {
     #[serde(flatten)]
     source: brew_sources::SourceResponse,
     recent_items: Vec<ItemPreview>,
+    /// 近 `PULSE_WINDOW_DAYS` 天每篇文章距今天数，最多 `PULSE_MAX_POINTS` 个，
+    /// 已按新→旧。派生字段、不落库；前端节律图直接画，不需要再换算时间戳。
+    pulses: Vec<i32>,
+}
+
+/// 节律图窗口（天）。前端 x 轴按 sqrt(days / 730) 压缩，改这里要同步改前端。
+const PULSE_WINDOW_DAYS: i64 = 730;
+/// 每个源最多回多少根节律线。上千篇的源必须截断，否则响应体白胀几十倍。
+const PULSE_MAX_POINTS: i64 = 60;
+
+/// 节律查询 SQL：一次窗口查询覆盖全部源，禁止 N+1。
+///
+/// `source_count` 决定 `$1..$n` 占位符个数。返回的是「距今天数」而不是时间戳 ——
+/// 前端节律图不需要也不应该自己换算。
+pub(crate) fn build_pulses_sql(source_count: usize) -> String {
+    let src_ph = (1..=source_count)
+        .map(|i| format!("${i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "SELECT source_id,                 GREATEST(0, (EXTRACT(EPOCH FROM (now() - published_at)) / 86400)::int)                   AS days_ago          FROM (            SELECT source_id, published_at,                   ROW_NUMBER() OVER                     (PARTITION BY source_id ORDER BY published_at DESC) AS rn            FROM brew_items            WHERE source_id IN ({src_ph})              AND published_at > now() - INTERVAL '{PULSE_WINDOW_DAYS} days'          ) t          WHERE rn <= {PULSE_MAX_POINTS}          ORDER BY source_id, days_ago"
+    )
 }
 
 /// 获取订阅源列表（带最新文章预览）
@@ -196,7 +218,8 @@ pub(crate) async fn list_sources(
     // 并行执行两个 SQL 查询，均只传输必要字段：
     // (a) 每源未读数：SQL 聚合，避免把所有 item_id 拉到内存再过滤
     // (b) 每源最新3篇预览：窗口函数精确返回3条，仅加载预览字段，不加载 content 等大字段
-    let (source_unread_counts, mut items_by_source) = tokio::join!(
+    // (c) 每源节律：一次窗口查询拿全部源的近两年发布时间，绝不 N+1
+    let (source_unread_counts, mut items_by_source, mut pulses_by_source) = tokio::join!(
         // (a) 未读数：LEFT JOIN brew_user_states，统计无已读状态的文章数
         async {
             let mut counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
@@ -284,6 +307,35 @@ pub(crate) async fn list_sources(
                 }
             }
             map
+        },
+        // (c) 每源节律：ROW_NUMBER() 截到 PULSE_MAX_POINTS，窗口内按新→旧。
+        // 后端直接算成「距今天数」返回，前端不碰时间戳。
+        async {
+            let mut map: std::collections::HashMap<i32, Vec<i32>> =
+                std::collections::HashMap::new();
+            if !source_ids.is_empty() {
+                let sql = build_pulses_sql(source_ids.len());
+                let values: Vec<sea_orm::Value> = source_ids
+                    .iter()
+                    .map(|&id| sea_orm::Value::Int(Some(id)))
+                    .collect();
+                let stmt = Statement::from_sql_and_values(DatabaseBackend::Postgres, &sql, values);
+                match db.query_all_raw(stmt).await {
+                    Ok(rows) => {
+                        for row in &rows {
+                            let src: i32 = row.try_get("", "source_id").unwrap_or(0);
+                            let days: i32 = row.try_get("", "days_ago").unwrap_or(0);
+                            map.entry(src).or_default().push(days);
+                        }
+                    }
+                    Err(e) => {
+                        // 节律图是装饰性信息：查不到就让构图降级为 feature，
+                        // 不该把整个源列表打成 500。
+                        tracing::warn!(error = %e, "brew pulses query failed; tiles fall back");
+                    }
+                }
+            }
+            map
         }
     );
 
@@ -298,6 +350,7 @@ pub(crate) async fn list_sources(
             SourceWithRecentItems {
                 source: response,
                 recent_items: items_by_source.remove(&source_id).unwrap_or_default(),
+                pulses: pulses_by_source.remove(&source_id).unwrap_or_default(),
             }
         })
         .collect();
@@ -1273,6 +1326,12 @@ pub(crate) async fn list_items(
     // 按订阅源筛选
     if let Some(source_id) = query.source_id {
         items_query = items_query.filter(brew_items::Column::SourceId.eq(source_id));
+    }
+
+    // 按主题筛选。与 category 同级：只回该主题的文章，`topic IS NULL` 的天然落空。
+    // 打标是离线的，读路径只读已有列，绝不在这里现算。
+    if let Some(topic) = query.topic.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        items_query = items_query.filter(brew_items::Column::Topic.eq(topic));
     }
 
     // 按分类筛选（支持多分类：category 字段可能是逗号分隔的多个分类）
