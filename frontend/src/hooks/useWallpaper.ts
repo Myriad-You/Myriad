@@ -9,6 +9,11 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { API_URL } from '../config'
+import { useI18n } from '../contexts/I18nContext'
+import {
+  wallpaperUnknownMessage,
+  type WallpaperErrorCopy,
+} from '../utils/wallpaperError'
 import { fetchJsonWithRetry } from '../utils/apiRetry'
 import { cssBackgroundImage } from '../utils/cssUrl'
 import { loadImagePooled } from '../utils/objectPool'
@@ -408,6 +413,7 @@ async function applyWallpaperToDOM(
   imageUrl: string,
   blur: number,
   forceRefresh = false,
+  copy: WallpaperErrorCopy,
 ): Promise<string | null> {
   const wallpaperEl = document.getElementById(WALLPAPER_ELEMENT_ID)
   if (!wallpaperEl) {
@@ -418,7 +424,7 @@ async function applyWallpaperToDOM(
   const safeUrl = sanitizeWallpaperUrl(imageUrl)
   if (!safeUrl) {
     console.warn('壁纸 URL 未通过安全策略，已拒绝应用')
-    wallpaperState.setError('壁纸 URL 不安全或无效')
+    wallpaperState.setError(copy.unsafeUrl)
     return null
   }
   // Use sanitized URL for the rest of apply
@@ -458,7 +464,7 @@ async function applyWallpaperToDOM(
     // 预加载图片
     const loaded = await preloadImage(imageUrl)
     if (!loaded) {
-      wallpaperState.setError('图片加载失败')
+      wallpaperState.setError(copy.imageLoadFailed)
       wallpaperEl.classList.remove('wallpaper-fading')
       if (hadVisibleWallpaper) {
         wallpaperEl.classList.add('wallpaper-visible')
@@ -512,8 +518,7 @@ async function applyWallpaperToDOM(
     console.warn('壁纸应用验证失败', { expected: imageUrl, actual: retryUrl })
     return retryUrl || imageUrl
   } catch (error) {
-    const message = error instanceof Error ? error.message : '未知错误'
-    wallpaperState.setError(message)
+    wallpaperState.setError(wallpaperUnknownMessage(error, copy))
     wallpaperEl.classList.remove('wallpaper-fading')
     if (hadVisibleWallpaper) {
       wallpaperEl.classList.add('wallpaper-visible')
@@ -612,6 +617,8 @@ export function invalidateWallpaperLoadCache(): void {
  * 壁纸管理 Hook
  */
 export function useWallpaper() {
+  const { t } = useI18n()
+  const wallpaperCopy = t.wallpaperStatus
   const [wallpaperUrl, setWallpaperUrl] = useState<string>('')
   const [canRefresh, setCanRefresh] = useState<boolean>(false)
   const [blur, setBlur] = useState<number>(3)
@@ -678,6 +685,7 @@ export function useWallpaper() {
               DEFAULT_FALLBACK_WALLPAPER_URL,
               blur,
               true,
+              wallpaperCopy,
             )
             const finalUrl = verifiedUrl || DEFAULT_FALLBACK_WALLPAPER_URL
             const result: LoadWallpaperResult = {
@@ -743,6 +751,7 @@ export function useWallpaper() {
               imageUrl,
               blur,
               forceRefresh,
+              wallpaperCopy,
             )
             const finalUrl = verifiedUrl || imageUrl
             const result = buildResult(
@@ -784,7 +793,12 @@ export function useWallpaper() {
             return result
           }
 
-          const verifiedUrl = await applyWallpaperToDOM(actualUrl, blur)
+          const verifiedUrl = await applyWallpaperToDOM(
+            actualUrl,
+            blur,
+            false,
+            wallpaperCopy,
+          )
 
           if (!verifiedUrl) {
             const result = buildResult(actualUrl, false)
@@ -828,7 +842,7 @@ export function useWallpaper() {
           pendingLoadWallpaper = null
         }, 100)
       }
-    }, [])
+    }, [wallpaperCopy])
 
   /**
    * 刷新壁纸
@@ -880,6 +894,7 @@ export function useWallpaper() {
         targetUrl,
         config.wallpaper_blur,
         true,
+        wallpaperCopy,
       )
 
       if (!verifiedUrl) {
@@ -906,7 +921,7 @@ export function useWallpaper() {
       console.error('刷新壁纸失败:', error)
       return null
     }
-  }, [wallpaperUrl])
+  }, [wallpaperCopy, wallpaperUrl])
 
   return {
     wallpaperUrl,

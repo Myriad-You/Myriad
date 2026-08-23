@@ -1,5 +1,6 @@
 import type { TappManifest } from '../types'
 import { API_URL } from '../../config'
+import { ApiError, parseApiErrorBody } from '../../services/api'
 import { getCSRFToken } from '../../utils/csrf'
 
 /**
@@ -172,19 +173,19 @@ async function throwIfGenerateHttpError(
   retryOnCsrf: boolean,
 ): Promise<never> {
   const error = await response.json().catch(() => ({}))
-  const message = error.message || error.error || `HTTP ${response.status}`
-  if (
-    response.status === 403 &&
-    retryOnCsrf &&
-    /csrf/i.test(String(message))
-  ) {
+  const parsed = parseApiErrorBody(error, response.status)
+  const message =
+    parsed.message !== `API Error: ${response.status}`
+      ? parsed.message
+      : `HTTP ${response.status}`
+  if (response.status === 403 && retryOnCsrf && /csrf/i.test(message)) {
     await getCSRFToken(true)
     // Caller re-enters generatePlaygroundProject with retryOnCsrf: false.
-    throw Object.assign(new Error(String(message)), {
+    throw Object.assign(new ApiError(message, response.status, parsed.code), {
       __csrfRetry: true as const,
     })
   }
-  throw new Error(String(message))
+  throw new ApiError(message, response.status, parsed.code, parsed.details, parsed.hint)
 }
 
 function isPlaygroundStreamEvent(value: unknown): value is PlaygroundStreamEvent {

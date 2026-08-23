@@ -17,6 +17,8 @@ pub struct ErrorBody {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 /// Unified application error: status + public `error` string + optional detail.
@@ -28,6 +30,7 @@ pub struct AppError {
     error: String,
     message: Option<String>,
     hint: Option<String>,
+    code: Option<String>,
 }
 
 impl AppError {
@@ -38,6 +41,7 @@ impl AppError {
             error: redact_secrets(&error.into()),
             message: None,
             hint: None,
+            code: None,
         }
     }
 
@@ -92,6 +96,17 @@ impl AppError {
         self
     }
 
+    /// Attach a stable machine code for clients to map (also redacted).
+    pub fn with_code(mut self, code: impl Into<String>) -> Self {
+        let code = redact_secrets(&code.into());
+        self.code = if code.trim().is_empty() {
+            None
+        } else {
+            Some(code)
+        };
+        self
+    }
+
     pub fn status(&self) -> StatusCode {
         self.status
     }
@@ -104,11 +119,16 @@ impl AppError {
         &self.error
     }
 
+    pub fn code(&self) -> Option<&str> {
+        self.code.as_deref()
+    }
+
     pub fn body(&self) -> ErrorBody {
         ErrorBody {
             error: self.error.clone(),
             message: self.message.clone(),
             hint: self.hint.clone(),
+            code: self.code.clone(),
         }
     }
 
@@ -120,6 +140,9 @@ impl AppError {
         }
         if let Some(ref h) = self.hint {
             v["hint"] = json!(h);
+        }
+        if let Some(ref c) = self.code {
+            v["code"] = json!(c);
         }
         v
     }
@@ -182,6 +205,18 @@ mod tests {
         assert_eq!(v["error"], "missing");
         assert!(v.get("message").is_none());
         assert!(v.get("hint").is_none());
+        assert!(v.get("code").is_none());
+    }
+
+    #[test]
+    fn to_json_includes_code_when_set() {
+        let e = AppError::bad_gateway("Failed to suggest a name")
+            .with_code("name_suggest_failed")
+            .with_message("provider timed out");
+        let v = e.to_json();
+        assert_eq!(v["error"], "Failed to suggest a name");
+        assert_eq!(v["code"], "name_suggest_failed");
+        assert_eq!(v["message"], "provider timed out");
     }
 
     #[test]

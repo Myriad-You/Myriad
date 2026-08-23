@@ -5,8 +5,24 @@
  */
 
 import { API_URL } from '../config'
+import { ApiError, parseApiErrorBody } from './api'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
+
+function speechHttpError(status: number, raw: string, fallback: string): ApiError {
+  let parsed: unknown
+  try {
+    parsed = raw.trim() ? JSON.parse(raw) : undefined
+  } catch {
+    parsed = undefined
+  }
+  const body = parseApiErrorBody(parsed, status)
+  const message =
+    body.message !== `API Error: ${status}`
+      ? body.message
+      : raw.trim() || fallback
+  return new ApiError(message, status, body.code, body.details, body.hint)
+}
 
 const API_BASE = `${API_URL}/api/speech`
 
@@ -201,17 +217,25 @@ async function request<T>(
       clearCSRFToken()
       const fresh = await getCSRFToken(true)
       if (!fresh) {
-        throw new Error(text || 'CSRF token refresh failed')
+        throw speechHttpError(
+          response.status,
+          text,
+          'CSRF token refresh failed',
+        )
       }
       return request<T>(endpoint, options, false)
     }
-    throw new Error(text || '请求被拒绝')
+    throw speechHttpError(response.status, text, '请求被拒绝')
   }
 
   if (!response.ok) {
     const error = await response.text()
     console.error(`[SpeechAPI] Error response:`, error)
-    throw new Error(error || `请求失败: ${response.status}`)
+    throw speechHttpError(
+      response.status,
+      error,
+      `请求失败: ${response.status}`,
+    )
   }
 
   return response.json()

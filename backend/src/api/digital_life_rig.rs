@@ -62,6 +62,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
     let owner = Router::new()
         .route("/", get(get_site_rig))
         .route("/portrait", post(generate_portrait))
+        .route(
+            "/portrait/upload",
+            post(upload_portrait).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
+        )
         .route("/see-through/status", get(get_see_through_status))
         .route("/see-through/token", patch(update_see_through_token))
         .route("/see-through/decompose", post(decompose_with_see_through))
@@ -91,12 +95,8 @@ fn bad_request(message: &str) -> ApiError {
 fn portrait_generation_config_error(
     error: image_generation::ImageGenerationError,
 ) -> ApiError {
-    let code = match &error {
-        image_generation::ImageGenerationError::NotConfigured(_) => {
-            "image_provider_unconfigured"
-        }
-        _ => "portrait_generation_failed",
-    };
+    let code = image_generation::image_generation_failure_code(&error);
+    tracing::error!(%error, code, "site portrait generation rejected before provider call");
     (
         StatusCode::BAD_REQUEST,
         Json(json!({ "error": error.to_string(), "code": code })),
@@ -106,12 +106,8 @@ fn portrait_generation_config_error(
 fn portrait_generation_provider_error(
     error: image_generation::ImageGenerationError,
 ) -> ApiError {
-    let code = match &error {
-        image_generation::ImageGenerationError::NotConfigured(_) => {
-            "image_provider_unconfigured"
-        }
-        _ => "portrait_generation_failed",
-    };
+    let code = image_generation::image_generation_failure_code(&error);
+    tracing::error!(%error, code, "site portrait generation failed");
     (
         StatusCode::BAD_GATEWAY,
         Json(json!({ "error": error.to_string(), "code": code })),
@@ -271,9 +267,10 @@ fn portrait_generation_fingerprint(
         additional_requirements,
     );
     if contract != &expected {
-        return Err(internal_error(
-            "stored portrait generation contract does not match the current visual identity",
-        ));
+        tracing::warn!(
+            "stored portrait generation contract does not match the current visual identity; serving portrait without fingerprint"
+        );
+        return Ok(None);
     }
     Ok(Some(fingerprint.to_ascii_lowercase()))
 }
@@ -839,6 +836,76 @@ fn sanitize_portrait_adjustment(raw: Option<&str>) -> ApiResult<Option<String>> 
         ));
     }
     Ok(Some(text.to_string()))
+}
+
+pub async fn upload_portrait(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    mut multipart: Multipart,
+) -> ApiResult<Json<Value>> {
+    require_life_enabled().await?;
+    let user_id = require_owner(&claims, &db).await?;
+    let mut image_bytes = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| bad_request(&format!("Invalid portrait upload: {error}")))?
+    {
+        match field.name() {
+            Some("image") if image_bytes.is_none() => {
+                let media_type = match field.content_type() {
+                    Some("image/jpeg" | "image/jpg") => "image/jpeg",
+                    Some("image/webp") => "image/webp",
+                    _ => "image/png",
+                };
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|error| bad_request(&format!("Invalid portrait image: {error}")))?;
+                if bytes.len() > 10 * 1024 * 1024 {
+                    return Err(bad_request("Portrait image exceeds 10 MB"));
+                }
+                let reference = image_generation::ImageReference::new(bytes.to_vec(), media_type)
+                    .map_err(|error| bad_request(&error.to_string()))?;
+                image_bytes = Some(reference);
+            }
+            Some("image") => return Err(bad_request("Portrait upload fields must not be duplicated")),
+            _ => return Err(bad_request("Portrait upload contains an unsupported field")),
+        }
+    }
+    let reference = image_bytes.ok_or_else(|| bad_request("Portrait upload is missing image"))?;
+    let stored = crate::services::image_cache::ImageCacheService::new()
+        .store_bytes_with_status(&reference.bytes, &reference.media_type)
+        .await
+        .map_err(internal_error)?;
+    let persona = life::get_persona(&db).await.map_err(internal_error)?;
+    let name = persona
+        .as_ref()
+        .map(|row| row.name.trim())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("Arael")
+        .to_string();
+    let personality = persona
+        .as_ref()
+        .map(|row| row.personality.clone())
+        .unwrap_or_default();
+    life::upsert_persona_on(
+        &db,
+        name,
+        personality,
+        life::PortraitUpdate::Set(stored.url.clone()),
+        life::PersonaContractUpdate {
+            portrait_generation: life::JsonDocumentUpdate::Clear,
+            ..Default::default()
+        },
+        user_id,
+    )
+    .await
+    .map_err(internal_error)?;
+    Ok(Json(json!({
+        "portraitUrl": stored.url,
+        "portraitAssetId": stored.url,
+    })))
 }
 
 async fn release_portrait_generation_lease(db: &DatabaseConnection, token: &str) {

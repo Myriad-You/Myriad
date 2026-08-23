@@ -14,7 +14,28 @@ import type {
   TaskInfo,
 } from './types'
 
+import { ApiError, parseApiErrorBody } from '../api'
 import { clearCSRFToken, getCSRFToken } from '../../utils/csrf'
+
+export function agentHttpFailure(status: number, text: string): ApiError {
+  let parsed: unknown = text
+  if (text.trim()) {
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      parsed = text
+    }
+  }
+  const body = parseApiErrorBody(
+    typeof parsed === 'string' ? undefined : parsed,
+    status,
+  )
+  const message =
+    body.message !== `API Error: ${status}`
+      ? body.message
+      : text.trim() || body.message
+  return new ApiError(message, status, body.code, body.details, body.hint)
+}
 
 /**
  * A backend `error` event, keeping its `code`.
@@ -188,10 +209,7 @@ export async function executeSSERequest({
       })
       .then(async (response) => {
         if (!response.ok) {
-          const text = await response.text()
-          throw new Error(
-            `HTTP error! status: ${response.status}, body: ${text}`,
-          )
+          throw agentHttpFailure(response.status, await response.text())
         }
 
         const reader = response.body?.getReader()

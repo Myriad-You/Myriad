@@ -556,7 +556,7 @@ function TappWidgetRuntime({
 
         if (!found) {
           if (!cancelled) {
-            setError('Widget not found')
+            setError(t.tapp.widgetNotFound)
             setLoading(false)
           }
           return
@@ -565,7 +565,7 @@ function TappWidgetRuntime({
         const tapp = runtime.getTapp(found.tappId)
         if (!tapp) {
           if (!cancelled) {
-            setError('Tapp not found')
+            setError(t.tapp.appNotExist)
             setLoading(false)
           }
           return
@@ -618,7 +618,11 @@ function TappWidgetRuntime({
         setLoading(false)
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load widget')
+          setError(
+            err instanceof Error && err.message.trim()
+              ? `${t.tapp.loadAppFailed} · ${err.message}`
+              : t.tapp.loadAppFailed,
+          )
           setLoading(false)
         }
       }
@@ -714,7 +718,11 @@ function TappWidgetRuntime({
         setLoading(false)
       } catch (err) {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Failed to load code')
+        setError(
+          err instanceof Error && err.message.trim()
+            ? `${t.tapp.appCodeLoadFailed} · ${err.message}`
+            : t.tapp.appCodeLoadFailed,
+        )
         setLoading(false)
       }
     }
@@ -845,9 +853,13 @@ function TappWidgetRuntime({
     try {
       await runtime.startTapp(widget.tappId)
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to start Tapp')
+      setError(
+        error instanceof Error && error.message.trim()
+          ? `${t.tapp.startAppFailed} · ${error.message}`
+          : t.tapp.startAppFailed,
+      )
     }
-  }, [widget, runtime, canControlLifecycle])
+  }, [widget, runtime, canControlLifecycle, t.tapp.startAppFailed])
 
   // 所有者挂载小组件时：若自己的装仍是 stopped，自动拉起（不帮访客启动站主已停的 Tapp）。
   const autoStartKeyRef = useRef<string | null>(null)
@@ -932,7 +944,7 @@ function TappWidgetRuntime({
         style={pointerEventsStyle}
       >
         <div className="text-red-500 dark:text-red-400 text-sm text-center px-4">
-          {error || 'Widget not available'}
+          {error || t.tapp.widgetNotFound}
         </div>
       </div>
     )

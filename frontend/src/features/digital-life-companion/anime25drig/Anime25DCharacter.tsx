@@ -21,6 +21,8 @@ interface Props {
   playback: Anime25DPlayback
   atlasUrl: string
   mood: number
+  /** Settings page: ignore live activity/mood so sliders stay in charge. */
+  manualControl?: boolean
 }
 
 export interface Anime25DCharacterHandle {
@@ -40,19 +42,20 @@ export interface Anime25DCharacterHandle {
 }
 
 const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
-  ({ activity, fallbackUrl, playback, atlasUrl, mood }, ref) => {
+  ({ activity, fallbackUrl, playback, atlasUrl, mood, manualControl = false }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const playerRef = useRef<Anime25DPlayer | null>(null)
     const readyRef = useRef(false)
     const wrapperRef = useRef<HTMLSpanElement>(null)
     const activityRef = useRef(activity)
     const moodRef = useRef(mood)
-    const manualRef = useRef(false)
+    const manualRef = useRef(manualControl)
     activityRef.current = activity
     moodRef.current = mood
+    manualRef.current = manualControl || manualRef.current
 
     const applyDriver = (player: Anime25DPlayer) => {
-      if (manualRef.current) return
+      if (manualRef.current || manualControl) return
       const currentActivity = activityRef.current
       const smile = Math.max(0, (moodRef.current - 50) / 80)
       player.setTarget({
@@ -188,6 +191,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
     }, [atlasUrl, playback])
 
     useEffect(() => {
+      if (manualRef.current || manualControl) return
       const smile = Math.max(0, (mood - 50) / 80)
       playerRef.current?.setTarget({
         talk: activity === 'talking',
@@ -195,7 +199,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         angleY: activity === 'thinking' ? 0.08 : 0,
         body: activity === 'thinking' ? 0.4 : 0,
       })
-    }, [activity, mood])
+    }, [activity, mood, manualControl])
 
     return (
       <span

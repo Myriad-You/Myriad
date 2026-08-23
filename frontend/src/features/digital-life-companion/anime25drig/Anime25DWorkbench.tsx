@@ -17,8 +17,9 @@ import {
   SliderItem,
   SwitchItem,
 } from '../../../components/settings'
+import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import { useI18n } from '../../../contexts/I18nContext'
-import { IDENTITY_DRIVER } from './player'
+import { WORKBENCH_DRIVER } from './player'
 
 interface Props {
   reviewMode: boolean
@@ -39,6 +40,7 @@ interface Props {
   ) => Promise<{ partCount: number; score: number }>
   reviewDock?: HTMLElement | null
   essentialsLead?: ReactNode
+  motionEnabled?: boolean
 }
 
 const PRESETS: Array<{ id: string; driver: Partial<Anime25DDriver> }> = [
@@ -134,10 +136,23 @@ export default function Anime25DWorkbench({
   onCommitRigPsd,
   reviewDock = null,
   essentialsLead = null,
+  motionEnabled = false,
 }: Props) {
   const { t } = useI18n()
   const labels = t.companion
-  const [driver, setDriver] = useState<Anime25DDriver>({ ...IDENTITY_DRIVER })
+  const seeThroughErrors = {
+    see_through_token_required: labels.motionSeeThroughTokenRequired,
+    see_through_busy: labels.motionSeeThroughBusy,
+    see_through_auth_failed: labels.motionSeeThroughAuthFailed,
+    see_through_quota_unavailable: labels.motionSeeThroughQuota,
+    see_through_timeout: labels.motionSeeThroughTimeout,
+    see_through_upstream_failed: labels.motionSeeThroughUpstream,
+    see_through_invalid_input: labels.motionSeeThroughUpstream,
+  }
+  const [driver, setDriver] = useState<Anime25DDriver>({ ...WORKBENCH_DRIVER })
+  const driverRef = useRef(driver)
+  const syncedDriverRef = useRef(false)
+  driverRef.current = driver
   const [snapshot, setSnapshot] = useState<Anime25DDebugSnapshot | null>(null)
   const rigPsdInputRef = useRef<HTMLInputElement>(null)
   const [rigImportStage, setRigImportStage] =
@@ -160,14 +175,20 @@ export default function Anime25DWorkbench({
     setRigPreflight(null)
     setRigImportResult(null)
     setRigImportError(null)
+    syncedDriverRef.current = false
   }, [sourceGenerationFingerprint, sourceMasterAssetId])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setSnapshot(characterRef.current?.debugSnapshot() ?? null)
+      const next = characterRef.current?.debugSnapshot() ?? null
+      setSnapshot(next)
+      if (next && motionEnabled && !syncedDriverRef.current) {
+        syncedDriverRef.current = true
+        characterRef.current?.replaceDriver(driverRef.current)
+      }
     }, 200)
     return () => window.clearInterval(timer)
-  }, [characterRef])
+  }, [characterRef, motionEnabled])
 
   const applyDriver = (next: Anime25DDriver) => {
     setDriver(next)
@@ -180,9 +201,19 @@ export default function Anime25DWorkbench({
     characterRef.current?.setDriver(partial)
   }
 
+  const applyPreset = (partial: Partial<Anime25DDriver>) => {
+    applyDriver({
+      ...WORKBENCH_DRIVER,
+      ...partial,
+      idle: false,
+      rand: false,
+      talk: false,
+      mouse: false,
+    })
+  }
+
   const resetPose = () => {
-    setDriver({ ...IDENTITY_DRIVER })
-    characterRef.current?.resetDriver()
+    applyDriver({ ...WORKBENCH_DRIVER })
   }
 
   const saveSeeThroughToken = async (token: string) => {
@@ -192,11 +223,13 @@ export default function Anime25DWorkbench({
       await onSaveSeeThroughToken(token)
       setSeeThroughTokenDraft('')
     } catch (reason) {
-      const message =
-        reason instanceof Error
-          ? reason.message
-          : labels.motionSeeThroughTokenFailed
-      setSeeThroughTokenError(message)
+      setSeeThroughTokenError(
+        generationFailureMessage(
+          reason,
+          labels.motionSeeThroughTokenFailed,
+          labels.motionSeeThroughTimeout,
+        ),
+      )
       throw reason
     }
   }
@@ -216,7 +249,12 @@ export default function Anime25DWorkbench({
       )
     } catch (reason) {
       setRigImportError(
-        reason instanceof Error ? reason.message : 'Rig PSD import failed',
+        generationFailureMessage(
+          reason,
+          'Rig PSD import failed',
+          labels.motionSeeThroughTimeout,
+          seeThroughErrors,
+        ),
       )
     } finally {
       setRigImportOperation(null)
@@ -241,9 +279,12 @@ export default function Anime25DWorkbench({
       )
     } catch (reason) {
       setRigImportError(
-        reason instanceof Error
-          ? reason.message
-          : 'See-through decomposition failed',
+        generationFailureMessage(
+          reason,
+          labels.motionSeeThroughUpstream,
+          labels.motionSeeThroughTimeout,
+          seeThroughErrors,
+        ),
       )
     } finally {
       setRigImportOperation(null)
@@ -261,7 +302,12 @@ export default function Anime25DWorkbench({
       setRigPreflight(null)
     } catch (reason) {
       setRigImportError(
-        reason instanceof Error ? reason.message : 'Rig PSD commit failed',
+        generationFailureMessage(
+          reason,
+          'Rig PSD commit failed',
+          labels.motionSeeThroughTimeout,
+          seeThroughErrors,
+        ),
       )
     } finally {
       setRigImportOperation(null)
@@ -309,6 +355,36 @@ export default function Anime25DWorkbench({
     [driver, labels],
   )
 
+  const renderSliderKeys = (keys: string[]) =>
+    keys.flatMap((key) => {
+      const slider = sliders.find((item) => item.key === key)
+      if (!slider) return []
+      return [
+        <SliderItem
+          key={slider.key}
+          itemKey={slider.key}
+          label={slider.label}
+          value={slider.value}
+          min={slider.min}
+          max={slider.max}
+          step={0.01}
+          formatValue={(value) => value.toFixed(2)}
+          disabled={!motionEnabled}
+          onChange={(value) =>
+            patchDriver({ [slider.key]: value } as Partial<Anime25DDriver>)
+          }
+          layout="vertical"
+        />,
+      ]
+    })
+
+  const sliderCluster = (title: string, keys: string[]) => (
+    <div className="life-motion-home__cluster">
+      <h3 className="life-motion-home__cluster-title">{title}</h3>
+      {renderSliderKeys(keys)}
+    </div>
+  )
+
   const reviewBar =
     reviewMode && reviewDock
       ? createPortal(
@@ -347,19 +423,30 @@ export default function Anime25DWorkbench({
   return (
     <>
       <SettingGroup
-        title={labels.essentials}
-        description={labels.essentialsDescription}
-        id="life-motion-essentials"
+        title={labels.portraitGroup}
+        description={labels.portraitGroupDescription}
+        id="life-motion-portrait"
       >
         {essentialsLead}
         <ButtonItem
           itemKey="motion-review"
           label={labels.motionReviewEnter}
-          description={labels.motionReviewDescription}
+          description={
+            motionEnabled
+              ? labels.motionReviewDescription
+              : labels.motionNeedsRig
+          }
           buttonText={labels.motionReviewEnter}
+          disabled={!motionEnabled}
           onClick={() => onReviewModeChange(true)}
           layout="horizontal"
         />
+      </SettingGroup>
+      <SettingGroup
+        title={labels.rigGroup}
+        description={labels.rigGroupDescription}
+        id="life-motion-rig"
+      >
         <InputItem
           itemKey="see-through-hf-token"
           label={labels.motionSeeThroughToken}
@@ -417,9 +504,9 @@ export default function Anime25DWorkbench({
               key: 'preflight',
               label:
                 rigImportOperation === 'manual'
-                  ? labels.motionPsdValidating
-                  : labels.motionPsdPreflight,
-              disabled: importingRig || !sourceMasterAssetId,
+                  ? labels.motionPsdUploading
+                  : labels.motionPsdUpload,
+              disabled: importingRig,
               loading: rigImportOperation === 'manual',
               onClick: () => rigPsdInputRef.current?.click(),
             },
@@ -481,11 +568,25 @@ export default function Anime25DWorkbench({
             </>
           }
         />
+        <p className="life-character-home__credit">
+          {labels.anime25dRuntimeCredit}{' '}
+          <a
+            href="https://github.com/852wa/Anime2.5DRig"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Anime2.5DRig
+          </a>
+        </p>
       </SettingGroup>
       <SettingGroup
-        title={labels.anime25dDebug}
-        description={labels.anime25dDebugDescription}
-        id="life-motion-details"
+        title={labels.expressionGroup}
+        description={
+          motionEnabled
+            ? labels.expressionGroupDescription
+            : labels.motionNeedsRig
+        }
+        id="life-motion-expression"
       >
         <div className="life-motion-home__chips">
           <div>
@@ -494,7 +595,8 @@ export default function Anime25DWorkbench({
                 key={preset.id}
                 type="button"
                 size="sm"
-                onClick={() => patchDriver(preset.driver)}
+                disabled={!motionEnabled}
+                onClick={() => applyPreset(preset.driver)}
               >
                 {presetLabel(labels, preset.id)}
               </SettingsButton>
@@ -502,11 +604,17 @@ export default function Anime25DWorkbench({
             <SettingsButton
               type="button"
               size="sm"
+              disabled={!motionEnabled}
               onClick={() => characterRef.current?.blinkNow()}
             >
               {labels.anime25dBlinkNow}
             </SettingsButton>
-            <SettingsButton type="button" size="sm" onClick={resetPose}>
+            <SettingsButton
+              type="button"
+              size="sm"
+              disabled={!motionEnabled}
+              onClick={resetPose}
+            >
               {labels.anime25dResetPose}
             </SettingsButton>
           </div>
@@ -515,54 +623,111 @@ export default function Anime25DWorkbench({
           itemKey="anime25d-idle"
           label={labels.anime25dIdle}
           value={driver.idle}
+          disabled={!motionEnabled}
           onChange={(idle) => patchDriver({ idle })}
         />
         <SwitchItem
           itemKey="anime25d-blink"
           label={labels.anime25dAutoBlink}
           value={driver.blink}
+          disabled={!motionEnabled}
           onChange={(blink) => patchDriver({ blink })}
         />
         <SwitchItem
           itemKey="anime25d-rand"
           label={labels.anime25dRand}
           value={driver.rand}
+          disabled={!motionEnabled}
           onChange={(rand) => patchDriver({ rand })}
         />
         <SwitchItem
           itemKey="anime25d-talking"
           label={labels.anime25dTalking}
           value={driver.talk}
+          disabled={!motionEnabled}
           onChange={(talk) => patchDriver({ talk })}
         />
         <SwitchItem
           itemKey="anime25d-mouse"
           label={labels.anime25dMouse}
           value={driver.mouse}
+          disabled={!motionEnabled}
           onChange={(mouse) => patchDriver({ mouse })}
         />
+      </SettingGroup>
+      <SettingGroup
+        title={labels.poseGroup}
+        description={
+          motionEnabled ? labels.poseGroupDescription : labels.motionNeedsRig
+        }
+        id="life-motion-pose"
+      >
+        {sliderCluster(labels.clusterHead, ['angleX', 'angleY', 'angleZ'])}
+        {sliderCluster(labels.clusterEyes, [
+          'eyeOpenL',
+          'eyeOpenR',
+          'eyeX',
+          'eyeY',
+          'irisScale',
+          'eyeScaleL',
+          'eyeScaleR',
+          'eyeEase',
+          'eyeCY',
+          'eyeCAng',
+        ])}
+        {sliderCluster(labels.clusterBrows, [
+          'brow',
+          'browAngSym',
+          'browAngL',
+          'browAngR',
+        ])}
+        {sliderCluster(labels.clusterMouth, [
+          'mouthOpen',
+          'mouthForm',
+          'mouthCY',
+          'mouthEase',
+          'mouthCAng',
+          'mouthScale',
+        ])}
+      </SettingGroup>
+      <SettingGroup
+        title={labels.hairBodyGroup}
+        description={
+          motionEnabled
+            ? labels.hairBodyGroupDescription
+            : labels.motionNeedsRig
+        }
+        id="life-motion-hair-body"
+      >
         <SwitchItem
           itemKey="anime25d-phys"
           label={labels.anime25dPhys}
           value={driver.phys}
+          disabled={!motionEnabled}
           onChange={(phys) => patchDriver({ phys })}
         />
-        {sliders.map((slider) => (
-          <SliderItem
-            key={slider.key}
-            itemKey={slider.key}
-            label={slider.label}
-            value={slider.value}
-            min={slider.min}
-            max={slider.max}
-            step={0.01}
-            formatValue={(value) => value.toFixed(2)}
-            onChange={(value) =>
-              patchDriver({ [slider.key]: value } as Partial<Anime25DDriver>)
-            }
-            layout="vertical"
-          />
-        ))}
+        {sliderCluster(labels.clusterHair, [
+          'fhAmp',
+          'fhSoft',
+          'bangL',
+          'bangC',
+          'bangR',
+          'physAmp',
+          'soft',
+        ])}
+        {sliderCluster(labels.clusterBody, [
+          'body',
+          'armY',
+          'armPos',
+          'bust',
+          'bustY',
+        ])}
+      </SettingGroup>
+      <SettingGroup
+        title={labels.anime25dInspect}
+        description={labels.inspectGroupDescription}
+        id="life-motion-inspect"
+      >
         <InfoActionCard
           copyable={false}
           title={labels.anime25dInspect}

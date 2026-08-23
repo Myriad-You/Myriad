@@ -111,6 +111,10 @@ export default function TagBubblesStep({
             reason,
             o.loadSignalsFailed,
             o.generationTimeout,
+            {
+              pro_unavailable: o.proUnavailable,
+              report_dna_failed: o.loadSignalsFailed,
+            },
           ),
         )
       })
@@ -124,7 +128,15 @@ export default function TagBubblesStep({
       cancelled = true
     }
     // selected/onChange 只在换一批后修剪，不跟进当前勾选。
-  }, [cacheKey, locale, o.generationTimeout, o.loadSignalsFailed, o.saveFirst, reloadToken])
+  }, [
+    cacheKey,
+    locale,
+    o.generationTimeout,
+    o.loadSignalsFailed,
+    o.proUnavailable,
+    o.saveFirst,
+    reloadToken,
+  ])
 
   const reshuffle = useCallback(() => {
     setReloadToken((token) => token + 1)

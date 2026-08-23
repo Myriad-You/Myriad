@@ -1,3 +1,4 @@
+import { parseApiErrorBody } from '../../services/api'
 import { API_URL } from '../../config'
 import { getDefaultLocale } from '../../i18n'
 import { getCSRFToken } from '../../utils/csrf'
@@ -15,6 +16,7 @@ export interface ApiRequestOptions extends RequestInit {
 /** Structured HTTP error so callers keep status / Retry-After (not plain Error). */
 export class TappHttpError extends Error {
   readonly status: number
+  readonly code?: string
   /** Seconds until retry when 429 (from header or body). */
   readonly retryAfter?: number
   readonly body?: unknown
@@ -22,11 +24,12 @@ export class TappHttpError extends Error {
   constructor(
     message: string,
     status: number,
-    opts?: { retryAfter?: number; body?: unknown },
+    opts?: { retryAfter?: number; body?: unknown; code?: string },
   ) {
     super(message)
     this.name = 'TappHttpError'
     this.status = status
+    this.code = opts?.code
     this.retryAfter = opts?.retryAfter
     this.body = opts?.body
   }
@@ -112,17 +115,17 @@ export async function apiRequest<T>(
       }
     }
 
-    const detail =
-      errorData.message || errorData.error || response.statusText || 'unknown'
+    const parsed = parseApiErrorBody(errorData, response.status)
     const retryAfter =
       response.status === 429
         ? (parseRetryAfterSeconds(response) ??
           retryAfterSecondsFromBody(errorData) ??
           undefined)
         : undefined
-    throw new TappHttpError(`API Error: ${response.status} ${detail}`, response.status, {
+    throw new TappHttpError(parsed.message, response.status, {
       retryAfter,
       body: errorData,
+      code: parsed.code,
     })
   }
 
@@ -172,10 +175,13 @@ export async function streamRuntimeEvents(
         )
       }
     }
-    throw new Error(
-      error.message ||
-        error.error ||
-        `Runtime event stream failed (${response.status})`,
+    const parsed = parseApiErrorBody(error, response.status)
+    throw new TappHttpError(
+      parsed.message === `API Error: ${response.status}`
+        ? `Runtime event stream failed (${response.status})`
+        : parsed.message,
+      response.status,
+      { body: error, code: parsed.code },
     )
   }
   if (!response.body)

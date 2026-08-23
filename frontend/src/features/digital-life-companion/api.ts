@@ -194,6 +194,7 @@ async function binaryApiError(
         ? body.message
         : fallback,
     status,
+    payloadCode(body),
   )
 }
 
@@ -281,6 +282,36 @@ async function submitCompanionRigImport(
     throw new Error(`Companion rig ${action} manifest is invalid`)
   }
   return response.data.manifest
+}
+
+export async function uploadSitePortrait(image: Blob): Promise<{
+  portraitUrl: string
+}> {
+  const body = new FormData()
+  body.append(
+    'image',
+    image,
+    image instanceof File ? image.name : 'uploaded-portrait.png',
+  )
+  try {
+    const response = await api.post<{ portraitUrl?: unknown }>(
+      `${PREFIX}/portrait/upload`,
+      body,
+      {
+        headers: { 'Content-Type': undefined },
+        timeout: RIG_MUTATION_TIMEOUT_MS,
+      },
+    )
+    assertSuccess(response.status, response.data, 'Could not upload portrait')
+    const portraitUrl = readPortraitUrl(response.data)
+    if (!portraitUrl) {
+      throw new CompanionApiError('Portrait upload did not return a URL', 502)
+    }
+    return { portraitUrl }
+  } catch (reason) {
+    if (reason instanceof CompanionApiError) throw reason
+    throw companionError(reason, 'Could not upload portrait')
+  }
 }
 
 export async function generateSitePortrait(

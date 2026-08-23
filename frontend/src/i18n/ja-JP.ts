@@ -131,20 +131,43 @@ export const jaJP: TranslationKeys = {
     visualRegenerate: '再生成',
     visualGenerating: '生成中です。他の設定は続けられます。',
     visualReady: 'メイン立ち絵の準備ができました',
+    visualDownload: '立ち絵をダウンロード',
     visualFailed: 'メイン立ち絵を生成できませんでした',
+    motionPsdUpload: 'レイヤー PSD をアップロード',
+    motionPsdUploading: 'PSD を読み込み中…',
     visualConfirm:
       '画像モデルの料金が発生する場合があります。生成を開始しますか？再生成すると取り込み済みのリグは消えます。',
     motionWorkbench: 'モーションワークベンチ',
     motionWorkbenchDescription:
       'Anime2.5DRig プレイヤーをリアルタイムで確認します。まばたき、口、髪、呼吸、頭の向き。',
-    essentials: '必要な設定',
-    essentialsDescription:
-      'メイン立ち絵、レイヤー PSD、ページ上で見える呼吸・まばたき・髪の追従。',
+    essentials: '立ち絵',
+    essentialsDescription: '3:4 のメイン立ち絵を生成して確認します。',
     anime25dRuntimeCredit:
       'See-through のあと、モーション実行系は Anime2.5DRig（MIT）を復刻しています。',
-    anime25dDebug: 'Anime2.5DRig デバッグ',
+    anime25dDebug: 'モーション',
     anime25dDebugDescription:
-      'Myriad の設定画面から、Anime2.5DRig 本来のパラメータを動かします。自動、表情、顔、目、眉、口、前髪、後髪、体。',
+      '頭・顔・髪・体に分けて Anime2.5DRig を調整します。',
+    portraitGroup: '立ち絵',
+    portraitGroupDescription:
+      'メイン立ち絵を生成して確認します。光と構図はここで微調整。髪型と衣装はビジュアル契約のままです。',
+    rigGroup: 'レイヤーリグ',
+    rigGroupDescription:
+      'See-through で分解するか、手作業の PSD を取り込みます。表情とポーズには事前検証済みのリグが必要です。',
+    expressionGroup: '表情',
+    expressionGroupDescription:
+      'プリセットと、まばたき・会話・待機などの継続モーション。',
+    poseGroup: '頭と顔',
+    poseGroupDescription: '向き、視線、眉、口。',
+    hairBodyGroup: '髪と体',
+    hairBodyGroupDescription: '前髪、後髪の物理、傾き、腕。',
+    inspectGroupDescription:
+      'レイヤー PSD を取り込んだあと、再生データが層と一致するか確認します。',
+    clusterHead: '頭',
+    clusterEyes: '目',
+    clusterBrows: '眉',
+    clusterMouth: '口',
+    clusterHair: '髪',
+    clusterBody: '体',
     anime25dHeadX: '角度 X',
     anime25dHeadY: '角度 Y',
     anime25dHeadZ: '角度 Z',
@@ -209,7 +232,7 @@ export const jaJP: TranslationKeys = {
       'レイヤー PSD を取り込むと Anime2.5DRig の再生データを確認できます。',
     motionPsd: 'レイヤー PSD',
     motionPsdDescription:
-      'リモート See-through で分解するか、手作業の PSD を取り込みます。どちらも共通の事前検証後のみ有効化できます。',
+      '自分のレイヤー PSD をアップロードするか、See-through でメイン立ち絵を分解します。事前検証後に有効化できます。',
     motionSeeThroughToken: 'Hugging Face API Token',
     motionSeeThroughTokenCreate: 'Read Token を作成',
     motionSeeThroughTokenDescription:
@@ -220,12 +243,23 @@ export const jaJP: TranslationKeys = {
     motionSeeThroughTokenSave: '安全に保存',
     motionSeeThroughTokenCancel: 'キャンセル',
     motionSeeThroughTokenFailed: 'Hugging Face Token を保存できませんでした',
+    motionSeeThroughTokenRequired:
+      'See-through を使う前に Hugging Face Token を保存してください。',
+    motionSeeThroughBusy: 'See-through は実行中です。少し待って再試行してください。',
+    motionSeeThroughAuthFailed:
+      'Hugging Face がこの Token を拒否しました。権限を確認して再試行してください。',
+    motionSeeThroughQuota:
+      'See-through の ZeroGPU が使えません。Token と枠を確認してください。',
+    motionSeeThroughTimeout: 'See-through の推論がタイムアウトしました。再試行してください。',
+    motionSeeThroughUpstream:
+      'See-through が無効または利用できない結果を返しました。',
     motionSeeThroughGenerate: 'See-through で分解して事前検証',
     motionSeeThroughGenerating:
       'リモート分解を実行中です。完了後にローカル PSD 事前検証を自動で開始します…',
     motionReviewEnter: '大画面レビューを開く',
     motionReviewDescription:
       'Anime2.5DRig の呼吸、まばたき、口、髪をフルサイズで確認します。',
+    motionNeedsRig: '先にレイヤーリグを完成させてください。そのあとで立ち絵を操作できます。',
     motionReviewExit: 'ワークベンチに戻る',
     motionPsdPreflight: 'レイヤー PSD を事前検証',
     motionPsdValidating: 'PSD を検証中…',
@@ -233,7 +267,7 @@ export const jaJP: TranslationKeys = {
     faceStage: 'Arael',
     adminTitle: 'Arael のビジュアル',
     adminDescription:
-      'サイト全体で一つのビジュアルです。立ち絵、リグ、モーションはビジュアル設定で変更します。',
+      'サイト全体で一つのビジュアルです。立ち絵、リグ、表情とポーズの順。',
     faceOpen: 'ビジュアル設定を開く',
     adminEnabled: 'Agent ライフを有効化',
     adminWorker: '自律 Worker を有効化',
@@ -2532,6 +2566,14 @@ export const jaJP: TranslationKeys = {
       portraitInputsChanged: '生成中に外観設定が変わったので、もう一度生成してください。',
       imageProviderUnconfigured:
         '画像生成元が未設定です。設定で接続してから立ち絵を生成してください。',
+      imageProviderCredits: '画像生成元の残高が不足しています。',
+      imageProviderUnauthorized: '画像生成元のキーが無効か、権限がありません。',
+      imageProviderRateLimited: '画像生成元が混み合っています。少し待って再試行してください。',
+      imageProviderRejected: '画像生成元がこのリクエストを拒否しました。',
+      imageProviderInvalidResponse: '画像生成元の応答を読み取れませんでした。',
+      nameUnusable: 'この名前は使えません。もう一度ランダムしてください。',
+      personaUnusable: 'この設定稿は使えません。もう一度生成してください。',
+      visualDesignUnusable: 'このビジュアル案は使えません。もう一度生成してください。',
       portraitLoadFailed: 'メイン立ち絵を読み込めませんでした',
       portraitFinish: '設定を完了',
     },
@@ -2541,6 +2583,12 @@ export const jaJP: TranslationKeys = {
   errors: {
     networkError: 'ネットワーク接続に失敗しました',
     unknown: '不明なエラー',
+  },
+
+  wallpaperStatus: {
+    unsafeUrl: '壁紙 URL が安全でないか無効です。',
+    imageLoadFailed: '壁紙画像の読み込みに失敗しました。',
+    unknown: '壁紙の処理中に問題が発生しました。',
   },
 
   // 開発用パフォーマンスモニタ
@@ -2661,6 +2709,9 @@ export const jaJP: TranslationKeys = {
     shuffle: 'シャッフル',
     listRepeat: 'リストリピート',
     loadPlaylistFailed: 'プレイリストの読み込みに失敗しました',
+    playlistEmpty: 'プレイリストが空か、この ID に再生できる曲がありません。',
+    playlistRateLimited: '音楽ソースが混み合っています。少し待つか QQ 音楽に切り替えてください。',
+    playlistBlocked: 'このプレイリストは著作権または地域制限で再生できません。QQ 音楽を試してください。',
     playFailed:
       '再生に失敗しました。ネットワーク接続または曲の利用可能性を確認してください',
     vipPlayFailed: 'VIP曲を再生できません（会員または試聴が必要）',
@@ -3610,6 +3661,8 @@ export const jaJP: TranslationKeys = {
     appNotExist: 'アプリが存在しないかアンインストールされました',
     appCodeLoadFailed: 'アプリコードの読み込みに失敗しました',
     loadAppFailed: 'アプリの読み込みに失敗しました',
+    startAppFailed: 'アプリを起動できませんでした',
+    widgetNotFound: 'このウィジェットが見つかりません',
     backToAppList: 'アプリリストに戻る',
     exitFullscreen: 'フルスクリーンを終了',
     fullscreen: 'フルスクリーン',
@@ -4530,6 +4583,8 @@ export const jaJP: TranslationKeys = {
     errorWithDetail: 'エラー：{error}',
     quotaCooldown: 'リクエストが早すぎます。少し待ってから再試行してください。',
     quotaExhausted: '本日の AI 利用枠を使い切りました。明日リセットされます。',
+    queueBusy: 'ただいま混み合っています。少し待って再試行してください。',
+    accessDenied: 'この操作を行う権限がありません。',
     aiGeneratedImage: 'AI生成画像',
     memTierLong: '長期',
     memTierMid: '中期',

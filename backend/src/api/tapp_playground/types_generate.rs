@@ -376,11 +376,48 @@ pub enum PlaygroundStreamEvent {
 
 type ApiError = crate::error::HttpError;
 
+fn playground_error_code(status: StatusCode, message: &str) -> &'static str {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("not enabled") || lower.contains("not configured") {
+        return "playground_ai_unconfigured";
+    }
+    if lower.contains("agent generation failed") {
+        return "playground_ai_failed";
+    }
+    if lower.contains("did not pass validation") || lower.contains("validation") {
+        return "playground_validation_failed";
+    }
+    if lower.contains("too large") || lower.contains("exceeds") {
+        return "playground_payload_too_large";
+    }
+    if lower.contains("shutting down") {
+        return "playground_agent_busy";
+    }
+    if lower.contains("cancelled") {
+        return "playground_cancelled";
+    }
+    match status {
+        StatusCode::UNAUTHORIZED => "playground_auth_required",
+        StatusCode::FORBIDDEN => "playground_admin_required",
+        StatusCode::TOO_MANY_REQUESTS => "playground_rate_limited",
+        StatusCode::PAYLOAD_TOO_LARGE => "playground_payload_too_large",
+        StatusCode::UNPROCESSABLE_ENTITY => "playground_validation_failed",
+        StatusCode::BAD_REQUEST => "playground_bad_request",
+        StatusCode::SERVICE_UNAVAILABLE => "playground_ai_unconfigured",
+        _ => "playground_generate_failed",
+    }
+}
+
 fn api_error(status: StatusCode, message: impl Into<String>) -> ApiError {
     let message = message.into();
+    let code = playground_error_code(status, &message);
     crate::error::HttpError::from((
         status,
-        Json(json!({ "error": message.clone(), "message": message })),
+        Json(json!({
+            "error": message.clone(),
+            "message": message,
+            "code": code
+        })),
     ))
 }
 
@@ -1543,5 +1580,37 @@ mod prompt_contract_tests {
                 "generate prompt never mentions the fixed Playground path {required}"
             );
         }
+    }
+
+    #[test]
+    fn playground_error_code_classifies_common_failures() {
+        assert_eq!(
+            playground_error_code(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Pro AI model is not enabled or configured"
+            ),
+            "playground_ai_unconfigured"
+        );
+        assert_eq!(
+            playground_error_code(
+                StatusCode::BAD_GATEWAY,
+                "Pro AI agent generation failed"
+            ),
+            "playground_ai_failed"
+        );
+        assert_eq!(
+            playground_error_code(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Generated Tapp did not pass validation after 3 attempts: missing core"
+            ),
+            "playground_validation_failed"
+        );
+        assert_eq!(
+            playground_error_code(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "History accepts at most 20 turns"
+            ),
+            "playground_payload_too_large"
+        );
     }
 }

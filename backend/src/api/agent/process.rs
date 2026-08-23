@@ -21,7 +21,10 @@ fn agent_turn_error(error: String) -> HttpError {
     tracing::error!(error = %error, "[Agent API] Processing failed");
     HttpError::from((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "error": error })),
+        Json(json!({
+            "error": error,
+            "code": "agent_processing_failed"
+        })),
     ))
 }
 

@@ -40,6 +40,21 @@ html.dark .life-motion-home {
   display: contents;
 }
 
+.life-motion-portrait-card.info-action-card.has-preview {
+  align-items: stretch;
+}
+
+.life-motion-portrait-card .info-action-card-preview {
+  flex-basis: min(46vw, 228px);
+  width: min(46vw, 228px);
+  background: color-mix(in srgb, rgb(var(--life-surface-rgb, 255 255 255) / 70%), white 8%);
+}
+
+.life-motion-portrait-card .info-action-card-preview img {
+  object-fit: contain;
+  object-position: center top;
+}
+
 .life-character-home__credit {
   margin: 0.35rem 0 0;
   color: var(--life-muted, #667085);
@@ -60,8 +75,25 @@ html.dark .life-motion-home {
   margin: 8px 0 4px;
 }
 
-#life-motion-details .setting-group-content > .setting-group + .setting-group {
-  margin-top: 0.25rem;
+.life-motion-home__cluster {
+  display: grid;
+  gap: 0;
+}
+
+.life-motion-home__cluster-title {
+  margin: 10px 0 2px;
+  padding: 0 2px;
+  color: var(--text-secondary, #667085);
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: 0.04em;
+}
+
+.life-motion-home__cluster + .life-motion-home__cluster {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--border-color, #d8dbe6) 70%, transparent);
 }
 
 .life-motion-home--settings .life-motion-home__stage {

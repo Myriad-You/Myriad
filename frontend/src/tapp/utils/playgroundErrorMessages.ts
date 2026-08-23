@@ -26,6 +26,7 @@ export interface PlaygroundErrorCopy {
 
 export interface MapPlaygroundErrorOpts {
   userCancelled?: boolean
+  code?: string
   /** Replace `{key}` in copy templates that need a detail fragment. */
   format?: (template: string, params: Record<string, string | number>) => string
 }
@@ -91,6 +92,43 @@ export function mapPlaygroundGenerateError(
 
   const raw = (message || '').trim()
   if (!raw) return copy.playgroundGenerateFailed
+
+  switch (opts?.code) {
+    case 'playground_ai_unconfigured':
+      return copy.playgroundAiNotConfiguredHint
+    case 'playground_ai_failed':
+      return copy.playgroundAiGenerationFailedHint
+    case 'playground_validation_failed':
+      return compose(
+        copy.playgroundValidationFailedHint,
+        extractValidationDetail(raw),
+        copy.playgroundErrorDetail,
+        format,
+      )
+    case 'playground_payload_too_large':
+      return compose(
+        copy.playgroundPayloadTooLargeHint,
+        raw,
+        copy.playgroundErrorDetail,
+        format,
+      )
+    case 'playground_agent_busy':
+      return copy.playgroundAgentBusyHint
+    case 'playground_cancelled':
+      return copy.playgroundCancelled || copy.playgroundTimeoutHint
+    case 'playground_auth_required':
+      return copy.playgroundAuthRequiredHint
+    case 'playground_admin_required':
+      return copy.playgroundAdminRequiredHint
+    case 'playground_rate_limited':
+      return copy.playgroundRateLimitHint
+    case 'playground_bad_request':
+      return format(copy.playgroundBadRequestHint, {
+        detail: truncateDetail(raw.replace(/^HTTP\s*400\s*:?\s*/i, '').trim() || raw),
+      })
+    default:
+      break
+  }
 
   const lower = raw.toLowerCase()
 

@@ -30,6 +30,7 @@ import { useNotificationCenter } from '../hooks/useNotificationCenter'
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { useWallpaper } from '../hooks/useWallpaper'
+import { formatMusicError } from '../utils/musicError'
 import { getDynamicContentProvider } from '../services/DynamicContentProvider'
 import {
   notificationSourceFor,
@@ -1338,16 +1339,20 @@ const GlobalControlPanel: React.FC = () => {
   // （典型场景：Agent 触发歌单加载失败），用全局 toast 兜底；
   // 面板展开时已有内联提示，不重复弹
   const musicErrorKey = musicPlayer.musicErrorKey
+  const musicErrorDetail = musicPlayer.musicErrorDetail
   useEffect(() => {
     if (!musicErrorKey || isExpandedRef.current) return
     const musicT = t.music as Record<string, string> | undefined
     showToast({
-      message: musicT?.[musicErrorKey] ?? musicErrorKey,
+      message: formatMusicError(
+        musicT?.[musicErrorKey] ?? musicErrorKey,
+        musicErrorDetail,
+      ),
       type: 'error',
       duration: 5000,
     })
     // t 不入依赖：只在错误出现时弹一次，语言切换不重弹
-  }, [musicErrorKey])
+  }, [musicErrorDetail, musicErrorKey])
 
   // 当有歌词时，更新动态内容以显示歌词（仅播放时）
   // 使用 useRef 来减少状态更新频率
