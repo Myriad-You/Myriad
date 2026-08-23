@@ -181,6 +181,10 @@ export const BrewSourceTile = memo(
     const openSource = onOpenSource ? () => onOpenSource(source) : undefined
     const openItem = (item: BrewItemPreview) => onOpenItem?.(item, source)
 
+    // 2×2 既不放封面（面积不够，§10.2）也不左右拆栏（拆完文字只剩 ~90px，
+    // 比上下瘦条更糟）。拆栏那条规则针对的是 4×2 那个扁矩形。
+    const isSmall = size === '2x2'
+
     // icon 型：友链入口。整卡点击直接开外站，不进阅读器
     if (layout === 'icon') {
       const host = siteHost(source)
@@ -277,6 +281,28 @@ export const BrewSourceTile = memo(
         </div>
       )
 
+      // 2×2：只放数字 + 站名，列表塞不进去
+      if (isSmall) {
+        return (
+          <TileShell
+            color={color}
+            scale={scale}
+            containerRef={containerRef}
+            label={source.name}
+            onClick={openSource}
+            contentClassName="flex min-h-0 flex-col justify-center"
+          >
+            {hero}
+            <span
+              className="mt-1 truncate font-medium text-gray-500 dark:text-gray-400"
+              style={{ fontSize: fs(T_MINOR, fontScale) }}
+            >
+              {source.name}
+            </span>
+          </TileShell>
+        )
+      }
+
       // 4×2 拆栏：左数字 + 右 3–4 条标题
       if (size !== '4x4') {
         return (
@@ -330,7 +356,8 @@ export const BrewSourceTile = memo(
         >
           {header}
           <div style={{ marginBottom: sp(10, scale) }}>{hero}</div>
-          <div className="flex min-h-0 flex-1 flex-col justify-start" style={{ gap: sp(5, scale) }}>
+          {/* justify-evenly：4×4 有 ~320px 高，5 条紧贴顶部会在下半张卡留一个洞 */}
+          <div className="flex min-h-0 flex-1 flex-col justify-evenly">
             {rows.map((item, i) => (
               <MinorRow
                 key={item.id}
@@ -371,6 +398,29 @@ export const BrewSourceTile = memo(
         </TileMeta>
       )
 
+      // 2×2：站名 + 通栏节律图 + 轴标签，不拆栏
+      if (isSmall) {
+        return (
+          <TileShell
+            color={color}
+            scale={scale}
+            containerRef={containerRef}
+            label={source.name}
+            onClick={openSource}
+            contentClassName="flex min-h-0 flex-col justify-between"
+          >
+            <span
+              className="truncate font-semibold text-gray-800 dark:text-gray-100"
+              style={{ fontSize: fs(T_TITLE, fontScale), lineHeight: 1.25 }}
+            >
+              {source.name}
+            </span>
+            <Cadence pulses={pulses} color={color} height={sp(30, scale)} />
+            {axis}
+          </TileShell>
+        )
+      }
+
       // 4×2 拆栏：左节律图 + 右站名 / 最新一篇 / 跨度
       if (size !== '4x4') {
         return (
@@ -389,7 +439,7 @@ export const BrewSourceTile = memo(
               <Cadence
                 pulses={pulses}
                 color={color}
-                height={sp(size === '2x2' ? 26 : 34, scale)}
+                height={sp(34, scale)}
               />
             </div>
             <div
@@ -426,7 +476,8 @@ export const BrewSourceTile = memo(
         >
           {header}
           <div className="flex min-h-0 flex-1 flex-col justify-center">
-            <Cadence pulses={pulses} color={color} height={sp(56, scale)} />
+            {/* 4×4 的节律图是主视觉，56px 撑不起 320px 的卡，也看不出密度差 */}
+            <Cadence pulses={pulses} color={color} height={sp(104, scale)} />
             <div style={{ marginTop: sp(6, scale) }}>{axis}</div>
           </div>
           {latest ? (
@@ -601,14 +652,9 @@ export const BrewSourceTile = memo(
       ? relTime(lead.published_at, now, timeKeys)
       : ''
 
-    // 4×2 拆栏：左封面 + 右站名 / 标题两行 / meta
+    // 4×2 拆栏：左封面 + 右站名 / 标题两行 / meta。
+    // 2×2 走同一段结构但不放封面（isSmall），于是自然退化成纯文本。
     if (size !== '4x4') {
-      const cover = (
-        <TileCover
-          image={lead?.image}
-          className="h-full w-full"
-        />
-      )
       return (
         <TileShell
           color={color}
@@ -616,14 +662,18 @@ export const BrewSourceTile = memo(
           containerRef={containerRef}
           label={source.name}
           onClick={openSource}
-          contentClassName="flex min-h-0 flex-row items-stretch"
+          contentClassName={
+            isSmall
+              ? 'flex min-h-0 flex-col justify-center'
+              : 'flex min-h-0 flex-row items-stretch'
+          }
         >
-          {lead?.image ? (
+          {!isSmall && lead?.image ? (
             <div
               className="shrink-0"
               style={{ width: SPLIT_MEDIA_WIDTH, paddingRight: sp(10, scale) }}
             >
-              {cover}
+              <TileCover image={lead.image} className="h-full w-full" />
             </div>
           ) : null}
           <div
@@ -719,7 +769,9 @@ export const BrewSourceTile = memo(
               {source.description?.trim() || siteHost(source)}
             </span>
           )}
-          {!lead?.image && summary ? (
+          {/* 有封面时摘要也照放（clamp 2）：4×4 的封面 96px + 标题两行只占掉
+              三分之一，不给摘要就在卡中间留一块空白 —— 空白不是留白，是没排完。 */}
+          {summary ? (
             <span
               className="text-gray-500 dark:text-gray-400"
               style={{
@@ -727,7 +779,7 @@ export const BrewSourceTile = memo(
                 lineHeight: 1.5,
                 display: '-webkit-box',
                 WebkitBoxOrient: 'vertical',
-                WebkitLineClamp: 3,
+                WebkitLineClamp: lead?.image ? 2 : 3,
                 overflow: 'hidden',
               }}
             >

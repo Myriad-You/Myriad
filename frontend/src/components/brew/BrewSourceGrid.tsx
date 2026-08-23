@@ -29,6 +29,7 @@ import BrewTileWall from './BrewTileWall'
 import { SourceCard } from './cards'
 // 共享常量
 import { brewMainCategory, PRESET_CATEGORY_DB_VALUES } from './constants'
+import { TOPIC_LARGE_COUNT_SMART } from './logic/layout'
 import { compareByScore, roleFromAuth } from './logic/score'
 import { clusterTopics, previewsToTopicItems } from './logic/topics'
 import ControlIsland from './manager/ControlIsland'
@@ -65,6 +66,8 @@ export default function BrewSourceGrid({
   const { t } = useI18n()
   // 磁贴墙开关。一次读定：中途切 flag 需要刷新，避免两套布局在同一会话里混用。
   const [tileGrid] = useState(isBrewTileGridEnabled)
+  // 智能模式插几张主题卡 —— 与「前 N 张走 4x4」是同一个 N
+  const SMART_TOPIC_CARDS = TOPIC_LARGE_COUNT_SMART
   const viewerRole = roleFromAuth(isAuthenticated, isAdmin)
   // 管理功能状态（仅登录用户可用）
   const [searchQuery, setSearchQuery] = useState('')
@@ -946,7 +949,15 @@ export default function BrewSourceGrid({
       {tileGrid && sortedSources.length > 0 && (
         <BrewTileWall
           sources={sortedSources}
-          topics={sortMode === 'smart' || sortMode === 'topic' ? topics : []}
+          // smart 只把**前 2 张**主题卡插到最前（§8）；插全部会把第一屏的源
+          // 全挤到后面去，打开 /brew 第一眼看不到任何订阅源。topic 模式才全上。
+          topics={
+            sortMode === 'topic'
+              ? topics
+              : sortMode === 'smart'
+                ? topics.slice(0, SMART_TOPIC_CARDS)
+                : []
+          }
           topicMode={sortMode === 'topic' ? 'topic' : 'smart'}
           onTopicClick={handleTopicClick}
           role={viewerRole}
