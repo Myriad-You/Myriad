@@ -550,7 +550,7 @@ export interface TappInstance {
   /** 已授权的权限 */
   grantedPermissions: TappPermission[]
 
-  /** 批准权限包含平台不再识别的名称，必须重新授权后才能运行 */
+  /** 安装被标记为需重新授权（升级清掉退役权限，或批准列仍有未知名），完成重新授权前不能运行 */
   needsReauthorization?: boolean
 
   /**

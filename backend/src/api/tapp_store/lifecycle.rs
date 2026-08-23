@@ -117,6 +117,8 @@ pub(super) async fn start_tapp(
             Ok(Json(ApiResponse::success(())))
         }
         StartOutcome::RecordActivityOnly => {
+            let tapp = public_tapp.expect("has_public");
+            refuse_marked_start(tapp.needs_reauthorization)?;
             record_user_activity(&db, user_id, &tapp_id, now).await?;
             Ok(Json(ApiResponse::success(())))
         }
@@ -153,8 +155,9 @@ async fn record_user_activity(
 
 /// 重新授权 start 生命周期闸门的最小纯判定。
 ///
-/// 安装仍标记为需重新授权时不得把 status 置为 Running。`MutatePrivate` 与
-/// `MutatePublic` 两个启动分支共用此判定，测试直接覆盖它本身（不复制逻辑）。
+/// 安装仍标记为需重新授权时不得把 status 置为 Running，也不得把已在跑的
+/// 公开安装记成一次成功 start。`MutatePrivate` / `MutatePublic` /
+/// `RecordActivityOnly` 共用此判定，测试直接覆盖它本身（不复制逻辑）。
 fn refuse_marked_start(needs_reauthorization: bool) -> Result<(), HttpError> {
     if needs_reauthorization {
         Err(HttpError(AppError::conflict(

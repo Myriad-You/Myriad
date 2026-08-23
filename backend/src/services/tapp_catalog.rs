@@ -227,7 +227,13 @@ pub fn tapp_detail_from_model(
             // The durable marker keeps the detail flagged even when every
             // remaining permission parses; the unknown-name fallback remains
             // defense in depth.
-            Ok(granted_permissions) => (granted_permissions, tapp.needs_reauthorization),
+            Ok(granted_permissions) => {
+                if tapp.needs_reauthorization {
+                    (Vec::new(), true)
+                } else {
+                    (granted_permissions, false)
+                }
+            }
             Err(_) => (Vec::new(), true),
         };
     let (status, error_message) = projected_status(&tapp);
@@ -551,9 +557,9 @@ mod tests {
 
         assert!(item.needs_reauthorization);
         assert!(detail.needs_reauthorization);
-        // The projection still computes the remaining grants for the operator
-        // to review; the marker is the gate, not the permission list.
-        assert_eq!(detail.granted_permissions, vec!["storage:read".to_string()]);
+        // Marked installs project no granted permissions so callers that only
+        // read the list cannot treat leftover approved names as live grants.
+        assert!(detail.granted_permissions.is_empty());
     }
 
     #[test]

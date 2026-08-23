@@ -945,6 +945,10 @@ SELECT EXISTS (
         )
         .await
         .map_err(|e| format!("Scheduled Tapp is no longer accessible: {e}"))?;
+        crate::services::tapp_runtime_grant::refuse_if_needs_reauthorization(
+            tapp.needs_reauthorization,
+        )
+        .map_err(|error| error.message())?;
         let approved = tapp
             .approved_permissions
             .as_array()

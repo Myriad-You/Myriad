@@ -98,6 +98,28 @@ pub fn retired_permission_params() -> Vec<sea_orm::Value> {
         .collect()
 }
 
+/// `ARRAY[$1,$2,…]::text[]` with one placeholder per `RETIRED_PERMISSIONS` entry.
+///
+/// The lock-set predicate must not hard-code `$1,$2,$3`; a fourth retired name
+/// would otherwise bind four params while the SQL still compared three.
+pub fn retired_permission_array_sql() -> String {
+    let placeholders = (1..=RETIRED_PERMISSIONS.len())
+        .map(|index| format!("${index}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("ARRAY[{placeholders}]::text[]")
+}
+
+/// Running installs lose their live status when the authorization premise
+/// disappears. Other statuses stay as stored (`installed` / `suspended` / `error`).
+pub fn demote_running_status(status: &str) -> String {
+    if status == "running" {
+        "installed".to_string()
+    } else {
+        status.to_string()
+    }
+}
+
 /// Clear retired permission strings from every installed TAPP row and
 /// flag the affected rows for re-authorization.
 ///
@@ -125,16 +147,20 @@ pub async fn clear_legacy_grants(db: &impl ConnectionTrait) -> Result<u64, DbErr
     // 显式 ::jsonb）。schema_check 声称 granted_permissions 为 jsonb 是既有
     // 不一致（L6），本单元不擅自改列类型，仅在谓词内显式转换。
     // FOR UPDATE 持有到 migration 事务提交，串行化并发安装/更新对同一行的写入。
+    let retired_array = retired_permission_array_sql();
+    let select_sql = format!(
+        r#"SELECT id, approved_permissions, granted_permissions, status
+                 FROM tapps
+                WHERE (jsonb_typeof(approved_permissions) = 'array'
+                       AND approved_permissions ?| {retired_array})
+                   OR (jsonb_typeof(granted_permissions::jsonb) = 'array'
+                       AND granted_permissions::jsonb ?| {retired_array})
+                  FOR UPDATE"#
+    );
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
-            r#"SELECT id, approved_permissions, granted_permissions
-                 FROM tapps
-                WHERE (jsonb_typeof(approved_permissions) = 'array'
-                       AND approved_permissions ?| ARRAY[$1,$2,$3]::text[])
-                   OR (jsonb_typeof(granted_permissions::jsonb) = 'array'
-                       AND granted_permissions::jsonb ?| ARRAY[$1,$2,$3]::text[])
-                  FOR UPDATE"#,
+            select_sql,
             retired_permission_params(),
         ))
         .await?;
@@ -146,6 +172,7 @@ pub async fn clear_legacy_grants(db: &impl ConnectionTrait) -> Result<u64, DbErr
             row.try_get::<serde_json::Value>("", "approved_permissions")?;
         let granted: serde_json::Value =
             row.try_get::<serde_json::Value>("", "granted_permissions")?;
+        let status: String = row.try_get::<String>("", "status")?;
         // 防御性校验（测试/开发构建下真实执行）：SQL FOR UPDATE 锁集谓词必须
         // 与 Rust 候选判定一致——锁集里的每一行都应是候选行。
         debug_assert!(
@@ -163,12 +190,14 @@ pub async fn clear_legacy_grants(db: &impl ConnectionTrait) -> Result<u64, DbErr
                 "UPDATE tapps
                 SET approved_permissions = $2::jsonb,
                     granted_permissions = $3::json,
-                    needs_reauthorization = true
+                    needs_reauthorization = true,
+                    status = $4
               WHERE id = $1",
                 vec![
                     id.into(),
                     clean_approved.to_string().into(),
                     clean_granted.to_string().into(),
+                    demote_running_status(&status).into(),
                 ],
             ))
             .await?;
@@ -428,6 +457,24 @@ mod tests {
             };
             assert_eq!(text, name);
         }
+        let array_sql = retired_permission_array_sql();
+        assert_eq!(
+            array_sql.matches('$').count(),
+            RETIRED_PERMISSIONS.len(),
+            "ARRAY placeholders must match RETIRED_PERMISSIONS: {array_sql}"
+        );
+        assert!(
+            array_sql.starts_with("ARRAY[") && array_sql.ends_with("]::text[]"),
+            "unexpected array SQL: {array_sql}"
+        );
+    }
+
+    #[test]
+    fn running_status_is_demoted_other_statuses_stay() {
+        assert_eq!(demote_running_status("running"), "installed");
+        assert_eq!(demote_running_status("installed"), "installed");
+        assert_eq!(demote_running_status("error"), "error");
+        assert_eq!(demote_running_status("suspended"), "suspended");
     }
 }
 
@@ -450,13 +497,23 @@ mod integration {
         approved: &str,
         granted: &str,
     ) {
+        insert_fixture_with_status(db, tapp_id, approved, granted, "installed").await;
+    }
+
+    async fn insert_fixture_with_status(
+        db: &sea_orm::DatabaseConnection,
+        tapp_id: &str,
+        approved: &str,
+        granted: &str,
+        status: &str,
+    ) {
         db.execute_raw(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
             r#"INSERT INTO tapps
                 (tapp_id, user_id, name, version, manifest, status,
                  granted_permissions, approved_permissions, needs_reauthorization,
                  file_path, code_path, installed_at, updated_at, visibility)
-               VALUES ($1, $2, 'legacy-permission-fixture', '1.0.0', '{}'::jsonb, 'installed',
+               VALUES ($1, $2, 'legacy-permission-fixture', '1.0.0', '{}'::jsonb, $5,
                        $3::jsonb, $4::jsonb, false,
                        '/tmp/manifest.json', '/tmp/main.js', NOW(), NOW(), 'all')"#,
             vec![
@@ -464,6 +521,7 @@ mod integration {
                 TEST_OWNER_USER_ID.into(),
                 granted.into(),
                 approved.into(),
+                status.to_string().into(),
             ],
         ))
         .await
@@ -545,12 +603,20 @@ mod integration {
             "[\"storage:read\"]",
         )
         .await;
+        insert_fixture_with_status(
+            &db,
+            "legacy-running",
+            "[\"storage\",\"network:fetch\"]",
+            "[\"storage\"]",
+            "running",
+        )
+        .await;
 
         // Run the cleanup (the migration already applied; re-run the
         // data step the way an interrupted upgrade would on retry).
         let changed = clear_legacy_grants(&db).await.unwrap();
         assert_eq!(
-            changed, 3,
+            changed, 4,
             "unaffected, retained-only, and malformed rows must not be touched"
         );
 
@@ -595,6 +661,29 @@ mod integration {
         assert_eq!(approved, serde_json::json!({"storage": true}));
         assert_eq!(granted, serde_json::json!(["storage:read"]));
         assert!(!flagged);
+
+        // A Running install is demoted: leftover approved names must not keep
+        // it live while the re-authorization marker is set.
+        let (approved, granted, flagged) = read_row(&db, "legacy-running").await;
+        assert_eq!(approved, serde_json::json!(["network:fetch"]));
+        assert_eq!(granted, serde_json::json!([]));
+        assert!(flagged);
+        let status_rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT status FROM tapps WHERE tapp_id = $1",
+                vec!["legacy-running".into()],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            status_rows
+                .first()
+                .unwrap()
+                .try_get::<String>("", "status")
+                .unwrap(),
+            "installed"
+        );
 
         // Repeated execution effect: a second run changes nothing.
         let changed = clear_legacy_grants(&db).await.unwrap();
