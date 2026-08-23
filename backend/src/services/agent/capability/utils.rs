@@ -487,7 +487,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "config.get" => "获取配置。AI 为 Standard（enabled/provider/model，不含密钥）；platforms 为接通标志；ui 为公开展示字段",
         "setup.status" => "系统设置状态。库表与管理员（与 HTTP /api/setup/status 一致，不含 AI 钥）",
         "auth.status" => "认证状态。检查用户认证和权限状态",
-        "permission.check" => "授予权限检查。按当前会话角色；带 tappId 时与该安装批准权限求交",
+        "permission.check" => "授予权限检查。按当前会话角色；带 tappId 时与该安装批准权限求交，需重新授权则 granted 为 false",
         "export.data" => "数据导出。导出平台数据为指定格式",
         "image.cache" => "图片缓存。缓存外部图片到本地",
         "proxy.image" => "图片代理。代理获取外链图片",

@@ -497,7 +497,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "permission.check".to_string(),
         name: "权限检查".to_string(),
-        description: "检查当前会话角色的授予权限；带 tappId 时再与该安装的批准权限求交".to_string(),
+        description: "检查当前会话角色的授予权限；带 tappId 时再与该安装的批准权限求交，需重新授权则 granted 为 false".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({

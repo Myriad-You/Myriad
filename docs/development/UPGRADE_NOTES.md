@@ -8,7 +8,9 @@
 
 - 运行时不签发、不校验 runtime grant（fail-closed），`start` 也拒绝；
 - 已是 `Running` 的安装会被打回 `Installed`，不能继续当活实例；
+- 已签发的 runtime grant 会按安装 `tapp_id` 从 `tapp_runtime_registry` 删除（与 `revoke_all_tapp_runtime_grants` 同一条过滤），飞在路上、已经过校验的请求仍可能走完，下一次 rebind / 新签发失败关闭；
 - `/tapi` 入站与调度器出站同样拒绝，不会按清理后剩下的批准权限继续跑；
+- Agent 探权（`permission.check`）与详情里的授予权限投影在标记为真时为空，不会把批准列剩余名字报成仍已授予；
 - 目录列表/详情中该应用呈现为需重新授权状态，详情的授予权限投影为空，可发起更新/重新授权。
 
 `needs_reauthorization` 列只由迁移 016 写入 `true`。启动时的 schema heal 只会 `ADD COLUMN … DEFAULT false`，不会跑数据清理。只 heal、没跑迁移时，退役串仍在列里，签发会因未知名失败，但 start / inbound / 调度器只认持久标记。

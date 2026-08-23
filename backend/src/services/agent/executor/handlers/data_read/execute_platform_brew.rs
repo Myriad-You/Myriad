@@ -3969,7 +3969,16 @@ async fn execute_tapp_widget(
     }))
 }
 
+/// 带 tappId 的探权：标记需重新授权时授予层为空。
+///
+/// 不得把批准列里剩下的可解析名字报成 `granted: true`——只有授予权限决定行为，
+/// 标记表示授权前提已消失。
+fn install_permission_is_granted(needs_reauthorization: bool, listed: bool) -> bool {
+    !needs_reauthorization && listed
+}
+
 /// 权限检查：当前会话角色的授予权限；带 tappId 时再与该安装的批准权限求交。
+/// 该安装 `needs_reauthorization` 时一律 `granted: false`。
 async fn execute_permission_check(
     params: &HashMap<String, Value>,
     ctx: &HandlerContext<'_>,
@@ -4008,10 +4017,13 @@ async fn execute_permission_check(
             Ok(tapp) => {
                 let approved =
                     crate::services::tapp_declared_api::installed_permissions_from_tapp(&tapp);
-                match TappPermissionService::filter_permissions_for_role(&config, role, &approved) {
+                let listed = match TappPermissionService::filter_permissions_for_role(
+                    &config, role, &approved,
+                ) {
                     Ok(granted_list) => granted_list.iter().any(|p| p == parsed.as_str()),
                     Err(_) => false,
-                }
+                };
+                install_permission_is_granted(tapp.needs_reauthorization, listed)
             }
             Err(_) => false,
         }
@@ -5519,6 +5531,17 @@ mod brew_db_helpers_tests {
         let mut params = HashMap::new();
         params.insert("webSearch".into(), json!("no"));
         assert!(!parse_allow_web_search(&params));
+    }
+
+    #[test]
+    fn marked_install_permission_probe_is_never_granted() {
+        assert!(
+            !install_permission_is_granted(true, true),
+            "marker must empty the granted layer even when the approved name still lists"
+        );
+        assert!(!install_permission_is_granted(true, false));
+        assert!(install_permission_is_granted(false, true));
+        assert!(!install_permission_is_granted(false, false));
     }
 }
 

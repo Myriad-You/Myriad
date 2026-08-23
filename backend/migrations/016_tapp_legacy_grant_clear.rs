@@ -120,6 +120,41 @@ pub fn demote_running_status(status: &str) -> String {
     }
 }
 
+/// Registry namespace used by `revoke_all_tapp_runtime_grants`.
+///
+/// Must stay equal to `RUNTIME_GRANT_NAMESPACE` in
+/// `backend/src/services/tapp_runtime_grant.rs`. The migration crate cannot
+/// import the backend service, so the SQL delete below is the equivalent.
+pub const RUNTIME_GRANT_NAMESPACE: &str = "runtime_grant";
+
+/// SQL equivalent of `revoke_all_tapp_runtime_grants(db, tapp_id)`:
+/// delete every `runtime_grant` row for that installation.
+pub fn revoke_runtime_grants_sql() -> &'static str {
+    "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND tapp_id = $2"
+}
+
+/// Drop already-issued runtime grants for one marked installation.
+///
+/// In-flight requests that already passed `validate` may still finish;
+/// the next rebind and every new issue fail closed. Process-local side
+/// effects (AI cancel / event disconnect) are not reachable from the
+/// migration crate — they die on process restart or the next refuse.
+pub async fn revoke_runtime_grants_for_tapp(
+    db: &impl ConnectionTrait,
+    tapp_id: &str,
+) -> Result<u64, DbErr> {
+    use sea_orm::Statement;
+
+    let result = db
+        .execute_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            revoke_runtime_grants_sql(),
+            vec![RUNTIME_GRANT_NAMESPACE.into(), tapp_id.to_string().into()],
+        ))
+        .await?;
+    Ok(result.rows_affected())
+}
+
 /// Clear retired permission strings from every installed TAPP row and
 /// flag the affected rows for re-authorization.
 ///
@@ -133,6 +168,10 @@ pub fn demote_running_status(status: &str) -> String {
 ///   (SeaORM Migrator wraps each migration in a transaction on PostgreSQL), so
 ///   a concurrent install/update re-approval cannot be overwritten by stale
 ///   SELECT values; every UPDATE must affect exactly one row.
+/// - After each marked UPDATE, delete `tapp_runtime_registry` rows in the
+///   `runtime_grant` namespace for that `tapp_id` (same filter as
+///   `revoke_all_tapp_runtime_grants`). Issued grants must not outlive the
+///   authorization premise.
 /// - Idempotent in effect: a second run finds no retired strings and changes
 ///   nothing, so an interrupted migration converges on retry.
 /// - Never clears the marker — only the explicit install/update/re-approval
@@ -149,7 +188,7 @@ pub async fn clear_legacy_grants(db: &impl ConnectionTrait) -> Result<u64, DbErr
     // FOR UPDATE 持有到 migration 事务提交，串行化并发安装/更新对同一行的写入。
     let retired_array = retired_permission_array_sql();
     let select_sql = format!(
-        r#"SELECT id, approved_permissions, granted_permissions, status
+        r#"SELECT id, tapp_id, approved_permissions, granted_permissions, status
                  FROM tapps
                 WHERE (jsonb_typeof(approved_permissions) = 'array'
                        AND approved_permissions ?| {retired_array})
@@ -168,6 +207,7 @@ pub async fn clear_legacy_grants(db: &impl ConnectionTrait) -> Result<u64, DbErr
     let mut changed = 0u64;
     for row in rows {
         let id: i32 = row.try_get::<i32>("", "id")?;
+        let tapp_id: String = row.try_get::<String>("", "tapp_id")?;
         let approved: serde_json::Value =
             row.try_get::<serde_json::Value>("", "approved_permissions")?;
         let granted: serde_json::Value =
@@ -202,6 +242,7 @@ pub async fn clear_legacy_grants(db: &impl ConnectionTrait) -> Result<u64, DbErr
             ))
             .await?;
         ensure_single_row_updated(id, result.rows_affected())?;
+        revoke_runtime_grants_for_tapp(db, &tapp_id).await?;
         changed += 1;
     }
     Ok(changed)
@@ -476,6 +517,26 @@ mod tests {
         assert_eq!(demote_running_status("error"), "error");
         assert_eq!(demote_running_status("suspended"), "suspended");
     }
+
+    #[test]
+    fn revoke_sql_matches_revoke_all_filter() {
+        // Must stay aligned with delete_matching(namespace, None, Some(tapp_id), None)
+        // in myriad-tapp-registry / revoke_all_tapp_runtime_grants.
+        assert_eq!(RUNTIME_GRANT_NAMESPACE, "runtime_grant");
+        let sql = revoke_runtime_grants_sql();
+        assert!(
+            sql.contains("tapp_runtime_registry"),
+            "must delete from the grant registry: {sql}"
+        );
+        assert!(
+            sql.contains("namespace = $1"),
+            "must bind the runtime_grant namespace: {sql}"
+        );
+        assert!(
+            sql.contains("tapp_id = $2"),
+            "must bind the installation tapp_id: {sql}"
+        );
+    }
 }
 
 /// End-to-end migration test against a real PostgreSQL database.
@@ -528,6 +589,40 @@ mod integration {
         .unwrap();
     }
 
+    async fn insert_runtime_grant(
+        db: &sea_orm::DatabaseConnection,
+        tapp_id: &str,
+        record_id: &str,
+    ) {
+        db.execute_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            r#"INSERT INTO tapp_runtime_registry
+                (namespace, record_id, subject_id, owner_id, tapp_id, runtime_id,
+                 payload, expires_at)
+               VALUES ($1, $2, 1, 1, $3, $2, '{}'::jsonb, 4102444800)"#,
+            vec![
+                RUNTIME_GRANT_NAMESPACE.into(),
+                record_id.into(),
+                tapp_id.into(),
+            ],
+        ))
+        .await
+        .unwrap();
+    }
+
+    async fn runtime_grant_count(db: &sea_orm::DatabaseConnection, tapp_id: &str) -> i64 {
+        let rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT COUNT(*)::BIGINT AS n FROM tapp_runtime_registry
+                  WHERE namespace = $1 AND tapp_id = $2",
+                vec![RUNTIME_GRANT_NAMESPACE.into(), tapp_id.into()],
+            ))
+            .await
+            .unwrap();
+        rows.first().unwrap().try_get::<i64>("", "n").unwrap()
+    }
+
     async fn read_row(
         db: &sea_orm::DatabaseConnection,
         tapp_id: &str,
@@ -564,6 +659,12 @@ mod integration {
 
         // Clean slate: full greenfield + upgrade path, then drop prior fixtures.
         crate::Migrator::up(&db, None).await.unwrap();
+        db.execute_raw(Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "DELETE FROM tapp_runtime_registry WHERE tapp_id LIKE 'legacy-%'",
+        ))
+        .await
+        .unwrap();
         db.execute_raw(Statement::from_string(
             sea_orm::DatabaseBackend::Postgres,
             "DELETE FROM tapps WHERE user_id = 999999",
@@ -611,6 +712,8 @@ mod integration {
             "running",
         )
         .await;
+        insert_runtime_grant(&db, "legacy-running", "grant-legacy-running").await;
+        insert_runtime_grant(&db, "legacy-unaffected", "grant-legacy-unaffected").await;
 
         // Run the cleanup (the migration already applied; re-run the
         // data step the way an interrupted upgrade would on retry).
@@ -684,6 +787,16 @@ mod integration {
                 .unwrap(),
             "installed"
         );
+        assert_eq!(
+            runtime_grant_count(&db, "legacy-running").await,
+            0,
+            "marked installs must lose issued runtime grants"
+        );
+        assert_eq!(
+            runtime_grant_count(&db, "legacy-unaffected").await,
+            1,
+            "unaffected installs must keep their runtime grants"
+        );
 
         // Repeated execution effect: a second run changes nothing.
         let changed = clear_legacy_grants(&db).await.unwrap();
@@ -756,6 +869,12 @@ mod integration {
             "002 defines granted_permissions as json; the predicate's ::jsonb cast depends on it"
         );
 
+        db.execute_raw(Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "DELETE FROM tapp_runtime_registry WHERE tapp_id LIKE 'legacy-%'",
+        ))
+        .await
+        .unwrap();
         db.execute_raw(Statement::from_string(
             sea_orm::DatabaseBackend::Postgres,
             "DELETE FROM tapps WHERE user_id = 999999",

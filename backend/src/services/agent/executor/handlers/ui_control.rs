@@ -25,6 +25,20 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Agent 详情里的授予权限投影。
+///
+/// 标记需重新授权时不得把批准列当授予层漏出去——只有授予权限决定行为。
+fn agent_detail_granted_permissions(
+    approved_permissions: &Value,
+    needs_reauthorization: bool,
+) -> Value {
+    if needs_reauthorization {
+        json!([])
+    } else {
+        approved_permissions.clone()
+    }
+}
+
 /// 执行 UI 控制能力
 pub async fn execute(
     capability_id: &str,
@@ -491,7 +505,11 @@ pub(super) async fn execute_tapp_page_content(
                         "icon": app.icon.clone(),
                         "themeColor": app.theme_color.clone(),
                         "status": format!("{:?}", app.status),
-                        "grantedPermissions": app.approved_permissions.clone(),
+                        "grantedPermissions": agent_detail_granted_permissions(
+                            &app.approved_permissions,
+                            app.needs_reauthorization,
+                        ),
+                        "needsReauthorization": app.needs_reauthorization,
                         "manifest": app.manifest.clone(),
                         "installedAt": app.installed_at.to_string(),
                         "lastRunAt": app.last_run_at.map(|t| t.to_string()),
@@ -1276,5 +1294,23 @@ async fn execute_page_content(
         _ => Err(format!(
             "无法读取页面内容：pageType={page_type} 没有对应的数据能力，且未提供 context 快照"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marked_detail_does_not_leak_approved_as_granted() {
+        let approved = json!(["ui:theme", "media:control"]);
+        assert_eq!(
+            agent_detail_granted_permissions(&approved, true),
+            json!([])
+        );
+        assert_eq!(
+            agent_detail_granted_permissions(&approved, false),
+            approved
+        );
     }
 }
