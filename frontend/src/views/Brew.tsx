@@ -386,15 +386,21 @@ export default function Brew() {
         title: t.brew.me,
         ariaLabel: t.brew.me,
       },
-      {
-        id: 'starred',
-        icon: NavIcons.starred,
-        label: t.brew.starred,
-        title: t.brew.starred,
-        ariaLabel: t.brew.starred,
-      },
+      // 收藏是登录态功能：游客点进去主区恒为空（viewMode === 'starred' 还要
+      // 求 isAuthenticated），所以入口本身就不该出现。
+      ...(isAuthenticated
+        ? [
+            {
+              id: 'starred',
+              icon: NavIcons.starred,
+              label: t.brew.starred,
+              title: t.brew.starred,
+              ariaLabel: t.brew.starred,
+            },
+          ]
+        : []),
     ],
-    [t],
+    [t, isAuthenticated],
   )
 
   // 使用二级导航 Hook
@@ -729,25 +735,35 @@ export default function Brew() {
   }, [])
 
   // 根据二级导航 id 同步视图模式 / 分类筛选
-  const applyNavCategory = useCallback((navId: string) => {
-    if (navId === 'starred') {
-      setViewMode('starred')
-      setSelectedSource(null)
-    } else if (navId === 'friends') {
-      setViewMode('sources')
-      setSelectedCategory('friends')
-      setSelectedSource(null)
-    } else if (navId === 'mine') {
-      // "我"分类特殊处理：直接展示合并的文章列表，不显示网站卡片
-      setViewMode('category-feed')
-      setSelectedCategory('mine')
-      setSelectedSource(null)
-    } else if (navId === 'all') {
-      setViewMode('sources')
-      setSelectedCategory('all')
-      setSelectedSource(null)
-    }
-  }, [])
+  const applyNavCategory = useCallback(
+    (navId: string) => {
+      if (navId === 'starred') {
+        // 游客没有收藏：deep-link ?category=starred 回落到「全部」而不是空白主区
+        if (!isAuthenticated) {
+          setViewMode('sources')
+          setSelectedCategory('all')
+          setSelectedSource(null)
+          return
+        }
+        setViewMode('starred')
+        setSelectedSource(null)
+      } else if (navId === 'friends') {
+        setViewMode('sources')
+        setSelectedCategory('friends')
+        setSelectedSource(null)
+      } else if (navId === 'mine') {
+        // "我"分类特殊处理：直接展示合并的文章列表，不显示网站卡片
+        setViewMode('category-feed')
+        setSelectedCategory('mine')
+        setSelectedSource(null)
+      } else if (navId === 'all') {
+        setViewMode('sources')
+        setSelectedCategory('all')
+        setSelectedSource(null)
+      }
+    },
+    [isAuthenticated],
+  )
 
   // 监听导航变化
   // 用于追踪上一次的 activeId，避免 viewMode 变化导致重复执行
@@ -1000,7 +1016,13 @@ export default function Brew() {
         })
       },
     )
-    // 如果未读，自动标记为已读
+    // 如果未读，自动标记为已读。
+    // 游客侧 is_read 恒为 false（后端 LEFT JOIN user_id = -1），markRead 必 401，
+    // 所以未登录时既不写库也不动本地已读态。
+    if (!isAuthenticated) {
+      setSelectedItem(item)
+      return
+    }
     if (!item.is_read) {
       // 先更新为已读状态再显示
       const updatedItem = { ...item, is_read: true }
@@ -1339,6 +1361,8 @@ export default function Brew() {
 
   // 处理已读/未读切换
   const handleToggleRead = async (item: BrewItem) => {
+    // 已读态是登录态数据；游客按 `m` 只会拿到 401
+    if (!isAuthenticated) return
     try {
       if (item.is_read) {
         await brewApi.markUnread(item.id)

@@ -45,6 +45,11 @@ export interface SourceCardProps {
     sourceId: number,
   ) => void
   sortMode?: SortMode
+  /**
+   * 已登录才有真实已读态。游客侧 `list_sources` 用 `user_id = -1` 做 LEFT JOIN，
+   * `recent_items[].is_read` 恒为 false —— 未读圆点必须按角色隐藏，不是改后端 SQL。
+   */
+  isAuthenticated?: boolean
 }
 
 /** 文章条目卡片 Props */

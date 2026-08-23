@@ -925,6 +925,7 @@ export default function BrewSourceGrid({
                   isDragOver={dragOverSourceId === source.id}
                   onDragStart={handleCardDragStart}
                   sortMode={sortMode}
+                  isAuthenticated={isAuthenticated}
                 />
               </React.Fragment>
             )

@@ -61,6 +61,7 @@ const BREW_TIP_ICON_ASSETS = {
 function generateDynamicTips(
   sources: BrewSource[],
   brewTranslations: Record<string, string>,
+  isAuthenticated: boolean,
 ): DynamicTip[] {
   const tips: DynamicTip[] = []
   const now = Date.now()
@@ -104,10 +105,14 @@ function generateDynamicTips(
     })
   }
 
-  // 找出有新文章的源
-  const withNewItems = sources.filter(
-    (s) => s.recent_items && s.recent_items.some((item) => !item.is_read),
-  )
+  // 找出有新文章的源。
+  // 游客侧 recent_items[].is_read 恒 false（后端用 user_id = -1 做 LEFT JOIN），
+  // 不按角色跳过的话「来自 XX 的新文章」会永远命中。
+  const withNewItems = isAuthenticated
+    ? sources.filter(
+        (s) => s.recent_items && s.recent_items.some((item) => !item.is_read),
+      )
+    : []
   if (withNewItems.length > 0) {
     const randomSource =
       withNewItems[Math.floor(Math.random() * withNewItems.length)]
@@ -186,10 +191,11 @@ function generateDynamicTips(
 function useDynamicTips(
   sources: BrewSource[],
   brewTranslations: Record<string, string>,
+  isAuthenticated: boolean,
 ) {
   const tips = useMemo(
-    () => generateDynamicTips(sources, brewTranslations),
-    [sources, brewTranslations],
+    () => generateDynamicTips(sources, brewTranslations, isAuthenticated),
+    [sources, brewTranslations, isAuthenticated],
   )
   const [currentIndex, setCurrentIndex] = useState(0)
 
@@ -343,6 +349,7 @@ export default function ControlIsland({
   const { tip, key: tipKey } = useDynamicTips(
     sources,
     t.brew as unknown as Record<string, string>,
+    isAuthenticated,
   )
 
   // 当模式变化时，自动切换
