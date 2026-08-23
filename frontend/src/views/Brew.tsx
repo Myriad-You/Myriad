@@ -34,6 +34,7 @@ import AnimatedView from '../components/AnimatedView'
 import BrewFeedList from '../components/brew/BrewFeedList'
 import BrewReader from '../components/brew/BrewReader'
 import BrewSourceGrid from '../components/brew/BrewSourceGrid'
+import { BrewWallSkeleton } from '../components/brew/BrewTileWall'
 import {
   BREW_MINE_CATEGORY,
   brewOwnItemPath,
@@ -41,6 +42,7 @@ import {
 } from '../components/brew/constants'
 import { topicHue, topicNameKey } from '../components/brew/logic/topics'
 import ControlIsland from '../components/brew/manager/ControlIsland'
+import { isBrewTileGridEnabled } from '../components/brew/tileGridFlag'
 import { Spinner } from '../components/Spinner'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
@@ -1515,9 +1517,30 @@ export default function Brew() {
   })
 
   if (loading) {
+    // 二次进入：先按上次的装箱结果铺一层骨架，避免整屏重排。没有缓存
+    // （首次访问 / flag 关）时 BrewWallSkeleton 返回 null，回落到 spinner。
+    // 与 BrewSourceGrid 传给磁贴墙的 scope 保持同一口径（分类 + 排序模式），
+    // 否则读的是另一把缓存键，骨架和真实布局对不上
+    const skeletonScope =
+      selectedCategory === 'all'
+        ? 'all'
+        : PRESET_CATEGORY_DB_VALUES[selectedCategory as PresetCategoryId]
+    const skeleton =
+      viewMode === 'sources' && isBrewTileGridEnabled() ? (
+        <BrewWallSkeleton scope={`${skeletonScope}:smart`} />
+      ) : null
+
     return (
-      <AnimatedView className="min-h-screen flex items-center justify-center pt-20 pb-28 sm:pb-24 md:pb-12">
-        <Spinner size="lg" className="text-orange-500" />
+      <AnimatedView className="min-h-screen">
+        <div className="h-full flex flex-col pt-20 pb-28 sm:pb-24 md:pb-12 px-3 xs:px-4 sm:px-6">
+          <div className="flex-1 max-w-7xl mx-auto w-full flex flex-col relative min-h-0">
+            {skeleton ?? (
+              <div className="flex flex-1 items-center justify-center">
+                <Spinner size="lg" className="text-orange-500" />
+              </div>
+            )}
+          </div>
+        </div>
       </AnimatedView>
     )
   }

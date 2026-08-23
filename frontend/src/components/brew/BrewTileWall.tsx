@@ -247,12 +247,6 @@ export default function BrewTileWall({
     [cards, cols, breakOnCategory, uncategorizedLabel],
   )
 
-  // 骨架：上次的装箱结果。二次进入先按旧位置铺一层，避免整屏重排。
-  const skeleton = useMemo(
-    () => (sources.length === 0 ? readLayoutCache(scope, cols) : null),
-    [sources.length, scope, cols],
-  )
-
   useEffect(() => {
     if (!isSearching && pages.length > 0) {
       writeLayoutCache(scope, cols, pages[0])
@@ -354,24 +348,6 @@ export default function BrewTileWall({
             />
           </div>
         ))}
-      </div>
-    )
-  }
-
-  // 骨架：只画位置，不画内容
-  if (skeleton && skeleton.length > 0) {
-    return (
-      <div className="brew-wall-viewport" ref={viewportRef}>
-        <div
-          className="brew-wall-page"
-          style={{ width: '100%', height: pageHeight }}
-        >
-          {skeleton.map((slot) => (
-            <div key={slot.key} style={slotStyle(slot, cols)}>
-              <div className="h-full w-full rounded-xl bg-black/4 dark:bg-white/5" />
-            </div>
-          ))}
-        </div>
       </div>
     )
   }
@@ -522,3 +498,35 @@ export function pageCategoryTitle(
 
 /** 一页容纳的行数（键盘 / 测试用）。 */
 export { ROWS as BREW_WALL_ROWS }
+
+/**
+ * 首屏骨架：读上次的装箱结果，按旧位置铺一层灰块。
+ *
+ * 必须挂在**父级的 loading 分支**上 —— 墙自己渲染时 sources 一定非空
+ * （BrewSourceGrid 在空列表时走空态分支），内部再判空是死代码。
+ *
+ * 没有缓存就返回 null，让调用方回落到 spinner；宁可转圈也不要画一屏假格子。
+ */
+export function BrewWallSkeleton({ scope }: { scope: string }) {
+  const band = useViewportBand()
+  const cols = homeGridColsForBand(band)
+  const slots = useMemo(() => readLayoutCache(scope, cols), [scope, cols])
+
+  if (!slots || slots.length === 0) return null
+
+  return (
+    <div className="brew-wall-viewport">
+      <div
+        className="brew-wall-page"
+        style={{ width: '100%', height: standardCellSizeForBand(band) * ROWS }}
+        aria-hidden
+      >
+        {slots.map((slot) => (
+          <div key={slot.key} style={slotStyle(slot, cols)}>
+            <div className="h-full w-full rounded-xl bg-black/4 dark:bg-white/5" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
