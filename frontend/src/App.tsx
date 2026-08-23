@@ -64,9 +64,6 @@ const TappBackgroundRunner = lazy(
 const Home = lazy(() => import('./views/Home.tsx'))
 const Library = lazy(() => import('./views/Library.tsx'))
 const Brew = lazy(() => import('./views/Brew.tsx'))
-// DEV 专用磁贴预览。仓库没有视觉回归，磁贴靠这一页人工扫；
-// 路由本身包在 import.meta.env.DEV 里，生产构建不会打进这个 chunk。
-const BrewTilePreview = lazy(() => import('./views/BrewTilePreview.tsx'))
 const Reports = lazy(() => import('./views/Reports.tsx'))
 const Config = lazy(() => import('./views/Config.tsx'))
 const Login = lazy(() => import('./views/Login.tsx'))
@@ -481,12 +478,17 @@ function AppRoutes() {
             </ModuleVisibilityGuard>
           }
         />
+        {/* DEV 专用磁贴预览。`lazy()` 必须写在 DEV 分支**里面** ——
+            写在模块顶层的话，即使路由被条件挡掉，动态 import 仍会被打成
+            生产 chunk（PerformanceMonitor 就是这么处理的）。 */}
         {import.meta.env.DEV && (
           <Route
             path="/dev/brew-tiles"
             element={
               <SuspensePage>
-                <BrewTilePreview />
+                {React.createElement(
+                  lazy(() => import('./views/BrewTilePreview.tsx')),
+                )}
               </SuspensePage>
             }
           />
