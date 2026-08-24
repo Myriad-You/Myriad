@@ -110,6 +110,56 @@ export type AgentResponseType =
   | 'task_completed'
   | 'error'
 
+export type PerformancePhase =
+  | 'reaction'
+  | 'delivery'
+  | 'outcome'
+  | 'proactive'
+  | 'mood'
+
+export interface PerformanceBaseline {
+  expression: 'withdrawn' | 'subdued' | 'steady' | 'warm'
+  posture: 'closed' | 'neutral' | 'open'
+  motionEnergy: number
+  attention: number
+}
+
+export interface PerformanceCue {
+  intent:
+    | 'greet'
+    | 'respond'
+    | 'question'
+    | 'delight'
+    | 'emphasize'
+    | 'listen'
+    | 'notify'
+  atMs: number
+  intensity: number
+  tempo: number
+  fadeInMs: number
+  fadeOutMs: number
+  interrupt: 'replace' | 'queue' | 'if-lower'
+}
+
+export interface PerformanceDirective {
+  phase: PerformancePhase
+  moodRevision: number
+  plan: {
+    baseline?: PerformanceBaseline
+    cues: PerformanceCue[]
+  }
+}
+
+export interface MoodTransition {
+  before: number
+  after: number
+  bandBefore: 'floor' | 'low' | 'normal' | 'high'
+  bandAfter: 'floor' | 'low' | 'normal' | 'high'
+  delta: number
+  cause: string
+  revision: number
+}
+
 /** Agent 响应 */
 export interface AgentResponse {
   success: boolean
@@ -124,6 +174,8 @@ export interface AgentResponse {
   confirmation?: ConfirmationInfo
   /** 前端操作指令 */
   frontendAction?: FrontendAction
+  /** Strict-Lite semantic performance; contains no raw rig driver values. */
+  performance?: PerformanceDirective
   sessionId?: string
 }
 
@@ -254,6 +306,17 @@ export interface SummaryTokenEvent {
   done: boolean
 }
 
+export interface PerformancePlanEvent {
+  type: 'performance_plan'
+  performance: PerformanceDirective
+}
+
+export interface MeropeStateChangedEvent {
+  type: 'merope_state_changed'
+  mood: MoodTransition
+  activity: string
+}
+
 /** 任务分配事件（多 Agent 协作时发送） */
 export interface TaskAssignedEvent {
   type: 'task_assigned'
@@ -345,6 +408,8 @@ export type ProgressEvent =
   | SessionCreatedEvent
   | SessionTitleUpdatedEvent
   | SummaryTokenEvent
+  | PerformancePlanEvent
+  | MeropeStateChangedEvent
   | PlannerDecisionEvent
   | StepDebugEvent
 

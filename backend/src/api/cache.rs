@@ -312,7 +312,11 @@ fn extract_preview_metrics(data: &Value, analysis: &Value) -> Vec<Value> {
     let mut metrics = Vec::new();
 
     if let Some(stats) = data.get("user_summary").and_then(|u| u.get("stats")) {
-        push_metric(&mut metrics, "total_content", stats.get("total_content").unwrap_or(&Value::Null));
+        push_metric(
+            &mut metrics,
+            "total_content",
+            stats.get("total_content").unwrap_or(&Value::Null),
+        );
         push_metric(
             &mut metrics,
             "follower_count",
@@ -384,7 +388,11 @@ fn extract_preview_metrics(data: &Value, analysis: &Value) -> Vec<Value> {
     // Deduplicate by key while preserving order
     let mut seen = std::collections::HashSet::new();
     metrics.retain(|m| {
-        let key = m.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let key = m
+            .get("key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         seen.insert(key)
     });
 
@@ -513,12 +521,7 @@ fn extract_preview_samples(analysis: &Value, raw_unknown: Option<&Value>) -> Vec
             if samples.len() >= MAX {
                 break;
             }
-            push_preview_samples_from_list(
-                &mut samples,
-                &mut seen_titles,
-                analysis.get(*key),
-                MAX,
-            );
+            push_preview_samples_from_list(&mut samples, &mut seen_titles, analysis.get(*key), MAX);
         }
     }
 
@@ -565,7 +568,8 @@ pub async fn clear_platform_cache(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "success": false,
-                    "error": format!("Failed to clear cache: {}", e)
+                    "error": "Failed to clear cache",
+                    "code": "cache_clear_failed"
                 })),
             )
         }
@@ -616,7 +620,8 @@ pub async fn clear_caches(
                 tracing::error!("❌ Failed to clear cache for {}: {}", platform, e);
                 errors.push(json!({
                     "platform": platform,
-                    "error": e.to_string()
+                    "error": "Failed to clear cache",
+                    "code": "cache_clear_failed"
                 }));
             }
         }
@@ -671,7 +676,8 @@ pub async fn clear_all_caches(State(_db): State<DatabaseConnection>) -> (StatusC
                                 tracing::error!("❌ Failed to remove {}: {}", file_name, e);
                                 errors.push(json!({
                                     "file": file_name,
-                                    "error": e.to_string()
+                                    "error": "Failed to clear cache",
+                                    "code": "cache_clear_failed"
                                 }));
                             }
                         }
@@ -680,11 +686,13 @@ pub async fn clear_all_caches(State(_db): State<DatabaseConnection>) -> (StatusC
             }
         }
         Err(e) => {
+            tracing::error!("Failed to read cache directory: {}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "success": false,
-                    "error": format!("Failed to read cache directory: {}", e)
+                    "error": "Failed to read cache directory",
+                    "code": "cache_clear_failed"
                 })),
             );
         }

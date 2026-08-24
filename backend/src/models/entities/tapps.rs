@@ -71,6 +71,11 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary")]
     pub approved_permissions: serde_json::Value,
 
+    /// 升级迁移清除旧权限后置 true：重新授权成功前，运行时不签发、不校验
+    /// runtime grant，不启动；inbound `/tapi` 与调度器同样拒绝。仅显式的
+    /// 安装/更新/重新授权路径可清回 false；普通读取、启动、schema heal 不得清。
+    pub needs_reauthorization: bool,
+
     /// .tapp 文件路径
     #[sea_orm(column_type = "Text")]
     pub file_path: String,

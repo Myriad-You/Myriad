@@ -135,7 +135,11 @@ pub fn validate_game_payload_schema(payload: &Value) -> Result<(), String> {
         .get("nonce")
         .and_then(Value::as_str)
         .ok_or_else(|| "Game payload.nonce is required".to_string())?;
-    if nonce.is_empty() || nonce.len() > 128 || !nonce.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    if nonce.is_empty()
+        || nonce.len() > 128
+        || !nonce
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         return Err("Game payload.nonce must be 1-128 URL-safe characters".into());
     }
@@ -218,9 +222,9 @@ fn is_tapp_id(value: &str) -> bool {
 fn is_protocol(value: &str) -> bool {
     let len = value.len();
     (1..=MAX_TAPP_GAME_PROTOCOL_LEN).contains(&len)
-        && value
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-' || c == '_')
+        && value.chars().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-' || c == '_'
+        })
 }
 
 #[cfg(test)]
@@ -272,13 +276,9 @@ mod tests {
             Some(&chess)
         )
         .is_err());
-        assert!(validate_room_game_message(
-            "game:com.example.chess:v1",
-            &payload,
-            false,
-            None
-        )
-        .is_err());
+        assert!(
+            validate_room_game_message("game:com.example.chess:v1", &payload, false, None).is_err()
+        );
         let oversized = json!({
             "kind": "intent",
             "seq": 1,
@@ -309,7 +309,9 @@ mod tests {
     fn rejects_unknown_fields_and_keyword_shaped_chat() {
         let extra = json!({"kind":"state","seq":1,"nonce":"a","body":{},"cheat":true});
         assert!(validate_game_payload(&extra, 1024).is_err());
-        assert!(!activity_is_structured_game_message(&json!({"type":"Note","content":"bomb"})));
+        assert!(!activity_is_structured_game_message(
+            &json!({"type":"Note","content":"bomb"})
+        ));
         assert!(activity_is_structured_game_message(&json!({
             "type": "myriad:RoomMessage",
             "object": {
@@ -338,7 +340,10 @@ mod tests {
             format_share_room_id("rm_abc", "peer.example:8443"),
             "rm_abc@peer.example:8443"
         );
-        assert_eq!(format_share_room_id("rm_abc@peer.example", "ignored"), "rm_abc@peer.example");
+        assert_eq!(
+            format_share_room_id("rm_abc@peer.example", "ignored"),
+            "rm_abc@peer.example"
+        );
     }
 
     #[test]
@@ -353,9 +358,6 @@ mod tests {
         let config = parse_room_game_config(Some(&wrapped)).unwrap();
         assert_eq!(config.protocol, "v1");
         assert_eq!(config.max_message_bytes, Some(131072));
-        assert_eq!(
-            game_message_byte_limit(Some(&config)),
-            131072
-        );
+        assert_eq!(game_message_byte_limit(Some(&config)), 131072);
     }
 }

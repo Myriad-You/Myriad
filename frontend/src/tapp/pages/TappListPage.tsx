@@ -41,6 +41,7 @@ import {
   useModuleVisibilityPreferences,
 } from '../../utils/moduleVisibility'
 import { hasSessionHint } from '../../utils/sessionDetection'
+import { userFacingError } from '../../utils/userFacingError'
 import { InstallTappDialog } from '../components/InstallTappDialog'
 import { TappPlaygroundIcon } from '../components/PlaygroundIcons'
 import {
@@ -376,6 +377,7 @@ export function TappListPage() {
       await runtime.startTapp(tappId)
     } catch (error) {
       console.error('Failed to start Tapp:', error)
+      showToastMessage(userFacingError(error, t.tapp.startAppFailed), 'error')
     }
   }
 
@@ -384,6 +386,7 @@ export function TappListPage() {
       await runtime.stopTapp(tappId)
     } catch (error) {
       console.error('Failed to stop Tapp:', error)
+      showToastMessage(userFacingError(error, t.tapp.unknownError), 'error')
     }
   }
 

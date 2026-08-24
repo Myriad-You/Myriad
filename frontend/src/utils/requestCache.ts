@@ -3,6 +3,9 @@
  * 使用内存缓存 + TTL + LRU 上限，减少重复请求并防止缓存无限增长
  */
 
+import { ApiError } from '../services/api'
+import { httpStatusMessage } from './userFacingError'
+
 interface CacheEntry<T> {
   data: T
   timestamp: number
@@ -227,7 +230,7 @@ export async function cachedFetch<T>(
     async () => {
       const response = await fetch(url, options)
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        throw new ApiError(httpStatusMessage(response.status), response.status)
       }
       return response.json()
     },

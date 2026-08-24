@@ -9,6 +9,12 @@
 import type { TappManifest } from '../types'
 import type { RemoteStoreLocales } from '../utils/storeLocale'
 import type { StorePreviewDescriptor } from '../utils/storePreview'
+import { currentCopy } from '../../i18n/localeCopy'
+import {
+  httpStatusMessage,
+  isUselessErrorText,
+  userFacingError,
+} from '../../utils/userFacingError'
 import api from '../../lib/api'
 import { TAPP_ICON_TOKENS } from '../constants/icons'
 import { parseStoreLocales } from '../utils/storeLocale'
@@ -157,8 +163,12 @@ export interface RemoteCategory {
 
 /** 官方远程商店 */
 export const OFFICIAL_STORE: RemoteStoreSource = {
-  name: 'Myriad 官方商店',
-  description: '官方应用源，托管经审核的 Tapp',
+  get name() {
+    return currentCopy().tapp.officialStoreName
+  },
+  get description() {
+    return currentCopy().tapp.officialStoreDescription
+  },
   url: 'https://raw.githubusercontent.com/Myriad-You/tapp-store/main/index.json',
   enabled: true,
   official: true,
@@ -261,6 +271,21 @@ class RemoteStoreServiceImpl {
     return sources.filter((s) => s.enabled)
   }
 
+  private storeSourceFailure(error: unknown, fallback: string): Error {
+    const axiosError = error as {
+      response?: { data?: { error?: unknown } }
+      message?: string
+    }
+    const bodyError =
+      typeof axiosError.response?.data?.error === 'string'
+        ? axiosError.response.data.error
+        : ''
+    const raw = bodyError || axiosError.message || ''
+    return new Error(
+      raw && !isUselessErrorText(raw) ? raw : userFacingError(error, fallback),
+    )
+  }
+
   /** 添加商店源（需要管理员权限） */
   async addSource(
     source: Omit<RemoteStoreSource, 'id' | 'official'>,
@@ -275,7 +300,12 @@ class RemoteStoreServiceImpl {
       })
 
       if (!response.data?.success) {
-        throw new Error(response.data?.error || '添加商店源失败')
+        throw new Error(
+          typeof response.data?.error === 'string' &&
+            !isUselessErrorText(response.data.error)
+            ? response.data.error
+            : currentCopy().tapp.storeAddFailed,
+        )
       }
 
       // 添加成功，刷新本地缓存
@@ -291,12 +321,12 @@ class RemoteStoreServiceImpl {
       this.sources.push(newSource)
     } catch (error: any) {
       if (error.response?.status === 403) {
-        throw new Error('需要管理员权限')
+        throw new Error(currentCopy().tapp.storeAdminRequired)
       }
       if (error.response?.status === 409) {
-        throw new Error('该商店源已存在')
+        throw new Error(currentCopy().tapp.storeSourceExists)
       }
-      throw new Error(error.message || '添加商店源失败')
+      throw this.storeSourceFailure(error, currentCopy().tapp.storeAddFailed)
     }
   }
 
@@ -304,14 +334,19 @@ class RemoteStoreServiceImpl {
   async removeSource(sourceId: number): Promise<void> {
     const source = this.sources.find((s) => s.id === sourceId)
     if (source?.official) {
-      throw new Error('无法移除官方商店')
+      throw new Error(currentCopy().tapp.storeCannotRemoveOfficial)
     }
 
     try {
       const response = await api.delete(`/api/tapps/store/sources/${sourceId}`)
 
       if (!response.data?.success) {
-        throw new Error(response.data?.error || '删除商店源失败')
+        throw new Error(
+          typeof response.data?.error === 'string' &&
+            !isUselessErrorText(response.data.error)
+            ? response.data.error
+            : currentCopy().tapp.storeRemoveFailed,
+        )
       }
 
       // 删除成功，更新本地缓存
@@ -320,12 +355,12 @@ class RemoteStoreServiceImpl {
       if (source) this.clearCachedSource(source.url)
     } catch (error: any) {
       if (error.response?.status === 403) {
-        throw new Error('需要管理员权限或无法删除官方商店')
+        throw new Error(currentCopy().tapp.storeCannotRemoveOfficial)
       }
       if (error.response?.status === 404) {
-        throw new Error('商店源不存在')
+        throw new Error(currentCopy().tapp.storeSourceNotFound)
       }
-      throw new Error(error.message || '删除商店源失败')
+      throw this.storeSourceFailure(error, currentCopy().tapp.storeRemoveFailed)
     }
   }
 
@@ -337,7 +372,12 @@ class RemoteStoreServiceImpl {
       })
 
       if (!response.data?.success) {
-        throw new Error(response.data?.error || '更新商店源失败')
+        throw new Error(
+          typeof response.data?.error === 'string' &&
+            !isUselessErrorText(response.data.error)
+            ? response.data.error
+            : currentCopy().tapp.storeUpdateFailed,
+        )
       }
 
       // 更新成功，更新本地缓存
@@ -347,12 +387,12 @@ class RemoteStoreServiceImpl {
       }
     } catch (error: any) {
       if (error.response?.status === 403) {
-        throw new Error('需要管理员权限')
+        throw new Error(currentCopy().tapp.storeAdminRequired)
       }
       if (error.response?.status === 404) {
-        throw new Error('商店源不存在')
+        throw new Error(currentCopy().tapp.storeSourceNotFound)
       }
-      throw new Error(error.message || '更新商店源失败')
+      throw this.storeSourceFailure(error, currentCopy().tapp.storeUpdateFailed)
     }
   }
 
@@ -372,7 +412,7 @@ class RemoteStoreServiceImpl {
   ): Promise<RemoteStoreSource> {
     const existing = this.sources.find((s) => s.id === sourceId)
     if (existing?.official && patch.url !== undefined) {
-      throw new Error('无法修改官方商店的 URL')
+      throw new Error(currentCopy().tapp.storeCannotEditOfficialUrl)
     }
 
     try {
@@ -382,7 +422,12 @@ class RemoteStoreServiceImpl {
       )
 
       if (!response.data?.success) {
-        throw new Error(response.data?.error || '更新商店源失败')
+        throw new Error(
+          typeof response.data?.error === 'string' &&
+            !isUselessErrorText(response.data.error)
+            ? response.data.error
+            : currentCopy().tapp.storeUpdateFailed,
+        )
       }
 
       const data = response.data.data
@@ -411,19 +456,19 @@ class RemoteStoreServiceImpl {
     } catch (error: any) {
       if (error.response?.status === 403) {
         throw new Error(
-          error.response?.data?.error || '需要管理员权限或无法修改官方商店 URL',
+          error.response?.data?.error || currentCopy().tapp.storeCannotEditOfficialUrl,
         )
       }
       if (error.response?.status === 404) {
-        throw new Error('商店源不存在')
+        throw new Error(currentCopy().tapp.storeSourceNotFound)
       }
       if (error.response?.status === 409) {
-        throw new Error('该商店源 URL 已存在')
+        throw new Error(currentCopy().tapp.storeUrlExists)
       }
       if (error.response?.status === 400) {
-        throw new Error(error.response?.data?.error || '无效的商店源')
+        throw new Error(error.response?.data?.error || currentCopy().tapp.storeInvalidSource)
       }
-      throw new Error(error.message || '更新商店源失败')
+      throw this.storeSourceFailure(error, currentCopy().tapp.storeUpdateFailed)
     }
   }
 
@@ -506,7 +551,7 @@ class RemoteStoreServiceImpl {
       )
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        throw new Error(httpStatusMessage(response.status))
       }
 
       const data = (await response.json()) as RemoteStoreIndex
@@ -515,7 +560,7 @@ class RemoteStoreServiceImpl {
 
       // 验证数据
       if (!data.name || !data.apps || !Array.isArray(data.apps)) {
-        throw new Error('无效的商店索引格式')
+        throw new Error(currentCopy().tapp.storeInvalidIndex)
       }
 
       data.apps = data.apps.map((app) => ({
@@ -542,7 +587,7 @@ class RemoteStoreServiceImpl {
         error,
       )
       throw new Error(
-        `无法获取商店数据: ${error instanceof Error ? error.message : '未知错误'}`,
+        userFacingError(error, currentCopy().tapp.loadRemoteFailed),
       )
     }
   }
@@ -579,7 +624,7 @@ class RemoteStoreServiceImpl {
         } catch (error) {
           return {
             source,
-            error: error instanceof Error ? error.message : '未知错误',
+            error: userFacingError(error, currentCopy().tapp.unknownError),
           }
         }
       }),
@@ -733,7 +778,9 @@ class RemoteStoreServiceImpl {
       this.storeResourceFetchInit({ Accept: 'application/json' }),
     )
     if (!response.ok) {
-      throw new Error(`无法下载 manifest: HTTP ${response.status}`)
+      throw new Error(
+        `${currentCopy().tapp.loadAppFailed} (HTTP ${response.status})`,
+      )
     }
 
     const manifest = (await response.json()) as TappManifest
@@ -755,7 +802,9 @@ class RemoteStoreServiceImpl {
 
     const response = await fetch(codeUrl, this.storeResourceFetchInit())
     if (!response.ok) {
-      throw new Error(`无法下载代码: HTTP ${response.status}`)
+      throw new Error(
+        `${currentCopy().tapp.appCodeLoadFailed} (HTTP ${response.status})`,
+      )
     }
 
     const code = await response.text()
@@ -1024,7 +1073,12 @@ class RemoteStoreServiceImpl {
           const [relative, path] = entries[index]!
           const content = await downloadText(path, `module ${relative}`)
           if (!content) {
-            throw new Error(`Failed to download module ${relative} (${path})`)
+            throw new Error(
+              currentCopy().tapp.storeDownloadFailed.replace(
+                '{name}',
+                `${relative}`,
+              ),
+            )
           }
           downloaded[relative] = content
           done++

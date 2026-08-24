@@ -7,6 +7,7 @@ import {
   consumeDataExchange,
   prepareDataExchange,
 } from '../services/TappApiService'
+import { userFacingError } from '../../utils/userFacingError'
 import { requestDataExchangeConsent } from './DataExchangeConsent'
 
 const PROVIDER_TIMEOUT_MS = 30_000
@@ -111,7 +112,7 @@ class DataExchangeBroker {
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Data Exchange failed',
+            userFacingError(error),
         }
       }
     })
@@ -125,7 +126,7 @@ class DataExchangeBroker {
         return {
           success: false,
           error:
-            error instanceof Error ? error.message : 'Provider response failed',
+            userFacingError(error),
         }
       }
     })

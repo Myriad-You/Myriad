@@ -134,6 +134,7 @@ function generateWidgetHTML(
   widgetId: string,
   widgetProps: WidgetRenderProps,
   sessionToken: string,
+  labels: { missing: string; renderFailed: string },
 ): string {
   const { manifest } = tappInstance
   const isDark = widgetProps.theme === 'dark'
@@ -256,7 +257,7 @@ function generateWidgetHTML(
             // Pure HTML static widget is fine; only error when there is no HTML either.
             if (!window._TAPP_HAS_HTML) {
               console.warn('[Widget] Not found:', widgetId);
-              container.innerHTML = '<div class="tapp-empty">Widget not found: ' + widgetId + '</div>';
+              container.innerHTML = '<div class="tapp-empty">' + ${serializeSandboxScriptValue(labels.missing)} + '</div>';
             }
             return;
           }
@@ -272,7 +273,7 @@ function generateWidgetHTML(
           var root = document.getElementById('widget-root');
           if (root) {
             root.innerHTML =
-              '<div class="tapp-empty tapp-text-error">Error: ' + (error && error.message ? error.message : error) + '</div>';
+              '<div class="tapp-empty tapp-text-error">' + ${serializeSandboxScriptValue(labels.renderFailed)} + '</div>';
           }
         }
       };
@@ -767,6 +768,10 @@ export const TappWidgetSandbox = memo(
         widgetId,
         propsForHtml,
         sessionToken,
+        {
+          missing: t.tapp.widgetNotFound,
+          renderFailed: t.tapp.appCodeLoadFailed,
+        },
       )
 
       // 关键：先设置 srcdoc，再插入 DOM
@@ -809,6 +814,8 @@ export const TappWidgetSandbox = memo(
       stableWidgetProps,
       subjectEpoch,
       previewMode,
+      t.tapp.widgetNotFound,
+      t.tapp.appCodeLoadFailed,
     ])
 
     // 语言变化监听

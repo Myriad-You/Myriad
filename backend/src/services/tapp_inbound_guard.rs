@@ -4,7 +4,7 @@
 //! verify failures; owners can pause a Tapp's inbound surface or clear a block.
 
 use crate::services::tapp_rate_limit::{
-    RateLimitError, anonymous_subject_fingerprint, increment_named_limit,
+    anonymous_subject_fingerprint, increment_named_limit, RateLimitError,
 };
 use crate::services::tapp_registry::{self, RegistryIdentity};
 use sea_orm::DatabaseConnection;

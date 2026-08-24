@@ -5,16 +5,18 @@ import { useI18n } from '../../../../contexts/I18nContext'
 import {
   generateSitePortrait,
   getSiteFace,
-} from '../../../../features/digital-life-companion/api'
-import { notifyFaceUpdated } from '../../../../features/digital-life-companion/events'
+} from '../../../../features/merope/api'
+import { notifyFaceUpdated } from '../../../../features/merope/events'
 import {
   generationFailureMessage,
   isGenerationTimeout,
   isPortraitInProgress,
 } from '../generationError'
+import { userFacingError } from '../../../../utils/userFacingError'
 import { ActionBar, PrimaryButton, StepBody } from '../ui/Chrome'
 import { ErrorNote } from '../ui/Feedback'
 import { TextArea } from '../ui/Field'
+import PortraitImportButton from '../ui/PortraitImportButton'
 
 interface Props {
   characterName: string
@@ -32,7 +34,7 @@ export default function MasterPortraitStep({
   onFinished,
 }: Props) {
   const { t } = useI18n()
-  const o = t.life.onboarding
+  const o = t.agentPersona.onboarding
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const [turns, setTurns] = useState<string[]>([])
@@ -166,9 +168,7 @@ export default function MasterPortraitStep({
       })
       .catch((reason) => {
         if (!cancelled) {
-          setError(
-            reason instanceof Error ? reason.message : o.portraitLoadFailed,
-          )
+          setError(userFacingError(reason, o.portraitLoadFailed))
         }
       })
       .finally(() => {
@@ -241,19 +241,19 @@ export default function MasterPortraitStep({
   ])
 
   return (
-    <section className="life-ob-master" aria-label={o.step5Title}>
+    <section className="merope-ob-master" aria-label={o.step5Title}>
       <StepBody>
         <div
-          className={`life-ob-master__layout${portraitUrl ? ' has-talk' : ''}`}
+          className={`merope-ob-master__layout${portraitUrl ? ' has-talk' : ''}`}
         >
           <div
-            className={`life-ob-master__preview${portraitUrl ? '' : ' is-empty'}`}
+            className={`merope-ob-master__preview${portraitUrl ? '' : ' is-empty'}`}
           >
             {portraitUrl ? (
               <img src={portraitUrl} alt={characterName} decoding="async" />
             ) : loading || generating ? (
-              <div className="life-ob-master__placeholder">
-                <span className="life-loading__orb" aria-hidden />
+              <div className="merope-ob-master__placeholder">
+                <span className="merope-loading__orb" aria-hidden />
                 <span>
                   {generating
                     ? editing
@@ -263,7 +263,7 @@ export default function MasterPortraitStep({
                 </span>
               </div>
             ) : (
-              <div className="life-ob-master__placeholder">
+              <div className="merope-ob-master__placeholder">
                 <LuImage aria-hidden />
                 <span>{o.portraitEmpty}</span>
               </div>
@@ -271,18 +271,18 @@ export default function MasterPortraitStep({
           </div>
 
           {portraitUrl ? (
-            <div className="life-ob-talk">
+            <div className="merope-ob-talk">
               {turns.length > 0 ? (
-                <ol className="life-ob-talk__thread" aria-label={o.portraitTalkLead}>
+                <ol className="merope-ob-talk__thread" aria-label={o.portraitTalkLead}>
                   {turns.map((turn, index) => (
-                    <li key={`${index}-${turn}`} className="life-ob-talk__turn">
+                    <li key={`${index}-${turn}`} className="merope-ob-talk__turn">
                       {turn}
                     </li>
                   ))}
                 </ol>
               ) : null}
-              <label className="life-ob-talk__composer">
-                <span className="life-ob-field__label">
+              <label className="merope-ob-talk__composer">
+                <span className="merope-ob-field__label">
                   {o.portraitRequirements}
                 </span>
                 <TextArea
@@ -304,7 +304,7 @@ export default function MasterPortraitStep({
                 />
                 <button
                   type="button"
-                  className="life-ghost-button life-ob-talk__send"
+                  className="merope-ghost-button merope-ob-talk__send"
                   disabled={blocked || !composer.trim()}
                   onClick={sendEdit}
                 >
@@ -317,6 +317,15 @@ export default function MasterPortraitStep({
         {error ? <ErrorNote>{error}</ErrorNote> : null}
       </StepBody>
       <ActionBar>
+        <PortraitImportButton
+          disabled={blocked}
+          onError={setError}
+          onUploaded={(url) => {
+            claimedGenerate.current = true
+            setPortraitUrl(url)
+            setError('')
+          }}
+        />
         <PrimaryButton
           label={
             generating

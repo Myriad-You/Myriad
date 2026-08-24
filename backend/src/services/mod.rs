@@ -20,7 +20,7 @@ pub mod config_service;
 pub mod content_databases; // Preset anime/game/artist databases
 pub mod data_key; // Config-key / federation private-key envelope
 pub mod data_paths;
-pub mod digital_life_rig; // Site-wide compiled 2.5D face package
+pub mod merope_rig; // Site-wide compiled 2.5D face package
 pub mod enka_assets; // Enka character metadata for Hoyoverse cards
 pub mod fetcher;
 pub mod gemini_media; // Gemini generateContent image + speech
@@ -45,8 +45,8 @@ pub mod platform_cache; // Platform filtered-JSON cache
 pub mod platform_items; // Cache → uniform items[] projection
 pub mod platform_refresh; // Platform fetch/cache (profile HTTP + scheduler)
 pub mod profile_text; // 名称/简介文案来源（与 avatar 独立）
-pub mod server_location; // Egress location dual-source probe
 pub mod see_through; // Remote See-through layered-PSD decomposition
+pub mod server_location; // Egress location dual-source probe
 pub mod site_owner;
 pub mod smart_filter;
 pub mod speech_runtime; // Provider resolve + test/status
@@ -100,4 +100,5 @@ pub mod brew_topics;
 pub mod icon_service;
 pub mod image_cache; // e.g. Notion temporary URLs
 pub mod notion_service;
+pub mod rig_chest_analysis; // One-shot vision profile for Anime2.5D chest motion
 pub mod rsshub_service;

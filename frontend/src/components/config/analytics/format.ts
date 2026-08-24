@@ -2,6 +2,8 @@
  * 访客统计图表共用：数值 / 时长格式化与坐标轴取整
  */
 
+import { copyForLocale } from '../../../i18n/localeCopy'
+
 export function formatCount(n: number, locale: string): string {
   if (!Number.isFinite(n)) return '—'
   try {
@@ -17,18 +19,17 @@ export function formatCount(n: number, locale: string): string {
 export function formatDuration(ms: number, locale: string): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—'
   const sec = Math.round(ms / 1000)
+  const t = copyForLocale(locale).common
   if (sec < 60) {
-    return locale.startsWith('zh')
-      ? `${sec} 秒`
-      : locale.startsWith('ja')
-        ? `${sec} 秒`
-        : `${sec}s`
+    return t.durationSeconds.replace('{sec}', String(sec))
   }
   const min = Math.floor(sec / 60)
   const rem = sec % 60
-  if (locale.startsWith('zh')) return rem ? `${min} 分 ${rem} 秒` : `${min} 分`
-  if (locale.startsWith('ja')) return rem ? `${min} 分 ${rem} 秒` : `${min} 分`
-  return rem ? `${min}m ${rem}s` : `${min}m`
+  return rem
+    ? t.durationMinutesSeconds
+        .replace('{min}', String(min))
+        .replace('{sec}', String(rem))
+    : t.durationMinutes.replace('{min}', String(min))
 }
 
 /** `2026-07-30` → `07-30`（轴与行内标签用短日期） */

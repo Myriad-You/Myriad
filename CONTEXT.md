@@ -131,10 +131,18 @@ _Avoid_: 全局配置、共享 storage
 安装级 KV，语义是数据仓库而不是配置。同样落在安装 owner 命名空间：owner / 管理员写入，访客读同一份。公开部署用来展示站长数据。
 _Avoid_: 共享 storage、全局 storage、站点仓库、Tapp.data（那是数据处理 API）、共享层（那是代码层，不是存储）
 
-### Agent 生命
+### Agent
+
+用户界面叫 **Agent**。内部项目名是 Arael。站点助手：计划、执行、记忆、MCP。
+_Avoid_: Arael Agent、Arael 智能体、把 Arael 当产品名
+
+### Merope
+
+内部项目名是 Merope。用户界面叫 **Agent 人设**（en: Agent persona，ja: Agent ペルソナ）。站点一份的说话人格与上半身形象。这和 Myriad 作为「个人数字生活平台」的定位不是一回事。
+_Avoid_: Agent 生命、Agent life、Digital Life、数字生命、数字伙伴、companion（产品名）、人設（日语职衔，不是 人设）
 
 **设定（persona）**：
-全站一份的名字、性格和立绘，只有站长能写。没写过时对外叫 Arael。对谁说话都是这同一个人。
+全站一份的名字、性格和立绘，只有站长能写。人设关掉时对外叫 Agent。人设开着但没写名字时对外叫 Arael——那是人设默认名，不是产品名。对谁说话都是这同一个人。
 _Avoid_: 档案、人设文件、SOUL
 
 **视觉设定（visual profile）**：

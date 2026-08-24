@@ -6,7 +6,6 @@
 //!
 //! `mark_failed` returns whether dependents are blocked (Abort strategy).
 
-
 use std::collections::{HashMap, HashSet};
 
 use crate::services::agent::types::{FailureStrategy, RecipeStep};

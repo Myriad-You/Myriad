@@ -585,7 +585,10 @@ async fn local_actor_document_for_base(
             [username.into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })?
         .ok_or_else(|| format!("Local user not found: {}", username))?;
 
     let display_name: Option<String> = row.try_get("", "display_name").ok();
@@ -680,8 +683,10 @@ pub async fn migrate_follows_old_to_new(
             [old_actor_url.into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?
-    {
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })? {
         Some(r) => r.try_get::<i32>("", "id").unwrap_or(0),
         None => {
             // No local knowledge of old actor — nothing to migrate
@@ -711,7 +716,10 @@ pub async fn migrate_follows_old_to_new(
             [old_remote.into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error listing follows: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("DB error listing follows: {}", e);
+            "Database error".to_string()
+        })?;
 
     let mut migrated = 0u32;
 
@@ -736,7 +744,10 @@ pub async fn migrate_follows_old_to_new(
                 ],
             ))
             .await
-            .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
+            .map_err(|e| {
+                tracing::error!("DB error: {}", e);
+                "Database error".to_string()
+            })?;
 
         match plan_follow_repoint(
             &status,
@@ -1205,15 +1216,17 @@ pub async fn domain_move_all_users(
 ) -> Result<DomainMoveResponse, (StatusCode, Json<serde_json::Value>)> {
     // 1. Validate
     let old_base = normalize_base_url(&req.old_base_url).map_err(|e| {
+        tracing::warn!("Invalid old_base_url: {e}");
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("old_base_url: {}", e)})),
+            Json(json!({"error": "Invalid origin", "code": "domain_invalid"})),
         )
     })?;
     let new_base = normalize_base_url(&req.new_base_url).map_err(|e| {
+        tracing::warn!("Invalid new_base_url: {e}");
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("new_base_url: {}", e)})),
+            Json(json!({"error": "Invalid origin", "code": "domain_invalid"})),
         )
     })?;
 
@@ -1244,7 +1257,16 @@ pub async fn domain_move_all_users(
     } else {
         store_domain_alias(db, &old_base, &new_base)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))))?;
+            .map_err(|e| {
+                tracing::error!("Failed to store domain alias: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "error": "Failed to move federation identity",
+                        "code": "federation_move_failed",
+                    })),
+                )
+            })?;
         true
     };
 
@@ -1252,9 +1274,13 @@ pub async fn domain_move_all_users(
     let shared_keys = retarget_shared_keys(db, &old_base, &new_base, dry)
         .await
         .map_err(|e| {
+            tracing::error!("Failed to retarget shared keys: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("shared keys (G): {}", e)})),
+                Json(json!({
+                    "error": "Failed to move federation identity",
+                    "code": "federation_move_failed",
+                })),
             )
         })?;
 
@@ -1332,9 +1358,13 @@ pub async fn domain_move_all_users(
     let local_rewrite = rewrite_local_federation_urls(db, &old_base, &new_base, dry)
         .await
         .map_err(|e| {
+            tracing::error!("Failed to rewrite local federation URLs: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("local rewrite (E): {}", e)})),
+                Json(json!({
+                    "error": "Failed to move federation identity",
+                    "code": "federation_move_failed",
+                })),
             )
         })?;
 

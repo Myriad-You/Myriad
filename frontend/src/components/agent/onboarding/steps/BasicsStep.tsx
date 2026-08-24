@@ -1,5 +1,5 @@
 import type {
-  LifeGender,
+  PersonaGender,
   NameStyle,
   OnboardingHeaderChrome,
 } from '../onboardingTypes'
@@ -16,12 +16,12 @@ import NameStyleRoll from '../ui/NameStyleRoll'
 
 interface Props {
   displayName: string
-  gender: LifeGender | null
+  gender: PersonaGender | null
   extraRequirements: string
   selectedTags: string[]
   busy: boolean
   onDisplayName: (value: string) => void
-  onGender: (value: LifeGender) => void
+  onGender: (value: PersonaGender) => void
   onExtra: (value: string) => void
   onSubmit: () => Promise<void>
   onHeaderChange: (chrome: OnboardingHeaderChrome) => void
@@ -40,7 +40,7 @@ export default function BasicsStep({
   onHeaderChange,
 }: Props) {
   const { t, locale } = useI18n()
-  const o = t.life.onboarding
+  const o = t.agentPersona.onboarding
   const [localError, setLocalError] = useState('')
   const [nameError, setNameError] = useState('')
   const [rollingName, setRollingName] = useState(false)
@@ -96,7 +96,7 @@ export default function BasicsStep({
     <section aria-label={o.step2Title}>
       <StepBody>
         <FieldGroup label={o.nameLabel}>
-          <div className="life-ob-name-field">
+          <div className="merope-ob-name-field">
             <TextInput
               value={displayName}
               maxLength={40}
@@ -118,11 +118,11 @@ export default function BasicsStep({
             />
           </div>
           {nameError ? (
-            <small className="life-ob-field__hint" role="alert">
+            <small className="merope-ob-field__hint" role="alert">
               {nameError}
             </small>
           ) : (
-            <small className="life-ob-field__hint">{o.nameHint}</small>
+            <small className="merope-ob-field__hint">{o.nameHint}</small>
           )}
         </FieldGroup>
 

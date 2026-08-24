@@ -20,6 +20,7 @@ import type {
   TappMessage,
   TappPermission,
 } from '../types'
+import { userFacingError } from '../../utils/userFacingError'
 import { getQuotaManager } from '../services/QuotaManager'
 import {
   federationLiveLimits,
@@ -1022,7 +1023,7 @@ export class TappBridge {
       console.error(`[TappBridge] Handler error for ${action}:`, error)
       this.sendResponse(id, {
         success: false,
-        error: error instanceof Error ? error.message : 'Internal error',
+        error: userFacingError(error),
         code: 'HANDLER_ERROR',
       })
     } finally {

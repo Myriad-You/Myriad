@@ -322,7 +322,7 @@ impl MetadataService {
         };
 
         let inserted_history = history.insert(&self.db).await?;
-        let life_summary = platform_life_summary(platform_name, &activity);
+        let activity_summary = platform_activity_summary(platform_name, &activity);
         let ingest_imported = activity.event_type == "imported";
         let ingest_high_value = activity.importance >= 80 && activity.event_type != "suppressed";
 
@@ -348,12 +348,12 @@ impl MetadataService {
                 error
             );
         } else if ingest_imported {
-            crate::services::agent::life::spawn_diary(user_id, life_summary);
+            crate::services::agent::merope::spawn_diary(user_id, activity_summary);
         } else if ingest_high_value {
-            crate::services::agent::life::spawn_ingest(
+            crate::services::agent::merope::spawn_ingest(
                 user_id,
-                "agent.life.platform_activity",
-                life_summary,
+                "agent.merope.platform_activity",
+                activity_summary,
             );
         }
         tracing::info!(
@@ -619,7 +619,7 @@ impl MetadataService {
     }
 }
 
-fn platform_life_summary(platform: &str, activity: &ActivityPayload) -> String {
+fn platform_activity_summary(platform: &str, activity: &ActivityPayload) -> String {
     let label = platform_label(platform);
     if activity.event_type == "imported" {
         return format!("{label} 完成了首次导入");

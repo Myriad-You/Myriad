@@ -23,7 +23,7 @@ use std::sync::Arc;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, Value as SeaValue};
 
 /// Task-local attribution for non-governed paths that call `AiAnalyzer` / image /
-/// speech directly (Arael, report generation, prompt tools, …). Governed tasks
+/// speech directly (Agent, report generation, prompt tools, …). Governed tasks
 /// already call [`record_ai_cost`] explicitly and should wrap the provider call
 /// in [`with_ai_ledger_suppressed`] (avoids double-count).
 #[derive(Debug, Clone)]
@@ -119,17 +119,15 @@ where
 }
 
 /// Attribute nested analyzer / image / speech calls to a site-wide source.
-pub async fn with_site_ai_ledger<F, T>(
-    subject_id: i32,
-    source: &str,
-    operation: &str,
-    fut: F,
-) -> T
+pub async fn with_site_ai_ledger<F, T>(subject_id: i32, source: &str, operation: &str, fut: F) -> T
 where
     F: Future<Output = T>,
 {
-    with_ai_ledger_attribution(AiLedgerAttribution::site(subject_id, source, operation), fut)
-        .await
+    with_ai_ledger_attribution(
+        AiLedgerAttribution::site(subject_id, source, operation),
+        fut,
+    )
+    .await
 }
 
 /// Durable site owner, or `1` when the database is not reachable.
@@ -143,7 +141,9 @@ pub async fn resolve_site_owner_id() -> i32 {
 }
 
 fn ledger_write_enabled() -> bool {
-    !AI_LEDGER_SUPPRESSED.try_with(|suppressed| *suppressed).unwrap_or(false)
+    !AI_LEDGER_SUPPRESSED
+        .try_with(|suppressed| *suppressed)
+        .unwrap_or(false)
 }
 
 fn fallback_attribution() -> AiLedgerAttribution {
@@ -434,12 +434,12 @@ mod tests {
 
     #[test]
     fn site_attribution_uses_source_bucket() {
-        let attr = AiLedgerAttribution::site(7, "life", "onboarding");
+        let attr = AiLedgerAttribution::site(7, "merope", "onboarding");
         assert_eq!(attr.subject_id, 7);
         assert_eq!(attr.owner_id, 7);
-        assert_eq!(attr.source, "life");
+        assert_eq!(attr.source, "merope");
         assert_eq!(attr.operation, "onboarding");
-        assert_eq!(attr.tapp_id, "__life__");
+        assert_eq!(attr.tapp_id, "__merope__");
         assert_eq!(attr.task_id, "onboarding");
     }
 
@@ -464,8 +464,7 @@ mod tests {
         with_ai_usage_meter(meter.clone(), async {
             with_ai_ledger_suppressed(async {
                 assert!(!ledger_write_enabled());
-                record_ai_call_from_attribution("openai", "m", 4_000, 0, "completed", None)
-                    .await;
+                record_ai_call_from_attribution("openai", "m", 4_000, 0, "completed", None).await;
             })
             .await;
             assert!(ledger_write_enabled());

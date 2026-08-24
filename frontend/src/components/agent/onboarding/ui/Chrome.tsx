@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { LuArrowRight, LuLoader2 } from '@lib/icons'
 
 export function StepBody({ children }: { children: ReactNode }) {
-  return <div className="life-ob-body sm-stagger">{children}</div>
+  return <div className="merope-ob-body sm-stagger">{children}</div>
 }
 
 export function GhostButton({
@@ -17,7 +17,7 @@ export function GhostButton({
   return (
     <button
       type="button"
-      className="life-ghost-button"
+      className="merope-ghost-button"
       disabled={disabled}
       onClick={onClick}
     >
@@ -40,7 +40,7 @@ export function PrimaryButton({
   return (
     <button
       type="button"
-      className="life-ob-cta"
+      className="merope-ob-cta"
       disabled={disabled || busy}
       onClick={onClick}
     >
@@ -55,5 +55,5 @@ export function PrimaryButton({
 }
 
 export function ActionBar({ children }: { children: ReactNode }) {
-  return <footer className="life-ob-bar">{children}</footer>
+  return <footer className="merope-ob-bar">{children}</footer>
 }

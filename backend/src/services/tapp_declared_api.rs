@@ -314,10 +314,14 @@ mod tests {
 
     #[test]
     fn declared_settings_treat_missing_and_null_as_empty() {
-        assert!(declared_settings_from_manifest(&json!({})).unwrap().is_empty());
-        assert!(declared_settings_from_manifest(&json!({ "settings": null }))
+        assert!(declared_settings_from_manifest(&json!({}))
             .unwrap()
             .is_empty());
+        assert!(
+            declared_settings_from_manifest(&json!({ "settings": null }))
+                .unwrap()
+                .is_empty()
+        );
         assert!(declared_settings_from_manifest(&json!({ "settings": [] }))
             .unwrap()
             .is_empty());

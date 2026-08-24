@@ -4,26 +4,40 @@
 //! HTML/JS 解析、路由/窗口/音乐纯规则见 [`crate::services::agent::ui_analysis`]。
 
 use super::HandlerContext;
-use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 use crate::models::entities::{tapp_scheduled_tasks, tapp_task_executions, tapp_widgets, tapps};
+use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 use crate::services::agent::ui_analysis::{
     build_breadcrumb, build_navigate_full_path, detect_page_type, extract_json_from_response,
     extract_route_context, generate_suggested_actions, get_page_name, is_safe_agent_tapp_id,
     is_valid_page_interact_action, is_valid_router_path, join_layer_analysis_sources,
-    normalize_music_control, parse_html_elements, parse_html_structure, parse_i18n, parse_js_events,
-    parse_js_functions, parse_playlist_id_param, resolve_window_close_target,
+    normalize_music_control, parse_html_elements, parse_html_structure, parse_i18n,
+    parse_js_events, parse_js_functions, parse_playlist_id_param, resolve_window_close_target,
     resolve_window_focus_target, router_can_go_back,
 };
 use crate::services::data_paths::paths;
 use crate::services::tapp_package_read::{
     installed_core_entry, installed_page_entry, installed_text_resource_plan,
 };
-use crate::services::tapp_validation::validate_resource_path;
 use crate::services::tapp_storage::{sandbox_storage_count, sandbox_storage_entries};
+use crate::services::tapp_validation::validate_resource_path;
 use sea_orm::{ColumnTrait, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
+
+/// Agent 详情里的授予权限投影。
+///
+/// 标记需重新授权时不得把批准列当授予层漏出去——只有授予权限决定行为。
+fn agent_detail_granted_permissions(
+    approved_permissions: &Value,
+    needs_reauthorization: bool,
+) -> Value {
+    if needs_reauthorization {
+        json!([])
+    } else {
+        approved_permissions.clone()
+    }
+}
 
 /// 执行 UI 控制能力
 pub async fn execute(
@@ -88,7 +102,7 @@ async fn execute_tapp_ui_analysis(
 
     // 验证 tapp_id 安全性，防止路径穿越（domain）
     if !is_safe_agent_tapp_id(tapp_id) {
-        return Err("无效的 tappId".to_string());
+        return Err("Invalid tappId".to_string());
     }
 
     // 获取 Tapp 信息
@@ -97,7 +111,10 @@ async fn execute_tapp_ui_analysis(
         .filter(tapps::Column::UserId.eq(user_id))
         .one(ctx.db)
         .await
-        .map_err(|e| format!("Failed to fetch tapp: {}", e))?
+        .map_err(|e| {
+            tracing::error!("Failed to fetch tapp: {e}");
+            "Failed to fetch tapp".to_string()
+        })?
         .ok_or("Tapp not found")?;
 
     let tapp_dir = paths().tapp_user_dir(user_id).join(tapp_id);
@@ -166,7 +183,7 @@ async fn execute_tapp_understand(
     let user_intent = params
         .get("userIntent")
         .and_then(|v| v.as_str())
-        .ok_or("Missing userIntent - 请描述你想要执行的操作")?;
+        .ok_or("Missing user intent")?;
     // 获取或复用 UI 分析结果
     let ui_analysis = if let Some(existing) = params.get("uiAnalysis") {
         existing.clone()
@@ -309,7 +326,7 @@ async fn find_accessible_tapp(
         .filter(tapps::Column::UserId.eq(ctx.user_id))
         .one(ctx.db)
         .await
-        .map_err(|e| format!("Failed to fetch Tapp: {e}"))?
+        .map_err(|_e| "Failed to fetch Tapp".to_string())?
     {
         return Ok(tapp);
     }
@@ -325,7 +342,7 @@ async fn find_accessible_tapp(
     query
         .one(ctx.db)
         .await
-        .map_err(|e| format!("Failed to fetch Tapp: {e}"))?
+        .map_err(|_e| "Failed to fetch Tapp".to_string())?
         .ok_or_else(|| "Tapp not found".to_string())
 }
 
@@ -382,7 +399,7 @@ pub(super) async fn execute_tapp_page_content(
                 .order_by_desc(tapps::Column::UpdatedAt)
                 .all(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch tapps: {}", e))?;
+                .map_err(|_e| "Failed to fetch tapps".to_string())?;
             let apps: Vec<_> = apps
                 .into_iter()
                 .filter(|app| {
@@ -491,7 +508,11 @@ pub(super) async fn execute_tapp_page_content(
                         "icon": app.icon.clone(),
                         "themeColor": app.theme_color.clone(),
                         "status": format!("{:?}", app.status),
-                        "grantedPermissions": app.approved_permissions.clone(),
+                        "grantedPermissions": agent_detail_granted_permissions(
+                            &app.approved_permissions,
+                            app.needs_reauthorization,
+                        ),
+                        "needsReauthorization": app.needs_reauthorization,
                         "manifest": app.manifest.clone(),
                         "installedAt": app.installed_at.to_string(),
                         "lastRunAt": app.last_run_at.map(|t| t.to_string()),
@@ -530,7 +551,7 @@ pub(super) async fn execute_tapp_page_content(
                 .filter(tapp_widgets::Column::UserId.eq(app.user_id))
                 .all(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch widgets: {}", e))?;
+                .map_err(|_e| "Failed to fetch widgets".to_string())?;
 
             let widget_list: Vec<Value> = widgets
                 .iter()
@@ -578,7 +599,7 @@ pub(super) async fn execute_tapp_page_content(
 
             let mut storage_items = sandbox_storage_entries(ctx.db, user_id, tapp_id_str)
                 .await
-                .map_err(|e| format!("Failed to fetch storage: {}", e))?;
+                .map_err(|_e| "Failed to fetch storage".to_string())?;
             storage_items.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
 
             let storage_list: Vec<Value> = storage_items
@@ -631,7 +652,7 @@ pub(super) async fn execute_tapp_page_content(
                 .order_by_desc(tapp_scheduled_tasks::Column::UpdatedAt)
                 .all(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch tasks: {}", e))?;
+                .map_err(|_e| "Failed to fetch tasks".to_string())?;
 
             let enabled_count = tasks.iter().filter(|t| t.enabled).count();
 
@@ -715,7 +736,7 @@ pub(super) async fn execute_tapp_page_content(
             let matching_tasks = task_query
                 .all(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch task: {}", e))?;
+                .map_err(|_e| "Failed to fetch task".to_string())?;
             let task = match matching_tasks.as_slice() {
                 [task] => Some(task.clone()),
                 [] => None,
@@ -733,7 +754,7 @@ pub(super) async fn execute_tapp_page_content(
                 .order_by_desc(tapp_task_executions::Column::ExecutedAt)
                 .all(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch executions: {}", e))?;
+                .map_err(|_e| "Failed to fetch executions".to_string())?;
 
             let success_count = executions
                 .iter()
@@ -819,13 +840,11 @@ async fn execute_tapp_windows_query(
         .filter(tapps::Column::UserId.eq(ctx.user_id))
         .all(ctx.db)
         .await
-        .map_err(|e| format!("Failed to fetch tapps: {}", e))?;
+        .map_err(|_e| "Failed to fetch tapps".to_string())?;
 
     let available_tapps: Vec<Value> = all_tapps
         .iter()
-        .filter(|t| {
-            crate::services::tapp_package_read::manifest_declares_page(&t.manifest)
-        })
+        .filter(|t| crate::services::tapp_package_read::manifest_declares_page(&t.manifest))
         .map(|t| {
             json!({
                 "tappId": t.tapp_id,
@@ -1000,7 +1019,7 @@ async fn execute_page_interact(params: &HashMap<String, Value>) -> Result<Value,
     let value = params.get("value").and_then(|v| v.as_str());
 
     if !is_valid_page_interact_action(action) {
-        return Err(format!("Invalid action: {}", action));
+        return Err("Invalid action".to_string());
     }
 
     Ok(json!({
@@ -1097,7 +1116,7 @@ async fn execute_music_control(params: &HashMap<String, Value>) -> Result<Value,
     let action = params
         .get("action")
         .and_then(|v| v.as_str())
-        .ok_or("缺少 action 参数（play/pause/next/previous/volume/mute/unmute）")?;
+        .ok_or("Missing music action")?;
 
     let volume = params.get("volume").and_then(|v| v.as_f64());
     let position = params.get("position").and_then(|v| v.as_f64());
@@ -1273,8 +1292,18 @@ async fn execute_page_content(
             super::data_read::execute("platform.read", &platform_params, ctx).await
         }
         "report" => super::data_read::execute("report.list", params, ctx).await,
-        _ => Err(format!(
-            "无法读取页面内容：pageType={page_type} 没有对应的数据能力，且未提供 context 快照"
-        )),
+        _ => Err(format!("Unable to read page content")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn marked_detail_does_not_leak_approved_as_granted() {
+        let approved = json!(["ui:theme", "media:control"]);
+        assert_eq!(agent_detail_granted_permissions(&approved, true), json!([]));
+        assert_eq!(agent_detail_granted_permissions(&approved, false), approved);
     }
 }

@@ -447,7 +447,7 @@ fn gemini_response_schema(schema: &serde_json::Value) -> Option<serde_json::Valu
     Some(serde_json::Value::Object(translated))
 }
 
-fn openai_chat_completions_url(base_url: Option<&str>) -> String {
+pub(crate) fn openai_chat_completions_url(base_url: Option<&str>) -> String {
     let base_url = base_url
         .unwrap_or("https://api.openai.com/v1")
         .trim()
@@ -490,7 +490,6 @@ impl AiAnalyzer {
             .map(|b| String::from_utf8_lossy(&b).to_string())
             .unwrap_or_else(|_| "Unknown error".to_string())
     }
-
 
     pub async fn new(
         provider: AiProvider,
@@ -637,7 +636,8 @@ impl AiAnalyzer {
             ));
         }
 
-        let gemini_response: GeminiResponse = Self::read_limited_json(response, 2 * 1024 * 1024).await?;
+        let gemini_response: GeminiResponse =
+            Self::read_limited_json(response, 2 * 1024 * 1024).await?;
 
         // 检测 prompt 级别的安全过滤
         if let Some(ref feedback) = gemini_response.prompt_feedback {
@@ -751,11 +751,8 @@ impl AiAnalyzer {
                 self.analyze_profile(&data).await
             }
             AiProvider::OpenAI => {
-                let input_chars = system.len()
-                    + messages
-                        .iter()
-                        .map(|m| m.content.len())
-                        .sum::<usize>();
+                let input_chars =
+                    system.len() + messages.iter().map(|m| m.content.len()).sum::<usize>();
                 let mut openai_messages = Vec::with_capacity(messages.len() + 1);
                 if !system.trim().is_empty() {
                     openai_messages.push(OpenAIMessage {

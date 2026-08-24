@@ -149,9 +149,13 @@ pub fn tapp_list_item_from_model(
 ) -> TappListItem {
     let approved_permissions: Vec<String> =
         serde_json::from_value(tapp.approved_permissions.clone()).unwrap_or_default();
-    let needs_reauthorization = approved_permissions.iter().any(|permission| {
-        crate::services::permission_service::TappPermission::from_str(permission).is_none()
-    });
+    // The durable marker (set by the upgrade migration) OR an unknown approved
+    // permission name (the fail-soft fallback) both surface as
+    // "needs re-authorization" in the list projection.
+    let needs_reauthorization = tapp.needs_reauthorization
+        || approved_permissions.iter().any(|permission| {
+            crate::services::permission_service::TappPermission::from_str(permission).is_none()
+        });
     let icon_svg = icon_svg_from_manifest(&tapp.manifest);
     let locales = manifest_locales(&tapp.manifest);
     let (status, error_message) = projected_status(&tapp);
@@ -220,7 +224,16 @@ pub fn tapp_detail_from_model(
             role,
             &approved_permissions,
         ) {
-            Ok(granted_permissions) => (granted_permissions, false),
+            // The durable marker keeps the detail flagged even when every
+            // remaining permission parses; the unknown-name fallback remains
+            // defense in depth.
+            Ok(granted_permissions) => {
+                if tapp.needs_reauthorization {
+                    (Vec::new(), true)
+                } else {
+                    (granted_permissions, false)
+                }
+            }
             Err(_) => (Vec::new(), true),
         };
     let (status, error_message) = projected_status(&tapp);
@@ -285,6 +298,7 @@ mod tests {
             updated_at: now,
             error_message: None,
             visibility: "all".to_string(),
+            needs_reauthorization: false,
         }
     }
 
@@ -332,7 +346,10 @@ mod tests {
 
         let item = tapp_list_item_from_model(model.clone(), true, false);
         assert_eq!(item.status, "error");
-        assert_eq!(item.error_message.as_deref(), Some(UNSUPPORTED_PACKAGE_REASON));
+        assert_eq!(
+            item.error_message.as_deref(),
+            Some(UNSUPPORTED_PACKAGE_REASON)
+        );
 
         let detail = tapp_detail_from_model(
             model,
@@ -352,7 +369,9 @@ mod tests {
     #[test]
     fn any_declared_layer_is_supported() {
         assert!(unsupported_install_reason(&json!({ "core": { "entry": "core.js" } })).is_none());
-        assert!(unsupported_install_reason(&json!({ "page": { "template": "page.html" } })).is_none());
+        assert!(
+            unsupported_install_reason(&json!({ "page": { "template": "page.html" } })).is_none()
+        );
         assert!(unsupported_install_reason(&json!({
             "widgets": [{ "id": "card", "entry": "widget.js" }]
         }))
@@ -452,7 +471,7 @@ mod tests {
             ..Default::default()
         };
         let detail = tapp_detail_from_model(
-                sample_model(json!(["storage:read", "brew:write", "ai:generate"])),
+            sample_model(json!(["storage:read", "brew:write", "ai:generate"])),
             UserRole::User,
             true,
             false,
@@ -485,7 +504,9 @@ mod tests {
             true,
             &config,
         );
-        assert!(detail.granted_permissions.contains(&"storage:read".to_string()));
+        assert!(detail
+            .granted_permissions
+            .contains(&"storage:read".to_string()));
         assert!(!detail
             .granted_permissions
             .iter()
@@ -522,5 +543,45 @@ mod tests {
         assert!(item.needs_reauthorization);
         assert!(detail.needs_reauthorization);
         assert!(detail.granted_permissions.is_empty());
+    }
+
+    #[test]
+    fn persistent_marker_flags_row_even_when_all_permissions_parse() {
+        // After the migration cleans the retired strings, the remaining
+        // permissions parse fine, but the durable marker must keep the row
+        // flagged until an explicit re-approval clears it.
+        let mut model = sample_model(json!(["storage:read"]));
+        model.needs_reauthorization = true;
+
+        let item = tapp_list_item_from_model(model.clone(), false, true);
+        let detail = tapp_detail_from_model(
+            model,
+            UserRole::Admin,
+            false,
+            true,
+            &DynamicConfig::default(),
+        );
+
+        assert!(item.needs_reauthorization);
+        assert!(detail.needs_reauthorization);
+        // Marked installs project no granted permissions so callers that only
+        // read the list cannot treat leftover approved names as live grants.
+        assert!(detail.granted_permissions.is_empty());
+    }
+
+    #[test]
+    fn cleared_marker_with_valid_permissions_is_not_flagged() {
+        let model = sample_model(json!(["storage:read"]));
+        let item = tapp_list_item_from_model(model.clone(), false, true);
+        let detail = tapp_detail_from_model(
+            model,
+            UserRole::Admin,
+            false,
+            true,
+            &DynamicConfig::default(),
+        );
+
+        assert!(!item.needs_reauthorization);
+        assert!(!detail.needs_reauthorization);
     }
 }

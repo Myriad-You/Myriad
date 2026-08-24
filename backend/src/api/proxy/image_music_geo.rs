@@ -1,7 +1,10 @@
-
 fn proxy_json_err(status: axum::http::StatusCode, error: &str) -> axum::response::Response {
     use axum::response::IntoResponse;
-    crate::error::HttpError(myriad_error::AppError::from_status_u16(status.as_u16(), error)).into_response()
+    crate::error::HttpError(myriad_error::AppError::from_status_u16(
+        status.as_u16(),
+        error,
+    ))
+    .into_response()
 }
 
 // 图片代理服务 - 用于处理Bilibili等平台的防盗链图片
@@ -521,18 +524,10 @@ mod image_proxy_tests {
 
     #[test]
     fn rejects_lookalike_hosts_and_open_path_fallback() {
-        assert!(!is_allowed_domain(
-            "https://hdslb.com.evil.com/face.jpg"
-        ));
-        assert!(!is_allowed_domain(
-            "https://nothdslb.com/bfs/face/x.jpg"
-        ));
-        assert!(!is_allowed_domain(
-            "https://evil.com/cdn?u=hdslb.com/x.jpg"
-        ));
-        assert!(!is_allowed_domain(
-            "https://evil.example/uploads/photo.jpg"
-        ));
+        assert!(!is_allowed_domain("https://hdslb.com.evil.com/face.jpg"));
+        assert!(!is_allowed_domain("https://nothdslb.com/bfs/face/x.jpg"));
+        assert!(!is_allowed_domain("https://evil.com/cdn?u=hdslb.com/x.jpg"));
+        assert!(!is_allowed_domain("https://evil.example/uploads/photo.jpg"));
         assert!(!is_allowed_domain("https://cdn.evil.com/images/a.png"));
         assert!(!is_allowed_domain("https://example.com/static/logo.webp"));
     }
@@ -557,10 +552,7 @@ mod image_proxy_tests {
             get_domain_key("https://i0.hdslb.com/bfs/face/x.jpg"),
             "hdslb.com"
         );
-        assert_eq!(
-            get_domain_key("https://hdslb.com.evil.com/x.jpg"),
-            "other"
-        );
+        assert_eq!(get_domain_key("https://hdslb.com.evil.com/x.jpg"), "other");
         assert_eq!(
             get_referer_for_url("https://i0.hdslb.com/x.jpg"),
             "https://www.bilibili.com/"
@@ -587,19 +579,31 @@ mod image_proxy_tests {
         let cdn = "https://m801.music.126.net/song.mp3?sign=abc";
         let json_resp = respond_netease_play_url(cdn, Some("json"));
         assert_eq!(json_resp.status(), StatusCode::OK);
-        let body = to_bytes(json_resp.into_body(), 64 * 1024).await.expect("body");
+        let body = to_bytes(json_resp.into_body(), 64 * 1024)
+            .await
+            .expect("body");
         let v: serde_json::Value = serde_json::from_slice(&body).expect("json");
         assert_eq!(v["url"], cdn);
 
         let redir = respond_netease_play_url(cdn, None);
         assert_eq!(redir.status(), StatusCode::FOUND);
-        let loc = redir.headers().get(header::LOCATION).and_then(|h| h.to_str().ok()).unwrap_or_default();
+        let loc = redir
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or_default();
         assert_eq!(loc, cdn);
-        let cache = redir.headers().get(header::CACHE_CONTROL).and_then(|h| h.to_str().ok()).unwrap_or_default();
-        assert!(cache.contains("max-age=60"), "302 must not long-cache CDN URLs");
+        let cache = redir
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or_default();
+        assert!(
+            cache.contains("max-age=60"),
+            "302 must not long-cache CDN URLs"
+        );
     }
 }
-
 
 /// 代理网易云音乐歌单请求 - 使用统一服务层
 pub async fn proxy_netease_playlist(Path(playlist_id): Path<String>) -> Response {
@@ -637,7 +641,7 @@ pub async fn proxy_netease_playlist(Path(playlist_id): Path<String>) -> Response
                 StatusCode::BAD_GATEWAY,
                 Json(json!({
                     "error": "Failed to fetch playlist",
-                    "message": e.to_string()
+                    "code": "playlist_fetch_failed"
                 })),
             )
                 .into_response()
@@ -677,7 +681,7 @@ pub async fn proxy_netease_lyrics(Path(song_id): Path<String>) -> Response {
                 StatusCode::BAD_GATEWAY,
                 Json(json!({
                     "error": "Failed to fetch lyrics",
-                    "message": e.to_string()
+                    "code": "lyrics_fetch_failed"
                 })),
             )
                 .into_response()
@@ -712,7 +716,7 @@ pub async fn proxy_netease_lyrics_verbatim(Path(song_id): Path<String>) -> Respo
                 StatusCode::BAD_GATEWAY,
                 Json(json!({
                     "error": "Failed to fetch verbatim lyrics",
-                    "message": e.to_string()
+                    "code": "lyrics_fetch_failed"
                 })),
             )
                 .into_response()
@@ -789,7 +793,7 @@ pub async fn proxy_netease_song(Path(song_id): Path<String>) -> Response {
                 StatusCode::NOT_FOUND,
                 Json(json!({
                     "error": "Failed to fetch song detail",
-                    "message": e.to_string()
+                    "code": "song_fetch_failed"
                 })),
             )
                 .into_response()
@@ -1275,7 +1279,7 @@ pub async fn proxy_qq_audio(Path(song_mid): Path<String>) -> Response {
                 audio_resp,
                 crate::services::memory_profile::max_audio_bytes(),
             )
-                .await
+            .await
             {
                 Ok(audio_data) => (
                     StatusCode::OK,
@@ -1422,12 +1426,8 @@ pub async fn get_client_geo(
         "Client IP detection: resolved={}, socket={}, x_real_ip={:?}, xff={:?}",
         client_ip,
         addr.ip(),
-        headers
-            .get("x-real-ip")
-            .and_then(|v| v.to_str().ok()),
-        headers
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
+        headers.get("x-real-ip").and_then(|v| v.to_str().ok()),
+        headers.get("x-forwarded-for").and_then(|v| v.to_str().ok())
     );
 
     // Private / loopback / unparseable → cannot geo-locate the visitor; fall
@@ -1515,10 +1515,7 @@ pub async fn get_client_geo(
                 // Include resolved lookup IP for weather/geo debugging.
                 if let Some(obj) = data.as_object_mut() {
                     obj.insert("ip".to_string(), json!(target_ip));
-                    obj.insert(
-                        "detected_client_ip".to_string(),
-                        json!(client_ip),
-                    );
+                    obj.insert("detected_client_ip".to_string(), json!(client_ip));
                     // Alias snake_case for clients that prefer country_code.
                     if let Some(cc) = obj.get("countryCode").cloned() {
                         obj.insert("country_code".to_string(), cc);

@@ -11,7 +11,7 @@ pub(crate) async fn notification_stream(
     let user_id = parse_user_id(&claims)?;
     let manager = crate::services::agent::notifications::get_notification_manager().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({"error": "Notification system not initialized"})),
+        Json(json!({"error": "Notification system not initialized", "code": "notification_unavailable"})),
     ))?;
 
     let mut rx = manager.subscribe();
@@ -69,7 +69,7 @@ pub(crate) async fn list_notifications(
     let user_id = parse_user_id(&claims)?;
     let manager = crate::services::agent::notifications::get_notification_manager().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({"error": "Notification system not initialized"})),
+        Json(json!({"error": "Notification system not initialized", "code": "notification_unavailable"})),
     ))?;
 
     let limit = params.limit.unwrap_or(50).min(200);
@@ -92,16 +92,19 @@ pub(crate) async fn mark_notification_read(
     let user_id = parse_user_id(&claims)?;
     let manager = crate::services::agent::notifications::get_notification_manager().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({"error": "Notification system not initialized"})),
+        Json(json!({"error": "Notification system not initialized", "code": "notification_unavailable"})),
     ))?;
 
     let found = manager
         .mark_read(&notification_id, user_id)
         .await
-        .map_err(|error| HttpError::from((
+        .map_err(|error| {
+            tracing::error!("Notification mark-read failed: {error}");
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": error})),
-            )))?;
+                Json(json!({"error": "Notification action failed", "code": "notification_failed"})),
+            ))
+        })?;
     Ok(Json(json!({"success": found})))
 }
 
@@ -112,13 +115,16 @@ pub(crate) async fn mark_all_notifications_read(
     let user_id = parse_user_id(&claims)?;
     let manager = crate::services::agent::notifications::get_notification_manager().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({"error": "Notification system not initialized"})),
+        Json(json!({"error": "Notification system not initialized", "code": "notification_unavailable"})),
     ))?;
 
-    manager.mark_all_read(user_id).await.map_err(|error| HttpError::from((
+    manager.mark_all_read(user_id).await.map_err(|error| {
+        tracing::error!("Notification mark-all failed: {error}");
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": error})),
-        )))?;
+            Json(json!({"error": "Notification action failed", "code": "notification_failed"})),
+        ))
+    })?;
     Ok(Json(json!({"success": true})))
 }
 
@@ -130,16 +136,19 @@ pub(crate) async fn delete_notification(
     let user_id = parse_user_id(&claims)?;
     let manager = crate::services::agent::notifications::get_notification_manager().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({"error": "Notification system not initialized"})),
+        Json(json!({"error": "Notification system not initialized", "code": "notification_unavailable"})),
     ))?;
 
     let removed = manager
         .delete_notification(&notification_id, user_id)
         .await
-        .map_err(|error| HttpError::from((
+        .map_err(|error| {
+            tracing::error!("Notification delete failed: {error}");
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": error})),
-            )))?;
+                Json(json!({"error": "Notification action failed", "code": "notification_failed"})),
+            ))
+        })?;
     if !removed {
         return Err(HttpError::from((
             StatusCode::NOT_FOUND,
@@ -156,13 +165,16 @@ pub(crate) async fn clear_notifications(
     let user_id = parse_user_id(&claims)?;
     let manager = crate::services::agent::notifications::get_notification_manager().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({"error": "Notification system not initialized"})),
+        Json(json!({"error": "Notification system not initialized", "code": "notification_unavailable"})),
     ))?;
 
-    let deleted = manager.clear_all(user_id).await.map_err(|error| HttpError::from((
+    let deleted = manager.clear_all(user_id).await.map_err(|error| {
+        tracing::error!("Notification clear failed: {error}");
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": error})),
-        )))?;
+            Json(json!({"error": "Notification action failed", "code": "notification_failed"})),
+        ))
+    })?;
     Ok(Json(json!({"success": true, "deleted": deleted})))
 }
 
@@ -170,5 +182,3 @@ pub(crate) async fn clear_notifications(
 pub(crate) struct NotificationListParams {
     limit: Option<usize>,
 }
-
-

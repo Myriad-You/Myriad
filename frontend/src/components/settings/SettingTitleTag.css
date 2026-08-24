@@ -110,6 +110,39 @@ html.dark button.setting-title-tag--muted:hover:not(:disabled) {
   color: var(--cfg-text-2);
 }
 
+/* 实验标记：和操作/报错 chip 区分开 */
+.setting-title-tag--beta {
+  padding: 0.12rem 0.42rem 0.1rem;
+  border-color: color-mix(in srgb, #7dd3fc 48%, transparent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, #bae6fd 55%, transparent),
+      color-mix(in srgb, #e0f2fe 70%, transparent)
+    );
+  color: color-mix(in srgb, #0369a1 72%, #38bdf8);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent),
+    0 0 0 1px color-mix(in srgb, #7dd3fc 12%, transparent);
+}
+
+html.dark .setting-title-tag--beta {
+  border-color: color-mix(in srgb, #7dd3fc 34%, transparent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, #38bdf8 18%, transparent),
+      color-mix(in srgb, #7dd3fc 12%, transparent)
+    );
+  color: color-mix(in srgb, #e0f2fe 82%, #7dd3fc);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent),
+    0 0 10px color-mix(in srgb, #38bdf8 16%, transparent);
+}
+
 /* 报错标签：选项/分组标题旁（与 SiteAnalytics error-tag 同色） */
 .setting-title-tag--danger {
   max-width: min(16rem, 100%);

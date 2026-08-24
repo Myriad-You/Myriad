@@ -29,8 +29,8 @@ use std::net::ToSocketAddrs;
 /// 验证订阅 URL 安全性，防止 SSRF（纯策略 + DNS 解析检查）。
 fn validate_subscribe_url(url: &str) -> Result<(), String> {
     validate_subscribe_url_policy(url)?;
-    let parsed = url::Url::parse(url).map_err(|_| format!("无效的 URL: {url}"))?;
-    let host = parsed.host_str().ok_or("URL 缺少 host")?;
+    let parsed = url::Url::parse(url).map_err(|_| "Invalid URL".to_string())?;
+    let host = parsed.host_str().ok_or("This URL is missing a host")?;
     // Hostname path: resolve and reject private IPs (IO).
     if host.parse::<std::net::IpAddr>().is_err() {
         let port = parsed
@@ -40,10 +40,7 @@ fn validate_subscribe_url(url: &str) -> Result<(), String> {
         if let Ok(addrs) = addr_str.to_socket_addrs() {
             for addr in addrs {
                 if is_disallowed_subscribe_ip(addr.ip()) {
-                    return Err(match addr.ip() {
-                        std::net::IpAddr::V6(_) => "不允许访问内网 IPv6 地址".to_string(),
-                        _ => "不允许访问内网地址".to_string(),
-                    });
+                    return Err("This address is not allowed".to_string());
                 }
             }
         }
@@ -111,7 +108,10 @@ async fn execute_platform_write(params: &HashMap<String, Value>) -> Result<Value
         serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string()),
     )
     .await
-    .map_err(|e| format!("Failed to write data: {}", e))?;
+    .map_err(|e| {
+        tracing::error!("Failed to write data: {e}");
+        "Failed to write data".to_string()
+    })?;
 
     Ok(json!({
         "success": true,
@@ -354,7 +354,10 @@ async fn execute_brew_subscribe(
             .filter(brew_sources::Column::Url.eq(&url))
             .one(ctx.db)
             .await
-            .map_err(|e| format!("数据库错误: {}", e))?;
+            .map_err(|e| {
+                tracing::error!("Failed to check existing brew source: {e}");
+                "Database error".to_string()
+            })?;
 
         if existing.is_some() {
             tracing::debug!(url = %url, "[Brew] 跳过已订阅的源");
@@ -399,10 +402,10 @@ async fn execute_brew_subscribe(
                     ..Default::default()
                 };
 
-                let source = new_source
-                    .insert(ctx.db)
-                    .await
-                    .map_err(|e| format!("创建订阅源失败: {}", e))?;
+                let source = new_source.insert(ctx.db).await.map_err(|e| {
+                    tracing::error!("Failed to create brew source: {e}");
+                    "Failed to create feed".to_string()
+                })?;
 
                 // 批量构建文章 ActiveModel，一次性 insert 代替 N+1 个单条 insert
                 let item_models: Vec<brew_items::ActiveModel> = feed
@@ -530,7 +533,7 @@ async fn execute_brew_subscribe(
             }
             Err(_) => {
                 tracing::debug!(url = %url, "[Brew] 请求超时，尝试下一个");
-                last_error = format!("{}: 请求超时", url);
+                last_error = format!("{url}: timed out");
             }
         }
     }
@@ -574,7 +577,7 @@ async fn execute_brew_mark(
             tracing::error!(error = %e, "Agent data_write database error");
             "Database error".to_string()
         })?
-        .ok_or("无权操作该文章")?;
+        .ok_or("This article cannot be changed")?;
 
     // 查找或创建用户状态
     let existing = brew_user_states::Entity::find()
@@ -644,7 +647,7 @@ async fn execute_brew_mark(
     }
 
     if is_starred == Some(true) && !was_starred {
-        crate::services::agent::life::spawn_ingest(
+        crate::services::agent::merope::spawn_ingest(
             user_id,
             "brew.starred",
             format!("把《{}》标了星", item.title),

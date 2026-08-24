@@ -86,19 +86,19 @@ test('generationFailureMessage appends hint when it adds information', () => {
 })
 
 test('generationFailureMessage keeps provider detail on portrait failure', () => {
-  class CompanionLikeError extends Error {
+  class MeropeLikeError extends Error {
     constructor(
       message: string,
       readonly status: number,
       readonly code?: string,
     ) {
       super(message)
-      this.name = 'CompanionApiError'
+      this.name = 'MeropeApiError'
     }
   }
   assert.equal(
     generationFailureMessage(
-      new CompanionLikeError(
+      new MeropeLikeError(
         'OpenRouter image API returned HTTP 400: bad input_references',
         502,
         'image_provider_rejected',

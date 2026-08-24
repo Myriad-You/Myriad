@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { SETTINGS_DURATION_MS } from '../settings'
 import { saveConfigNavPersisted } from './form/configNavPersistence'
 
-export type AiSubpage = 'persona' | 'face'
+export type AiSubpage = 'merope' | 'merope-setup'
 
 function readSubpage(): AiSubpage | null {
   if (typeof window === 'undefined') return null
   const page = new URLSearchParams(window.location.search).get('page')
-  return page === 'persona' || page === 'face' ? page : null
+  return page === 'merope' || page === 'merope-setup' ? page : null
 }
 
 function writeSubpage(page: AiSubpage | null) {
@@ -19,7 +19,7 @@ function writeSubpage(page: AiSubpage | null) {
 }
 
 /**
- * AI 一级 ↔ 设定 / 形象二级页：URL `page=persona|face`、回顶、sm-pane 方向。
+ * AI 一级 ↔ Agent 人设二级页：URL `page=merope|merope-setup`、回顶、sm-pane 方向。
  * 回顶与换设置分类同一套（scrollTo(0) + 清掉滚动快照）。
  */
 export function useAiSubpage(

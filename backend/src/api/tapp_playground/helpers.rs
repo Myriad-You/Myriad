@@ -35,7 +35,9 @@ pub(super) fn validate_playground_project(project: &PlaygroundProject) -> Result
 
     // Dual mode: Page and/or Widget-only. Reject empty projects (neither).
     if manifest.page.is_none() && !has_widgets {
-        return Err("Playground project requires a page layer and/or non-empty Widgets".to_string());
+        return Err(
+            "Playground project requires a page layer and/or non-empty Widgets".to_string(),
+        );
     }
 
     if let Some(page) = &manifest.page {
@@ -822,30 +824,30 @@ mod tests {
             &[("page", "Tapp.storage.get('key')")]
         )
         .is_ok());
-        assert!(validate_permission_usage(
-            &project.manifest,
-            &[("page", "Tapp.storage.getAll()")]
-        )
-        .is_ok());
-
-        let write_error = validate_permission_usage(
-            &project.manifest,
-            &[("page", "Tapp.storage.set('key', 1)")],
-        )
-        .expect_err("writes require storage:write");
-        assert!(write_error.contains("storage:write"), "{write_error}");
         assert!(
-            !write_error.contains("missing storage\""),
-            "{write_error}"
+            validate_permission_usage(&project.manifest, &[("page", "Tapp.storage.getAll()")])
+                .is_ok()
         );
+
+        let write_error =
+            validate_permission_usage(&project.manifest, &[("page", "Tapp.storage.set('key', 1)")])
+                .expect_err("writes require storage:write");
+        assert!(write_error.contains("storage:write"), "{write_error}");
+        assert!(!write_error.contains("missing storage\""), "{write_error}");
 
         project.manifest.permissions = vec!["storage".into()];
         let retired = validate_permission_usage(
             &project.manifest,
-            &[("page", "Tapp.storage.get('key'); Tapp.storage.set('key', 1)")],
+            &[(
+                "page",
+                "Tapp.storage.get('key'); Tapp.storage.set('key', 1)",
+            )],
         )
         .expect_err("retired storage does not satisfy split tokens");
-        assert!(retired.contains("storage:read") || retired.contains("storage:write"), "{retired}");
+        assert!(
+            retired.contains("storage:read") || retired.contains("storage:write"),
+            "{retired}"
+        );
     }
 
     #[test]

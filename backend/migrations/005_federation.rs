@@ -198,6 +198,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
+                    // 当前连续投递失败的起点（原 015）。已存在的表由 schema_check 通用 ADD 补列。
+                    .col(
+                        ColumnDef::new(FederationInstances::FailingSince)
+                            .timestamp_with_time_zone(),
+                    )
                     .col(
                         ColumnDef::new(FederationInstances::CreatedAt)
                             .timestamp_with_time_zone()
@@ -493,6 +498,17 @@ impl MigrationTrait for Migration {
                     .col(FederationDeliveryQueue::ActivityId)
                     .col(FederationDeliveryQueue::TargetInbox)
                     .to_owned(),
+            )
+            .await?;
+
+        // 按目标域名扫队列（原 015）。LOWER() 表达式索引 SeaORM Iden 建不了。
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+CREATE INDEX IF NOT EXISTS idx_delivery_queue_target_domain
+    ON federation_delivery_queue (LOWER(target_domain), status);
+"#,
             )
             .await?;
 
@@ -1444,6 +1460,7 @@ pub enum FederationInstances {
     LastSeenAt,
     LastSuccessAt,
     FailureCount,
+    FailingSince,
     CreatedAt,
     UpdatedAt,
 }

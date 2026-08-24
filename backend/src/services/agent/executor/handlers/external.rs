@@ -26,7 +26,7 @@ async fn public_client(
 ) -> Result<(url::Url, reqwest::Client), String> {
     outbound_security::build_public_http_client(url, timeout, Some(user_agent))
         .await
-        .map_err(|e| format!("URL 安全校验失败（SSRF 防护）: {e}"))
+        .map_err(|_e| "Invalid URL".to_string())
 }
 
 /// Fixed-host public APIs: no redirects, short timeout (not for user-supplied URLs).
@@ -165,8 +165,8 @@ async fn execute_hitokoto_get(params: &HashMap<String, Value>) -> Result<Value, 
 // Notion
 
 async fn execute_notion_query(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let api_key = std::env::var("NOTION_API_KEY")
-        .map_err(|_| "Notion API key 未配置。请在环境变量中设置 NOTION_API_KEY。".to_string())?;
+    let api_key =
+        std::env::var("NOTION_API_KEY").map_err(|_| "Notion is not configured".to_string())?;
 
     let database_id = params
         .get("database_id")
@@ -185,12 +185,16 @@ async fn execute_notion_query(params: &HashMap<String, Value>) -> Result<Value, 
         .json(&json!({ "filter": filter }))
         .send()
         .await
-        .map_err(|e| format!("Notion API 请求失败: {}", e))?;
+        .map_err(|e| {
+            tracing::error!("Notion API request failed: {e}");
+            "Failed to fetch Notion".to_string()
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = limited_error_text(response).await;
-        return Err(format!("Notion API 返回错误 {}: {}", status, body));
+        tracing::error!("Notion API returned {status}: {body}");
+        return Err("Failed to fetch Notion".to_string());
     }
 
     let data: Value = limited_json(response, FIXED_HOST_JSON_MAX).await?;
@@ -673,4 +677,3 @@ async fn execute_mcp_tool(
     let args = mcp_arguments(params);
     manager.call_tool(server_id, tool_name, args).await
 }
-

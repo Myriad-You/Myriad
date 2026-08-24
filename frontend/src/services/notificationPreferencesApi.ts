@@ -1,3 +1,4 @@
+import { currentCopy } from '../i18n/localeCopy'
 import apiService from './api'
 
 export const NOTIFICATION_SOURCE_KEYS = [
@@ -19,7 +20,7 @@ export const NOTIFICATION_EVENT_KEYS = [
   'agent.task_failed',
   'agent.task_cancelled',
   'agent.clarification',
-  'agent.life.platform_activity',
+  'agent.merope.platform_activity',
   'heartbeat.succeeded',
   'heartbeat.failed',
   'mcp.connected',
@@ -161,7 +162,7 @@ export const notificationPreferencesApi = {
     }>(BASE, preferences)
     if (!response.success || !response.preferences) {
       throw new Error(
-        response.message || 'Failed to save notification preferences',
+        response.message || currentCopy().errors.operationFailed,
       )
     }
     window.dispatchEvent(

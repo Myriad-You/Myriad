@@ -417,11 +417,11 @@ pub struct DynamicConfig {
     pub ai_image_volcengine_api_key: Option<String>,
     pub ai_image_volcengine_base_url: String,
 
-    /// Agent 生命：设定、状态、主动对话、事件开口。默认关。
-    pub agent_life_enabled: bool,
+    /// Merope：设定、状态、主动对话、事件开口。默认关。用户界面叫 Agent 人设。
+    pub merope_enabled: bool,
 
-    /// Arael 的页面形象：当前生效的 2.5D 图集包 id（sha256 hex）。
-    /// None = 没有编译过的骨骼，浮动层只回退主立绘。站点级——只有一个 Arael。
+    /// Agent 人设的页面形象：当前生效的 2.5D 图集包 id（sha256 hex）。
+    /// None = 没有编译过的骨骼，浮动层只回退主立绘。站点级——全站一份形象。
     pub agent_rig_asset_id: Option<String>,
 
     /// Hugging Face token used only by the backend when invoking the remote
@@ -743,7 +743,7 @@ impl Default for DynamicConfig {
             ai_image_openrouter_api_key: None,
             ai_image_volcengine_api_key: None,
             ai_image_volcengine_base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
-            agent_life_enabled: false,
+            merope_enabled: false,
             agent_rig_asset_id: None,
             see_through_hf_token: None,
             // Tripo 3D（低模 Web 角色默认预算）
@@ -853,33 +853,33 @@ impl Default for DynamicConfig {
 }
 
 impl DynamicConfig {
-    /// 开关本身：环境变量 `AGENT_LIFE_ENABLED` 覆盖库里的 `agent_life_enabled`。
-    pub fn agent_life_switch_on(&self) -> bool {
-        match std::env::var("AGENT_LIFE_ENABLED") {
+    /// 开关本身：环境变量 `MEROPE_ENABLED` 覆盖库里的 `merope_enabled`。
+    pub fn merope_switch_on(&self) -> bool {
+        match std::env::var("MEROPE_ENABLED") {
             Ok(value) => matches!(
                 value.trim().to_ascii_lowercase().as_str(),
                 "1" | "true" | "yes" | "on"
             ),
-            Err(_) => self.agent_life_enabled,
+            Err(_) => self.merope_enabled,
         }
     }
 
-    /// 生命是否真的生效。
+    /// Merope 是否真的生效。
     ///
     /// 设定引导走 Pro；聊天里的人设只是系统词，跟 Lite 无关。
     /// Lite 只写主动开口和心情微调——档关着时这两处直接停，不回落到标准模型。
-    pub fn agent_life_enabled_resolved(&self) -> bool {
-        self.agent_life_switch_on() && self.pro_enabled
+    pub fn merope_enabled_resolved(&self) -> bool {
+        self.merope_switch_on() && self.pro_enabled
     }
 
     /// 开关开着却缺 Lite。主动开口会走短句兜底，心情微调不会跑。
-    pub fn agent_life_needs_lite(&self) -> bool {
-        self.agent_life_switch_on() && self.pro_enabled && !self.lite_enabled
+    pub fn merope_needs_lite(&self) -> bool {
+        self.merope_switch_on() && self.pro_enabled && !self.lite_enabled
     }
 
     /// 开关开着却缺 Pro。设定引导和开关生效都要这一档。
-    pub fn agent_life_needs_pro(&self) -> bool {
-        self.agent_life_switch_on() && !self.pro_enabled
+    pub fn merope_needs_pro(&self) -> bool {
+        self.merope_switch_on() && !self.pro_enabled
     }
 
     pub fn is_openrouter_base(url: &str) -> bool {
@@ -1181,9 +1181,25 @@ impl DynamicConfig {
         }
     }
 
-    /// 根据模型层级解析 AI 配置
-    ///
-    /// Lite / Pro 仅在对应开关开启时使用独立配置；关闭或字段留空时回退到 Standard。
+    /// Resolve Lite only when its own model is explicit. Shared provider
+    /// credentials remain valid, but Standard's model is never inherited.
+    pub fn resolve_strict_lite_ai_config(&self) -> Option<ResolvedAiConfig> {
+        if !self.lite_enabled {
+            return None;
+        }
+        let configured_model = if self.lite_ai_provider == "gemini" {
+            self.lite_gemini_model.trim()
+        } else {
+            self.lite_openai_model.trim()
+        };
+        if configured_model.is_empty() {
+            return None;
+        }
+        Some(self.resolve_ai_config(ModelTier::Lite))
+    }
+
+    /// 根据模型层级解析 AI 配置。与严格 Lite 解析不同，这里保留平台级的
+    /// 兼容行为：Lite / Pro 关闭或对应模型留空时可回退到 Standard。
     pub fn resolve_ai_config(&self, tier: ModelTier) -> ResolvedAiConfig {
         if tier == ModelTier::Lite && self.lite_enabled {
             return self.resolve_tier(
@@ -1360,6 +1376,38 @@ mod tests {
         assert_eq!(resolved.api_key.as_deref(), Some("std-key"));
         assert_eq!(resolved.model, "std/model");
         assert_eq!(resolved.base_url, "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn strict_lite_resolution_never_inherits_the_standard_model() {
+        let disabled = DynamicConfig {
+            lite_enabled: false,
+            openai_model: "std/model".to_string(),
+            ..DynamicConfig::default()
+        };
+        assert!(disabled.resolve_strict_lite_ai_config().is_none());
+
+        let empty = DynamicConfig {
+            lite_enabled: true,
+            lite_ai_provider: "openai".to_string(),
+            lite_openai_model: String::new(),
+            openai_model: "std/model".to_string(),
+            ..DynamicConfig::default()
+        };
+        assert!(empty.resolve_strict_lite_ai_config().is_none());
+
+        let configured = DynamicConfig {
+            lite_enabled: true,
+            lite_ai_provider: "openai".to_string(),
+            lite_openai_model: "lite/model".to_string(),
+            ..DynamicConfig::default()
+        };
+        assert_eq!(
+            configured
+                .resolve_strict_lite_ai_config()
+                .map(|resolved| resolved.model),
+            Some("lite/model".to_string())
+        );
     }
 
     #[test]

@@ -53,12 +53,12 @@ const SOURCE_TEXT: Record<
 > = {
   'zh-CN': {
     agent: {
-      title: 'Arael 任务',
+      title: 'Agent 任务',
       description: '任务进度、结果、取消、澄清，以及有价值的平台动态',
     },
     heartbeat: {
       title: 'Heartbeat',
-      description: 'Arael 后台定时任务执行结果',
+      description: 'Agent 后台定时任务执行结果',
     },
     mcp: { title: 'MCP 服务', description: '工具服务器连接和断开状态' },
     brew: { title: 'Brew', description: '订阅源新内容与连续抓取错误' },
@@ -69,13 +69,13 @@ const SOURCE_TEXT: Record<
   },
   'en-US': {
     agent: {
-      title: 'Arael Tasks',
+      title: 'Agent Tasks',
       description:
         'Task progress, results, cancellation, clarification, and notable platform activity',
     },
     heartbeat: {
       title: 'Heartbeat',
-      description: 'Results from Arael background schedules',
+      description: 'Results from Agent background schedules',
     },
     mcp: { title: 'MCP Services', description: 'Tool server connection state' },
     brew: {
@@ -101,13 +101,13 @@ const SOURCE_TEXT: Record<
   },
   'ja-JP': {
     agent: {
-      title: 'Arael タスク',
+      title: 'Agent タスク',
       description:
         '進行状況、結果、キャンセル、確認要求、価値のあるプラットフォームの動き',
     },
     heartbeat: {
       title: 'Heartbeat',
-      description: 'Arael バックグラウンド定期処理の結果',
+      description: 'Agent バックグラウンド定期処理の結果',
     },
     mcp: { title: 'MCP サービス', description: 'ツールサーバーの接続状態' },
     brew: { title: 'Brew', description: '新着フィードと連続取得エラー' },
@@ -131,7 +131,7 @@ const EVENT_TEXT: Record<Locale, Record<NotificationEventKey, string>> = {
     'agent.task_failed': '任务失败',
     'agent.task_cancelled': '任务取消',
     'agent.clarification': '等待回答',
-    'agent.life.platform_activity': '平台新动态',
+    'agent.merope.platform_activity': '平台新动态',
     'heartbeat.succeeded': '定时任务成功',
     'heartbeat.failed': '定时任务失败',
     'mcp.connected': 'MCP 已连接',
@@ -167,7 +167,7 @@ const EVENT_TEXT: Record<Locale, Record<NotificationEventKey, string>> = {
     'agent.task_failed': 'Task failed',
     'agent.task_cancelled': 'Task cancelled',
     'agent.clarification': 'Waiting for an answer',
-    'agent.life.platform_activity': 'Platform activity',
+    'agent.merope.platform_activity': 'Platform activity',
     'heartbeat.succeeded': 'Scheduled task succeeded',
     'heartbeat.failed': 'Scheduled task failed',
     'mcp.connected': 'MCP connected',
@@ -203,7 +203,7 @@ const EVENT_TEXT: Record<Locale, Record<NotificationEventKey, string>> = {
     'agent.task_failed': 'タスク失敗',
     'agent.task_cancelled': 'タスクキャンセル',
     'agent.clarification': '回答待ち',
-    'agent.life.platform_activity': 'プラットフォームの動き',
+    'agent.merope.platform_activity': 'プラットフォームの動き',
     'heartbeat.succeeded': '定期タスク成功',
     'heartbeat.failed': '定期タスク失敗',
     'mcp.connected': 'MCP 接続',

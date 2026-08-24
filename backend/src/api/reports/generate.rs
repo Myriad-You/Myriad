@@ -99,10 +99,11 @@ pub async fn generate_platform_reports(
             skipped
         );
         // 有具体原因时透出首个原因，否则回退到通用文案
+        let locale_tag = locale.unwrap_or(super::locale::DEFAULT_AUTO_REGEN_LOCALE);
         let message = skipped
             .first()
-            .map(|(platform, reason)| format!("{} 未能生成报告：{}", platform, reason))
-            .unwrap_or_else(|| "未能生成报告。请确保已获取平台数据。".to_string());
+            .map(|(_, reason)| reason.clone())
+            .unwrap_or_else(|| super::locale::generate_none_message(locale_tag));
         return Ok(Json(json!({
             "success": false,
             "message": message,
@@ -256,7 +257,7 @@ pub(crate) async fn generate_platform_reports_internal(
                     tracing::warn!("⚠️ Skipping {}: {}", platform, e);
                     return Err((
                         platform.clone(),
-                        format!("平台数据未获取或处理失败（请先成功抓取该平台数据）：{}", e),
+                        super::locale::missing_platform_data_message(&locale),
                     ));
                 }
             };
@@ -1202,9 +1203,9 @@ pub(crate) async fn generate_platform_reports_internal(
             .map(|report| report.platform.as_str())
             .collect::<Vec<_>>()
             .join("、");
-        crate::services::agent::life::spawn_ingest(
+        crate::services::agent::merope::spawn_ingest(
             user_id,
-            "agent.life.report_ready",
+            "agent.merope.report_ready",
             format!("这个人的报告算完了：{names}"),
         );
     }
@@ -1794,7 +1795,10 @@ async fn get_platform_data(
 
             // 处理并缓存该平台数据
             let filtered_data = SmartFilter::process_and_save_single(platform, platform_data)
-                .map_err(|e| format!("Failed to process {}: {}", platform, e))?;
+                .map_err(|e| {
+                    tracing::error!(platform, error = %e, "Failed to process platform data");
+                    "Failed to process platform data".to_string()
+                })?;
 
             tracing::info!(
                 "✓ Successfully processed and cached {} from database",
@@ -1807,7 +1811,7 @@ async fn get_platform_data(
     // 5. FALLBACK: 从平台特定的raw文件读取数据
     let raw_cache_path = PathBuf::from(format!("./cache/raw/{}.json", platform));
     if !raw_cache_path.exists() {
-        return Err(format!("Raw data file not found: {:?}", raw_cache_path));
+        return Err("Raw data file not found".to_string());
     }
 
     tracing::info!("⚙️  Processing {} from raw data...", platform);
@@ -1817,7 +1821,10 @@ async fn get_platform_data(
 
     // 6. 处理并缓存该平台数据（只处理单个平台！）
     let filtered_data = SmartFilter::process_and_save_single(platform, &platform_data)
-        .map_err(|e| format!("Failed to process {}: {}", platform, e))?;
+        .map_err(|e| {
+            tracing::error!(platform, error = %e, "Failed to process platform data");
+            "Failed to process platform data".to_string()
+        })?;
 
     tracing::info!("✓ Successfully processed and cached {}", platform);
     Ok(filtered_data)
@@ -1900,10 +1907,8 @@ async fn last_stored_report_locale(
         .await
         .ok()
         .flatten();
-    row.and_then(|r| {
-        super::locale::locale_from_stored_report(&r.report).map(str::to_string)
-    })
-    .unwrap_or_else(|| super::locale::DEFAULT_AUTO_REGEN_LOCALE.to_string())
+    row.and_then(|r| super::locale::locale_from_stored_report(&r.report).map(str::to_string))
+        .unwrap_or_else(|| super::locale::DEFAULT_AUTO_REGEN_LOCALE.to_string())
 }
 
 /// Bangumi/MAL `status_counts`: always emit five keys (0 when absent).
@@ -1941,12 +1946,7 @@ pub(crate) fn normalize_steam_player_type(raw: &str) -> &'static str {
     }
 }
 
-fn xbox_gamer_type_fallback(
-    locale: &str,
-    completed: usize,
-    avg: f64,
-    gs: i64,
-) -> &'static str {
+fn xbox_gamer_type_fallback(locale: &str, completed: usize, avg: f64, gs: i64) -> &'static str {
     use super::locale::pick;
     if completed >= 5 {
         pick(locale, "全成就猎人", "実績コンプ勢", "Completion hunter")

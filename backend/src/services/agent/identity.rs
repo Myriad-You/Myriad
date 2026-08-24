@@ -190,9 +190,9 @@ pub async fn get_identity() -> Option<AgentIdentity> {
     }
 }
 
-/// User-facing soul: site persona when Agent life is on, else SOUL.md.
+/// User-facing soul: site persona when Merope is on, else SOUL.md.
 pub async fn get_speaking_soul() -> Option<String> {
-    crate::services::agent::life::resolve_speaking_soul().await
+    crate::services::agent::merope::resolve_speaking_soul().await
 }
 
 /// 获取指定角色的身份文本

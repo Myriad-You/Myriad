@@ -3,6 +3,7 @@
  */
 
 import type { useI18n } from '../contexts/I18nContext'
+import { userFacingError } from './userFacingError'
 
 type T = ReturnType<typeof useI18n>['t']
 type Format = ReturnType<typeof useI18n>['format']
@@ -134,7 +135,7 @@ export function messageForLocalLoginError(
     })
   }
 
-  return msg || t.auth.loginFailed
+  return userFacingError(err, t.auth.loginFailed)
 }
 
 /** Admin user-management API English error bodies → i18n. */
@@ -197,7 +198,21 @@ export function messageForAdminUserError(
     return t.config.usersErrorTappNotFound
   }
 
-  // Prefer localized fallback over raw English when it looks like our generic API prefix
-  if (/^API Error:\s*\d+/i.test(msg)) return fallback
-  return msg
+  return userFacingError(err, fallback)
+}
+
+/** Public local registration failures from /api/auth/register. */
+export function messageForRegisterError(err: unknown, t: T): string {
+  const msg =
+    err instanceof Error && err.message ? err.message : String(err ?? '')
+  if (/registration disabled|public registration is disabled/i.test(msg)) {
+    return t.auth.registerDisabled
+  }
+  if (/setup_required|finish the setup wizard/i.test(msg)) {
+    return t.auth.registerSetupRequired
+  }
+  if (/username taken|already in use|already exists/i.test(msg)) {
+    return t.auth.usernameTaken
+  }
+  return userFacingError(err, t.auth.registerFailed)
 }

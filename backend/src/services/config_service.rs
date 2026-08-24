@@ -481,18 +481,18 @@ impl ConfigService {
             }
         }
 
-        if let Some(v) = map.get("agent_life_enabled") {
-            config.agent_life_enabled = v
+        if let Some(v) = map.get("merope_enabled") {
+            config.merope_enabled = v
                 .as_bool()
                 .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
-                .unwrap_or(config.agent_life_enabled);
+                .unwrap_or(config.merope_enabled);
         }
         if let Some(v) = map.get("agent_rig_asset_id") {
             config.agent_rig_asset_id = v
                 .as_str()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .and_then(crate::services::digital_life_rig::normalize_asset_id);
+                .and_then(crate::services::merope_rig::normalize_asset_id);
         }
         if let Some(v) = map.get("see_through_hf_token") {
             config.see_through_hf_token = opt_nonempty_string(v);
@@ -1214,24 +1214,24 @@ mod tests {
     }
 
     #[test]
-    fn parses_agent_life_flag_from_database_config() {
+    fn parses_merope_flag_from_database_config() {
         let on = ConfigService::parse_config(HashMap::from([(
-            "agent_life_enabled".into(),
+            "merope_enabled".into(),
             json!(true),
         )]));
-        assert!(on.agent_life_enabled);
+        assert!(on.merope_enabled);
 
         let from_str = ConfigService::parse_config(HashMap::from([(
-            "agent_life_enabled".into(),
+            "merope_enabled".into(),
             json!("true"),
         )]));
-        assert!(from_str.agent_life_enabled);
+        assert!(from_str.merope_enabled);
 
         let off = ConfigService::parse_config(HashMap::from([(
-            "agent_life_enabled".into(),
+            "merope_enabled".into(),
             json!(false),
         )]));
-        assert!(!off.agent_life_enabled);
+        assert!(!off.merope_enabled);
     }
 
     #[test]
@@ -1323,44 +1323,44 @@ mod tests {
     }
 
     #[test]
-    fn agent_life_stays_off_without_required_models() {
+    fn merope_stays_off_without_required_models() {
         // Pro is required for onboarding. Lite is optional: without it,
-        // life still runs, but Lite jobs must not fall back to Standard.
+        // Merope still runs, but Lite jobs must not fall back to Standard.
         let no_lite = DynamicConfig {
-            agent_life_enabled: true,
+            merope_enabled: true,
             lite_enabled: false,
             pro_enabled: true,
             ..DynamicConfig::default()
         };
         assert_eq!(
-            no_lite.agent_life_enabled_resolved(),
-            no_lite.agent_life_switch_on()
+            no_lite.merope_enabled_resolved(),
+            no_lite.merope_switch_on()
         );
-        assert!(no_lite.agent_life_needs_lite());
-        assert!(!no_lite.agent_life_needs_pro());
+        assert!(no_lite.merope_needs_lite());
+        assert!(!no_lite.merope_needs_pro());
 
         let no_pro = DynamicConfig {
-            agent_life_enabled: true,
+            merope_enabled: true,
             lite_enabled: true,
             pro_enabled: false,
             ..DynamicConfig::default()
         };
-        assert!(!no_pro.agent_life_enabled_resolved());
-        assert!(!no_pro.agent_life_needs_lite());
-        assert!(no_pro.agent_life_needs_pro());
+        assert!(!no_pro.merope_enabled_resolved());
+        assert!(!no_pro.merope_needs_lite());
+        assert!(no_pro.merope_needs_pro());
 
         let with_tiers = DynamicConfig {
-            agent_life_enabled: true,
+            merope_enabled: true,
             lite_enabled: true,
             pro_enabled: true,
             ..DynamicConfig::default()
         };
         assert_eq!(
-            with_tiers.agent_life_enabled_resolved(),
-            with_tiers.agent_life_switch_on()
+            with_tiers.merope_enabled_resolved(),
+            with_tiers.merope_switch_on()
         );
-        assert!(!with_tiers.agent_life_needs_lite());
-        assert!(!with_tiers.agent_life_needs_pro());
+        assert!(!with_tiers.merope_needs_lite());
+        assert!(!with_tiers.merope_needs_pro());
     }
 
     #[test]

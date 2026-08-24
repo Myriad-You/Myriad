@@ -1,3 +1,6 @@
+import { getDefaultLocale } from '../../../i18n'
+import { currentCopy } from '../../../i18n/localeCopy'
+
 export type OnboardingStep = 1 | 2 | 3 | 4 | 5
 
 /** 步骤上报给二级页标题栏：说明 + 可选「换一批」 */
@@ -26,23 +29,23 @@ export interface OnboardingPageChrome {
   onBack: () => void
 }
 
-export type LifeGender = 'female' | 'male' | 'nonbinary' | 'unspecified'
+export type PersonaGender = 'female' | 'male' | 'nonbinary' | 'unspecified'
 
-export const GENDER_OPTIONS: LifeGender[] = [
+export const GENDER_OPTIONS: PersonaGender[] = [
   'female',
   'male',
   'nonbinary',
   'unspecified',
 ]
 
-export function genderFromProfile(profile: unknown): LifeGender | null {
+export function genderFromProfile(profile: unknown): PersonaGender | null {
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
     return null
   }
   const gender = (profile as Record<string, unknown>).gender
   return typeof gender === 'string' &&
     (GENDER_OPTIONS as string[]).includes(gender)
-    ? (gender as LifeGender)
+    ? (gender as PersonaGender)
     : null
 }
 
@@ -101,10 +104,10 @@ export const CLOTHING_STYLE_OPTIONS: ClothingStyle[] = [
 ]
 
 export function clothingStylePreview(style: ClothingStyle): string {
-  return `/life/clothing/${style}.png`
+  return `/merope/clothing/${style}.png`
 }
 
-export interface LifeOnboardingTag {
+export interface OnboardingTag {
   id: string
   label: string
   weight: number
@@ -333,26 +336,51 @@ export function parseList(value: string): string[] {
 
 export function joinList(value: unknown): string {
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string').join('、')
+    ? value
+        .filter((item): item is string => typeof item === 'string')
+        .join(getDefaultLocale() === 'en-US' ? '; ' : '、')
     : ''
 }
 
+function personaFieldLabels() {
+  const c = currentCopy().merope
+  return {
+    temperament: c.personaLabelTemperament,
+    likes: c.personaLabelLikes,
+    drives: c.personaLabelDrives,
+    social: c.personaLabelSocial,
+    speech: c.personaLabelSpeech,
+  }
+}
+
+const PERSONA_PARSE_KEYS = {
+  temperament: ['气质', 'Temperament', '気質'],
+  likes: ['喜好', 'Likes', '好み'],
+  drives: ['驱动力', 'Drive', '原動力'],
+  social: ['社交', 'Social', '社交'],
+  speech: ['表达', 'Voice', '話し方'],
+} as const
+
 export function flattenPersona(persona: StructuredPersona): string {
+  const labels = personaFieldLabels()
+  // ASCII commas may be part of a single English trait (for example,
+  // "Blunt mouth, soft heart"), so use a delimiter parseList can distinguish.
+  const joiner = getDefaultLocale() === 'en-US' ? '; ' : '、'
   const lines: string[] = []
   if (persona.temperament.length) {
-    lines.push(`气质：${persona.temperament.join('、')}`)
+    lines.push(`${labels.temperament}：${persona.temperament.join(joiner)}`)
   }
   if (persona.likes.length) {
-    lines.push(`喜好：${persona.likes.join('、')}`)
+    lines.push(`${labels.likes}：${persona.likes.join(joiner)}`)
   }
   if (persona.drives.length) {
-    lines.push(`驱动力：${persona.drives.join('、')}`)
+    lines.push(`${labels.drives}：${persona.drives.join(joiner)}`)
   }
   if (persona.socialStyle.trim()) {
-    lines.push(`社交：${persona.socialStyle.trim()}`)
+    lines.push(`${labels.social}：${persona.socialStyle.trim()}`)
   }
   if (persona.speechStyle.trim()) {
-    lines.push(`表达：${persona.speechStyle.trim()}`)
+    lines.push(`${labels.speech}：${persona.speechStyle.trim()}`)
   }
   if (persona.summary.trim()) {
     if (lines.length) lines.push('')
@@ -367,18 +395,42 @@ export function parseFlattenedPersona(raw: string): StructuredPersona {
   for (const line of raw.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
-    const match = trimmed.match(/^(气质|喜好|驱动力|社交|表达)[：:](.*)$/)
+    const match = trimmed.match(/^([^：:]+)[：:](.*)$/)
     if (!match) {
       leftover.push(trimmed)
       continue
     }
     const [, key, rawValue] = match
     const value = rawValue.trim()
-    if (key === '气质') persona.temperament = parseList(value)
-    else if (key === '喜好') persona.likes = parseList(value)
-    else if (key === '驱动力') persona.drives = parseList(value)
-    else if (key === '社交') persona.socialStyle = value
-    else if (key === '表达') persona.speechStyle = value
+    const live = personaFieldLabels()
+    if (
+      PERSONA_PARSE_KEYS.temperament.includes(key as never) ||
+      key === live.temperament
+    ) {
+      persona.temperament = parseList(value)
+    } else if (
+      PERSONA_PARSE_KEYS.likes.includes(key as never) ||
+      key === live.likes
+    ) {
+      persona.likes = parseList(value)
+    } else if (
+      PERSONA_PARSE_KEYS.drives.includes(key as never) ||
+      key === live.drives
+    ) {
+      persona.drives = parseList(value)
+    } else if (
+      PERSONA_PARSE_KEYS.social.includes(key as never) ||
+      key === live.social
+    ) {
+      persona.socialStyle = value
+    } else if (
+      PERSONA_PARSE_KEYS.speech.includes(key as never) ||
+      key === live.speech
+    ) {
+      persona.speechStyle = value
+    } else {
+      leftover.push(trimmed)
+    }
   }
   if (leftover.length) persona.summary = leftover.join('\n')
   return persona

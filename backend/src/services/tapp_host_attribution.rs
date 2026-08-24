@@ -31,7 +31,7 @@ use crate::services::tapp_rate_limit::host_write_rate_limit_operation;
 const HOST_ROUTE_PERMISSIONS_JSON: &str =
     include_str!("../../../docs/development/tapp/fixtures/host_route_permissions.json");
 
-/// Companion action → permission fixture (sandbox `PERMISSION_MAP` domains).
+/// Action → permission fixture (sandbox `PERMISSION_MAP` domains).
 #[cfg(test)]
 const ACTION_PERMISSIONS_JSON: &str =
     include_str!("../../../docs/development/tapp/fixtures/action_permissions.json");
@@ -299,7 +299,8 @@ mod tests {
                 .map(|r| (r.method.clone(), r.path.clone()))
                 .collect();
             assert_eq!(
-                actual, expected,
+                actual,
+                expected,
                 "domain {}: mapper keys must equal fixture entries",
                 domain.as_str()
             );
@@ -536,10 +537,7 @@ mod tests {
             None
         );
         assert_eq!(
-            federation_permission(
-                "POST",
-                "/api/federation/rooms/{room_id}/e2e/key-exchange"
-            ),
+            federation_permission("POST", "/api/federation/rooms/{room_id}/e2e/key-exchange"),
             Some(TappPermission::FederationRoom)
         );
         assert_eq!(
@@ -800,7 +798,10 @@ mod tests {
 
     #[test]
     fn error_codes_preserve_api_contract() {
-        assert_eq!(error_codes::UNAUTHENTICATED, "TAPP_ATTRIBUTION_UNAUTHENTICATED");
+        assert_eq!(
+            error_codes::UNAUTHENTICATED,
+            "TAPP_ATTRIBUTION_UNAUTHENTICATED"
+        );
         assert_eq!(error_codes::PATH_NOT_ALLOWED, "TAPP_HOST_PATH_NOT_ALLOWED");
     }
 }

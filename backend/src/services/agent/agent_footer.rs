@@ -539,16 +539,13 @@ pub async fn ensure_agent_usage_allowed(
 
     let visibility = crate::services::module_visibility::agent_module_visibility(db).await;
     if visibility == "admin" {
-        return Err("Agent 仅管理员可用".to_string());
+        return Err("Agent is admin only".to_string());
     }
 
     // 能力真相源：Tapp 权限（设置页预设模板会批量开关这些项）
     let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
     if !TappPermissionService::check(&config, UserRole::User, TappPermission::AiChat) {
-        return Err(
-            "Agent 未对普通用户开放 AI 对话（请在「Tapp 权限管理」中下放 ai:chat 或选用助手预设）"
-                .to_string(),
-        );
+        return Err("Agent chat is not enabled for this account".to_string());
     }
     Ok(false)
 }
@@ -1132,6 +1129,7 @@ mod tests {
             task: None,
             confirmation: None,
             frontend_action: None,
+            performance: None,
         };
 
         assert!(response(AgentResponseType::Answer, None).is_successful_outcome());

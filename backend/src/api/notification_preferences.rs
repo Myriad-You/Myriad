@@ -26,7 +26,10 @@ pub async fn get_notification_preferences(
     let manager = get_notification_manager().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Notification system not initialized"})),
+            Json(json!({
+                "error": "Notification system not initialized",
+                "code": "notification_unavailable",
+            })),
         ))
     })?;
     let preferences = manager.notification_preferences(user_id).await;
@@ -48,16 +51,23 @@ pub async fn update_notification_preferences(
     let manager = get_notification_manager().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "Notification system not initialized"})),
+            Json(json!({
+                "error": "Notification system not initialized",
+                "code": "notification_unavailable",
+            })),
         ))
     })?;
     let preferences = manager
         .update_notification_preferences(user_id, payload)
         .await
         .map_err(|error| {
+            tracing::error!("Failed to update notification preferences: {error}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": error})),
+                Json(json!({
+                    "error": "Notification action failed",
+                    "code": "notification_failed",
+                })),
             )
         })?;
     Ok(Json(json!({"success": true, "preferences": preferences})))

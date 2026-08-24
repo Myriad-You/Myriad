@@ -38,16 +38,11 @@ pub(super) fn api_error(message: impl Into<String>) -> Json<ApiResponse<()>> {
 
 /// Map store envelope errors onto [`HttpError`] (same status + `error` string).
 pub(super) fn api_http_error(status: StatusCode, message: impl Into<String>) -> HttpError {
-    HttpError::from((
-        status,
-        Json(serde_json::json!({ "error": message.into() })),
-    ))
+    HttpError::from((status, Json(serde_json::json!({ "error": message.into() }))))
 }
 
 /// Convert legacy `(StatusCode, Json<ApiResponse<()>>)` to [`HttpError`].
-pub(super) fn api_response_err(
-    err: (StatusCode, Json<ApiResponse<()>>),
-) -> HttpError {
+pub(super) fn api_response_err(err: (StatusCode, Json<ApiResponse<()>>)) -> HttpError {
     let (status, Json(body)) = err;
     api_http_error(status, body.error.unwrap_or_else(|| "error".into()))
 }

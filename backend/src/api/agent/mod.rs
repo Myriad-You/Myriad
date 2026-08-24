@@ -218,25 +218,23 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
     }
 }
 
-
-
-mod types;
-mod helpers;
-mod persona;
-mod process;
-mod presets;
-mod heartbeat_mcp;
-mod sessions;
-mod notifications;
 mod boot;
+mod heartbeat_mcp;
+mod helpers;
+mod notifications;
+mod persona;
+mod presets;
+mod process;
 mod routes;
+mod sessions;
+mod types;
 
-pub use types::*;
-pub use helpers::*;
-pub use process::*;
-pub use presets::*;
-pub use heartbeat_mcp::*;
-pub use sessions::*;
-pub use notifications::*;
 pub use boot::*;
+pub use heartbeat_mcp::*;
+pub use helpers::*;
+pub use notifications::*;
+pub use presets::*;
+pub use process::*;
 pub use routes::*;
+pub use sessions::*;
+pub use types::*;

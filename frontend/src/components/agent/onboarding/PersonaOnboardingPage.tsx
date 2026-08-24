@@ -43,18 +43,18 @@ function samePageChrome(left: OnboardingPageChrome, right: OnboardingPageChrome)
 interface Props {
   onBack: () => void
   onChromeChange: (chrome: OnboardingPageChrome) => void
-  lifeOn: boolean
+  meropeOn: boolean
   gateLead: string
 }
 
 export default function PersonaOnboardingPage({
   onBack,
   onChromeChange,
-  lifeOn,
+  meropeOn,
   gateLead,
 }: Props) {
   const { t } = useI18n()
-  const o = t.life.onboarding
+  const o = t.agentPersona.onboarding
   const { user } = useAuth()
   const isOwner = user?.is_owner === true
   const [name, setName] = useState('')
@@ -76,21 +76,21 @@ export default function PersonaOnboardingPage({
   const onChromeChangeRef = useRef(onChromeChange)
   onChromeChangeRef.current = onChromeChange
   const chromeRef = useRef<OnboardingPageChrome | null>(null)
-  const pageTitle = lifeOn
+  const pageTitle = meropeOn
     ? [o.step1Title, o.step2Title, o.step3Title, o.step4Title, o.step5Title][
         step - 1
       ]
-    : t.config.agentLife
+    : t.config.agentPersona
   const pageLead =
     header.description ||
-    (lifeOn
+    (meropeOn
       ? [o.step1Lead, o.step2Lead, o.step3Lead, o.step4Lead, o.step5Lead][
           step - 1
         ]
       : gateLead)
 
   const loadSaved = useCallback(async () => {
-    if (!isOwner || !lifeOn) {
+    if (!isOwner || !meropeOn) {
       setReady(true)
       return
     }
@@ -127,7 +127,7 @@ export default function PersonaOnboardingPage({
     } finally {
       setReady(true)
     }
-  }, [isOwner, lifeOn])
+  }, [isOwner, meropeOn])
 
   useEffect(() => {
     void loadSaved()
@@ -163,19 +163,19 @@ export default function PersonaOnboardingPage({
 
   const handleBack = useCallback(() => {
     if (header.onBack?.()) return
-    if (lifeOn && step > 1) {
+    if (meropeOn && step > 1) {
       if (!wizardBusy) setStep((current) => (current - 1) as OnboardingStep)
       return
     }
     onBack()
-  }, [header.onBack, lifeOn, onBack, step, wizardBusy])
+  }, [header.onBack, meropeOn, onBack, step, wizardBusy])
 
   useEffect(() => {
     if (!isOwner) return
     const next: OnboardingPageChrome = {
       title: pageTitle,
       description: pageLead,
-      detailTone: lifeOn ? 'default' : 'warning',
+      detailTone: meropeOn ? 'default' : 'warning',
       action: header.action
         ? {
             label: header.action.label,
@@ -187,7 +187,7 @@ export default function PersonaOnboardingPage({
       backDisabled: wizardBusy && step > 1,
       backAria: header.onBack
         ? o.visualBackToStyle
-        : lifeOn && step > 1
+        : meropeOn && step > 1
           ? o.backTo.replace(
               '{step}',
               [
@@ -210,7 +210,7 @@ export default function PersonaOnboardingPage({
     header.onBack,
     isOwner,
     o.visualBackToStyle,
-    lifeOn,
+    meropeOn,
     o.backTo,
     o.step1Short,
     o.step2Short,
@@ -226,7 +226,7 @@ export default function PersonaOnboardingPage({
 
   if (!isOwner || !ready) return null
 
-  return lifeOn ? (
+  return meropeOn ? (
     <OnboardingWizard
       initialName={name}
       initialPersona={savedPersona ?? undefined}

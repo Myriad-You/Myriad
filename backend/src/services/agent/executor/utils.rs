@@ -21,10 +21,7 @@ mod adapter_tests {
         assert!(VALID_PLATFORMS.contains(&"steam"));
         assert_eq!(truncate_str("hello world", 5), "hello");
         assert_eq!(normalize_brew_category_filter("friends"), "友情链接");
-        assert_eq!(
-            loose_text_match("akiday", "akiday"),
-            Some(MatchKind::Exact)
-        );
+        assert_eq!(loose_text_match("akiday", "akiday"), Some(MatchKind::Exact));
         let img = extract_image_url(&serde_json::json!({"imageUrl": "https://x/a.png"}));
         assert_eq!(img.as_deref(), Some("https://x/a.png"));
         assert_eq!(
@@ -34,6 +31,9 @@ mod adapter_tests {
             .as_deref(),
             Some("/api/brew/image-cache/ab/abcd.png")
         );
-        assert!(extract_image_url(&serde_json::json!({"imageUrl": "data:image/png;base64,xx"})).is_none());
+        assert!(
+            extract_image_url(&serde_json::json!({"imageUrl": "data:image/png;base64,xx"}))
+                .is_none()
+        );
     }
 }

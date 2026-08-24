@@ -12,6 +12,10 @@ pub struct Model {
     pub activity: String,
     pub do_not_disturb: bool,
     #[sea_orm(nullable)]
+    pub dnd_start_minute: Option<i32>,
+    #[sea_orm(nullable)]
+    pub dnd_end_minute: Option<i32>,
+    #[sea_orm(nullable)]
     pub last_user_message_at: Option<DateTimeWithTimeZone>,
     #[sea_orm(nullable)]
     pub last_proactive_at: Option<DateTimeWithTimeZone>,

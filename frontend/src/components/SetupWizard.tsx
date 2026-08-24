@@ -22,6 +22,8 @@ import { assertConfigWriteSuccess } from '../lib/api'
 import { parseAuthMeResponse } from '../utils/authMe'
 import { getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
 import { consumeSetupSecretFromLocation } from '../utils/setupSecretFromUrl'
+import { ApiError } from '../services/api'
+import { userFacingError } from '../utils/userFacingError'
 import { InputItem, SegmentedControl, SwitchItem } from './settings'
 import { SettingItemWrapper } from './settings/items/SettingItemWrapper'
 import {
@@ -107,9 +109,21 @@ function enterDirBetween(from: Stage, to: Stage): EnterDir {
 async function getResponseError(response: Response, fallback: string) {
   try {
     const body = await response.json()
-    return body.message || body.error || fallback
+    const raw = [body.message, body.error].find(
+      (value) => typeof value === 'string' && value.trim(),
+    )
+    return userFacingError(
+      new ApiError(
+        typeof raw === 'string' ? raw : fallback,
+        response.status,
+        typeof body.code === 'string' ? body.code : undefined,
+        undefined,
+        typeof body.hint === 'string' ? body.hint : undefined,
+      ),
+      fallback,
+    )
   } catch {
-    return fallback
+    return userFacingError(new ApiError('', response.status), fallback)
   }
 }
 
@@ -198,13 +212,23 @@ const SetupWizard: React.FC = () => {
       // 先检查健康状态,看是否处于配置模式
       const healthResponse = await fetch(`${API_URL}/health`)
       if (!healthResponse.ok) {
-        throw new Error('Failed to connect to backend')
+        throw new Error(
+          t.errors.backendUnreachable.replace(
+            '{status}',
+            String(healthResponse.status),
+          ),
+        )
       }
       const healthData = await healthResponse.json()
 
       const configResponse = await fetch(`${API_URL}/api/setup/config`)
       if (!configResponse.ok) {
-        throw new Error('Failed to read setup config')
+        throw new Error(
+          t.errors.setupConfigFailed.replace(
+            '{status}',
+            String(configResponse.status),
+          ),
+        )
       }
       const setupConfig = await configResponse.json()
       const setupSecretRequired = Boolean(setupConfig.setup_secret_required)
@@ -259,7 +283,12 @@ const SetupWizard: React.FC = () => {
           setLoading(false)
           return
         }
-        throw new Error('Failed to check setup status')
+        throw new Error(
+          t.errors.setupCheckFailed.replace(
+            '{status}',
+            String(response.status),
+          ),
+        )
       }
       const data = await response.json()
       if (data.is_setup_required && !windowOpen) {
@@ -274,12 +303,12 @@ const SetupWizard: React.FC = () => {
       if (!data.is_setup_required) {
         sessionStorage.removeItem('myriad-setup-started')
       }
-    } catch (_err) {
-      setError(t.setup.connectionFailedDesc)
+    } catch (err) {
+      setError(userFacingError(err, t.setup.connectionFailedDesc))
     } finally {
       setLoading(false)
     }
-  }, [t.setup.connectionFailedDesc])
+  }, [t])
 
   useEffect(() => {
     void checkSetupStatus()
@@ -398,10 +427,10 @@ const SetupWizard: React.FC = () => {
         })
         setSavingDb(false)
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setNotice({
         tone: 'error',
-        message: `${t.setup.saveConfigFailed}: ${err.message}`,
+        message: userFacingError(err, t.setup.saveConfigFailed),
       })
       setSavingDb(false)
     }
@@ -478,8 +507,13 @@ const SetupWizard: React.FC = () => {
 
       const result = await response.json()
 
-      // 显示详细的验证信息
-      let message = result.message
+      const heading =
+        result.kind === 'initialized' ||
+        (typeof result.message === 'string' &&
+          result.message.includes('初始化完成'))
+          ? t.setup.dbInitialized
+          : t.setup.dbMigrationChecked
+      let message = heading
       if (result.verification) {
         const v = result.verification
         message += `\n\n${t.setup.verificationResult}:`
@@ -492,10 +526,10 @@ const SetupWizard: React.FC = () => {
 
       // 重新检查状态以更新 UI
       await checkSetupStatus()
-    } catch (err: any) {
+    } catch (err: unknown) {
       setNotice({
         tone: 'error',
-        message: `${t.setup.dbMigrationFailed}: ${err.message}`,
+        message: userFacingError(err, t.setup.dbMigrationFailed),
       })
     } finally {
       setMigratingDb(false)
@@ -619,10 +653,10 @@ const SetupWizard: React.FC = () => {
       )
 
       await finishSetup()
-    } catch (err: any) {
+    } catch (err: unknown) {
       setNotice({
         tone: 'error',
-        message: `${t.setup.siteInfoFailed}: ${err.message}`,
+        message: userFacingError(err, t.setup.siteInfoFailed),
       })
       setSavingSite(false)
     }
@@ -701,10 +735,10 @@ const SetupWizard: React.FC = () => {
       }
       setNotice({ tone: 'info', message: t.setup.autoLoginFailed })
       await checkSetupStatus()
-    } catch (err: any) {
+    } catch (err: unknown) {
       setNotice({
         tone: 'error',
-        message: `${t.setup.createFailed}: ${err.message}`,
+        message: userFacingError(err, t.setup.createFailed),
       })
     } finally {
       setCreatingAdmin(false)

@@ -27,7 +27,7 @@ pub struct AiUsageSummaryQuery {
     pub subject_id: Option<i32>,
     /// Optional exact model id filter.
     pub model: Option<String>,
-    /// Optional ledger source (`agent`, `life`, `runtime`, …).
+    /// Optional ledger source (`agent`, `merope`, `runtime`, …).
     pub source: Option<String>,
 }
 
@@ -108,8 +108,7 @@ pub async fn get_ai_usage_summary(
     crate::extract::Db(db): crate::extract::Db,
     Query(q): Query<AiUsageSummaryQuery>,
 ) -> (StatusCode, Json<Value>) {
-    let (from, to_day, days) =
-        resolve_analytics_window(q.days, q.from.as_deref(), q.to.as_deref());
+    let (from, to_day, days) = resolve_analytics_window(q.days, q.from.as_deref(), q.to.as_deref());
     let tz_label = analytics_tz_label();
 
     let subject_filter = q.subject_id;
@@ -420,11 +419,9 @@ LIMIT 50
         .collect();
 
     // Filter option lists (day-scoped; the picker dimension itself is unconstrained).
-    let mut model_opt_where = String::from(
-        "WHERE occurred_at::date >= $1 AND occurred_at::date <= $2",
-    );
-    let mut model_opt_params: Vec<SeaValue> =
-        vec![SeaValue::from(from), SeaValue::from(to_day)];
+    let mut model_opt_where =
+        String::from("WHERE occurred_at::date >= $1 AND occurred_at::date <= $2");
+    let mut model_opt_params: Vec<SeaValue> = vec![SeaValue::from(from), SeaValue::from(to_day)];
     let mut next = 3u32;
     if let Some(sid) = subject_filter {
         model_opt_where.push_str(&format!(" AND subject_id = ${next}"));
@@ -451,11 +448,9 @@ LIMIT 50
         .filter(|m| !m.is_empty())
         .collect();
 
-    let mut user_opt_where = String::from(
-        "WHERE l.occurred_at::date >= $1 AND l.occurred_at::date <= $2",
-    );
-    let mut user_opt_params: Vec<SeaValue> =
-        vec![SeaValue::from(from), SeaValue::from(to_day)];
+    let mut user_opt_where =
+        String::from("WHERE l.occurred_at::date >= $1 AND l.occurred_at::date <= $2");
+    let mut user_opt_params: Vec<SeaValue> = vec![SeaValue::from(from), SeaValue::from(to_day)];
     let mut next = 3u32;
     if let Some(ref model) = model_filter {
         user_opt_where.push_str(&format!(" AND l.model = ${next}"));
@@ -494,11 +489,9 @@ LIMIT 100
         })
         .collect();
 
-    let mut source_opt_where = String::from(
-        "WHERE occurred_at::date >= $1 AND occurred_at::date <= $2",
-    );
-    let mut source_opt_params: Vec<SeaValue> =
-        vec![SeaValue::from(from), SeaValue::from(to_day)];
+    let mut source_opt_where =
+        String::from("WHERE occurred_at::date >= $1 AND occurred_at::date <= $2");
+    let mut source_opt_params: Vec<SeaValue> = vec![SeaValue::from(from), SeaValue::from(to_day)];
     let mut next = 3u32;
     if let Some(sid) = subject_filter {
         source_opt_where.push_str(&format!(" AND subject_id = ${next}"));
@@ -570,9 +563,9 @@ LIMIT 100
 
 #[cfg(test)]
 mod tests {
+    use super::super::intake_helpers::resolve_analytics_window;
     use super::*;
     use chrono::NaiveDate;
-    use super::super::intake_helpers::resolve_analytics_window;
 
     #[test]
     fn days_clamp_bounds_match_analytics() {
@@ -595,17 +588,14 @@ mod tests {
     fn base_params_order() {
         let from = NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 7, 7).unwrap();
-        let p = base_params(from, today, Some(3), Some("gpt-test"), Some("life"));
+        let p = base_params(from, today, Some(3), Some("gpt-test"), Some("merope"));
         assert_eq!(p.len(), 5);
     }
 
     #[test]
     fn custom_from_to_swaps_and_spans() {
-        let (from, to, days) = resolve_analytics_window(
-            None,
-            Some("2026-07-10"),
-            Some("2026-07-01"),
-        );
+        let (from, to, days) =
+            resolve_analytics_window(None, Some("2026-07-10"), Some("2026-07-01"));
         assert_eq!(from.format("%Y-%m-%d").to_string(), "2026-07-01");
         assert_eq!(to.format("%Y-%m-%d").to_string(), "2026-07-10");
         assert_eq!(days, 10);

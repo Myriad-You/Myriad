@@ -1,4 +1,5 @@
 import { ApiError } from '../../../services/api'
+import { isUselessErrorText } from '../../../utils/userFacingError'
 
 const HOST_GENERATION_CODES = new Set([
   'report_dna_failed',
@@ -85,7 +86,7 @@ function apiErrorHint(reason: unknown): string {
 
 function usefulDetail(detail: string, ...known: string[]): string {
   if (!detail) return ''
-  if (/^API Error: \d+$/i.test(detail)) return ''
+  if (isUselessErrorText(detail)) return ''
   if (known.some((item) => item && detail === item)) return ''
   return detail
 }

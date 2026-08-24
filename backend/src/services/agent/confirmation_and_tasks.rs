@@ -4,15 +4,10 @@ use chrono::{Duration, Utc};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use super::{
-    capability,
-    executor,
-    response_agent,
-    types,
-};
-use super::agent_header::*;
 use super::agent_footer::*;
+use super::agent_header::*;
 use super::types::*;
+use super::{capability, executor, response_agent, types};
 
 /// 确认请求的判定结果：能直接答复的，和真要跑 recipe 的。
 ///
@@ -25,7 +20,6 @@ enum ConfirmationOutcome {
 }
 
 impl Agent {
-
     /// 处理用户确认
     ///
     /// 只有「真的要跑 recipe」这一段进预算作用域。取消、越权、找不到、已过期、
@@ -59,16 +53,15 @@ impl Agent {
     ) -> Result<ConfirmationOutcome, String> {
         // PostgreSQL provides atomic, owner-scoped consumption across replicas.
         // The local map is only a hot cache and is cleared after the shared take.
-        let pending = crate::services::tapp_registry::take_for_subject::<
-            PendingRecipeConfirmation,
-        >(
-            &self.db,
-            CONFIRMATION_REGISTRY_NAMESPACE,
-            &confirmation.confirmation_id,
-            confirmation.user_id,
-        )
-        .await
-        .map_err(|error| format!("Failed to consume confirmation: {error}"))?;
+        let pending =
+            crate::services::tapp_registry::take_for_subject::<PendingRecipeConfirmation>(
+                &self.db,
+                CONFIRMATION_REGISTRY_NAMESPACE,
+                &confirmation.confirmation_id,
+                confirmation.user_id,
+            )
+            .await
+            .map_err(|error| format!("Failed to consume confirmation: {error}"))?;
         PENDING_CONFIRMATIONS
             .write()
             .await
@@ -87,6 +80,7 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
+                        performance: None,
                     })));
                 }
 
@@ -103,6 +97,7 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
+                        performance: None,
                     })));
                 }
 
@@ -120,6 +115,7 @@ impl Agent {
                         task: None,
                         confirmation: None,
                         frontend_action: None,
+                        performance: None,
                     })));
                 }
 
@@ -156,6 +152,7 @@ impl Agent {
                 task: None,
                 confirmation: None,
                 frontend_action: None,
+                performance: None,
             }))),
         }
     }
@@ -207,6 +204,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
+            performance: None,
         })
     }
 
@@ -312,6 +310,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action: None,
+            performance: None,
         }))
     }
 
@@ -332,9 +331,10 @@ impl Agent {
         if user_id != SYSTEM_USER_ID {
             return None;
         }
-        if let Some(blocked) = sensitive_steps.iter().find(|s| {
-            matches!(s.risk_level, RiskLevel::High | RiskLevel::Critical)
-        }) {
+        if let Some(blocked) = sensitive_steps
+            .iter()
+            .find(|s| matches!(s.risk_level, RiskLevel::High | RiskLevel::Critical))
+        {
             let msg = format!(
                 "定时任务包含敏感操作 '{}'（{}，风险 {:?}），已拒绝自动执行。请手动操作或调整任务指令。",
                 blocked.capability_name, blocked.capability_id, blocked.risk_level
@@ -353,6 +353,7 @@ impl Agent {
                 task: None,
                 confirmation: None,
                 frontend_action: None,
+                performance: None,
             }));
         }
         tracing::info!(
@@ -514,6 +515,7 @@ impl Agent {
             task: None,
             confirmation: Some(confirmation_request),
             frontend_action: None,
+            performance: None,
         })
     }
 
@@ -596,7 +598,7 @@ impl Agent {
         progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
     ) -> String {
         if task_state.status == TaskStatus::Failed {
-            let err = task_state.error.as_deref().unwrap_or("未知错误");
+            let err = task_state.error.as_deref().unwrap_or("Processing failed");
             return response_agent::error_message(err);
         }
 
@@ -928,7 +930,7 @@ impl Agent {
                 AgentResponseType::Answer
             },
             message: if task_state.status == TaskStatus::Failed {
-                response_agent::error_message(task_state.error.as_deref().unwrap_or("未知错误"))
+                response_agent::error_message(task_state.error.as_deref().unwrap_or("Processing failed"))
             } else {
                 response_agent::completion_message()
             },
@@ -938,6 +940,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
+            performance: None,
         })
     }
 
@@ -1005,7 +1008,7 @@ impl Agent {
                 AgentResponseType::Answer
             },
             message: if task_state.status == TaskStatus::Failed {
-                response_agent::error_message(task_state.error.as_deref().unwrap_or("未知错误"))
+                response_agent::error_message(task_state.error.as_deref().unwrap_or("Processing failed"))
             } else if task_state.status == TaskStatus::WaitingForInput {
                 response_agent::need_more_info()
             } else {
@@ -1017,6 +1020,7 @@ impl Agent {
             task: Some(task_state),
             confirmation: None,
             frontend_action,
+            performance: None,
         })
     }
 
@@ -1030,7 +1034,7 @@ impl Agent {
         planner_reply: &str,
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
     ) -> String {
-        let analyzer = match crate::services::agent::life::create_speaking_analyzer().await {
+        let analyzer = match crate::services::agent::merope::create_speaking_analyzer().await {
             Some(a) => a,
             None => {
                 // AI 不可用，回退到模拟流式
@@ -1044,13 +1048,13 @@ impl Agent {
             .await
             .unwrap_or_default();
         let soul: String = soul.chars().take(2000).collect();
-        let life_block = crate::services::agent::life::speaking_prompt_plain(
-            &crate::services::agent::life::speaking_prompt(request.user_id).await,
+        let merope_block = crate::services::agent::merope::speaking_prompt_plain(
+            &crate::services::agent::merope::speaking_prompt(request.user_id).await,
         );
-        let life_prefix = if life_block.is_empty() {
+        let merope_prefix = if merope_block.is_empty() {
             String::new()
         } else {
-            format!("{life_block}\n\n")
+            format!("{merope_block}\n\n")
         };
 
         // 构建对话历史
@@ -1077,21 +1081,21 @@ impl Agent {
 
         let prompt = if history_text.is_empty() {
             format!(
-                "{soul}\n\n{life}用户对你说：{input}\n\n\
+                "{soul}\n\n{merope}用户对你说：{input}\n\n\
                  请以你的角色自然地回复用户。使用用户的语言。保持简短、温暖、自然。\
                  不要输出任何 JSON 或格式标记，只输出纯文本回复。",
                 soul = soul,
-                life = life_prefix,
+                merope = merope_prefix,
                 input = request.raw_input,
             )
         } else {
             format!(
-                "{soul}\n\n{life}以下是对话历史：\n{history}\n\n\
+                "{soul}\n\n{merope}以下是对话历史：\n{history}\n\n\
                  用户最新消息：{input}\n\n\
                  请以你的角色自然地回复用户。使用用户的语言。保持简短、温暖、自然。\
                  不要输出任何 JSON 或格式标记，只输出纯文本回复。",
                 soul = soul,
-                life = life_prefix,
+                merope = merope_prefix,
                 history = history_text,
                 input = request.raw_input,
             )
@@ -1130,7 +1134,10 @@ impl Agent {
     ///
     /// 将文本按句/标点拆分为自然片段，逐个发送给前端，
     /// 让用户看到"AI 在打字"的效果而非一次性出现全部内容。
-    pub(crate) async fn stream_text_as_tokens(tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>, text: &str) {
+    pub(crate) async fn stream_text_as_tokens(
+        tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+        text: &str,
+    ) {
         // 按自然断点切分（标点、换行）
         let mut chunks = Vec::new();
         let mut current = String::new();

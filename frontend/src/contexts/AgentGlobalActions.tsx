@@ -15,6 +15,7 @@ import {
   registerActionHandler,
   unregisterActionHandler,
 } from '../services/agent'
+import { currentCopy } from '../i18n/localeCopy'
 import { useMusicPlayerControl } from './MusicPlayerContext'
 
 /**
@@ -575,7 +576,7 @@ export function AgentGlobalActions() {
       // 准备阅读列表数据
       const readingListData = {
         id: `reading_list_${Date.now()}`,
-        name: payload.name || '智能阅读列表',
+        name: payload.name || currentCopy().brew.smartReadingList,
         criteria: frontendAction.criteria || '',
         items: payload.items,
         createdAt: new Date().toISOString(),

@@ -65,7 +65,7 @@ fn db_err(e: impl std::fmt::Display) -> (StatusCode, Json<serde_json::Value>) {
     tracing::error!("[interactions] DB error: {}", e);
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({"error": "Database error"})),
+        Json(json!({"error": "Database error", "code": "database_error"})),
     )
 }
 

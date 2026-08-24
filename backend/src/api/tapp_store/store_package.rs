@@ -5,9 +5,7 @@
 //! outbound HTTP, and status mapping.
 
 use super::prepared_package::{PreparedTappPackage, PreparedTappResources};
-use super::{
-    api_http_error, TappManifest, WidgetTemplateContents,
-};
+use super::{api_http_error, TappManifest, WidgetTemplateContents};
 use crate::error::HttpError;
 use axum::http::StatusCode;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -289,8 +287,7 @@ pub(super) async fn fetch_from_store(
 
     // `download.code` 是 core 入口；`download.modules` 覆盖其余层入口与层内文件，
     // key 就是包内相对路径。声明的层入口必须齐全，缺了要立刻失败而不是装个半成品。
-    let mut modules: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    let mut modules: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     if let Some(core_entry) = manifest.core.as_ref().map(|core| core.entry.clone()) {
         modules.insert(core_entry, code);
     }

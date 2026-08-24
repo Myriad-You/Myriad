@@ -1,8 +1,6 @@
 use super::validate_tapp_id;
 use axum::http::StatusCode;
-use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement,
-};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 
 use crate::api::tapp_runtime::common as tapp_common;
 use crate::api::tapp_runtime::RuntimeGrantContext;
@@ -148,7 +146,14 @@ pub(super) async fn authorize_runtime_storage(
     dynamic_config: &std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
 ) -> Result<TappStorageAccess, HttpError> {
     require_runtime_storage_grant(grant, tapp_id, TappPermission::StorageRead)?;
-    authorize_tapp_permission(db, claims, tapp_id, TappPermission::StorageRead, dynamic_config).await?;
+    authorize_tapp_permission(
+        db,
+        claims,
+        tapp_id,
+        TappPermission::StorageRead,
+        dynamic_config,
+    )
+    .await?;
     storage_access_from_runtime_grant(grant, claims)
 }
 
@@ -160,7 +165,14 @@ pub(crate) async fn authorize_runtime_storage_write(
     dynamic_config: &std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
 ) -> Result<TappStorageAccess, HttpError> {
     require_runtime_storage_grant(grant, tapp_id, TappPermission::StorageWrite)?;
-    authorize_tapp_permission(db, claims, tapp_id, TappPermission::StorageWrite, dynamic_config).await?;
+    authorize_tapp_permission(
+        db,
+        claims,
+        tapp_id,
+        TappPermission::StorageWrite,
+        dynamic_config,
+    )
+    .await?;
     storage_access_from_runtime_grant(grant, claims)
 }
 

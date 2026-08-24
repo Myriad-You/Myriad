@@ -72,9 +72,10 @@ async fn resolve_user_id(
                     )
                 })?;
             fallback.try_get("", "id").map_err(|e| {
+                tracing::error!("Failed to read local user id: {e}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": e.to_string()})),
+                    Json(json!({"error": "Database error", "code": "database_error"})),
                 )
             })
         }
@@ -532,9 +533,13 @@ pub async fn add_peer(
     let remote = crate::federation::actor::fetch_remote_actor(db, &peer_url)
         .await
         .map_err(|e| {
+            tracing::warn!(error = %e, "Failed to resolve ring peer");
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": format!("Cannot resolve peer: {}", e)})),
+                Json(json!({
+                    "error": "Cannot resolve peer",
+                    "code": "remote_actor_unresolved",
+                })),
             )
         })?;
 

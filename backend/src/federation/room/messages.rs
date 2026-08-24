@@ -50,9 +50,10 @@ pub async fn send_room_message(
     let room_game = super::helpers::load_room_game_config(db, room_id)
         .await
         .map_err(|error| {
+            tracing::error!("Failed to load room game config: {error}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Database error: {error}")})),
+                Json(json!({"error": "Database error", "code": "database_error"})),
             )
         })?;
     if let Err(error) = super::game::validate_room_game_message(

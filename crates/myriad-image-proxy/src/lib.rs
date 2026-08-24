@@ -78,11 +78,7 @@ pub fn needs_image_proxy(url: &str) -> bool {
         return false;
     };
     let hosts = image_proxy_hosts();
-    if hosts
-        .markers
-        .iter()
-        .any(|m| host_matches_domain(&host, m))
-    {
+    if hosts.markers.iter().any(|m| host_matches_domain(&host, m)) {
         return true;
     }
     // Steam legacy avatar CDN: host under akamaihd.net and label/path implies Steam.
@@ -192,19 +188,17 @@ mod proxy_image_url_tests {
         assert!(needs_image_proxy(
             "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/a.jpg"
         ));
-        assert!(!needs_image_proxy("https://avatars.githubusercontent.com/u/1"));
+        assert!(!needs_image_proxy(
+            "https://avatars.githubusercontent.com/u/1"
+        ));
     }
 
     #[test]
     fn rejects_lookalike_hosts() {
         assert!(!needs_image_proxy("https://hdslb.com.evil.com/face.jpg"));
         assert!(!needs_image_proxy("https://nothdslb.com/bfs/face/x.jpg"));
-        assert!(!needs_image_proxy(
-            "https://evil.com/cdn?u=hdslb.com/x.jpg"
-        ));
-        assert!(!is_allowed_proxy_url(
-            "https://evil.com/uploads/photo.jpg"
-        ));
+        assert!(!needs_image_proxy("https://evil.com/cdn?u=hdslb.com/x.jpg"));
+        assert!(!is_allowed_proxy_url("https://evil.com/uploads/photo.jpg"));
         assert!(!is_allowed_proxy_url("https://blog.example/favicon.ico"));
     }
 
@@ -279,7 +273,10 @@ mod proxy_image_url_tests {
             "name": "keep"
         });
         normalize_json_media_urls(&mut v);
-        assert!(v["avatar"].as_str().unwrap().starts_with("/api/proxy/image"));
+        assert!(v["avatar"]
+            .as_str()
+            .unwrap()
+            .starts_with("/api/proxy/image"));
         assert!(v["library_items"][0]["cover"]
             .as_str()
             .unwrap()

@@ -4,10 +4,10 @@
 //! Real submodules: types in [`helpers`], platform pipelines in process / filter_impl /
 //! cache_tokens.
 
+mod cache_tokens;
+mod filter_impl;
 mod helpers;
 mod process;
-mod filter_impl;
-mod cache_tokens;
 
 #[cfg(test)]
 mod tests_inline;

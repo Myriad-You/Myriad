@@ -218,9 +218,10 @@ pub async fn initiate_e2e_key_exchange(
                     &jwt_secret,
                 )
                 .map_err(|e| {
+                    tracing::error!("Failed to seal room E2E key: {e}");
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({"error": format!("Failed to seal E2E key: {}", e)})),
+                        Json(json!({"error": "Failed to seal E2E key", "code": "e2e_key_failed"})),
                     )
                 })?;
                 (session.local_keypair.public_key, sealed)
@@ -233,9 +234,10 @@ pub async fn initiate_e2e_key_exchange(
             &jwt_secret,
         )
         .map_err(|e| {
+            tracing::error!("Failed to seal room E2E key: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Failed to seal E2E key: {}", e)})),
+                Json(json!({"error": "Failed to seal E2E key", "code": "e2e_key_failed"})),
             )
         })?;
         (session.local_keypair.public_key, sealed)

@@ -183,7 +183,7 @@ import { InfoActionCard } from '../settings'
 
 ```tsx
 <SettingGroup
-  title="Arael 任务"
+  title="Agent 任务"
   description="任务进度、结果、取消与澄清请求"
   icon={<NotificationSourceIcon source="agent" />}
   switch={{
@@ -205,7 +205,7 @@ import { InfoActionCard } from '../settings'
 ```tsx
 {/* 默认 stretch：同一行两张卡外框同高、底边齐 */}
 <SettingGroupGrid columns={2} variant="card" minColumnWidth="18rem">
-  <SettingGroup title="Arael 任务" switch={{…}}>…</SettingGroup>
+  <SettingGroup title="Agent 任务" switch={{…}}>…</SettingGroup>
   <SettingGroup title="Heartbeat" switch={{…}}>…</SettingGroup>
 </SettingGroupGrid>
 ```

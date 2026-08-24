@@ -42,7 +42,7 @@ fn test_recent_month_features_in_expected_schema() {
         "federation_policy_settings",
         "federation_domain_aliases",
         "federation_object_interactions",
-        // 012
+        // 005（原 012/013）
         "federation_inbox_receipts",
     ] {
         assert!(
@@ -87,6 +87,25 @@ fn test_recent_month_features_in_expected_schema() {
         );
     }
 
+    let instances = tables
+        .iter()
+        .find(|t| t.name == "federation_instances")
+        .expect("federation_instances");
+    assert!(
+        instances.columns.iter().any(|c| c.name == "failing_since"),
+        "federation_instances.failing_since must be in expected schema (005 + generic ADD)"
+    );
+    let delivery = tables
+        .iter()
+        .find(|t| t.name == "federation_delivery_queue")
+        .expect("federation_delivery_queue");
+    for col in ["lease_token", "lease_expires_at"] {
+        assert!(
+            delivery.columns.iter().any(|c| c.name == col),
+            "federation_delivery_queue missing column {col}"
+        );
+    }
+
     let indexes = get_expected_indexes();
     let idx_names: Vec<&str> = indexes.iter().map(|i| i.name.as_str()).collect();
     for required in [
@@ -97,6 +116,8 @@ fn test_recent_month_features_in_expected_schema() {
         "idx_fed_interactions_object_kind",
         "idx_fed_interactions_user_kind_created",
         "federation_inbox_receipts_pkey",
+        "idx_delivery_lease_expiry",
+        "idx_delivery_queue_target_domain",
     ] {
         assert!(
             idx_names.contains(&required),
@@ -187,14 +208,38 @@ fn test_default_config_seeds_include_quota_and_explicit_open_permissions() {
     assert_eq!(values["user_perm_storage_write"], serde_json::json!(false));
     assert_eq!(values["guest_perm_storage_write"], serde_json::json!(false));
     // federation 拆分后三个 Elevated 写域进入可配置下放集合，默认关闭
-    assert_eq!(values["user_perm_federation_post"], serde_json::json!(false));
-    assert_eq!(values["user_perm_federation_channel"], serde_json::json!(false));
-    assert_eq!(values["user_perm_federation_room"], serde_json::json!(false));
-    assert_eq!(values["guest_perm_federation_post"], serde_json::json!(false));
-    assert_eq!(values["guest_perm_federation_channel"], serde_json::json!(false));
-    assert_eq!(values["guest_perm_federation_room"], serde_json::json!(false));
-    assert_eq!(values["user_perm_brew_comment_write"], serde_json::json!(false));
-    assert_eq!(values["guest_perm_brew_comment_write"], serde_json::json!(false));
+    assert_eq!(
+        values["user_perm_federation_post"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        values["user_perm_federation_channel"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        values["user_perm_federation_room"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        values["guest_perm_federation_post"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        values["guest_perm_federation_channel"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        values["guest_perm_federation_room"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        values["user_perm_brew_comment_write"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        values["guest_perm_brew_comment_write"],
+        serde_json::json!(false)
+    );
     assert!(!values.contains_key("user_perm_component_theme"));
     assert!(!values.contains_key("user_perm_shortcut_register"));
     assert_eq!(values["stash_hidden_capacity"], serde_json::json!(8));
@@ -286,6 +331,24 @@ fn test_tapps_schema_includes_approved_permissions() {
     assert_eq!(col.data_type, "jsonb");
     assert!(!col.is_nullable);
     assert_eq!(col.default_value.as_deref(), Some("'[]'"));
+}
+
+#[test]
+fn test_tapps_schema_includes_needs_reauthorization_marker() {
+    // Durable re-authorization marker, non-null, default false.
+    let tables = get_expected_schema();
+    let tapps = tables
+        .iter()
+        .find(|t| t.name == "tapps")
+        .expect("tapps table");
+    let col = tapps
+        .columns
+        .iter()
+        .find(|c| c.name == "needs_reauthorization")
+        .expect("tapps.needs_reauthorization must be in expected schema (002 + 016 + generic ADD)");
+    assert_eq!(col.data_type, "boolean");
+    assert!(!col.is_nullable);
+    assert_eq!(col.default_value.as_deref(), Some("false"));
 }
 
 #[test]
@@ -397,8 +460,8 @@ VALUES
     );
 
     // A review deployment may already have recorded the short-lived first
-    // 012 migration while retaining its scope-less table. 012/013 are retired
-    // no-ops now, so schema_check rebuilds that shape.
+    // 012 migration while retaining its scope-less table. 012/013 names are
+    // purged from seaql_migrations before up; schema_check rebuilds that shape.
     db.execute_unprepared(
         r#"
 DROP TABLE federation_inbox_receipts;
@@ -943,9 +1006,7 @@ VALUES
         .expect("read health after permanent rejection")
         .expect("peer instance row after rejection");
     assert_eq!(after_reject.try_get::<i32>("", "failure_count").unwrap(), 4);
-    assert!(!after_reject
-        .try_get::<bool>("", "streak_cleared")
-        .unwrap());
+    assert!(!after_reject.try_get::<bool>("", "streak_cleared").unwrap());
 
     // Phase 3 — count alone must not revoke. A fan-out to one peer can burn an
     // arbitrary failure count inside a single worker tick while it restarts.

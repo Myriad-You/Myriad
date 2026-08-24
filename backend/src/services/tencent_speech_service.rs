@@ -106,7 +106,7 @@ impl Default for TtsRequest {
             speed: Some(0.0),
             project_id: Some(0),
             voice_type: Some(voice_types::AI_XIAO_XI),
-            primary_language: Some(1),  // 中文
+            primary_language: Some(1), // 中文
             sample_rate: Some(16000),
             codec: Some("mp3".to_string()),
             enable_subtitle: None,
@@ -293,9 +293,7 @@ impl TencentSpeechService {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
 
         let source = config.find_vendor_source(&config.speech_source);
-        let tencent = source
-            .as_ref()
-            .filter(|item| item.kind == "tencent");
+        let tencent = source.as_ref().filter(|item| item.kind == "tencent");
         let secret_id = tencent
             .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.secret_id.as_ref()))
             .or_else(|| {
@@ -752,10 +750,18 @@ mod tests {
         let config = ProxyConfig {
             enabled: true,
             proxy_url: Some("http://127.0.0.1:9".to_string()),
-            bypass_list: vec!["localhost".into(), "127.0.0.1".into(), "tencentcloudapi.com".into()],
+            bypass_list: vec![
+                "localhost".into(),
+                "127.0.0.1".into(),
+                "tencentcloudapi.com".into(),
+            ],
         };
         TencentSpeechService::create_client(&config).expect("proxy client with NoProxy");
-        let direct = ProxyConfig { enabled: false, proxy_url: None, bypass_list: vec![] };
+        let direct = ProxyConfig {
+            enabled: false,
+            proxy_url: None,
+            bypass_list: vec![],
+        };
         TencentSpeechService::create_client(&direct).expect("direct client");
     }
 
@@ -773,7 +779,8 @@ mod tests {
     #[test]
     fn hmac_sha256_roundtrip_matches_known_vector() {
         // RFC 4231 test case 1 (truncated to HMAC-SHA256)
-        let key = b"\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b";
+        let key =
+            b"\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b";
         let data = "Hi There";
         let tag = TencentSpeechService::hmac_sha256(key, data);
         assert_eq!(

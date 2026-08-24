@@ -446,7 +446,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "setup.status".to_string(),
         name: "系统设置状态".to_string(),
-        description: "检查系统初始化状态（库表与管理员；与 HTTP /api/setup/status 一致，不含 AI 钥）".to_string(),
+        description:
+            "检查系统初始化状态（库表与管理员；与 HTTP /api/setup/status 一致，不含 AI 钥）"
+                .to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -497,7 +499,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "permission.check".to_string(),
         name: "权限检查".to_string(),
-        description: "检查当前会话角色的授予权限；带 tappId 时再与该安装的批准权限求交".to_string(),
+        description: "检查当前会话角色的授予权限；带 tappId 时再与该安装的批准权限求交，需重新授权则 granted 为 false".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({

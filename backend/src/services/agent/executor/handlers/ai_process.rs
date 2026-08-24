@@ -206,7 +206,10 @@ async fn execute_ai_summarize(
     let result = analyzer
         .analyze(&prompt)
         .await
-        .map_err(|e| format!("AI summarize failed: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "AI summarize failed");
+            "AI generation failed".to_string()
+        })?;
 
     Ok(json!({
         "summary": result,
@@ -291,7 +294,10 @@ async fn execute_ai_analyze(
     let result = analyzer
         .analyze(&prompt)
         .await
-        .map_err(|e| format!("AI analysis failed: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "AI analysis failed");
+            "AI generation failed".to_string()
+        })?;
 
     Ok(json!({
         "analysis": result,
@@ -337,7 +343,10 @@ async fn execute_ai_recommend(
     let result = analyzer
         .analyze(&prompt)
         .await
-        .map_err(|e| format!("AI recommendation failed: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "AI recommendation failed");
+            "AI generation failed".to_string()
+        })?;
 
     // 尝试解析 JSON 数组，否则回退到文本
     let recommendations: Value = {
@@ -368,7 +377,7 @@ async fn execute_ai_chat(
     let system_prompt = params
         .get("systemPrompt")
         .and_then(|v| v.as_str())
-        .unwrap_or("你是 Arael，Myriad 平台的 AI 助手。你友好、博学，擅长帮助用户处理各种问题。回复时保持简洁和有用。");
+        .unwrap_or("你是 Agent，Myriad 平台的 AI 助手。你友好、博学，擅长帮助用户处理各种问题。回复时保持简洁和有用。");
 
     let context = params.get("context").and_then(|v| v.as_array());
 
@@ -398,7 +407,10 @@ async fn execute_ai_chat(
     let result = analyzer
         .analyze(&full_prompt)
         .await
-        .map_err(|e| format!("AI chat failed: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "AI chat failed");
+            "AI generation failed".to_string()
+        })?;
 
     Ok(json!({
         "reply": result
@@ -447,9 +459,9 @@ async fn execute_gemini_grounding_search(
     max_results: usize,
 ) -> Result<(String, Vec<Value>), String> {
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let (api_key, model) = config.resolve_gemini_grounding().ok_or(
-        crate::services::agent::response_agent::api_key_not_configured("Gemini"),
-    )?;
+    let (api_key, model) = config
+        .resolve_gemini_grounding()
+        .ok_or(crate::services::agent::response_agent::api_key_not_configured("Gemini"))?;
     drop(config);
 
     // 清洗用户输入，防止 Prompt Injection
@@ -515,7 +527,10 @@ async fn execute_gemini_grounding_search(
         .json(&request_body)
         .send()
         .await
-        .map_err(|e| format!("Gemini API request failed: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "Gemini API request failed");
+            "AI generation failed".to_string()
+        })?;
 
     const GEMINI_MAX_BODY: usize = 2 * 1024 * 1024;
     if !response.status().is_success() {
@@ -525,15 +540,22 @@ async fn execute_gemini_grounding_search(
                 .await
                 .unwrap_or_default();
         let error_text = String::from_utf8_lossy(&error_bytes);
-        return Err(format!("Gemini API error {}: {}", status, error_text));
+        tracing::error!(status = %status, body = %error_text, "Gemini API error");
+        return Err("AI generation failed".to_string());
     }
 
     let body_bytes =
         crate::services::outbound_security::read_limited_body(response, GEMINI_MAX_BODY)
             .await
-            .map_err(|e| format!("Failed to read Gemini response: {e}"))?;
+            .map_err(|e| {
+                tracing::error!(error = %e, "Failed to read Gemini response");
+                "AI generation failed".to_string()
+            })?;
     let response_json: Value = serde_json::from_slice(&body_bytes)
-        .map_err(|e| format!("Failed to parse Gemini response: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to parse Gemini response");
+            "AI generation failed".to_string()
+        })?;
 
     // 提取 AI 回复内容
     let ai_text = response_json
@@ -740,7 +762,7 @@ async fn execute_speech_tts(params: &HashMap<String, Value>) -> Result<Value, St
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| "缺少 text 参数，无法进行文字转语音".to_string())?;
+        .ok_or_else(|| "Missing text for speech".to_string())?;
 
     let voice_type = params
         .get("voice")
@@ -805,7 +827,7 @@ async fn execute_speech_tts(params: &HashMap<String, Value>) -> Result<Value, St
     let response = synthesize_standalone_tts(&request).await?;
     let audio = response
         .audio
-        .ok_or_else(|| "语音服务返回成功但未包含音频数据".to_string())?;
+        .ok_or_else(|| "Speech service returned no audio".to_string())?;
 
     let estimated_duration_sec = text.chars().count() as f64 / 200.0 * 60.0;
     let codec_out = codec.unwrap_or_else(|| "mp3".to_string());
@@ -1156,15 +1178,10 @@ async fn execute_ai_image(params: &HashMap<String, Value>) -> Result<Value, Stri
         .map_err(|error| error.to_string())?;
     drop(dynamic);
 
-    let generated = crate::services::image_generation::generate_image(
-        &config,
-        &prompt,
-        width,
-        height,
-        None,
-    )
-    .await
-    .map_err(|error| error.to_string())?;
+    let generated =
+        crate::services::image_generation::generate_image(&config, &prompt, width, height, None)
+            .await
+            .map_err(|error| error.to_string())?;
     let image_url = crate::services::image_generation::persist_generated(&generated)
         .await
         .map_err(|error| error.to_string())?;

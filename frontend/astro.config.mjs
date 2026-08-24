@@ -86,10 +86,10 @@ const BACKEND_TARGET = 'http://127.0.0.1:1103'
 const PLAYGROUND_PROXY_TIMEOUT_MS = 30 * 60 * 1000
 // Federation file-meta downloads / chunk uploads can exceed the default 30s.
 const FEDERATION_TRANSFER_PROXY_TIMEOUT_MS = 10 * 60 * 1000
-// Digital Life portrait + Agent life onboarding (Pro distill / name / draft /
+// Merope portrait + Agent persona onboarding (Pro distill / name / draft /
 // visual design). Backend Pro and image-generation sockets stay idle until the
 // model returns. Default 30s proxy timeout surfaces as "Backend proxy timeout".
-const DIGITAL_LIFE_PROXY_TIMEOUT_MS = 15 * 60 * 1000
+const MEROPE_PROXY_TIMEOUT_MS = 15 * 60 * 1000
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -124,8 +124,8 @@ function isFederationTransferContentPath(urlPath) {
   return /^\/api\/federation\/transfers\/[^/]+\/content$/.test(path)
 }
 
-function isDigitalLifeApiPath(urlPath) {
-  return requestPathname(urlPath).startsWith('/api/digital-life/')
+function isMeropeApiPath(urlPath) {
+  return requestPathname(urlPath).startsWith('/api/merope/')
 }
 
 function isAgentPersonaGenerationPath(urlPath) {
@@ -443,9 +443,9 @@ function backendDevProxyPlugin() {
             : isFederationTransferApiPath(originalUrl) ||
                 isFederationTransferContentPath(originalUrl)
               ? FEDERATION_TRANSFER_PROXY_TIMEOUT_MS
-              : isDigitalLifeApiPath(originalUrl) ||
+              : isMeropeApiPath(originalUrl) ||
                   isAgentPersonaGenerationPath(originalUrl)
-                ? DIGITAL_LIFE_PROXY_TIMEOUT_MS
+                ? MEROPE_PROXY_TIMEOUT_MS
                 : 30000
           // SSE and large transfer downloads must be piped. Buffering a multi-MB
           // GET /transfers/{id}/content (or a long-lived EventSource) hits the

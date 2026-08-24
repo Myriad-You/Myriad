@@ -450,9 +450,9 @@ WHERE namespace = $1 AND runtime_id = $2
                         .get("message")
                         .and_then(Value::as_str)
                         .unwrap_or(if *success {
-                            "任务已完成"
+                            "The task finished"
                         } else {
-                            "任务执行失败"
+                            "Processing failed"
                         })
                         .to_string();
                     state.completed = state.status != "waiting_for_input";
@@ -506,11 +506,11 @@ WHERE namespace = $1 AND runtime_id = $2
         if notify {
             if let Some(manager) = get_notification_manager() {
                 let title = match status.as_str() {
-                    "completed" => "任务完成",
-                    "failed" => "任务失败",
-                    "cancelled" => "任务已取消",
-                    "waiting_for_input" => "任务等待你的回答",
-                    _ => "Arael 正在执行任务",
+                    "completed" => "The task finished",
+                    "failed" => "The task failed",
+                    "cancelled" => "The task was cancelled",
+                    "waiting_for_input" => "The task needs your reply",
+                    _ => "Agent is working",
                 };
                 manager
                     .notify_task_status(

@@ -536,6 +536,7 @@ pub async fn ensure_current_admin_on(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "error": "Database error",
+                    "code": "database_error",
                     "message": "Administrator status cannot be verified."
                 })),
             )
@@ -688,6 +689,7 @@ async fn validated_auth_snapshot(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "error": "Database error",
+                    "code": "database_error",
                     "message": "Session cannot be verified."
                 })),
             )

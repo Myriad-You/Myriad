@@ -79,10 +79,7 @@ impl From<(StatusCode, axum::Json<serde_json::Value>)> for HttpError {
 /// Bridge bare `StatusCode` handler errors (common on platform-proxy routes).
 impl From<StatusCode> for HttpError {
     fn from(status: StatusCode) -> Self {
-        let label = status
-            .canonical_reason()
-            .unwrap_or("error")
-            .to_string();
+        let label = status.canonical_reason().unwrap_or("error").to_string();
         HttpError(AppError::from_status_u16(status.as_u16(), label))
     }
 }
@@ -96,9 +93,7 @@ mod tests {
     async fn into_response_uses_status_and_json_error_field() {
         let resp = HttpError(AppError::conflict("Admin account already exists")).into_response();
         assert_eq!(resp.status(), StatusCode::CONFLICT);
-        let bytes = to_bytes(resp.into_body(), 64 * 1024)
-            .await
-            .expect("body");
+        let bytes = to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
         let v: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
         assert_eq!(v["error"], "Admin account already exists");
     }
@@ -110,9 +105,7 @@ mod tests {
                 .with_message("Authorization: Bearer supersecrettoken99"),
         )
         .into_response();
-        let bytes = to_bytes(resp.into_body(), 64 * 1024)
-            .await
-            .expect("body");
+        let bytes = to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
         let s = String::from_utf8_lossy(&bytes);
         assert!(!s.contains("supersecrettoken99"), "leaked: {s}");
         assert!(s.contains("[REDACTED]"), "got: {s}");
@@ -141,9 +134,7 @@ mod tests {
         ));
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let bytes = to_bytes(resp.into_body(), 64 * 1024)
-            .await
-            .expect("body");
+        let bytes = to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
         let v: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
         assert_eq!(v["error"], "Key rotation requires confirm");
         assert_eq!(v["hint"], "pass {\"confirm\": true}");
@@ -162,9 +153,7 @@ mod tests {
         ));
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
-        let bytes = to_bytes(resp.into_body(), 64 * 1024)
-            .await
-            .expect("body");
+        let bytes = to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
         let v: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
         assert_eq!(v["error"], "Failed to suggest a name");
         assert_eq!(v["code"], "name_suggest_failed");

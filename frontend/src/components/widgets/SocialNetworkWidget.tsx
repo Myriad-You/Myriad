@@ -36,7 +36,9 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useLoopAnimation } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
+import { currentCopy } from '../../i18n/localeCopy'
 import { getCSRFToken } from '../../utils/csrf'
+import { httpStatusMessage } from '../../utils/userFacingError'
 import {
   clearDedupCache,
   getPublicConfigDeduped,
@@ -381,7 +383,7 @@ async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
   try {
     const csrfToken = await getCSRFToken(true)
     if (!csrfToken) {
-      throw new Error('CSRF token unavailable')
+      throw new Error(currentCopy().errors.csrfUnavailable)
     }
     const response = await fetch(`${API_URL}/api/config/dashboard`, {
       method: 'POST',
@@ -396,7 +398,7 @@ async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
     })
     if (!response.ok) {
       const text = await response.text().catch(() => '')
-      throw new Error(text || `HTTP ${response.status}`)
+      throw new Error(text || httpStatusMessage(response.status))
     }
     // Drop 30s UI config cache so refresh / other widgets see new list
     clearDedupCache(`${API_URL}/api/config/ui`)

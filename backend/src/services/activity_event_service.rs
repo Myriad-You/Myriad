@@ -880,7 +880,10 @@ fn http_url_from_value(value: &Value) -> Option<String> {
             for key in [
                 "grid", "medium", "common", "small", "large", "url", "default",
             ] {
-                if let Some(url) = map.get(key).and_then(Value::as_str).and_then(sanitize_http_url)
+                if let Some(url) = map
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .and_then(sanitize_http_url)
                 {
                     return Some(url);
                 }

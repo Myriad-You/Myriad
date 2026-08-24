@@ -484,7 +484,7 @@ export default function Brew() {
         const tempBrewItem: BrewItem = {
           id: webSearchArticle.id,
           source_id: 0,
-          source_name: webSearchArticle.sourceName || '网络搜索',
+          source_name: webSearchArticle.sourceName || t.brew.webSearch,
           source_icon: null,
           guid: `web_search_${webSearchArticle.id}`,
           title: webSearchArticle.title,
@@ -822,9 +822,9 @@ export default function Brew() {
       setSources(data)
     } catch (err) {
       console.error('Failed to load sources:', err)
-      setError('加载订阅源失败')
+      setError(t.brew.loadSourcesFailed)
     }
-  }, [])
+  }, [t.brew.loadSourcesFailed])
 
   // 加载统计信息
   const loadStats = useCallback(async () => {
@@ -897,7 +897,7 @@ export default function Brew() {
           return
         }
         console.error('Failed to load items:', err)
-        setError('加载文章失败')
+        setError(t.brew.loadArticlesFailed)
       } finally {
         // 只有最新请求才更新 loading 状态
         if (requestId === loadRequestIdRef.current) {
@@ -905,7 +905,7 @@ export default function Brew() {
         }
       }
     },
-    [],
+    [t.brew.loadArticlesFailed],
   ) // 移除 page 依赖，使用 ref
 
   // 初始加载
@@ -1161,7 +1161,7 @@ export default function Brew() {
           const tempBrewItem: BrewItem = {
             id: listItem.id,
             source_id: 0,
-            source_name: listItem.sourceName || '网络搜索',
+            source_name: listItem.sourceName || t.brew.webSearch,
             source_icon: null,
             guid: `web_search_${listItem.id}`,
             title: listItem.title,

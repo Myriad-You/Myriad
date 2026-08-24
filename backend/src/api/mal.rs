@@ -58,7 +58,7 @@ pub async fn get_mal_user(
         return Ok(Json(ApiResponse {
             success: false,
             data: None,
-            message: "username 为必填（client_id 可选，填写后走官方 API）".to_string(),
+            message: "Username is required".to_string(),
         }));
     }
 
@@ -107,7 +107,7 @@ pub async fn get_mal_user(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取 MyAnimeList 用户失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }
@@ -125,7 +125,7 @@ pub async fn get_mal_user_info(
         return Ok(Json(ApiResponse {
             success: false,
             data: None,
-            message: "username 为必填".to_string(),
+            message: "Username is required".to_string(),
         }));
     }
 
@@ -136,11 +136,14 @@ pub async fn get_mal_user_info(
             data: Some(user),
             message: "ok".to_string(),
         })),
-        Err(e) => Ok(Json(ApiResponse {
-            success: false,
-            data: None,
-            message: format!("验证失败: {}", e),
-        })),
+        Err(e) => {
+            tracing::error!("Failed to verify MAL user {}: {}", username, e);
+            Ok(Json(ApiResponse {
+                success: false,
+                data: None,
+                message: "Failed to fetch data".to_string(),
+            }))
+        }
     }
 }
 
@@ -156,7 +159,7 @@ pub async fn get_mal_anime_list(
         return Ok(Json(ApiResponse {
             success: false,
             data: None,
-            message: "username 为必填".to_string(),
+            message: "Username is required".to_string(),
         }));
     }
 
@@ -175,7 +178,7 @@ pub async fn get_mal_anime_list(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }
@@ -193,7 +196,7 @@ pub async fn get_mal_manga_list(
         return Ok(Json(ApiResponse {
             success: false,
             data: None,
-            message: "username 为必填".to_string(),
+            message: "Username is required".to_string(),
         }));
     }
 
@@ -212,7 +215,7 @@ pub async fn get_mal_manga_list(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }

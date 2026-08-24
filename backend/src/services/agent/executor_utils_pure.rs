@@ -1,7 +1,5 @@
 //! Pure helpers for executor_utils_pure.
 
-
-
 use serde_json::Value;
 
 /// 安全截断 UTF-8 字符串到指定字节长度（不会在多字节字符中间截断）
@@ -185,9 +183,7 @@ pub fn extract_image_url(output: &Value) -> Option<String> {
         .and_then(|obj| obj.get("imageUrl"))
         .and_then(|v| v.as_str())
         .filter(|url| {
-            url.starts_with("http://")
-                || url.starts_with("https://")
-                || url.starts_with("/api/")
+            url.starts_with("http://") || url.starts_with("https://") || url.starts_with("/api/")
         })
         .map(|s| s.to_string())
 }
@@ -276,8 +272,7 @@ mod tests {
             Some("https://x/a.png")
         );
         assert_eq!(
-            extract_image_url(&json!({"imageUrl": "/api/brew/image-cache/ab/abcd.png"}))
-                .as_deref(),
+            extract_image_url(&json!({"imageUrl": "/api/brew/image-cache/ab/abcd.png"})).as_deref(),
             Some("/api/brew/image-cache/ab/abcd.png")
         );
         assert!(extract_image_url(&json!({"imageUrl": "data:image/png;base64,xx"})).is_none());

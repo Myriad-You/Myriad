@@ -17,6 +17,7 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { useI18n } from '../../../contexts/I18nContext'
 import { agentService } from '../../../services/agent'
 import { isImeComposing } from '../../../utils/ime'
+import { userFacingError } from '../../../utils/userFacingError'
 import { Spinner } from '../../Spinner'
 import { AraelHeartbeatSection } from './AraelHeartbeatSection'
 import { AraelPersonaSection } from './AraelPersonaSection'
@@ -221,9 +222,7 @@ export const AraelManageDrawer: React.FC<AraelManageDrawerProps> = ({
           }
         }
       } catch (e) {
-        const msg =
-          e instanceof Error ? e.message : i18n.arael.manageLoadError
-        setError(msg)
+        setError(userFacingError(e, i18n.arael.manageLoadError))
       } finally {
         setLoading(false)
       }
@@ -249,9 +248,7 @@ export const AraelManageDrawer: React.FC<AraelManageDrawerProps> = ({
         await agentService.deleteMemory(memoryId)
       } catch (e) {
         setMemories(snapshot)
-        setError(
-          e instanceof Error ? e.message : i18n.arael.manageActionError,
-        )
+        setError(userFacingError(e, i18n.arael.manageActionError))
       }
     },
     [memories, i18n.arael.manageActionError],
@@ -266,9 +263,7 @@ export const AraelManageDrawer: React.FC<AraelManageDrawerProps> = ({
         const m = await agentService.getMemories()
         setMemories(m)
       } catch (e) {
-        setError(
-          e instanceof Error ? e.message : i18n.arael.manageActionError,
-        )
+        setError(userFacingError(e, i18n.arael.manageActionError))
       }
     },
     [i18n.arael.manageActionError],
@@ -282,9 +277,7 @@ export const AraelManageDrawer: React.FC<AraelManageDrawerProps> = ({
         await agentService.deleteSkill(skillId)
       } catch (e) {
         setSkills(snapshot)
-        setError(
-          e instanceof Error ? e.message : i18n.arael.manageActionError,
-        )
+        setError(userFacingError(e, i18n.arael.manageActionError))
       }
     },
     [skills, i18n.arael.manageActionError],

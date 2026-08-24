@@ -26,6 +26,7 @@ import {
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useI18n } from '../../../contexts/I18nContext'
+import { userFacingError } from '../../../utils/userFacingError'
 import { generateStyleTags } from '../../../services/brewApi'
 import { Spinner } from '../../Spinner'
 
@@ -147,7 +148,8 @@ export default function EditModal({
   ]
 
   const currentIntervalLabel =
-    intervalOptions.find((o) => o.value === updateInterval)?.label || '1 小时'
+    intervalOptions.find((o) => o.value === updateInterval)?.label ||
+    t.brew.interval1hour
 
   // 处理图标上传
   const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -197,7 +199,7 @@ export default function EditModal({
       }
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : t.brew.errorGenerateStyleTags,
+        userFacingError(err, t.brew.errorGenerateStyleTags),
       )
     } finally {
       setGeneratingTags(false)
@@ -273,7 +275,7 @@ export default function EditModal({
       })
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.brew.errorSaveFailed)
+      setError(userFacingError(err, t.brew.errorSaveFailed))
     } finally {
       setSaving(false)
     }

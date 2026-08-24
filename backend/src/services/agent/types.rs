@@ -705,6 +705,9 @@ pub struct AgentResponse {
     /// 前端操作指令（路由导航、页面元素交互等）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frontend_action: Option<Value>,
+    /// Lite-selected semantic performance. Driver values remain client-owned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub performance: Option<super::merope::PerformanceDirective>,
 }
 
 impl AgentResponse {
@@ -1657,6 +1660,15 @@ pub enum AgentProgressEvent {
         token: String,
         /// 是否为最后一个 token
         done: bool,
+    },
+    /// A low-latency semantic motion plan. It may precede the final response.
+    PerformancePlan {
+        performance: super::merope::PerformanceDirective,
+    },
+    /// Persisted per-addressee Merope state for stale-result rejection and UI sync.
+    MeropeStateChanged {
+        mood: super::merope::MoodTransition,
+        activity: String,
     },
     /// 错误
     Error {

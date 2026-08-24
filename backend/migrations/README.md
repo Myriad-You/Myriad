@@ -21,32 +21,34 @@ sea-orm-cli migrate generate create_new_table
 1. `001_initial_schema` - Core users, platforms, profiles, reports, activity events, site analytics and configuration
 2. `002_tapp_system` - Tapp installations, storage, widgets, quota, scheduler and shared runtime state
 3. `003_brew_system` - Brew sources, items and annotations
-4. `004_agent_system` - Agent tasks, memory and notification state
-5. `005_federation` - Federation identities and messages
+4. `004_agent_system` - Agent tasks, memory, notification state, and Merope persona tables
+5. `005_federation` - Federation identities, messages, delivery queue, and inbox receipts
 6. `006_oauth_identities` - OAuth/OIDC identity bindings
-7. Published `007`–`013` names - immutable no-op history entries retained for upgrade compatibility
+7. `016_tapp_legacy_grant_clear` - Remove retired permission strings from installed TAPP rows and durably flag affected installs as needing re-authorization (`tapps.needs_reauthorization`; data cleanup for #336, not a permission mapping)
 
 Base CREATE tables (001–006) include the current column set for greenfield installs.
-Thin ALTER-only migrations that only added columns or healed data remain registered
-as no-ops after their structure was folded into the base schema:
+`Migrator::up` deletes folded 007–015 names from `seaql_migrations` **before**
+SeaORM validates history, drops leftover `digital_life_*` experiment tables
+(prefix scan, local/dev only), then applies 001–006 + 016. Those names are not
+kept as no-op files:
 
 - `007_notification_preferences` → `users.notification_preferences` in 001
 - `008_tapp_approved_permissions` → `tapps.approved_permissions` in 002; missing column via generic `get_expected_schema` ADD only (no dedicated backfill)
 - `009_user_presence` → `users.last_seen_at` / `online_seconds` in 001 + schema_check
 - `010_user_owner` / `011_owner_is_admin` → `users.is_owner` in 001 + `ensure_single_owner`
 - `012_federation_inbox_receipts` / `013_federation_inbox_receipts_v2` → `federation_inbox_receipts` in 005; missing / scope-less table via `ensure_federation_inbox_receipts_table`
+- `014_federation_delivery_leases` → `federation_delivery_queue.lease_token` / `lease_expires_at` + `idx_delivery_lease_expiry` in 005
+- `015_federation_delivery_health` → `federation_instances.failing_since` + `idx_delivery_queue_target_domain` in 005
+- `008_tapp_runtime_registry`, `009_activity_events` — also folded into 002 / 001
+- `007_digital_life` / `008_digital_life_phase_two` / `009_digital_life_phase_three` /
+  `010_digital_life_phase_four` / `011_digital_life_asset_subjects`：本地实验名，表已并入
+  `004` 的 `agent_persona` / `agent_addressee_state` / `agent_diary` /
+  `agent_proactive_messages`
 
-The same immutable history includes older/local names:
-
-- `008_tapp_runtime_registry`, `009_activity_events`
-- digital_life experiment (local/dev only — **never rolled to production**):
-  `007_digital_life`, `008_digital_life_phase_two`, `009_digital_life_phase_three`,
-  `010_digital_life_phase_four`, `011_digital_life_asset_subjects`
-
-Startup never deletes rows from `seaql_migrations` and never drops retired feature
-tables. Any data cleanup is an explicit, reviewed operator migration with its own
-backup and rollback plan. A future migration must use a new unique version name;
-published names are permanent protocol history.
+Startup drops leftover `digital_life_*` experiment tables (and matching enum /
+domain / composite types, plus `_schema_versions` marks). Other retired feature
+tables stay. A future migration must use a new unique version name. 001–006 and
+016 rows in `seaql_migrations` stay.
 
 Whole tables are created by Migrator (001–006) — the numbered series is the
 **complete greenfield source of truth**. Runtime `schema_check` only heals
@@ -77,6 +79,7 @@ Recent tables:
 | Site analytics (+ country) | `001` §8 | `ensure_analytics_tables` + TableDef |
 | heartbeat_claims | `004` | `ensure_heartbeat_claims_table` + TableDef |
 | content_filters / policy / domain_aliases / object_interactions / inbox_receipts | `005` 扩展段 | 对应 `ensure_*` + TableDef |
+| delivery lease / health streak | `005`（原 014/015） | TableDef + generic ADD / CREATE INDEX |
 
 Older DBs that already applied a pre-feature migration version get tables via
 `ensure_*` (`CREATE IF NOT EXISTS`). The `_schema_versions` mark does **not**

@@ -1,6 +1,5 @@
 //! Pure helpers for executor_loop_pure.
 
-
 use crate::services::agent::types::{FailureStrategy, StepResult, TaskStatus};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -317,11 +316,7 @@ mod tests {
     fn downstream_ai_and_gating() {
         let steps = vec![
             ("search".into(), "web.search".into(), vec![]),
-            (
-                "analyze".into(),
-                "ai.analyze".into(),
-                vec!["search".into()],
-            ),
+            ("analyze".into(), "ai.analyze".into(), vec!["search".into()]),
         ];
         assert!(has_downstream_ai_for_step("search", &steps));
         assert!(!has_downstream_ai_for_step("analyze", &steps));
@@ -364,7 +359,12 @@ mod tests {
         parents.insert("parent".into());
 
         let (deps, broken) = resolve_skill_depends_on(
-            &["gen_a".into(), "gen_skip".into(), "parent".into(), "missing".into()],
+            &[
+                "gen_a".into(),
+                "gen_skip".into(),
+                "parent".into(),
+                "missing".into(),
+            ],
             &id_map,
             &skipped,
             &parents,
@@ -372,15 +372,8 @@ mod tests {
         assert!(broken);
         assert_eq!(deps, vec!["parent_skill_step_0".to_string()]);
 
-        let rewritten = rewrite_skill_from_param(
-            "dataFrom",
-            &json!("gen_a.results"),
-            &id_map,
-        );
-        assert_eq!(
-            rewritten,
-            Some(json!("parent_skill_step_0.results"))
-        );
+        let rewritten = rewrite_skill_from_param("dataFrom", &json!("gen_a.results"), &id_map);
+        assert_eq!(rewritten, Some(json!("parent_skill_step_0.results")));
         assert!(rewrite_skill_from_param("data", &json!("x"), &id_map).is_none());
     }
 

@@ -145,7 +145,7 @@ impl SeeThroughClient {
             .connect_timeout(Duration::from_secs(20))
             .timeout(REQUEST_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent("Myriad-Digital-Life/See-through");
+            .user_agent("Myriad-Merope/See-through");
         let client = crate::services::http_client::apply_proxy(builder, &proxy)
             .map_err(|error| SeeThroughError::Transport(error.to_string()))?
             .build()

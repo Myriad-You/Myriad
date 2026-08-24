@@ -43,7 +43,11 @@ fn youtube_api_key(config: &DynamicConfig) -> Result<String, HttpError> {
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("YOUTUBE_API_KEY").ok().filter(|s| !s.trim().is_empty()))
+        .or_else(|| {
+            std::env::var("YOUTUBE_API_KEY")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        })
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -100,7 +104,7 @@ pub async fn get_youtube_channel(
                 Json(json!({
                     "success": false,
                     "error": "YouTube upstream failed",
-                    "message": e.to_string()
+                    "code": "youtube_upstream_failed"
                 })),
             )))
         }
@@ -160,7 +164,7 @@ pub async fn get_youtube_bundle(
                 Json(json!({
                     "success": false,
                     "error": "YouTube upstream failed",
-                    "message": e.to_string()
+                    "code": "youtube_upstream_failed"
                 })),
             )))
         }

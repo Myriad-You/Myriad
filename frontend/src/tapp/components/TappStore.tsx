@@ -46,6 +46,7 @@ import { useNavigate } from 'react-router-dom'
 import { Spinner } from '../../components/Spinner'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { ensureMotionReady, isMotionReady } from '../../lib/lazyMotion'
 import { hasSessionHint } from '../../utils/sessionDetection'
@@ -243,12 +244,12 @@ export function TappStore({
       // 部分失败仍展示已拉到的 apps；全失败时由列表空态 + 横幅处理
       const errors = result.sources.filter((s) => s.error)
       if (errors.length > 0) {
-        setError(`${t.tapp.loadRemoteFailed}: ${errors[0].error}`)
+        setError(userFacingError(errors[0].error, t.tapp.loadRemoteFailed))
       }
     } catch (err) {
       if (gen !== loadRemoteGenRef.current) return
       setError(
-        err instanceof Error ? err.message : t.tapp.loadRemoteFailed,
+        userFacingError(err, t.tapp.loadRemoteFailed),
       )
     } finally {
       if (gen === loadRemoteGenRef.current) setLoading(false)
@@ -533,7 +534,7 @@ export function TappStore({
       } catch (error) {
         console.error('Failed to uninstall Tapp:', error)
         showError(
-          error instanceof Error ? error.message : t.tapp.unknownError,
+          userFacingError(error, t.tapp.unknownError),
           t.tapp.uninstallFailed,
         )
         throw error
@@ -666,7 +667,7 @@ export function TappStore({
       } catch (error) {
         console.error('Failed to install Tapp:', error)
         showError(
-          error instanceof Error ? error.message : t.tapp.unknownError,
+          userFacingError(error, t.tapp.unknownError),
           t.tapp.installFailed,
         )
       } finally {
@@ -783,7 +784,7 @@ export function TappStore({
       } catch (error) {
         console.error('Failed to update Tapp:', error)
         showError(
-          error instanceof Error ? error.message : t.tapp.unknownError,
+          userFacingError(error, t.tapp.unknownError),
           t.tapp.updateFailed,
         )
       } finally {
@@ -826,7 +827,7 @@ export function TappStore({
       await loadRemoteApps(true)
     } catch (error) {
       console.error('Failed to toggle source:', error)
-      showError(error instanceof Error ? error.message : t.tapp.unknownError)
+      showError(userFacingError(error, t.tapp.unknownError))
     }
   }
 
@@ -846,7 +847,7 @@ export function TappStore({
       showSuccess(t.tapp.deleteSource)
     } catch (error) {
       console.error('Failed to remove source:', error)
-      showError(error instanceof Error ? error.message : t.tapp.unknownError)
+      showError(userFacingError(error, t.tapp.unknownError))
       throw error
     }
   }
@@ -862,7 +863,7 @@ export function TappStore({
       showSuccess(t.tapp.addSource)
     } catch (error) {
       console.error('Failed to add source:', error)
-      showError(error instanceof Error ? error.message : t.tapp.unknownError)
+      showError(userFacingError(error, t.tapp.unknownError))
       // 让配置页表单保留输入、显示错误（与 delete 一致 rethrow）
       throw error
     }
@@ -893,7 +894,7 @@ export function TappStore({
       showSuccess(t.tapp.saveSource)
     } catch (error) {
       console.error('Failed to update source:', error)
-      showError(error instanceof Error ? error.message : t.tapp.unknownError)
+      showError(userFacingError(error, t.tapp.unknownError))
       throw error
     }
   }

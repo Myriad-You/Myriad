@@ -5,6 +5,7 @@
 
 import type { AnnotationItem } from '../../../../services/brewliaApi'
 import { useCallback, useRef, useState } from 'react'
+import { userFacingError } from '../../../../utils/userFacingError'
 import * as brewliaApi from '../../../../services/brewliaApi'
 
 export interface UseAnnotationsOptions {
@@ -98,7 +99,7 @@ export function useAnnotations({
     } catch (err) {
       console.error('Failed to load annotations:', err)
       setAnnotationsError(
-        err instanceof Error ? err.message : t.brew.fetchAnnotationFailed,
+        userFacingError(err, t.brew.fetchAnnotationFailed),
       )
     } finally {
       setAnnotationsLoading(false)
@@ -130,9 +131,7 @@ export function useAnnotations({
       }
     } catch (err) {
       console.error('Failed to regenerate annotations:', err)
-      setAnnotationsError(
-        err instanceof Error ? err.message : t.brew.regenerateFailed,
-      )
+      setAnnotationsError(userFacingError(err, t.brew.regenerateFailed))
     } finally {
       setAnnotationsLoading(false)
     }

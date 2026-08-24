@@ -13,13 +13,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::services::permission_service::TappPermission;
 use crate::services::platform_cache::{
     append_filtered_items, build_tapp_written_item, PlatformCacheError,
 };
 use crate::services::platform_items::extract_platform_items;
-use crate::error::HttpError;
 
 use super::common::{authorize_tapp_permission, get_cached_platform_data, validate_platform_name};
 use super::runtime_grant::RuntimeGrantContext;
@@ -176,10 +176,7 @@ pub struct PlatformItemResult {
 fn cache_http_error(err: PlatformCacheError) -> (StatusCode, Json<Value>) {
     let status =
         StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (
-        status,
-        Json(json!({ "error": err.message() })),
-    )
+    (status, Json(json!({ "error": err.message() })))
 }
 
 fn new_item_document(item_id: &str, tapp_id: &str, item: &NewPlatformItem) -> Value {
@@ -206,7 +203,14 @@ pub async fn add_platform_item(
 ) -> Result<Json<PlatformItemResult>, HttpError> {
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(TappPermission::PlatformWrite)?;
-    authorize_tapp_permission(&db, &claims, &req.tapp_id, TappPermission::PlatformWrite, &dynamic_config).await?;
+    authorize_tapp_permission(
+        &db,
+        &claims,
+        &req.tapp_id,
+        TappPermission::PlatformWrite,
+        &dynamic_config,
+    )
+    .await?;
 
     validate_platform_name(&req.item.platform)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
@@ -247,7 +251,14 @@ pub async fn add_platform_items_batch(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(TappPermission::PlatformWrite)?;
-    authorize_tapp_permission(&db, &claims, &req.tapp_id, TappPermission::PlatformWrite, &dynamic_config).await?;
+    authorize_tapp_permission(
+        &db,
+        &claims,
+        &req.tapp_id,
+        TappPermission::PlatformWrite,
+        &dynamic_config,
+    )
+    .await?;
 
     for item in &req.items {
         validate_platform_name(&item.platform)
@@ -283,7 +294,8 @@ pub async fn add_platform_items_batch(
             }
             Err(PlatformCacheError::InvalidStructure) => {
                 for _ in ids {
-                    results.push(json!({ "success": false, "error": "Invalid cache file structure" }));
+                    results
+                        .push(json!({ "success": false, "error": "Invalid cache file structure" }));
                 }
             }
             Err(error) => {

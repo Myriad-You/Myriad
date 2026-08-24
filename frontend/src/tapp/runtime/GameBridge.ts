@@ -8,6 +8,7 @@ import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge'
 
 import { federationApi } from '../../services/federationApi'
+import { userFacingError } from '../../utils/userFacingError'
 
 const NONCE_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'
 
@@ -78,20 +79,23 @@ function protocolOf(instance: TappInstance): string {
 }
 
 function classifyJoinError(error: unknown): { error: string; code?: string } {
-  const message = error instanceof Error ? error.message : String(error || 'Failed to join room')
+  const message = error instanceof Error ? error.message : String(error || '')
   if (/not found on this instance/i.test(message)) {
-    return { error: message, code: 'ROOM_NOT_FOUND' }
+    return { error: userFacingError(error), code: 'ROOM_NOT_FOUND' }
   }
   if (/Public room not found|not public/i.test(message)) {
-    return { error: message, code: 'REMOTE_NOT_PUBLIC' }
+    return { error: userFacingError(error), code: 'REMOTE_NOT_PUBLIC' }
   }
   if (/unreachable|home returned|timed out|home_server is empty/i.test(message)) {
-    return { error: message, code: 'REMOTE_HOME_UNREACHABLE' }
+    return { error: userFacingError(error), code: 'REMOTE_HOME_UNREACHABLE' }
+  }
+  if (/failed to (join|materialize) room/i.test(message)) {
+    return { error: userFacingError(error), code: 'ROOM_MATERIALIZE_FAILED' }
   }
   if (/blocked|trust/i.test(message)) {
-    return { error: message, code: 'INSTANCE_BLOCKED' }
+    return { error: userFacingError(error), code: 'INSTANCE_BLOCKED' }
   }
-  return { error: message }
+  return { error: userFacingError(error) }
 }
 
 export function registerGameHandlers(
@@ -156,7 +160,7 @@ export function registerGameHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to create game room',
+        error: userFacingError(error),
       }
     }
   })
@@ -197,7 +201,7 @@ export function registerGameHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to leave room',
+        error: userFacingError(error),
       }
     }
   })
@@ -232,7 +236,7 @@ export function registerGameHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to send game message',
+        error: userFacingError(error),
       }
     }
   }

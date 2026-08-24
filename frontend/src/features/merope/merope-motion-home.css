@@ -1,0 +1,741 @@
+/* Motion studio chrome */
+.merope-ob__pane:has(.merope-motion-home) {
+  padding-bottom: 20px;
+}
+
+.merope-ob__pane:has(.merope-motion-home) .merope-character-home,
+.merope-ob__pane:has(.merope-motion-home) .merope-ob-body,
+.merope-ob__pane:has(.merope-motion-home) .merope-character-home__panel:has(.merope-motion-home) {
+  height: 100%;
+  min-height: 0;
+}
+
+.merope-motion-home {
+  --merope-ink: color-mix(in srgb, var(--text-primary, #171923) 92%, transparent);
+  --merope-muted: color-mix(
+    in srgb,
+    var(--text-secondary, #667085) 82%,
+    transparent
+  );
+  --merope-line: color-mix(in srgb, var(--border-color, #d8dbe6) 72%, transparent);
+  --merope-accent: var(--color-primary, #7c6ee6);
+  --merope-surface-rgb: var(--surface-rgb, 255 255 255);
+  --ob-liq-border: var(
+    --surface-border,
+    color-mix(in srgb, var(--merope-line) 48%, white 36%)
+  );
+
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  gap: 22px;
+  height: 100%;
+  min-height: 0;
+}
+
+html.dark .merope-motion-home {
+  --merope-surface-rgb: var(--surface-rgb, 24 24 27);
+}
+
+.merope-motion-page {
+  --merope-ink: color-mix(in srgb, var(--text-primary, #171923) 92%, transparent);
+  --merope-muted: color-mix(
+    in srgb,
+    var(--text-secondary, #667085) 82%,
+    transparent
+  );
+  --merope-line: color-mix(in srgb, var(--border-color, #d8dbe6) 72%, transparent);
+  --merope-accent: var(--color-primary, #7c6ee6);
+  --merope-surface-rgb: var(--surface-rgb, 255 255 255);
+  --ob-liq-border: var(
+    --surface-border,
+    color-mix(in srgb, var(--merope-line) 48%, white 36%)
+  );
+
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+
+html.dark .merope-motion-page {
+  --merope-surface-rgb: var(--surface-rgb, 24 24 27);
+}
+
+@media (width >= 860px) {
+  .merope-motion-page {
+    grid-template-columns: minmax(280px, 0.9fr) minmax(360px, 1.2fr);
+    align-items: start;
+    gap: 28px;
+  }
+
+  .merope-motion-page__stage {
+    position: sticky;
+    top: 5.5rem;
+  }
+}
+
+.merope-motion-page__stage .merope-motion-asset__preview {
+  width: 100%;
+  max-width: 460px;
+  margin-inline: auto;
+}
+
+.merope-motion-page__settings {
+  min-width: 0;
+}
+
+.merope-motion-page__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 2px 2px;
+  margin: 0 0 16px;
+  padding: 0;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--border-color, #d8dbe6) 68%, transparent);
+}
+
+.merope-motion-page__tab {
+  appearance: none;
+  position: relative;
+  margin: 0 0 -1px;
+  padding: 8px 12px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-secondary, #667085);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.merope-motion-page__tab:hover {
+  color: var(--text-primary, #171923);
+  background: transparent;
+}
+
+.merope-motion-page__tab.is-active {
+  color: var(--text-primary, #171923);
+  font-weight: 720;
+  background: transparent;
+}
+
+.merope-motion-page__tab.is-active::after {
+  content: '';
+  position: absolute;
+  right: 10px;
+  bottom: -1px;
+  left: 10px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--color-primary, #7c6ee6);
+}
+
+.merope-motion-page__tab:focus-visible {
+  outline: 2px solid
+    color-mix(in srgb, var(--color-primary, #7c6ee6) 48%, transparent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.merope-motion-page__settings .merope-motion-page__tab {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.merope-motion-asset__preview {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 18px;
+  background:
+    var(--ob-liq-sheen, none),
+    color-mix(in srgb, rgb(var(--merope-surface-rgb, 255 255 255) / 72%), white 8%);
+}
+
+.merope-motion-asset__still,
+.merope-motion-asset__live {
+  position: absolute;
+  inset: 0;
+}
+
+.merope-motion-asset__still {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center top;
+}
+
+.merope-motion-asset__still.is-behind {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.merope-motion-asset__empty {
+  display: grid;
+  place-content: center;
+  height: 100%;
+  margin: 0;
+  padding: 20px;
+  color: var(--merope-muted, #667085);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.merope-motion-asset__make {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.merope-motion-visual__heading {
+  margin: 0 0 12px;
+  color: var(--merope-ink, inherit);
+  font-size: 14px;
+  font-weight: 680;
+}
+
+.merope-motion-overview__hours-row .merope-motion-overview__hours {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.merope-motion-overview__clock {
+  appearance: none;
+  min-width: 7.5rem;
+  padding: 6px 8px;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 10px;
+  color: var(--merope-ink, inherit);
+  background: rgb(var(--merope-surface-rgb, 255 255 255) / 70%);
+  font: inherit;
+  font-size: 13px;
+}
+
+.merope-motion-overview__clock:disabled {
+  opacity: 0.55;
+}
+
+.merope-motion-asset__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.merope-motion-persona {
+  display: grid;
+  gap: 16px;
+}
+
+.merope-motion-rig {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.merope-motion-rig__tabs {
+  margin: 0 0 12px;
+}
+
+.merope-motion-rig__path,
+.merope-motion-rig__status {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.merope-motion-rig__status {
+  padding: 14px 16px;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 16px;
+  background:
+    var(--ob-liq-sheen, none),
+    rgb(var(--merope-surface-rgb, 255 255 255) / 36%);
+}
+
+.merope-motion-rig__status strong {
+  color: var(--merope-ink, inherit);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.merope-motion-rig__hint,
+.merope-motion-rig__token-ready {
+  margin: 0;
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.merope-motion-rig__token-ready {
+  color: var(--merope-ink, inherit);
+  font-weight: 620;
+}
+
+.merope-motion-rig__issues {
+  margin: 0;
+  padding-left: 1.15em;
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.merope-motion-asset__live .merope-motion-home,
+.merope-motion-asset__live .merope-motion-home--settings {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  gap: 0;
+}
+
+.merope-motion-asset__live .merope-motion-home__studio,
+.merope-motion-asset__live .merope-motion-home--settings .merope-motion-home__studio {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.merope-motion-asset__live .merope-motion-home__stage,
+.merope-motion-asset__live .merope-motion-home--settings .merope-motion-home__stage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.merope-motion-asset__live .merope-motion-home__stage .merope-rig {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  aspect-ratio: auto;
+}
+
+.merope-motion-asset__live .merope-motion-home__stage .merope-rig img,
+.merope-motion-asset__live .merope-motion-home__stage .merope-rig canvas {
+  object-fit: contain;
+  object-position: center top;
+}
+
+.merope-motion-home__help {
+  margin: 0;
+  color: var(--merope-muted, #667085);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.merope-motion-home__help[role='alert'] {
+  color: #b42318;
+}
+
+.merope-character-home__credit {
+  margin: 0.35rem 0 0;
+  color: var(--merope-muted, #667085);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.merope-character-home__credit a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.merope-motion-home--settings {
+  grid-template-columns: minmax(0, 1fr);
+  height: auto;
+  min-height: 0;
+  margin: 8px 0 4px;
+}
+
+.merope-motion-home__cluster {
+  display: grid;
+  gap: 0;
+}
+
+.merope-motion-home__cluster-title {
+  margin: 10px 0 2px;
+  padding: 0 2px;
+  color: var(--text-secondary, #667085);
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: 0.04em;
+}
+
+.merope-motion-home__cluster + .merope-motion-home__cluster {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--border-color, #d8dbe6) 70%, transparent);
+}
+
+.merope-motion-home__cluster.is-locked {
+  opacity: 0.72;
+}
+
+.merope-motion-home--settings .merope-motion-home__stage {
+  min-height: 280px;
+  height: min(42vh, 420px);
+}
+
+.merope-character-home__empty {
+  margin: 12px 0 0;
+  color: var(--text-secondary, #667085);
+  font-size: 13px;
+}
+
+.merope-motion-home > .merope-character-home__empty {
+  grid-column: 1 / -1;
+}
+
+.merope-motion-home__studio {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: var(--ob-liq-inset, none);
+}
+
+.merope-motion-home__stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.merope-motion-home__stage .merope-rig {
+  position: relative;
+  inset: auto;
+  width: auto;
+  max-width: 100%;
+  height: 100%;
+  aspect-ratio: 3 / 4;
+}
+
+.merope-motion-home__stage .merope-rig img,
+.merope-motion-home__stage .merope-rig canvas {
+  object-fit: contain;
+  object-position: center;
+}
+
+.merope-motion-home__desk {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.merope-motion-home .merope-motion-workbench {
+  margin: 0;
+  border: 0;
+}
+
+.merope-motion-home .merope-motion-workbench__body {
+  display: grid;
+  gap: 18px;
+  padding: 0;
+}
+
+.merope-motion-home__help {
+  margin: 0 0 10px;
+  color: var(--merope-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.merope-motion-home__count {
+  color: var(--merope-muted);
+  font-size: 12px;
+}
+
+.merope-motion-home__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.merope-motion-home__card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 16px;
+  color: var(--merope-ink);
+  background: var(--ob-liq-sheen, none), rgb(var(--merope-surface-rgb) / 36%);
+  box-shadow: var(--ob-liq-inset, none);
+  text-align: left;
+  cursor: pointer;
+}
+
+.merope-motion-home__card strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merope-motion-home__card span {
+  color: var(--merope-muted);
+  font-size: 12px;
+}
+
+.merope-motion-home__card.is-active {
+  border-color: color-mix(in srgb, var(--merope-accent) 42%, var(--merope-line));
+  background: color-mix(in srgb, var(--merope-accent) 10%, rgb(var(--merope-surface-rgb) / 42%));
+}
+
+.merope-motion-home__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.merope-motion-home__metrics div {
+  padding: 12px 14px;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 16px;
+  background: var(--ob-liq-sheen, none), rgb(var(--merope-surface-rgb) / 36%);
+  box-shadow: var(--ob-liq-inset, none);
+}
+
+.merope-motion-home__metrics dt {
+  margin: 0;
+  color: var(--merope-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.merope-motion-home__metrics dd {
+  margin: 6px 0 0;
+  color: var(--merope-ink);
+  font-size: 20px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.merope-motion-home__chips {
+  display: grid;
+  gap: 8px;
+}
+
+.merope-motion-home__chips > strong {
+  color: var(--merope-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.merope-motion-home__chips > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.merope-motion-home__chips .settings-btn[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--merope-accent) 40%, transparent);
+  color: var(--merope-ink);
+  background: color-mix(in srgb, var(--merope-accent) 12%, transparent);
+}
+
+.merope-motion-home .merope-motion-workbench__signals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.merope-motion-home .merope-motion-workbench__signals label {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 16px;
+  background: var(--ob-liq-sheen, none), rgb(var(--merope-surface-rgb) / 36%);
+  box-shadow: var(--ob-liq-inset, none);
+  font-size: 12px;
+}
+
+.merope-motion-home .merope-motion-workbench__signals span {
+  color: var(--merope-muted);
+}
+
+.merope-motion-home .merope-motion-workbench__signals output {
+  color: var(--merope-ink);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.merope-motion-home .merope-motion-workbench__signals meter {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 6px;
+  accent-color: var(--merope-accent);
+}
+
+.merope-motion-home .merope-rig-diagnostics,
+.merope-motion-home .merope-motion-regression,
+.merope-motion-home .merope-rig-import {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.merope-motion-home .merope-rig-import output,
+.merope-motion-home .merope-rig-import small {
+  padding: 10px 12px;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 14px;
+  color: var(--merope-muted);
+  background: rgb(var(--merope-surface-rgb) / 28%);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.merope-motion-home .merope-rig-diagnostics__score {
+  font-size: 14px;
+}
+
+.merope-motion-home .merope-rig-diagnostics__score output {
+  color: var(--merope-ink);
+  font-size: 22px;
+  font-weight: 720;
+}
+
+.merope-motion-home .merope-rig-diagnostics__capabilities {
+  gap: 8px;
+}
+
+.merope-motion-home .merope-rig-diagnostics__capabilities span,
+.merope-motion-home .merope-rig-diagnostics li > span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--merope-muted);
+  background: rgb(var(--merope-surface-rgb) / 42%);
+  font-size: 11px;
+}
+
+.merope-motion-home .merope-rig-diagnostics li {
+  gap: 8px;
+  color: var(--merope-muted);
+  font-size: 12px;
+}
+
+.merope-motion-home .merope-motion-regression__frames {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.merope-motion-home .merope-motion-regression__frames img {
+  width: 100%;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 14px;
+}
+
+.merope-motion-home__review {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.merope-motion-home__review-exit {
+  flex: 0 0 auto;
+}
+
+.merope-motion-home__review-status {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.merope-motion-home__review-status p,
+.merope-motion-home__review-status span {
+  margin: 0;
+  color: var(--merope-muted);
+  font-size: 11px;
+}
+
+.merope-motion-home__review-status strong {
+  overflow: hidden;
+  color: var(--merope-ink);
+  font-size: 15px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merope-motion-home__review-progress {
+  width: 100%;
+  height: 4px;
+  margin-top: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  accent-color: var(--merope-accent);
+  background: color-mix(in srgb, var(--merope-accent) 14%, transparent);
+}
+
+.merope-motion-home__review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+@media (width <= 720px) {
+  .merope-motion-home__cards,
+  .merope-motion-home__metrics,
+  .merope-motion-home .merope-motion-workbench__signals,
+  .merope-motion-home .merope-motion-regression__frames,
+  .merope-motion-home__review {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (width <= 900px) {
+  .merope-motion-home {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(280px, 42vh) minmax(0, 1fr);
+    height: auto;
+  }
+
+  .merope-motion-home__studio {
+    min-height: 280px;
+  }
+}

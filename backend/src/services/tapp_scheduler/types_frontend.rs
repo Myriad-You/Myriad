@@ -1,22 +1,18 @@
-
 use chrono::{TimeZone, Utc};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait,
-};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-
 use crate::services::tapp_registry::{self as shared_registry, RegistryIdentity};
-use myriad_tapp_contract::manifest::{TappAiManifest, TappAiModelTier, TappAiOperation, TappAiOutputFormat};
+use myriad_tapp_contract::manifest::{
+    TappAiManifest, TappAiModelTier, TappAiOperation, TappAiOutputFormat,
+};
 
 use crate::config::ModelTier;
-use crate::models::entities::tapp_scheduled_tasks::{
-    BackendAction, BackendActionWrapper,
-};
+use crate::models::entities::tapp_scheduled_tasks::{BackendAction, BackendActionWrapper};
 use crate::services::permission_service::{TappPermission, UserRole};
 
 pub(crate) const MAX_SCHEDULER_FETCH_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
@@ -113,8 +109,9 @@ pub fn backend_action_permissions(
             .map_err(|e| format!("Invalid backend action: {e}"))?;
         let permission = match wrapper.action {
             BackendAction::PlatformSync { .. } => Some(TappPermission::PlatformWrite),
-            BackendAction::StorageSet { .. }
-            | BackendAction::StorageDelete { .. } => Some(TappPermission::StorageWrite),
+            BackendAction::StorageSet { .. } | BackendAction::StorageDelete { .. } => {
+                Some(TappPermission::StorageWrite)
+            }
             BackendAction::StorageGet { .. } => Some(TappPermission::StorageRead),
             BackendAction::AiGenerate { .. } => Some(TappPermission::AiGenerate),
             BackendAction::Fetch { .. } => Some(TappPermission::NetworkFetch),

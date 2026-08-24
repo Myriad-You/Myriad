@@ -16,6 +16,7 @@ import { createPortal } from 'react-dom'
 import { SettingsButton } from '../../components/settings'
 import { Spinner } from '../../components/Spinner'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import { useAnchoredFloatTip } from '../hooks/useAnchoredFloatTip'
 import * as TappApiService from '../services/TappApiService'
 import '../../components/ConfigForm.css'
@@ -107,7 +108,7 @@ export function InstallTappDialog({
         close({ notifyParent: false })
       } catch (err) {
         if (!isCurrentSession(startedSession)) return
-        setError(err instanceof Error ? err.message : t.tapp.installFailed)
+        setError(userFacingError(err, t.tapp.installFailed))
         setLoading(false)
       }
     },

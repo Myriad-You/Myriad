@@ -20,6 +20,11 @@ import { useNavigate } from 'react-router-dom'
 import { useAnimationPreference } from '../contexts/AnimationPreferenceContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
+import {
+  dispatchMeropePerformance,
+  dispatchMeropeState,
+} from '../features/merope/performanceEvents'
+import { dispatchMeropeSpeechUtterance } from '../features/merope/speechEvents'
 import { batchRead, batchWrite, observeResize } from '../hooks/animation'
 import {
   isReducedAnimation,
@@ -30,7 +35,6 @@ import { useNotificationCenter } from '../hooks/useNotificationCenter'
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { useWallpaper } from '../hooks/useWallpaper'
-import { formatMusicError } from '../utils/musicError'
 import { getDynamicContentProvider } from '../services/DynamicContentProvider'
 import {
   notificationSourceFor,
@@ -43,11 +47,16 @@ import {
   getWeatherInfo,
   WEATHER_ICON_ASSETS,
 } from '../utils/dynamicContent'
+import { formatMusicError } from '../utils/musicError'
 import {
   getNavLayoutSnapshot,
   getServerNavLayoutSnapshot,
   subscribeNavLayout,
 } from '../utils/navLayout'
+import {
+  notificationFacingBody,
+  notificationFacingTitle,
+} from '../utils/notificationFacing'
 import { loadResource } from '../utils/resourceLoader'
 import { useThemeMode } from '../utils/themeSubscriber'
 import { showToast } from '../utils/toastManager'
@@ -265,11 +274,28 @@ const GlobalControlPanel: React.FC = () => {
   /** 新通知到达：按统一投递策略分发到面板之外的展示位置。 */
   const handleNewNotification = useCallback(
     (n: AppNotification) => {
+      if (n.metadata?.performance) {
+        dispatchMeropeState(n.metadata.merope_state)
+        dispatchMeropePerformance({
+          text: n.body,
+          source: 'proactive',
+          messageId: n.id,
+          performance: n.metadata.performance,
+        })
+        dispatchMeropeSpeechUtterance({
+          text: n.body,
+          source: 'proactive',
+          messageId: n.id,
+          utteranceId: `proactive-${n.id}`,
+        })
+      }
       const source = notificationSourceFor(n)
       const icon = (
         <NotificationSourceIcon source={source} className="h-4 w-4" />
       )
-      const snippet = n.body.length > 60 ? `${n.body.slice(0, 60)}…` : n.body
+      const title = notificationFacingTitle(n)
+      const body = notificationFacingBody(n)
+      const snippet = body.length > 60 ? `${body.slice(0, 60)}…` : body
 
       // 1. 接入智能岛轮播（置顶展示，20 秒后自动撤下）
       if (shouldDeliverNotification(notificationPreferences, n, 'island')) {
@@ -277,7 +303,7 @@ const GlobalControlPanel: React.FC = () => {
           {
             type: 'notification',
             icon,
-            text: n.title,
+            text: title,
             subtext: snippet,
             showSubtext: true,
           },
@@ -303,7 +329,7 @@ const GlobalControlPanel: React.FC = () => {
           'panel',
         )
         showToast({
-          title: n.title,
+          title,
           message: snippet,
           type: notificationToastType(n),
           duration: 6000,
@@ -331,8 +357,8 @@ const GlobalControlPanel: React.FC = () => {
       ) {
         try {
           // 构造即展示（无需持有实例），tag 去重同 id 通知
-          void new Notification(n.title, {
-            body: n.body.slice(0, 200),
+          void new Notification(title, {
+            body: body.slice(0, 200),
             tag: n.id,
             icon: notificationSourceIconAsset(source),
           })
@@ -1289,7 +1315,7 @@ const GlobalControlPanel: React.FC = () => {
     [collapsePanel, navigate],
   )
 
-  // 点击任务类通知：收起面板并打开对应 Arael 会话（AraelPanel 监听该事件；可带 run/task 以 reattach）
+  // 点击任务类通知：收起面板并打开对应 Agent 会话（AraelPanel 监听该事件；可带 run/task 以 reattach）
   const handleOpenNotifSession = useCallback(
     (sessionId: string, opts?: { runId?: string; taskId?: string }) => {
       handleClosePanel()

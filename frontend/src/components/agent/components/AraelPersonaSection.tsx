@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
+import { userFacingError } from '../../../utils/userFacingError'
 import { agentService } from '../../../services/agent'
 import { invalidatePublicConfigCache } from '../../../utils/requestDedup'
 import {
   ADDRESSEE_UPDATED_EVENT,
   formatVitalsLine,
-} from '../lifeVitals'
+} from '../meropeVitals'
 
 export const AraelPersonaSection: React.FC<{
   isOwner: boolean
@@ -23,7 +24,7 @@ export const AraelPersonaSection: React.FC<{
   const [mood, setMood] = useState(70)
   const [activity, setActivity] = useState('idle')
   const [error, setError] = useState<string | null>(null)
-  const o = t.life.onboarding
+  const o = t.agentPersona.onboarding
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true)
@@ -46,7 +47,7 @@ export const AraelPersonaSection: React.FC<{
       )
     } catch (e) {
       setDisabled(false)
-      setError(e instanceof Error ? e.message : a.manageLoadError)
+      setError(userFacingError(e, a.manageLoadError))
     } finally {
       setLoading(false)
     }
@@ -79,7 +80,7 @@ export const AraelPersonaSection: React.FC<{
       invalidatePublicConfigCache()
       window.dispatchEvent(new CustomEvent('arael-persona-updated'))
     } catch (e) {
-      setError(e instanceof Error ? e.message : a.manageActionError)
+      setError(userFacingError(e, a.manageActionError))
     } finally {
       setSaving(false)
     }
@@ -96,7 +97,7 @@ export const AraelPersonaSection: React.FC<{
       invalidatePublicConfigCache()
       window.dispatchEvent(new CustomEvent('arael-persona-updated'))
     } catch (e) {
-      setError(e instanceof Error ? e.message : a.manageActionError)
+      setError(userFacingError(e, a.manageActionError))
     } finally {
       setSaving(false)
     }
@@ -114,13 +115,13 @@ export const AraelPersonaSection: React.FC<{
       window.dispatchEvent(new CustomEvent(ADDRESSEE_UPDATED_EVENT))
     } catch (e) {
       setDoNotDisturb(!next)
-      setError(e instanceof Error ? e.message : a.manageActionError)
+      setError(userFacingError(e, a.manageActionError))
     }
   }, [doNotDisturb, a.manageActionError])
 
   if (loading) return null
   if (disabled) {
-    return <div className="arael-manage-empty">{a.personaLifeOff}</div>
+    return <div className="arael-manage-empty">{a.agentPersonaOff}</div>
   }
   if (error && !name && !canEdit) {
     return (

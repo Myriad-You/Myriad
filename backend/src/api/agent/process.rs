@@ -128,15 +128,15 @@ pub async fn process(
         .await
         .map_err(|e| {
             tracing::warn!(error = %e, "[Agent API] Queue acquisition failed");
-            HttpError::from((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "error": e })),
-            ))
+            HttpError::from((StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e }))))
         })?;
 
     // 创建 Agent 并处理请求
     let agent = Agent::new(db.clone()).await;
-    let response = agent.process(user_request).await.map_err(agent_turn_error)?;
+    let response = agent
+        .process(user_request)
+        .await
+        .map_err(agent_turn_error)?;
 
     let mut api_response: ApiResponse = response.into();
     let metadata = json!({
@@ -496,7 +496,7 @@ pub async fn process_stream(
                                     let final_msg = response_value
                                         .get("message")
                                         .and_then(|v| v.as_str())
-                                        .unwrap_or("任务已完成");
+                                        .unwrap_or("The task finished");
                                     let metadata = session_metadata_with_run_identity(
                                         Some(response_value.clone()),
                                         &run_id_for_meta,
@@ -630,9 +630,9 @@ pub async fn process_stream(
                                             == crate::services::agent::types::TaskStatus::Completed;
                                         let message = task.error.clone().unwrap_or_else(|| {
                                             if task_success {
-                                                "任务已完成".to_string()
+                                                "The task finished".to_string()
                                             } else {
-                                                "任务未完成".to_string()
+                                                "Processing failed".to_string()
                                             }
                                         });
                                         (
@@ -743,7 +743,7 @@ pub async fn process_stream(
                     let text = if quota_rejected {
                         e.clone()
                     } else {
-                        format!("处理失败: {}", e)
+                        "Processing failed".to_string()
                     };
                     let _ = persist_assistant_message(
                         &db_clone,
@@ -780,10 +780,12 @@ pub async fn subscribe_run_stream(
     Path(run_id): Path<String>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, HttpError> {
     let user_id = parse_user_id(&claims)?;
-    let run = get_run_for_user(&run_id, user_id).await.ok_or_else(|| HttpError::from((
+    let run = get_run_for_user(&run_id, user_id).await.ok_or_else(|| {
+        HttpError::from((
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "Run not found, expired, or access denied" })),
-        )))?;
+        ))
+    })?;
 
     Ok(Sse::new(agent_run_event_stream(run))
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
@@ -963,8 +965,7 @@ pub async fn list_capabilities(
 ) -> Result<Json<Value>, HttpError> {
     let user_id = parse_user_id(&claims)?;
     let is_admin = crate::services::agent::user_is_current_admin(&db, user_id).await;
-    let capabilities =
-        crate::services::agent::get_capabilities_summary_for_user(is_admin).await;
+    let capabilities = crate::services::agent::get_capabilities_summary_for_user(is_admin).await;
 
     Ok(Json(json!({
         "success": true,
@@ -1324,10 +1325,12 @@ pub async fn confirm_operation(
     let lane_key = agent
         .confirmation_lane_key(&confirmation.confirmation_id, user_id)
         .await
-        .map_err(|error| HttpError::from((
+        .map_err(|error| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": error })),
-            )))?
+            ))
+        })?
         .unwrap_or_else(|| LaneQueue::make_lane_key(user_id, None));
     let _guard = LANE_QUEUE
         .acquire_timeout(
@@ -1335,10 +1338,12 @@ pub async fn confirm_operation(
             std::time::Duration::from_secs(LaneQueue::DEFAULT_ACQUIRE_TIMEOUT_SECS),
         )
         .await
-        .map_err(|error| HttpError::from((
+        .map_err(|error| {
+            HttpError::from((
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({ "error": error })),
-            )))?;
+            ))
+        })?;
     let response = agent
         .process_confirmation(confirmation)
         .await
@@ -1368,10 +1373,12 @@ pub async fn confirm_operation_stream(
     let resume_ctx = agent_for_lookup
         .confirmation_resume_context(&req.confirmation_id, user_id)
         .await
-        .map_err(|error| HttpError::from((
+        .map_err(|error| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": error })),
-            )))?;
+            ))
+        })?;
     let session_id = resume_ctx
         .as_ref()
         .and_then(|ctx| ctx.session_id.clone())
@@ -1621,9 +1628,9 @@ pub async fn confirm_operation_stream(
                                             == crate::services::agent::types::TaskStatus::Completed;
                                         let message = task.error.clone().unwrap_or_else(|| {
                                             if task_success {
-                                                "任务已完成".to_string()
+                                                "The task finished".to_string()
                                             } else {
-                                                "任务未完成".to_string()
+                                                "Processing failed".to_string()
                                             }
                                         });
                                         (
@@ -1701,7 +1708,7 @@ pub async fn confirm_operation_stream(
                         &db_clone,
                         sid,
                         None,
-                        &format!("确认执行失败: {}", error),
+                        "Confirmation failed",
                         Some(json!({ "error": true, "confirmationResume": true })),
                     )
                     .await;
@@ -1739,7 +1746,6 @@ pub async fn health() -> Json<Value> {
         "version": env!("CARGO_PKG_VERSION")
     }))
 }
-
 
 #[cfg(test)]
 mod quota_error_tests {

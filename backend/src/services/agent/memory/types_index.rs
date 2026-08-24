@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -468,4 +467,3 @@ pub(crate) const CORRECTION_PATTERNS_EN: &[&str] = &[
     "confused with",
     "mixed up",
 ];
-

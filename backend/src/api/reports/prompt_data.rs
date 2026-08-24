@@ -113,10 +113,9 @@ struct AiReportJson {
     card_visuals: Value,
 }
 
-pub fn parse_platform_report_json(
-    raw: &str,
-) -> Result<(String, Vec<String>, Value), String> {
-    let candidate = extract_json_object(raw).ok_or_else(|| "no JSON object in response".to_string())?;
+pub fn parse_platform_report_json(raw: &str) -> Result<(String, Vec<String>, Value), String> {
+    let candidate =
+        extract_json_object(raw).ok_or_else(|| "no JSON object in response".to_string())?;
     let parsed: AiReportJson = serde_json::from_str(candidate).map_err(|e| e.to_string())?;
     if parsed.summary.trim().is_empty() {
         return Err("empty summary".into());
@@ -229,7 +228,10 @@ fn filter_private_discord_connections(value: &mut Value) {
             .filter_map(|item| item.get("type").and_then(Value::as_str).map(str::to_string))
             .collect()
     };
-    let Some(graph) = obj.get_mut("identity_graph").and_then(|v| v.as_object_mut()) else {
+    let Some(graph) = obj
+        .get_mut("identity_graph")
+        .and_then(|v| v.as_object_mut())
+    else {
         return;
     };
     if let Some(platforms) = graph

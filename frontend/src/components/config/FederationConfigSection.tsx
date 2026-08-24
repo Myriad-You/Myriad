@@ -32,6 +32,7 @@ import {
 } from '@lib/icons'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import { federationApi } from '../../services/federationApi'
 import {
   AutoHeight,
@@ -373,10 +374,7 @@ export const FederationConfigSection: React.FC<
       setIdentity(id)
       await loadDelivery()
     } catch (e) {
-      onMessage?.(
-        e instanceof Error ? e.message : c.federationLoadFailed,
-        'error',
-      )
+      onMessage?.(userFacingError(e, c.federationLoadFailed), 'error')
     }
   }, [onMessage, c.federationLoadFailed, loadDelivery])
 
@@ -392,10 +390,7 @@ export const FederationConfigSection: React.FC<
       const id = await federationApi.getIdentity().catch(() => null)
       setIdentity(id)
     } catch (e) {
-      onMessage?.(
-        e instanceof Error ? e.message : c.federationKeysRotateFailed,
-        'error',
-      )
+      onMessage?.(userFacingError(e, c.federationKeysRotateFailed), 'error')
     } finally {
       setRotatingKeys(false)
     }
@@ -411,10 +406,7 @@ export const FederationConfigSection: React.FC<
           ),
         )
       } catch (e) {
-        onMessage?.(
-          e instanceof Error ? e.message : c.federationUpdateFailed,
-          'error',
-        )
+        onMessage?.(userFacingError(e, c.federationUpdateFailed), 'error')
       }
     },
     [onMessage, c.federationUpdateFailed],
@@ -434,10 +426,7 @@ export const FederationConfigSection: React.FC<
         await federationApi.toggleInstanceBlock({ domain, block })
       } catch (e) {
         setInstances(snapshot)
-        onMessage?.(
-          e instanceof Error ? e.message : c.federationBlockFailed,
-          'error',
-        )
+        onMessage?.(userFacingError(e, c.federationBlockFailed), 'error')
       } finally {
         setInstanceBusy((b) => {
           const next = { ...b }
@@ -488,10 +477,7 @@ export const FederationConfigSection: React.FC<
       await load()
       onMessage?.(c.federationFilterAdded, 'success')
     } catch (e) {
-      onMessage?.(
-        e instanceof Error ? e.message : c.federationAddFilterFailed,
-        'error',
-      )
+      onMessage?.(userFacingError(e, c.federationAddFilterFailed), 'error')
     }
   }
 
@@ -505,10 +491,7 @@ export const FederationConfigSection: React.FC<
       await federationApi.updateContentFilter(f.id, { enabled: !f.enabled })
     } catch (e) {
       setFilters(snapshot)
-      onMessage?.(
-        e instanceof Error ? e.message : c.federationUpdateFailed,
-        'error',
-      )
+      onMessage?.(userFacingError(e, c.federationUpdateFailed), 'error')
     } finally {
       setFilterBusy((b) => {
         const next = { ...b }
@@ -526,10 +509,7 @@ export const FederationConfigSection: React.FC<
       await federationApi.deleteContentFilter(id)
     } catch (e) {
       setFilters(snapshot)
-      onMessage?.(
-        e instanceof Error ? e.message : c.federationUpdateFailed,
-        'error',
-      )
+      onMessage?.(userFacingError(e, c.federationUpdateFailed), 'error')
     } finally {
       setFilterBusy((b) => {
         const next = { ...b }

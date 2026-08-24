@@ -25,6 +25,7 @@ import {
 } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { fetchJson } from '../../utils/apiHelper'
+import { userFacingError } from '../../utils/userFacingError'
 import { getBuildInfo } from '../../utils/buildInfo'
 import {
   SettingGroup,
@@ -158,9 +159,10 @@ export default function RuntimeDiagnostics({
     } catch (loadError) {
       if (requestId !== requestIdRef.current) return
       setError(
-        loadError instanceof Error
-          ? loadError.message
-          : t.config.runtimeDiagnosticsLoadFailed,
+        userFacingError(
+          loadError,
+          t.config.runtimeDiagnosticsLoadFailed,
+        ),
       )
     } finally {
       if (requestId === requestIdRef.current) setLoading(false)
@@ -456,9 +458,10 @@ export default function RuntimeDiagnostics({
       onMessage?.(t.config.runtimeDiagnosticsCopied, 'success')
     } catch (copyError) {
       onMessage?.(
-        copyError instanceof Error
-          ? copyError.message
-          : t.config.runtimeDiagnosticsCopyFailed,
+        userFacingError(
+          copyError,
+          t.config.runtimeDiagnosticsCopyFailed,
+        ),
         'error',
       )
     }

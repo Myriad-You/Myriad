@@ -242,7 +242,7 @@ pub async fn get_global_client() -> Client {
 /// 代理来源仍与全局动态配置一致。
 ///
 /// Used by [`crate::services::image_generation`] for provider round-trips.
-/// Keep in sync with `DIGITAL_LIFE_PROXY_TIMEOUT_MS` and the portrait client timeout.
+/// Keep in sync with `MEROPE_PROXY_TIMEOUT_MS` and the portrait client timeout.
 ///
 /// **MYR-019:** if a proxy is configured and cannot be applied, this panics
 /// instead of silently building a direct client.
@@ -461,7 +461,11 @@ mod tests {
         let config = ProxyConfig {
             enabled: true,
             proxy_url: Some("http://127.0.0.1:9".to_string()),
-            bypass_list: vec!["localhost".into(), "127.0.0.1".into(), "bilibili.com".into()],
+            bypass_list: vec![
+                "localhost".into(),
+                "127.0.0.1".into(),
+                "bilibili.com".into(),
+            ],
         };
         // Must not ignore bypass: building with NoProxy must succeed.
         create_client_with_proxy(&config).expect("client with proxy + bypass");

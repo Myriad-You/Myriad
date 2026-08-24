@@ -38,7 +38,7 @@ fn db_unavailable() -> (StatusCode, Json<Value>) {
         StatusCode::SERVICE_UNAVAILABLE,
         Json(json!({
             "error": "Database not connected",
-            "message": "数据库未连接"
+            "code": "database_error",
         })),
     )
 }
@@ -254,7 +254,15 @@ mod tests {
     fn admin_endpoints_keep_the_admin_extractor() {
         // Federation HTTP handlers live under api/federation; site admin wrappers
         // remain in main.rs after the P0 relocate.
-        let src = [include_str!("main.rs"), concat!(include_str!("api/federation/mod.rs"), include_str!("api/federation/social.rs"), include_str!("api/federation/rooms_and_router.rs"))].concat();
+        let src = [
+            include_str!("main.rs"),
+            concat!(
+                include_str!("api/federation/mod.rs"),
+                include_str!("api/federation/social.rs"),
+                include_str!("api/federation/rooms_and_router.rs")
+            ),
+        ]
+        .concat();
         for handler in [
             // 路由只有 auth_middleware —— AdminClaims 是唯一防线
             "federation_create_ring",

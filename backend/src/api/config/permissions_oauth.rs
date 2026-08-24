@@ -26,11 +26,13 @@ pub async fn get_permissions(
     let config = match config_service.load_config().await {
         Ok(c) => c,
         Err(e) => {
+            tracing::error!("Failed to load config: {e}");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "success": false,
-                    "error": format!("Failed to load config: {}", e)
+                    "error": "Failed to load config",
+                    "code": "config_save_failed"
                 })),
             );
         }
@@ -310,11 +312,14 @@ pub async fn update_permissions(
     }
 
     if let Err(e) = config_service.update_configs(updates).await {
+        tracing::error!("Failed to update permissions: {e}");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "message": format!("Failed to update permissions: {}", e)
+                "error": "Failed to update permissions",
+                "code": "config_save_failed",
+                "message": "Failed to update permissions"
             })),
         );
     }
@@ -429,7 +434,10 @@ pub async fn update_oauth_providers(
             if slug.is_empty() {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Provider slug is required"})),
+                    Json(json!({
+                        "error": "Provider slug is required",
+                        "code": "oauth_slug_required",
+                    })),
                 );
             }
             // slug 必须 URL-safe（路由参数）：字母数字 + 连字符/下划线，2-32 字符
@@ -441,7 +449,8 @@ pub async fn update_oauth_providers(
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({
-                        "error": format!("invalid slug '{}': only ASCII letters, digits, '-' and '_' allowed (max 32 chars)", slug)
+                        "error": "Invalid provider slug",
+                        "code": "oauth_slug_invalid",
                     })),
                 );
             }
@@ -449,14 +458,18 @@ pub async fn update_oauth_providers(
             if !seen.insert(p.slug.clone()) {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": format!("duplicate provider slug: {}", p.slug)})),
+                    Json(json!({
+                        "error": "Duplicate provider slug",
+                        "code": "oauth_slug_duplicate",
+                    })),
                 );
             }
             if p.enabled && p.client_id.trim().is_empty() {
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({
-                        "error": format!("provider '{}' requires client_id (disable it if not ready)", p.slug)
+                        "error": "Provider client_id is required",
+                        "code": "oauth_client_id_required",
                     })),
                 );
             }
@@ -467,17 +480,18 @@ pub async fn update_oauth_providers(
                         return (
                             StatusCode::BAD_REQUEST,
                             Json(json!({
-                                "error": format!("OIDC provider '{}' requires discovery_url", p.slug)
+                                "error": "OIDC discovery URL is required",
+                                "code": "oauth_discovery_required",
                             })),
                         );
                     }
                 }
-                other => {
+                _other => {
                     return (
                         StatusCode::BAD_REQUEST,
                         Json(json!({
-                            "error": format!("unsupported provider kind '{}'", other),
-                            "message": "kind must be 'github' or 'oidc'"
+                            "error": "Unsupported provider kind",
+                            "code": "oauth_kind_unsupported",
                         })),
                     );
                 }
@@ -496,7 +510,8 @@ pub async fn update_oauth_providers(
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({
-                        "error": format!("provider '{}' requires client_secret (disable it if not ready)", p.slug)
+                        "error": "Provider client_secret is required",
+                        "code": "oauth_client_secret_required",
                     })),
                 );
             }
@@ -508,9 +523,12 @@ pub async fn update_oauth_providers(
     let providers_json = match serde_json::to_value(&payload.providers) {
         Ok(v) => v,
         Err(e) => {
+            tracing::error!("Failed to serialize OAuth providers: {e}");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Failed to serialize providers: {}", e)})),
+                Json(
+                    json!({"error": "Failed to serialize providers", "code": "config_save_failed"}),
+                ),
             );
         }
     };
@@ -536,9 +554,10 @@ pub async fn update_oauth_providers(
     }
 
     if let Err(e) = config_service.update_configs(updates).await {
+        tracing::error!("Failed to save OAuth providers: {e}");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to save: {}", e)})),
+            Json(json!({"error": "Failed to save", "code": "config_save_failed"})),
         );
     }
 

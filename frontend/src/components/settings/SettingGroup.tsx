@@ -118,7 +118,31 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
     </div>
   ) : null
 
-  const titleRow =
+  const titleHelp =
+    showHelp && !expandHelp ? (
+      <SettingTitleHelp
+        ariaLabel={title ? detailAria : t.config.detailHelpAria}
+        tone={detailTone}
+      >
+        {helpContent}
+      </SettingTitleHelp>
+    ) : null
+
+  const titleGuide = (
+    <SettingTitleGuideEntry
+      title={typeof title === 'string' ? title : ''}
+      guide={guide}
+    />
+  )
+
+  const titleActions = (
+    <>
+      {titleHelp}
+      {titleGuide}
+    </>
+  )
+
+  const titleRow = (withActions: boolean) =>
     title || titleExtra || showHelp || guide ? (
       <h4 className="setting-group-title">
         {icon && (
@@ -129,30 +153,10 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
         {title && (
           <span className="setting-group-title-text">
             {title}
-            {showHelp && !expandHelp && (
-              <SettingTitleHelp ariaLabel={detailAria} tone={detailTone}>
-                {helpContent}
-              </SettingTitleHelp>
-            )}
-            <SettingTitleGuideEntry
-              title={typeof title === 'string' ? title : ''}
-              guide={guide}
-            />
+            {withActions ? titleActions : null}
           </span>
         )}
-        {!title && (
-          <>
-            {showHelp && !expandHelp && (
-              <SettingTitleHelp
-                ariaLabel={t.config.detailHelpAria}
-                tone={detailTone}
-              >
-                {helpContent}
-              </SettingTitleHelp>
-            )}
-            <SettingTitleGuideEntry title="" guide={guide} />
-          </>
-        )}
+        {!title && withActions ? titleActions : null}
         {!collapsible && titleExtra}
       </h4>
     ) : null
@@ -195,43 +199,67 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
           titleExtra || switchEl ? ' setting-group-header--with-extra' : ''
         }`}
       >
-        <button
-          type="button"
-          className="setting-group-header-toggle"
-          onClick={handleToggle}
-          aria-expanded={isExpanded}
-          aria-label={
-            title
-              ? (isExpanded
-                  ? t.config.collapseGroupAria
-                  : t.config.expandGroupAria
-                ).replace('{title}', String(title))
-              : undefined
-          }
+        <div
+          className="setting-group-header-leading"
+          onClick={(event) => {
+            const target = event.target as HTMLElement
+            if (
+              target.closest(
+                'a, button, input, select, textarea, [role="button"]',
+              )
+            ) {
+              return
+            }
+            handleToggle()
+          }}
         >
-          <div className="setting-group-header-content">
-            {titleRow}
-            {descriptionEl}
-          </div>
-          <span
-            className={`setting-group-chevron ${isExpanded ? 'expanded' : ''}`}
-            aria-hidden
+          <button
+            type="button"
+            className="setting-group-header-toggle"
+            onClick={handleToggle}
+            aria-expanded={isExpanded}
+            aria-label={
+              title
+                ? (isExpanded
+                    ? t.config.collapseGroupAria
+                    : t.config.expandGroupAria
+                  ).replace('{title}', String(title))
+                : undefined
+            }
           >
-            <svg
-              className="setting-group-chevron-icon"
-              viewBox="0 0 12 10"
-              width="10"
-              height="8"
-              focusable="false"
+            <div className="setting-group-header-content">
+              {titleRow(false)}
+              {descriptionEl}
+            </div>
+          </button>
+          <div className="setting-group-header-title-actions">{titleActions}</div>
+          <button
+            type="button"
+            className="setting-group-chevron-hit"
+            tabIndex={-1}
+            aria-hidden
+            onClick={handleToggle}
+          >
+            <span
+              className={`setting-group-chevron ${isExpanded ? 'expanded' : ''}`}
+              aria-hidden
             >
-              {/* 实心全圆角三角（展开指向下） */}
-              <path
-                fill="currentColor"
-                d="M2.35 1.15h7.3c.78 0 1.22.88.76 1.52L7.1 7.55c-.52.72-1.68.72-2.2 0L1.59 2.67c-.46-.64-.02-1.52.76-1.52Z"
-              />
-            </svg>
-          </span>
-        </button>
+              <svg
+                className="setting-group-chevron-icon"
+                viewBox="0 0 12 10"
+                width="10"
+                height="8"
+                focusable="false"
+              >
+                {/* 实心全圆角三角（展开指向下） */}
+                <path
+                  fill="currentColor"
+                  d="M2.35 1.15h7.3c.78 0 1.22.88.76 1.52L7.1 7.55c-.52.72-1.68.72-2.2 0L1.59 2.67c-.46-.64-.02-1.52.76-1.52Z"
+                />
+              </svg>
+            </span>
+          </button>
+        </div>
         {titleExtra && (
           <div className="setting-group-title-extra">{titleExtra}</div>
         )}
@@ -244,7 +272,7 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
         }`}
       >
         <div className="setting-group-header-content">
-          {titleRow}
+          {titleRow(true)}
           {descriptionEl}
         </div>
         {switchEl}

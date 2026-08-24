@@ -70,12 +70,12 @@ impl PackageValidateError {
             Self::Manifest(msg) | Self::WidgetTemplates(msg) | Self::NamedResource(msg) => {
                 msg.clone()
             }
-            Self::MissingLayerEntry { declared } => format!(
-                "Install package is missing source for declared layer entry {declared}"
-            ),
-            Self::MissingPageStyles { declared } => format!(
-                "Install package is missing content for declared page.styles={declared}"
-            ),
+            Self::MissingLayerEntry { declared } => {
+                format!("Install package is missing source for declared layer entry {declared}")
+            }
+            Self::MissingPageStyles { declared } => {
+                format!("Install package is missing content for declared page.styles={declared}")
+            }
             Self::MissingPageTemplate => {
                 "Install package is missing content for declared page.template".to_string()
             }

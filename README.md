@@ -54,9 +54,9 @@
 <tr>
 <td width="50%" valign="top">
 
-### Brew 订阅与 Arael 智能体
+### Brew 订阅与 Agent
 **Brew** 聚合 RSS / Notion / RSSHub 等阅读源。
-**Arael** 多层 Agent（计划、执行、记忆、MCP）持续阅读你的数据，整理报告与洞察。
+**Agent**（计划、执行、记忆、MCP）持续阅读你的数据，整理报告与洞察。
 
 </td>
 <td width="50%" valign="top">
@@ -123,7 +123,7 @@ host HTTP_PORT → proxy → frontend:1102
 | **后端** | Rust · Axum 0.8 · SeaORM · Tokio |
 | **边缘** | proxy（反向代理 / 维护页）· updater（自更新 / 快照） |
 | **数据** | PostgreSQL 18（Compose 默认镜像） |
-| **扩展** | Arael Agent · Tapp 沙箱 · MCP · ActivityPub / MFP |
+| **扩展** | Agent · Tapp 沙箱 · MCP · ActivityPub / MFP |
 | **部署** | Docker Compose · linux/amd64 + arm64 镜像 |
 
 ---

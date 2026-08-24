@@ -1,5 +1,6 @@
 // 报告过期设置（设置页 → 模块设置 → 报告页设置）
 // 存于后端 configurations 表（report_settings 键），随全局保存统一提交
+import { currentCopy } from '../i18n/localeCopy'
 import apiService from '../services/api'
 
 export interface ReportSettings {
@@ -51,7 +52,9 @@ export async function updateReportSettings(
     normalizeReportSettings(settings),
   )
   if (!response.success) {
-    throw new Error(response.message || 'Failed to save report settings')
+    throw new Error(
+      response.message || currentCopy().errors.operationFailed,
+    )
   }
   return normalizeReportSettings(response.config)
 }

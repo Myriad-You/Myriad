@@ -65,8 +65,7 @@ pub async fn get_tapp_analytics_summary(
         return Ok(Json(visitor_card_tapp_payload(&db).await));
     }
 
-    let (status, Json(mut body)) =
-        crate::api::analytics::build_analytics_summary(&db, q).await;
+    let (status, Json(mut body)) = crate::api::analytics::build_analytics_summary(&db, q).await;
 
     if status != StatusCode::OK {
         return Err(HttpError::from((status, Json(body))));
@@ -91,10 +90,7 @@ pub async fn get_tapp_analytics_visitor(
     runtime_grant: RuntimeGrantContext,
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require(TappPermission::AnalyticsRead)?;
-    tracing::debug!(
-        "[TAPP] analytics.visitor user={}",
-        claims.username
-    );
+    tracing::debug!("[TAPP] analytics.visitor user={}", claims.username);
 
     let enabled = {
         let cfg = crate::GLOBAL_DYNAMIC_CONFIG.read().await;

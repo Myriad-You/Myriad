@@ -23,6 +23,8 @@ import {
   TAPP_WIDGET_SKELETON,
   WidgetSkeleton,
 } from '../components/widgets/shared/WidgetSkeleton'
+import { currentCopy } from '../i18n/localeCopy'
+import { userFacingError } from '../utils/userFacingError'
 
 // TappWidget 与其背后的整个 tapp runtime / 沙箱体系（生产 ~300KB）按需加载：
 // 布局中没有 Tapp 小组件时，Home 首屏不需要执行这部分代码。
@@ -231,7 +233,7 @@ export function useTappWidgets(): {
         if (attempt === MAX_ATTEMPTS - 1) {
           if (isMounted()) {
             setError(
-              err instanceof Error ? err.message : 'Failed to load widgets',
+              userFacingError(err, currentCopy().errors.widgetsLoadFailed),
             )
           }
           return
@@ -272,7 +274,7 @@ export function useTappWidgets(): {
           } catch (err) {
             console.error('[useTappWidgets] Failed to load widgets:', err)
             setError(
-              err instanceof Error ? err.message : 'Failed to load widgets',
+              userFacingError(err, currentCopy().errors.widgetsLoadFailed),
             )
           } finally {
             setIsLoading(false)

@@ -432,7 +432,7 @@ export const PermissionsConfigSection: React.FC<
       description={description}
       sectionId={sectionId}
     >
-      {/* 1. Arael Agent 预设 — 与模块可见性同构：外层 Group + 内层 Grid 卡 */}
+      {/* 1. Agent 预设 — 与模块可见性同构：外层 Group + 内层 Grid 卡 */}
       <SettingGroup
         title={t.config.agentPresetTitle}
         description={t.config.agentPresetDesc}

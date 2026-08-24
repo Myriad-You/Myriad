@@ -24,7 +24,9 @@ pub enum OpenAiSpeechError {
 impl std::fmt::Display for OpenAiSpeechError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ApiKeyNotConfigured => write!(f, "OpenAI-compatible speech API key not configured"),
+            Self::ApiKeyNotConfigured => {
+                write!(f, "OpenAI-compatible speech API key not configured")
+            }
             Self::NetworkError(msg) => write!(f, "Network error: {msg}"),
             Self::ApiError { status, message } => write!(f, "API error [{status}]: {message}"),
             Self::InvalidAudioData(msg) => write!(f, "Invalid audio data: {msg}"),
@@ -175,12 +177,11 @@ impl OpenAiCompatibleSpeech {
                 message: openai_error_message(&bytes),
             });
         }
-        let parsed: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
-            OpenAiSpeechError::ApiError {
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|e| OpenAiSpeechError::ApiError {
                 status: status.as_u16(),
                 message: format!("invalid transcription JSON: {e}"),
-            }
-        })?;
+            })?;
         parsed
             .get("text")
             .and_then(|v| v.as_str())
@@ -241,10 +242,7 @@ fn openai_error_message(bytes: &[u8]) -> String {
             return message.to_string();
         }
     }
-    String::from_utf8_lossy(bytes)
-        .chars()
-        .take(400)
-        .collect()
+    String::from_utf8_lossy(bytes).chars().take(400).collect()
 }
 
 #[cfg(test)]

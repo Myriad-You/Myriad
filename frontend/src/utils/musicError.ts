@@ -14,14 +14,17 @@ function usefulMusicDetail(message: string): string {
 
 export function classifyMusicLoadError(reason: unknown): MusicErrorFlash {
   const message = reason instanceof Error ? reason.message.trim() : ''
-  if (/rate limited|访问频率过高/i.test(message)) {
+  if (/^RATE_LIMITED$|rate limited|访问频率过高/i.test(message)) {
     return { key: 'playlistRateLimited', detail: '' }
   }
-  if (/版权|地理位置|copyright/i.test(message)) {
+  if (/^PLAYLIST_BLOCKED$|版权|地理位置|copyright/i.test(message)) {
     return { key: 'playlistBlocked', detail: '' }
   }
-  if (/歌单为空|empty|no available songs/i.test(message)) {
+  if (/^PLAYLIST_EMPTY$|歌单为空|empty|no available songs/i.test(message)) {
     return { key: 'playlistEmpty', detail: '' }
+  }
+  if (/^FETCH_FAILED$|^INVALID_PLAYLIST$/i.test(message)) {
+    return { key: 'loadPlaylistFailed', detail: '' }
   }
   return {
     key: 'loadPlaylistFailed',

@@ -536,21 +536,21 @@ impl NotificationManager {
             return;
         }
         if event_key != "agent.task_progress" {
-            crate::services::agent::life::spawn_ingest(user_id, event_key, body);
+            crate::services::agent::merope::spawn_ingest(user_id, event_key, body);
         }
-        if crate::services::agent::life::gates::is_valuable_event(event_key)
-            && !crate::services::agent::life::allow_existing_notify(user_id).await
+        if crate::services::agent::merope::gates::is_valuable_event(event_key)
+            && !crate::services::agent::merope::allow_existing_notify(user_id).await
         {
             let _ = self
                 .delete_notification(&format!("agent_run_{}", run_id), user_id)
                 .await;
             return;
         }
-        let life_on = crate::services::agent::life::life_enabled().await;
+        let merope_on = crate::services::agent::merope::is_enabled().await;
         let session_id = match session_id {
             Some(id) if !id.is_empty() => Some(id.to_string()),
-            _ if life_on => {
-                crate::services::agent::life::ingest::latest_session_id_for(user_id).await
+            _ if merope_on => {
+                crate::services::agent::merope::ingest::latest_session_id_for(user_id).await
             }
             _ => None,
         };
@@ -565,7 +565,7 @@ impl NotificationManager {
         });
         // Flag off must look exactly like before: no landing hint of its own,
         // the panel keeps resolving these by notification type and session id.
-        if life_on {
+        if merope_on {
             metadata["action"] = serde_json::json!("open_arael");
         }
         let mut notification = Notification::new(user_id, notification_type, priority, title, body)

@@ -1,6 +1,7 @@
 /** Installed Tapp package resources, assets and export operations. */
 
 import { API_URL } from '../../config'
+import { currentCopy } from '../../i18n/localeCopy'
 import { apiRequest } from './TappHttpClient'
 
 export interface TappResources {
@@ -59,7 +60,9 @@ export async function getTappResources(
   if (!response.ok) {
     // 没有旧端点回退：包结构不符合当前契约时后端返回 409，让它照常抛出，
     // 不要再换一条路把不受支持的包送进沙箱。
-    throw new Error(`Failed to get Tapp resources: ${response.status}`)
+    throw new Error(
+      `${currentCopy().tapp.loadAppFailed} (${response.status})`,
+    )
   }
   const raw: TappResourcesRaw = await response.json()
   return {
@@ -102,7 +105,9 @@ export async function exportTapp(tappId: string): Promise<void> {
     { credentials: 'include' },
   )
   if (!response.ok) {
-    throw new Error(`Export failed: ${response.status}`)
+    throw new Error(
+      `${currentCopy().tapp.unknownError} (${response.status})`,
+    )
   }
 
   const disposition = response.headers.get('Content-Disposition')

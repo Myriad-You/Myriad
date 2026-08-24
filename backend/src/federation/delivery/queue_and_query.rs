@@ -1361,7 +1361,7 @@ pub async fn retry_delivery_item(
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, {
                 tracing::error!("DB error: {e}");
-                json!({"error": "Database error"})
+                json!({"error": "Database error", "code": "database_error"})
             })
         })?
         .ok_or_else(|| {
@@ -1417,7 +1417,7 @@ pub async fn retry_delivery_item(
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, {
                 tracing::error!("DB error: {e}");
-                json!({"error": "Database error"})
+                json!({"error": "Database error", "code": "database_error"})
             })
         })?;
 
@@ -1468,7 +1468,7 @@ pub async fn cancel_delivery_item(
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, {
                 tracing::error!("DB error: {e}");
-                json!({"error": "Database error"})
+                json!({"error": "Database error", "code": "database_error"})
             })
         })?
         .ok_or_else(|| {
@@ -1519,7 +1519,7 @@ pub async fn cancel_delivery_item(
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, {
                 tracing::error!("DB error: {e}");
-                json!({"error": "Database error"})
+                json!({"error": "Database error", "code": "database_error"})
             })
         })?;
 
@@ -1540,7 +1540,7 @@ pub async fn cancel_delivery_item(
             .map_err(|e| {
                 (StatusCode::INTERNAL_SERVER_ERROR, {
                     tracing::error!("DB error: {e}");
-                    json!({"error": "Database error"})
+                    json!({"error": "Database error", "code": "database_error"})
                 })
             })?;
         let Some(again) = again else {
@@ -1632,7 +1632,7 @@ pub async fn retry_all_dead_for_user(
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, {
                 tracing::error!("DB error: {e}");
-                json!({"error": "Database error"})
+                json!({"error": "Database error", "code": "database_error"})
             })
         })?;
 
@@ -1719,7 +1719,7 @@ pub async fn cancel_all_pending_for_user(
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, {
                 tracing::error!("DB error: {e}");
-                json!({"error": "Database error"})
+                json!({"error": "Database error", "code": "database_error"})
             })
         })?;
 
@@ -2051,7 +2051,7 @@ pub async fn dismiss_delivery_item(
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, {
                 tracing::error!("DB error: {e}");
-                json!({"error": "Database error"})
+                json!({"error": "Database error", "code": "database_error"})
             })
         })?
         .ok_or_else(|| {
@@ -2088,7 +2088,7 @@ pub async fn dismiss_delivery_item(
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, {
                 tracing::error!("DB error: {e}");
-                json!({"error": "Database error"})
+                json!({"error": "Database error", "code": "database_error"})
             })
         })?;
 
@@ -2168,7 +2168,7 @@ pub async fn purge_dead_for_user(
         .map_err(|e| {
             (StatusCode::INTERNAL_SERVER_ERROR, {
                 tracing::error!("DB error: {e}");
-                json!({"error": "Database error"})
+                json!({"error": "Database error", "code": "database_error"})
             })
         })?;
 

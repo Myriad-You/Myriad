@@ -49,12 +49,12 @@ pub async fn shutdown_scheduler() {
 }
 
 /// Public re-export for agent/system handlers.
-pub fn scheduler_engine() -> Result<std::sync::Arc<tokio::sync::RwLock<crate::services::tapp_scheduler::TappSchedulerEngine>>, String> {
+pub fn scheduler_engine() -> Result<
+    std::sync::Arc<tokio::sync::RwLock<crate::services::tapp_scheduler::TappSchedulerEngine>>,
+    String,
+> {
     crate::services::tapp_scheduler::scheduler_engine()
 }
-
-
-
 
 /// HTTP-facing handle: 503 when the engine has not been started.
 fn get_scheduler() -> Result<Arc<RwLock<TappSchedulerEngine>>, HttpError> {
@@ -159,7 +159,7 @@ fn parse_schedule_type(s: &str) -> Result<ScheduleType, HttpError> {
         "interval" => Ok(ScheduleType::Interval),
         "once" => Ok(ScheduleType::Once),
         "daily" => Ok(ScheduleType::Daily),
-        _ => Err(bad_request(format!("Invalid schedule type: {s}"))),
+        _ => Err(bad_request("Invalid schedule config".to_string())),
     }
 }
 
@@ -168,7 +168,7 @@ fn parse_execution_target(s: &str) -> Result<ExecutionTarget, HttpError> {
         "backend" => Ok(ExecutionTarget::Backend),
         "frontend" => Ok(ExecutionTarget::Frontend),
         "both" => Ok(ExecutionTarget::Both),
-        _ => Err(bad_request(format!("Invalid execution target: {s}"))),
+        _ => Err(bad_request("Invalid schedule config".to_string())),
     }
 }
 
@@ -177,7 +177,7 @@ fn parse_missed_policy(s: &str) -> Result<MissedPolicy, HttpError> {
         "skip" => Ok(MissedPolicy::Skip),
         "run-once" | "runonce" => Ok(MissedPolicy::RunOnce),
         "run-all" | "runall" => Ok(MissedPolicy::RunAll),
-        _ => Err(bad_request(format!("Invalid missed policy: {s}"))),
+        _ => Err(bad_request("Invalid schedule config".to_string())),
     }
 }
 
@@ -187,13 +187,11 @@ fn parse_scope(s: &str) -> Result<TaskScope, HttpError> {
         "tapp" => Ok(TaskScope::Tapp),
         "tapp-per-user" | "tapp_per_user" => Ok(TaskScope::TappPerUser),
         "global" => Ok(TaskScope::Global),
-        _ => Err(bad_request(format!("Invalid scope: {s}"))),
+        _ => Err(bad_request("Invalid schedule config".to_string())),
     }
 }
 
-fn normalize_retry_config(
-    retry: Option<RetryConfigRequest>,
-) -> Result<Option<Value>, HttpError> {
+fn normalize_retry_config(retry: Option<RetryConfigRequest>) -> Result<Option<Value>, HttpError> {
     let Some(retry) = retry else {
         return Ok(None);
     };
@@ -320,7 +318,13 @@ pub async fn register_task(
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(TappPermission::SchedulerRegister)?;
     let user_id = parse_user_id(&claims)?;
-    check_tapp_permission(&db, &claims, TappPermission::SchedulerRegister, &dynamic_config).await?;
+    check_tapp_permission(
+        &db,
+        &claims,
+        TappPermission::SchedulerRegister,
+        &dynamic_config,
+    )
+    .await?;
     verify_tapp_ownership(&db, user_id, &req.tapp_id).await?;
 
     let schedule_type = parse_schedule_type(&req.schedule_type)?;
@@ -367,9 +371,13 @@ pub async fn register_task(
     validate_backend_action_declarations(&tapp.manifest, &backend_actions).map_err(bad_request)?;
 
     let schedule_config = serde_json::to_value(&req.schedule).map_err(|e| {
+        tracing::warn!("Invalid schedule config: {e}");
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": format!("Invalid schedule config: {}", e) })),
+            Json(json!({
+                "error": "Invalid schedule config",
+                "code": "schedule_invalid"
+            })),
         )
     })?;
 
@@ -527,7 +535,7 @@ pub async fn get_task(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({ "error": format!("Task {} not found", task_id) })),
+                Json(json!({ "error": "Task not found" })),
             )
         })?;
 

@@ -24,9 +24,9 @@ pub enum GeminiMediaError {
 impl std::fmt::Display for GeminiMediaError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NotConfigured(message) | Self::Provider(message) | Self::InvalidResponse(message) => {
-                formatter.write_str(message)
-            }
+            Self::NotConfigured(message)
+            | Self::Provider(message)
+            | Self::InvalidResponse(message) => formatter.write_str(message),
         }
     }
 }
@@ -36,7 +36,9 @@ impl std::error::Error for GeminiMediaError {}
 impl From<GeminiMediaError> for ImageGenerationError {
     fn from(error: GeminiMediaError) -> Self {
         match error {
-            GeminiMediaError::NotConfigured(message) => ImageGenerationError::NotConfigured(message),
+            GeminiMediaError::NotConfigured(message) => {
+                ImageGenerationError::NotConfigured(message)
+            }
             GeminiMediaError::Provider(message) => ImageGenerationError::Provider(message),
             GeminiMediaError::InvalidResponse(message) => {
                 ImageGenerationError::InvalidResponse(message)
@@ -122,7 +124,9 @@ pub fn tts_request_body(text: &str, voice: &str) -> Value {
 
 pub fn stt_request_body(audio: &[u8], mime: &str, language: Option<&str>) -> Value {
     let hint = match language.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(code) if code.starts_with("en") => "Transcribe this audio. Return only the transcript.",
+        Some(code) if code.starts_with("en") => {
+            "Transcribe this audio. Return only the transcript."
+        }
         _ => "请把这段音频转写成文字，只输出转写结果，不要解释。",
     };
     json!({
@@ -159,10 +163,7 @@ pub async fn generate_image(
         .ok_or_else(|| ImageGenerationError::InvalidResponse(gemini_empty_message(&value)))?;
     let media_type = normalize_image_media_type(&media_type, &bytes);
     Ok(GeneratedImage {
-        source: format!(
-            "data:{media_type};base64,{}",
-            BASE64.encode(&bytes)
-        ),
+        source: format!("data:{media_type};base64,{}", BASE64.encode(&bytes)),
         media_type,
         width,
         height,
@@ -176,13 +177,8 @@ pub async fn text_to_speech(
     text: &str,
     voice: &str,
 ) -> Result<Vec<u8>, GeminiMediaError> {
-    let value = post_generate_content(
-        base_url,
-        api_key,
-        model,
-        &tts_request_body(text, voice),
-    )
-    .await?;
+    let value =
+        post_generate_content(base_url, api_key, model, &tts_request_body(text, voice)).await?;
     let (bytes, mime) = first_inline_bytes(&value, "audio")
         .ok_or_else(|| GeminiMediaError::InvalidResponse(gemini_empty_message(&value)))?;
     Ok(normalize_tts_bytes(&bytes, &mime))
@@ -249,9 +245,8 @@ async fn post_generate_content(
             "Gemini API returned HTTP {status}: {body}"
         )));
     }
-    serde_json::from_slice(&bytes).map_err(|error| {
-        GeminiMediaError::InvalidResponse(format!("invalid Gemini JSON: {error}"))
-    })
+    serde_json::from_slice(&bytes)
+        .map_err(|error| GeminiMediaError::InvalidResponse(format!("invalid Gemini JSON: {error}")))
 }
 
 fn first_inline_bytes(value: &Value, kind_prefix: &str) -> Option<(Vec<u8>, String)> {
@@ -415,7 +410,10 @@ mod tests {
             media_type: "image/png".to_string(),
         };
         let body = image_request_body("portrait", 1024, 1536, Some(&reference));
-        assert_eq!(body["generationConfig"]["imageConfig"]["aspectRatio"], "2:3");
+        assert_eq!(
+            body["generationConfig"]["imageConfig"]["aspectRatio"],
+            "2:3"
+        );
         assert_eq!(
             body["generationConfig"]["responseModalities"],
             json!(["TEXT", "IMAGE"])

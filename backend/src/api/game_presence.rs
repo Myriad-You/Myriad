@@ -1007,11 +1007,7 @@ fn parse_psn_legacy_presence(profile: &Value) -> (Option<String>, Option<String>
                 .and_then(|v| v.as_str())
                 .or_else(|| p.get("availability").and_then(|v| v.as_str()))
         })
-        .or_else(|| {
-            profile
-                .get("primaryOnlineStatus")
-                .and_then(|v| v.as_str())
-        })
+        .or_else(|| profile.get("primaryOnlineStatus").and_then(|v| v.as_str()))
         .map(normalize_psn_online_status);
     let title = pres
         .and_then(|p| p.get("titleName"))

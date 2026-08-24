@@ -92,7 +92,7 @@ function assertTripoHttpSuccess(
 }
 
 export async function getTripoStatus(): Promise<TripoStatus> {
-  const response = await api.get<TripoStatus>('/api/digital-life/3d/status')
+  const response = await api.get<TripoStatus>('/api/merope/3d/status')
   assertTripoHttpSuccess(
     response.status,
     response.data,
@@ -110,7 +110,7 @@ export async function uploadTripoFile(file: File): Promise<string> {
 
   // Do not use the shared Axios instance here: its JSON default would prevent
   // the browser from generating the multipart boundary.
-  const response = await fetch(`${API_URL}/api/digital-life/3d/files`, {
+  const response = await fetch(`${API_URL}/api/merope/3d/files`, {
     method: 'POST',
     headers,
     body: form,
@@ -134,7 +134,7 @@ export async function createTripoTask(
   payload: Record<string, unknown>,
 ): Promise<string> {
   const response = await api.post<{ task_id: string }>(
-    '/api/digital-life/3d/tasks',
+    '/api/merope/3d/tasks',
     { operation, payload },
   )
   assertTripoHttpSuccess(
@@ -156,7 +156,7 @@ export async function getTripoTask(
   signal?: AbortSignal,
 ): Promise<TripoTask> {
   const response = await api.get<TripoTask>(
-    `/api/digital-life/3d/tasks/${encodeURIComponent(taskId)}`,
+    `/api/merope/3d/tasks/${encodeURIComponent(taskId)}`,
     // A successful query also downloads and validates provider model outputs.
     { timeout: 15 * 60_000, signal },
   )
@@ -229,5 +229,5 @@ export async function awaitTripoTask(
 }
 
 export function tripoAssetUrl(assetId: string): string {
-  return `/api/digital-life/3d/assets/${encodeURIComponent(assetId)}`
+  return `/api/merope/3d/assets/${encodeURIComponent(assetId)}`
 }

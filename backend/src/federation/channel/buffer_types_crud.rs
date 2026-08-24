@@ -285,7 +285,10 @@ pub async fn create_channel(
             tracing::error!("[Channel] Failed to fetch remote actor: {}", e);
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": format!("Cannot resolve remote actor: {}", e)})),
+                Json(json!({
+                    "error": "Cannot resolve remote actor",
+                    "code": "remote_actor_unresolved",
+                })),
             )
         })?;
 
@@ -819,9 +822,10 @@ pub async fn send_message(
     if !["active", "accepted"].contains(&status.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(
-                json!({"error": format!("Channel is {}, cannot send messages (must be accepted first)", status)}),
-            ),
+            Json(json!({
+                "error": "Channel is not ready to send messages",
+                "code": "channel_not_ready",
+            })),
         ));
     }
 
@@ -1789,7 +1793,10 @@ pub async fn accept_channel(
     if status != "pending" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Channel is {}, cannot accept", status)})),
+            Json(json!({
+                "error": "Cannot accept this invite",
+                "code": "invite_invalid_status",
+            })),
         ));
     }
 
@@ -2036,9 +2043,10 @@ pub async fn initiate_e2e_key_exchange(
                     &jwt_secret,
                 )
                 .map_err(|e| {
+                    tracing::error!("Failed to seal channel E2E key: {e}");
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({"error": format!("Failed to seal E2E key: {}", e)})),
+                        Json(json!({"error": "Failed to seal E2E key", "code": "e2e_key_failed"})),
                     )
                 })?;
                 (session.local_keypair.public_key, sealed, established, true)
@@ -2057,9 +2065,10 @@ pub async fn initiate_e2e_key_exchange(
             &jwt_secret,
         )
         .map_err(|e| {
+            tracing::error!("Failed to seal channel E2E key: {e}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Failed to seal E2E key: {}", e)})),
+                Json(json!({"error": "Failed to seal E2E key", "code": "e2e_key_failed"})),
             )
         })?;
         (session.local_keypair.public_key, sealed, established, true)

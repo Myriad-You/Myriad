@@ -41,7 +41,9 @@ impl ShortcutRegistryError {
     pub fn message(&self) -> String {
         match self {
             Self::InvalidKeys => "Invalid shortcut key format".to_string(),
-            Self::Conflict { conflicting_shortcut } => {
+            Self::Conflict {
+                conflicting_shortcut,
+            } => {
                 format!("Shortcut key conflict with {conflicting_shortcut}")
             }
             Self::Database => "Database error".to_string(),
@@ -57,10 +59,9 @@ impl ShortcutRegistryError {
             Self::InvalidKeys => 400,
             Self::Conflict { .. } => 409,
             Self::NotFound => 404,
-            Self::Database
-            | Self::RegisterFailed
-            | Self::UpdateFailed
-            | Self::UnregisterFailed => 500,
+            Self::Database | Self::RegisterFailed | Self::UpdateFailed | Self::UnregisterFailed => {
+                500
+            }
         }
     }
 }
@@ -253,9 +254,7 @@ pub async fn list_shortcuts(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        shortcut_storage_key, validate_shortcut_keys, ShortcutRegistryError,
-    };
+    use super::{shortcut_storage_key, validate_shortcut_keys, ShortcutRegistryError};
 
     #[test]
     fn accepts_common_chords() {

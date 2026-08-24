@@ -70,7 +70,14 @@ pub async fn register_shortcut(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(TappPermission::ShortcutRegister)?;
-    authorize_tapp_permission(&db, &claims, &req.tapp_id, TappPermission::ShortcutRegister, &dynamic_config).await?;
+    authorize_tapp_permission(
+        &db,
+        &claims,
+        &req.tapp_id,
+        TappPermission::ShortcutRegister,
+        &dynamic_config,
+    )
+    .await?;
     let owner_id = installation_owner(&claims, &runtime_grant)?;
 
     tracing::info!(
@@ -106,7 +113,14 @@ pub async fn unregister_shortcut(
 ) -> Result<Json<Value>, HttpError> {
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::ShortcutRegister)?;
-    authorize_tapp_permission(&db, &claims, &tapp_id, TappPermission::ShortcutRegister, &dynamic_config).await?;
+    authorize_tapp_permission(
+        &db,
+        &claims,
+        &tapp_id,
+        TappPermission::ShortcutRegister,
+        &dynamic_config,
+    )
+    .await?;
     let owner_id = installation_owner(&claims, &runtime_grant)?;
     tracing::info!(
         "[TAPP] unregister_shortcut - User: {}, Tapp: {}, ID: {}",

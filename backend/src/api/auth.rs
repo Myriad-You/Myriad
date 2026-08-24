@@ -93,7 +93,7 @@ pub async fn get_current_user(
     let jwt_secret = env::var("JWT_SECRET").map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "JWT secret not configured"})),
+            Json(json!({"error": "Failed to create session token", "code": "session_failed"})),
         )
     })?;
 
@@ -146,7 +146,7 @@ pub async fn get_current_user(
         Err(_) => {
             return Err(HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
+                Json(json!({"error": "Database error", "code": "database_error"})),
             )));
         }
     };

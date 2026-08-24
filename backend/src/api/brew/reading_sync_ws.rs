@@ -1,8 +1,6 @@
 //! Brew reading state, item detail, stats, and WebSocket.
 use axum::{
-    extract::{
-        Path, State,
-    },
+    extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     Extension, Json,
@@ -10,8 +8,8 @@ use axum::{
 use chrono::Utc;
 use sea_orm::{
     sea_query::Expr, ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait,
-    DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
-    QuerySelect, Statement,
+    DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect,
+    Statement,
 };
 use serde_json::json;
 
@@ -243,7 +241,7 @@ pub(crate) async fn update_item_state(
                         }
                     }
                     if is_starred == Some(true) && !was_starred {
-                        crate::services::agent::life::spawn_ingest(
+                        crate::services::agent::merope::spawn_ingest(
                             user_id,
                             "brew.starred",
                             format!("把《{}》标了星", item.title),
@@ -288,7 +286,7 @@ pub(crate) async fn update_item_state(
                         let _ = update_source_unread_count(db, source_id, -1).await;
                     }
                     if is_starred == Some(true) {
-                        crate::services::agent::life::spawn_ingest(
+                        crate::services::agent::merope::spawn_ingest(
                             user_id,
                             "brew.starred",
                             format!("把《{}》标了星", item.title),

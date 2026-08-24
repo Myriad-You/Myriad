@@ -112,7 +112,7 @@ export interface SettingGuidesCatalog {
     standard: SettingGuideEntry
     lite: SettingGuideEntry
     liteEnable: SettingGuideEntry
-    agentLife: SettingGuideEntry
+    agentPersona: SettingGuideEntry
     pro: SettingGuideEntry
     proEnable: SettingGuideEntry
     image: SettingGuideEntry

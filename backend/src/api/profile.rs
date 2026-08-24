@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use chrono::{Duration, Utc};
@@ -16,8 +16,8 @@ use std::path::PathBuf;
 
 // Platform refresh / site owner live in services (scheduler must not depend on HTTP).
 use crate::services::platform_refresh::{
-    fetch_fresh_platform_data, load_platform_data_cache, platform_data_warning,
-    resolve_platform_fetch_message, save_platform_data_cache, PLATFORM_CACHE_HOURS,
+    fetch_fresh_platform_data, load_platform_data_cache, platform_data_warning_for,
+    resolve_platform_fetch_message_for, save_platform_data_cache, PLATFORM_CACHE_HOURS,
 };
 pub use crate::services::site_owner::site_owner_user_id;
 
@@ -173,9 +173,12 @@ pub async fn refresh_platform_data(
 /// 返回 None 表示数据看起来正常。
 pub async fn fetch_single_platform_data(
     State(db): State<DatabaseConnection>,
+    headers: HeaderMap,
     Json(req): Json<FetchPlatformRequest>,
 ) -> (StatusCode, Json<Value>) {
     tracing::info!("🔄 Fetching data for platform: {}...", req.platform);
+    let locale = crate::api::reports::locale::locale_from_headers(&headers)
+        .unwrap_or(crate::api::reports::locale::DEFAULT_AUTO_REGEN_LOCALE);
 
     match fetch_fresh_platform_data(&db, Some(&req.platform)).await {
         Ok(outcome) => {
@@ -191,13 +194,18 @@ pub async fn fetch_single_platform_data(
 
             let remote_err = outcome.errors.get(&req.platform).map(String::as_str);
             // 远程失败或数据为空：优先透传真实错误（如 X 402 额度耗尽）
-            if let Some(message) = resolve_platform_fetch_message(
+            if let Some(message) = resolve_platform_fetch_message_for(
                 &req.platform,
                 outcome.data.get(&req.platform),
                 remote_err,
+                locale,
             ) {
-                let empty = platform_data_warning(&req.platform, outcome.data.get(&req.platform))
-                    .is_some();
+                let empty = platform_data_warning_for(
+                    &req.platform,
+                    outcome.data.get(&req.platform),
+                    locale,
+                )
+                .is_some();
                 tracing::warn!(
                     "⚠️ {} fetch issue (empty={}): {}",
                     req.platform,
@@ -232,7 +240,8 @@ pub async fn fetch_single_platform_data(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "success": false,
-                    "message": "Failed to fetch data"
+                    "code": "fetch_failed",
+                    "message": crate::api::reports::locale::missing_platform_data_message(locale)
                 })),
             )
         }
@@ -487,9 +496,7 @@ pub async fn delete_platform_cache(
 }
 
 // Media URL rewrite (pure) — implementation in services so schedulers/export can share it.
-pub use crate::services::image_proxy_urls::{
-    normalize_json_media_urls, proxy_image_url,
-};
+pub use crate::services::image_proxy_urls::{normalize_json_media_urls, proxy_image_url};
 
 // Library item shaping (pure) — DB I/O stays in this module.
 pub use crate::services::library_items::{

@@ -33,9 +33,8 @@ use access::{
     authorize_runtime_storage, authorize_tapp_permission, can_write_installation_settings,
     canonical_installation_owner_id, current_is_admin, current_user_role,
     ensure_tapp_install_allowed, filter_install_permissions, find_admin_user_id, find_visible_tapp,
-    get_admin_user_id,
-    installation_conflict_owner_ids, lock_tapp_lifecycle, optional_authenticated_user_id,
-    require_current_admin,
+    get_admin_user_id, installation_conflict_owner_ids, lock_tapp_lifecycle,
+    optional_authenticated_user_id, require_current_admin,
 };
 pub(crate) use access::{
     authorize_runtime_storage_write, installation_write_forbidden_error, TappStorageAccess,
@@ -43,15 +42,12 @@ pub(crate) use access::{
 #[cfg(test)]
 use catalog::tapp_detail_from_model;
 use catalog::{get_tapp, list_tapp_details, list_tapps, set_tapp_visibility};
-use credentials::{
-    delete_tapp_credential, list_tapp_credential_statuses, put_tapp_credential,
-};
+use credentials::{delete_tapp_credential, list_tapp_credential_statuses, put_tapp_credential};
 use inbound_guard::{
     block_inbound_fingerprint, get_inbound_guard, pause_inbound_guard, resume_inbound_guard,
     unblock_inbound_fingerprint,
 };
 use installation::{install_tapp, install_tapp_file, update_tapp};
-use store_stats::report_store_stats;
 use lifecycle::{get_recent_tapps, start_tapp, stop_tapp};
 use list_card_sizes::{get_list_card_sizes, put_list_card_sizes};
 pub use myriad_tapp_contract::manifest::*;
@@ -63,9 +59,9 @@ use storage::{
     list_shared_keys, list_storage_entries, list_storage_keys, set_shared, set_storage,
     set_tapp_setting,
 };
+use store_stats::report_store_stats;
 // Path-stable for manifest_tests / handlers that import via `super::`.
 pub(crate) use storage::validate_sandbox_storage_key;
-
 
 #[cfg(test)]
 use store_package::validate_store_manifest_category;
@@ -74,11 +70,9 @@ use types::{api_error, api_http_error, api_response_err};
 pub use types::{ApiResponse, TappDetail, TappListItem};
 #[cfg(test)]
 use uninstall::uninstall_post_commit_cleanup_path;
-use uninstall::{cleanup_temporary_tapps, uninstall_tapp};
 pub(crate) use uninstall::uninstall_tapp_for_user;
-pub use uninstall::{
-    prune_stale_private_tapps, PRIVATE_INSTALL_INACTIVITY_DAYS,
-};
+use uninstall::{cleanup_temporary_tapps, uninstall_tapp};
+pub use uninstall::{prune_stale_private_tapps, PRIVATE_INSTALL_INACTIVITY_DAYS};
 pub(crate) use validation::*;
 #[cfg(test)]
 use widgets::runtime_widget_belongs_to_installation;
@@ -101,9 +95,7 @@ use crate::middleware::auth::{
 /// - 公开路由（游客可访问）：list_tapps, get_tapp, get_tapp_code, list_all_widgets, list_store_sources
 /// - 可选主体（JWT 或游客 cookie + Runtime Grant）：runtime-grants, storage/*
 /// - 认证路由（需要登录）：install, uninstall, start, stop, register_widget, settings 等
-pub fn create_tapp_routes(
-    app_state: crate::state::AppState,
-) -> Router<crate::state::AppState> {
+pub fn create_tapp_routes(app_state: crate::state::AppState) -> Router<crate::state::AppState> {
     use axum::middleware::from_fn_with_state;
     // 需要登录的路由（安装/启停/设置/商店源；不含 storage）
     let authenticated_routes = Router::<crate::state::AppState>::new()
@@ -142,11 +134,20 @@ pub fn create_tapp_routes(
         // Credential values are write-only and installation-manager scoped.
         .route("/{tapp_id}/credentials", get(list_tapp_credential_statuses))
         .route("/{tapp_id}/credentials/{key}", post(put_tapp_credential))
-        .route("/{tapp_id}/credentials/{key}", delete(delete_tapp_credential))
+        .route(
+            "/{tapp_id}/credentials/{key}",
+            delete(delete_tapp_credential),
+        )
         .route("/{tapp_id}/inbound-guard", get(get_inbound_guard))
         .route("/{tapp_id}/inbound-guard/pause", post(pause_inbound_guard))
-        .route("/{tapp_id}/inbound-guard/pause", delete(resume_inbound_guard))
-        .route("/{tapp_id}/inbound-guard/blocks", post(block_inbound_fingerprint))
+        .route(
+            "/{tapp_id}/inbound-guard/pause",
+            delete(resume_inbound_guard),
+        )
+        .route(
+            "/{tapp_id}/inbound-guard/blocks",
+            post(block_inbound_fingerprint),
+        )
         .route(
             "/{tapp_id}/inbound-guard/blocks/{fingerprint}",
             delete(unblock_inbound_fingerprint),
@@ -158,10 +159,7 @@ pub fn create_tapp_routes(
         .route("/store/sources/{source_id}", delete(delete_store_source))
         // Browser store-install fallback reports here; backend signs edge HMAC.
         .route("/store/stats-report", post(report_store_stats))
-        .route_layer(from_fn_with_state(
-            app_state.clone(),
-            auth_middleware,
-        ));
+        .route_layer(from_fn_with_state(app_state.clone(), auth_middleware));
 
     // 公开路由（支持可选认证）
     let public_routes = Router::<crate::state::AppState>::new()

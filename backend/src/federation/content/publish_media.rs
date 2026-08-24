@@ -1,4 +1,3 @@
-
 use axum::{http::StatusCode, Json};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
@@ -806,27 +805,25 @@ fn attachment_url_rejection_reason(
 ) -> Option<&'static str> {
     let url = url.trim();
     if url.is_empty() {
-        return Some("Attachment URL is empty");
+        return Some("Invalid attachment URL");
     }
     let base = base_url.trim_end_matches('/');
     let prefix = format!("{}/media/federation/{}/", base, user_id);
     if !url.starts_with(&prefix) {
-        return Some(
-            "Attachment URL must be a media file uploaded via POST /api/federation/media for this user on this instance (expected /media/federation/{userId}/{filename})",
-        );
+        return Some("Invalid attachment URL");
     }
     let rest = &url[prefix.len()..];
     if rest.is_empty() {
-        return Some("Attachment URL is missing the media filename");
+        return Some("Invalid attachment URL");
     }
     if rest.contains("..") || rest.contains('/') {
-        return Some("Attachment URL path is invalid (no subpaths or '..' allowed)");
+        return Some("Invalid attachment URL");
     }
     if !rest
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
     {
-        return Some("Attachment URL filename contains invalid characters");
+        return Some("Invalid attachment URL");
     }
     None
 }
@@ -883,7 +880,7 @@ async fn build_ap_object(
                 let kind = classify_media_mime(&mime.to_ascii_lowercase()).ok_or_else(|| {
                     (
                         StatusCode::BAD_REQUEST,
-                        Json(json!({"error": format!("Unsupported attachment MIME: {}", att.media_type)})),
+                        Json(json!({"error": "Unsupported attachment type"})),
                     )
                 })?;
                 if let Some(reason) =
@@ -893,8 +890,6 @@ async fn build_ap_object(
                         StatusCode::BAD_REQUEST,
                         Json(json!({
                             "error": reason,
-                            "url": att.url,
-                            "hint": "Upload media first via POST /api/federation/media, then pass the returned url as attachment.url",
                         })),
                     ));
                 }
@@ -1194,7 +1189,7 @@ async fn build_ap_object(
         }
         _ => Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Unsupported content type: {}", content_type)})),
+            Json(json!({"error": "Unsupported content type"})),
         )),
     }
 }
@@ -1456,12 +1451,7 @@ async fn fan_out_to_room_peers(
     }
 
     if failed > 0 {
-        tracing::warn!(
-            activity_db_id,
-            queued,
-            failed,
-            "Room-peer fan-out partial"
-        );
+        tracing::warn!(activity_db_id, queued, failed, "Room-peer fan-out partial");
     } else if queued > 0 {
         tracing::info!(
             activity_db_id,
@@ -1495,7 +1485,10 @@ async fn deliver_create_to_local_follower(
             [follower_username.into()],
         ))
         .await
-        .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("DB error: {}", e);
+            "Database error".to_string()
+        })?;
     let Some(user_row) = user_row else {
         return Ok(false);
     };
@@ -1582,11 +1575,14 @@ async fn ensure_remote_actor_stub(
             if let Ok(Some(row)) = db
                 .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    format!(r#"SELECT display_name,
+                    format!(
+                        r#"SELECT display_name,
                               {avatar} AS avatar_url
                        FROM users
                        WHERE username = $1
-                       LIMIT 1"#, avatar = crate::services::avatar::avatar_snapshot_expr("users")),
+                       LIMIT 1"#,
+                        avatar = crate::services::avatar::avatar_snapshot_expr("users")
+                    ),
                     [uname.clone().into()],
                 ))
                 .await
@@ -2081,15 +2077,16 @@ mod tests {
         let base = "https://example.com";
         assert_eq!(
             attachment_url_rejection_reason(base, 1, ""),
-            Some("Attachment URL is empty")
+            Some("Invalid attachment URL")
         );
-        assert!(attachment_url_rejection_reason(
-            base,
-            1,
-            "https://evil.com/media/federation/1/abc.jpg"
-        )
-        .unwrap()
-        .contains("POST /api/federation/media"));
+        assert_eq!(
+            attachment_url_rejection_reason(
+                base,
+                1,
+                "https://evil.com/media/federation/1/abc.jpg"
+            ),
+            Some("Invalid attachment URL")
+        );
         assert_eq!(
             attachment_url_rejection_reason(
                 base,
@@ -2417,4 +2414,3 @@ mod tests {
         );
     }
 }
-

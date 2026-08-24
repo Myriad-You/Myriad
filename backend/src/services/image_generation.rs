@@ -136,7 +136,9 @@ fn classify_provider_message(message: &str) -> &'static str {
     {
         return "image_provider_unauthorized";
     }
-    if provider_status_is(&lower, 429) || lower.contains("rate limit") || lower.contains("rate-limit")
+    if provider_status_is(&lower, 429)
+        || lower.contains("rate limit")
+        || lower.contains("rate-limit")
     {
         return "image_provider_rate_limited";
     }
@@ -271,7 +273,8 @@ pub async fn generate_image_with_background(
     }
     let width = width.clamp(256, 2048);
     let height = height.clamp(256, 2048);
-    let result = generate_image_provider(config, prompt, width, height, reference, background).await;
+    let result =
+        generate_image_provider(config, prompt, width, height, reference, background).await;
     let (input_tokens, output_tokens) =
         crate::services::ai_cost_ledger::estimate_image_tokens(prompt, width, height);
     let error_code = result.as_ref().err().map(image_generation_failure_code);
@@ -280,7 +283,11 @@ pub async fn generate_image_with_background(
         &config.model,
         input_tokens,
         output_tokens,
-        if result.is_ok() { "completed" } else { "failed" },
+        if result.is_ok() {
+            "completed"
+        } else {
+            "failed"
+        },
         error_code,
     )
     .await;
@@ -643,7 +650,6 @@ fn default_background(model: &str) -> ImageBackground {
         ImageBackground::Transparent
     }
 }
-
 
 fn is_gpt_image_model(model: &str) -> bool {
     is_gpt_image_1(model) || is_gpt_image_2(model)
@@ -1144,17 +1150,13 @@ mod tests {
             base_url: "https://openrouter.ai/api/v1".to_string(),
         };
         let reference = "data:image/png;base64,AA==";
-        let (_, body) =
-            request_parts(&config, "portrait", 1152, 1536, Some(reference)).unwrap();
+        let (_, body) = request_parts(&config, "portrait", 1152, 1536, Some(reference)).unwrap();
         assert_eq!(body["background"], "opaque");
         assert_eq!(body["quality"], "high");
         assert!(body.get("output_format").is_none());
         assert!(body.get("n").is_none());
         assert_eq!(body["aspect_ratio"], "3:4");
-        assert_eq!(
-            body["input_references"][0]["image_url"]["url"],
-            reference
-        );
+        assert_eq!(body["input_references"][0]["image_url"]["url"], reference);
     }
 
     #[test]

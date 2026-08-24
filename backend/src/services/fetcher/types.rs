@@ -1,7 +1,6 @@
 // Platform data fetching service
 use serde::{Deserialize, Serialize};
 
-
 pub struct PlatformFetcher {
     pub(crate) client: reqwest::Client,
 }
@@ -109,4 +108,3 @@ pub(crate) fn optional_json_string(value: &serde_json::Value) -> Option<String> 
         .map(ToOwned::to_owned)
         .or_else(|| value.as_i64().map(|value| value.to_string()))
 }
-

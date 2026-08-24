@@ -28,7 +28,7 @@ import type {
 import { ApiError, apiService } from '../api'
 import { abortSseSubscriptions, executeSSERequest } from './sseTransport'
 
-/** Keep in sync with DIGITAL_LIFE_PROXY_TIMEOUT_MS in frontend/astro.config.mjs */
+/** Keep in sync with MEROPE_PROXY_TIMEOUT_MS in frontend/astro.config.mjs */
 const PERSONA_GENERATION_TIMEOUT_MS = 15 * 60 * 1000
 
 const personaGenerationInflight = new Map<string, Promise<unknown>>()
@@ -89,6 +89,9 @@ export interface AgentPersona {
   mood?: number
   activity?: string
   doNotDisturb?: boolean
+  doNotDisturbActive?: boolean
+  dndStart?: string | null
+  dndEnd?: string | null
   reportCount?: number
 }
 
@@ -853,6 +856,23 @@ class AgentService {
     )
   }
 
+  async importPersona(body: {
+    source: string
+    name?: string
+    gender?: string
+    language: string
+  }): Promise<{
+    persona: Record<string, unknown>
+  }> {
+    return sharePersonaGeneration(
+      `import:${body.language || ''}:${body.name || ''}:${body.gender || ''}:${body.source.length}:${body.source.slice(0, 80)}`,
+      () =>
+        apiService.post(`${this.baseUrl}/persona/import`, body, {
+          timeout: PERSONA_GENERATION_TIMEOUT_MS,
+        }),
+    )
+  }
+
   async draftPersona(body: {
     name: string
     tags: string[]
@@ -909,7 +929,7 @@ class AgentService {
     try {
       return await apiService.get(`${this.baseUrl}/persona`)
     } catch (error) {
-      if (error instanceof ApiError && error.code === 'agent_life_disabled') {
+      if (error instanceof ApiError && error.code === 'merope_disabled') {
         return null
       }
       throw error
@@ -930,10 +950,17 @@ class AgentService {
     await apiService.delete(`${this.baseUrl}/persona`)
   }
 
-  async putAddressee(body: { doNotDisturb: boolean }): Promise<{
+  async putAddressee(body: {
+    doNotDisturb?: boolean
+    dndStart?: string | null
+    dndEnd?: string | null
+  }): Promise<{
     mood: number
     activity: string
     doNotDisturb: boolean
+    doNotDisturbActive?: boolean
+    dndStart?: string | null
+    dndEnd?: string | null
   }> {
     return apiService.put(`${this.baseUrl}/addressee`, body)
   }

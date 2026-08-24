@@ -36,11 +36,10 @@ pub use myriad_tapp_contract::contract_rules::{
     MAX_TAPP_ASSET_BYTES, MAX_TAPP_CREDENTIALS, MAX_TAPP_GAME_ARCHIVE_BYTES,
     MAX_TAPP_GAME_ARCHIVE_FILES, MAX_TAPP_GAME_ARCHIVE_UNCOMPRESSED_BYTES, MAX_TAPP_GAME_ASSETS,
     MAX_TAPP_GAME_ASSETS_TOTAL_BYTES, MAX_TAPP_GAME_ASSET_BYTES, MAX_TAPP_GAME_MESSAGE_BYTES,
-    MAX_TAPP_GAME_RESOURCE_BYTES, MAX_TAPP_UPLOAD_BYTES,
-    MAX_TAPP_GAME_PLAYERS, MAX_TAPP_GAME_PROTOCOL_LEN, MAX_TAPP_I18N_FILES,
-    MAX_TAPP_I18N_RESOURCE_BYTES, MAX_TAPP_RUNTIME_MODULES, MIN_TAPP_GAME_PLAYERS,
-    TAPP_RUNTIME_MODULES,
-    MAX_TAPP_ID_LEN, MAX_TAPP_MANIFEST_BYTES, MAX_TAPP_RESOURCE_BYTES, MAX_WIDGETS_PER_TAPP,
+    MAX_TAPP_GAME_PLAYERS, MAX_TAPP_GAME_PROTOCOL_LEN, MAX_TAPP_GAME_RESOURCE_BYTES,
+    MAX_TAPP_I18N_FILES, MAX_TAPP_I18N_RESOURCE_BYTES, MAX_TAPP_ID_LEN, MAX_TAPP_MANIFEST_BYTES,
+    MAX_TAPP_RESOURCE_BYTES, MAX_TAPP_RUNTIME_MODULES, MAX_TAPP_UPLOAD_BYTES, MAX_WIDGETS_PER_TAPP,
+    MIN_TAPP_GAME_PLAYERS, TAPP_RUNTIME_MODULES,
 };
 
 pub fn valid_data_exchange_id(value: &str) -> bool {
@@ -674,14 +673,11 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
             Some(myriad_tapp_contract::manifest::TappCategory::Game)
                 | Some(myriad_tapp_contract::manifest::TappCategory::Developer)
         ) {
-            return Err(
-                "runtimeModules is only allowed for game or developer Tapps".to_string(),
-            );
+            return Err("runtimeModules is only allowed for game or developer Tapps".to_string());
         }
         let mut seen = std::collections::HashSet::new();
         for module in modules {
-            if !TAPP_RUNTIME_MODULES.contains(&module.as_str()) || !seen.insert(module.as_str())
-            {
+            if !TAPP_RUNTIME_MODULES.contains(&module.as_str()) || !seen.insert(module.as_str()) {
                 return Err(format!(
                     "Unknown or duplicate runtime module: {module}; allowed: {}",
                     TAPP_RUNTIME_MODULES.join(", ")
@@ -730,9 +726,7 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
                 .iter()
                 .any(|permission| permission == required)
             {
-                return Err(format!(
-                    "Tapp game requires the {required} permission"
-                ));
+                return Err(format!("Tapp game requires the {required} permission"));
             }
         }
     }
@@ -819,9 +813,7 @@ pub fn validate_tapp_manifest(manifest: &TappManifest) -> Result<(), String> {
             MAX_TAPP_ASSETS
         };
         if assets.len() > max_assets {
-            return Err(format!(
-                "Tapp assets accepts at most {max_assets} entries"
-            ));
+            return Err(format!("Tapp assets accepts at most {max_assets} entries"));
         }
         let mut seen = std::collections::HashSet::new();
         for path in assets {
@@ -1552,15 +1544,13 @@ mod tests {
         };
 
         // brew:comment → brew:read + brew:commentWrite
-        let error =
-            validate_tapp_manifest(&manifest(vec!["brew:comment"])).unwrap_err();
+        let error = validate_tapp_manifest(&manifest(vec!["brew:comment"])).unwrap_err();
         assert!(error.contains("brew:comment"), "{error}");
         assert!(error.contains("brew:read"), "{error}");
         assert!(error.contains("brew:commentWrite"), "{error}");
 
         // 普通未知名不带替代提示
-        let error =
-            validate_tapp_manifest(&manifest(vec!["legacy:unknown"])).unwrap_err();
+        let error = validate_tapp_manifest(&manifest(vec!["legacy:unknown"])).unwrap_err();
         assert!(
             error.contains("Unknown Tapp permission 'legacy:unknown'"),
             "{error}"
@@ -1568,8 +1558,7 @@ mod tests {
         assert!(!error.contains("instead"), "{error}");
 
         // 重复名保持 duplicate 语义，不附加替代提示
-        let error = validate_tapp_manifest(&manifest(vec!["brew:read", "brew:read"]))
-            .unwrap_err();
+        let error = validate_tapp_manifest(&manifest(vec!["brew:read", "brew:read"])).unwrap_err();
         assert!(
             error.contains("Duplicate Tapp permission: brew:read"),
             "{error}"
@@ -2148,16 +2137,14 @@ mod tests {
 
     #[test]
     fn generic_unknown_permission_keeps_unknown_error() {
-        let error =
-            validate_tapp_manifest(&permission_manifest(&["legacy:unknown"])).unwrap_err();
+        let error = validate_tapp_manifest(&permission_manifest(&["legacy:unknown"])).unwrap_err();
         assert_eq!(error, "Unknown Tapp permission 'legacy:unknown'");
     }
 
     #[test]
     fn duplicate_permission_reports_duplicate_not_unknown() {
-        let error =
-            validate_tapp_manifest(&permission_manifest(&["storage:read", "storage:read"]))
-                .unwrap_err();
+        let error = validate_tapp_manifest(&permission_manifest(&["storage:read", "storage:read"]))
+            .unwrap_err();
         assert_eq!(error, "Duplicate Tapp permission: storage:read");
         assert!(!error.contains("Unknown"), "{error}");
     }

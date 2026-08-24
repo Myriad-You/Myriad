@@ -24,6 +24,7 @@ import {
 } from '../../../components/settings'
 import { Spinner } from '../../../components/Spinner'
 import { useI18n } from '../../../contexts/I18nContext'
+import { userFacingError } from '../../../utils/userFacingError'
 import { OfficialVerifiedDot } from './storeAppMeta'
 import '../../../components/ConfigForm.css'
 
@@ -128,11 +129,12 @@ export function StoreConfigurationView({
       closeForm()
     } catch (error) {
       setFormError(
-        error instanceof Error
-          ? error.message
-          : formMode === 'edit'
+        userFacingError(
+          error,
+          formMode === 'edit'
             ? t.tapp.updateSourceFailed
             : t.tapp.addSourceFailed,
+        ),
       )
     } finally {
       setSaving(false)

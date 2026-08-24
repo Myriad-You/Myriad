@@ -48,9 +48,13 @@ pub async fn follow_remote(
 
     // 获取远程 Actor 信息
     let remote = fetch_remote_actor(db, &target_url).await.map_err(|e| {
+        tracing::warn!(error = %e, "Failed to resolve remote actor");
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Cannot resolve remote actor: {}", e)})),
+            Json(json!({
+                "error": "Cannot resolve remote actor",
+                "code": "remote_actor_unresolved",
+            })),
         )
     })?;
 
@@ -492,7 +496,10 @@ async fn webfinger_lookup_once(
             );
             (
                 StatusCode::BAD_GATEWAY,
-                Json(json!({"error": format!("WebFinger lookup failed for {webfinger_url}: {e}")})),
+                Json(json!({
+                    "error": "WebFinger lookup failed",
+                    "code": "webfinger_failed",
+                })),
             )
         })?;
 
@@ -515,10 +522,15 @@ async fn webfinger_lookup_once(
             mapped,
             Json(json!({
                 "error": if mapped == StatusCode::NOT_FOUND {
-                    format!("No such account at that instance ({webfinger_url} returned HTTP {})", status.as_u16())
+                    "No such account at that instance"
                 } else {
-                    format!("WebFinger lookup for {webfinger_url} returned HTTP {}", status.as_u16())
-                }
+                    "WebFinger lookup failed"
+                },
+                "code": if mapped == StatusCode::NOT_FOUND {
+                    "webfinger_not_found"
+                } else {
+                    "webfinger_failed"
+                },
             })),
         ));
     }
@@ -542,10 +554,8 @@ async fn webfinger_lookup_once(
         (
             StatusCode::BAD_GATEWAY,
             Json(json!({
-                "error": format!(
-                    "{webfinger_url} did not return JSON — that host may not route \
-                     /.well-known/webfinger to its Myriad backend"
-                )
+                "error": "WebFinger is not available on that host",
+                "code": "webfinger_unavailable",
             })),
         )
     })?;
@@ -554,7 +564,10 @@ async fn webfinger_lookup_once(
     let links = wf["links"].as_array().ok_or_else(|| {
         (
             StatusCode::BAD_GATEWAY,
-            Json(json!({"error": format!("No links in WebFinger response from {webfinger_url}")})),
+            Json(json!({
+                "error": "WebFinger lookup failed",
+                "code": "webfinger_failed",
+            })),
         )
     })?;
 
@@ -571,9 +584,8 @@ async fn webfinger_lookup_once(
     Err((
         StatusCode::BAD_GATEWAY,
         Json(json!({
-            "error": format!(
-                "No ActivityPub self link in WebFinger response from {webfinger_url}"
-            )
+            "error": "WebFinger lookup failed",
+            "code": "webfinger_failed",
         })),
     ))
 }

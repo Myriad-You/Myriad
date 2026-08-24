@@ -194,11 +194,7 @@ mod tests {
     fn extract_query_param_rejects_empty_and_bad_url() {
         assert!(extract_query_param("not a url", "code").is_none());
         assert!(extract_query_param("https://example.com/?code=", "code").is_none());
-        assert!(extract_query_param(
-            "https://example.com/path-without-query",
-            "code"
-        )
-        .is_none());
+        assert!(extract_query_param("https://example.com/path-without-query", "code").is_none());
     }
 
     #[test]

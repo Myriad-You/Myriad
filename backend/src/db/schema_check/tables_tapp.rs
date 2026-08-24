@@ -85,6 +85,12 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: Some("'[]'".into()),
                 },
                 ColumnDef {
+                    name: "needs_reauthorization".into(),
+                    data_type: "boolean".into(),
+                    is_nullable: false,
+                    default_value: Some("false".into()),
+                },
+                ColumnDef {
                     name: "file_path".into(),
                     data_type: "text".into(),
                     is_nullable: false,

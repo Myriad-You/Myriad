@@ -29,11 +29,8 @@ impl AgentScheduleType {
 }
 
 /// Parse scheduleType (cron / interval / once / daily).
-pub fn parse_schedule_type(
-    schedule_type_name: Option<&str>,
-) -> Result<AgentScheduleType, String> {
-    let name = schedule_type_name
-        .ok_or_else(|| "Missing scheduleType parameter".to_string())?;
+pub fn parse_schedule_type(schedule_type_name: Option<&str>) -> Result<AgentScheduleType, String> {
+    let name = schedule_type_name.ok_or_else(|| "Missing scheduleType parameter".to_string())?;
     match name.to_ascii_lowercase().as_str() {
         "cron" => Ok(AgentScheduleType::Cron),
         "interval" => Ok(AgentScheduleType::Interval),
@@ -234,15 +231,9 @@ mod tests {
             .unwrap()["time"],
             "08:00"
         );
-        assert!(build_schedule_config(
-            AgentScheduleType::Cron,
-            None,
-            None,
-            None,
-            None,
-            None
-        )
-        .is_err());
+        assert!(
+            build_schedule_config(AgentScheduleType::Cron, None, None, None, None, None).is_err()
+        );
     }
 
     #[test]

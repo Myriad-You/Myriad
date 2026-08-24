@@ -451,7 +451,7 @@ CREATE INDEX IF NOT EXISTS idx_heartbeat_claims_claimed_at
             )
             .await?;
 
-        // 设定 / 状态 / 日记 / 主动对话。与 schema_check::ensure_agent_life_tables 同结构。
+        // Merope 设定 / 状态 / 日记 / 主动对话。与 schema_check::tables_agent 同结构。
         // 不进 agent_sessions / agent_messages，会话列表才不会露出主动开口。
         manager
             .get_connection()
@@ -474,6 +474,8 @@ CREATE TABLE IF NOT EXISTS agent_addressee_state (
     mood DOUBLE PRECISION NOT NULL DEFAULT 70,
     activity VARCHAR(16) NOT NULL DEFAULT 'idle',
     do_not_disturb BOOLEAN NOT NULL DEFAULT false,
+    dnd_start_minute INTEGER,
+    dnd_end_minute INTEGER,
     last_user_message_at TIMESTAMPTZ,
     last_proactive_at TIMESTAMPTZ,
     last_departure_at TIMESTAMPTZ,

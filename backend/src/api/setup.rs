@@ -75,10 +75,7 @@ pub(crate) struct SetupProgress {
     pub missing_configs: Vec<String>,
 }
 
-pub(crate) fn setup_progress_from_flags(
-    has_database: bool,
-    has_admin_user: bool,
-) -> SetupProgress {
+pub(crate) fn setup_progress_from_flags(has_database: bool, has_admin_user: bool) -> SetupProgress {
     let mut missing_configs = Vec::new();
     if !has_database {
         missing_configs.push("Database tables not initialized".to_string());
@@ -218,9 +215,10 @@ pub async fn init_database(
     tracing::info!("Running database migrations");
     let tables_existed = check_database_tables(&db).await;
 
-    // Never drop tables or rewrite migration history from an unauthenticated
-    // setup endpoint. Migrator::up is idempotent and applies only pending work;
-    // damaged migration state requires explicit operator intervention.
+    // Never drop feature tables from an unauthenticated setup endpoint.
+    // Migrator::up strips folded 007–015 history rows, drops leftover
+    // `digital_life_*` experiment tables, then applies pending work;
+    // other damaged migration state requires explicit operator intervention.
     // Import the migrator from migrations module
     use crate::db::Migrator;
 
@@ -268,10 +266,7 @@ pub async fn init_database(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({
                         "error": "Schema ensure failed",
-                        "message": format!(
-                            "Migrations applied but schema check/heals failed: {}",
-                            e
-                        )
+                        "code": "schema_ensure_failed"
                     })),
                 )));
             }
@@ -290,7 +285,7 @@ pub async fn init_database(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(json!({
                             "error": "Setup window cleanup failed",
-                            "message": "数据库已存在所有者，但无法持久化安装关闭状态；当前进程已拒绝继续安装操作，请检查数据目录权限。"
+                            "code": "setup_cleanup_failed"
                         })),
                     )));
                 }
@@ -344,15 +339,20 @@ pub async fn init_database(
                 total_tables, users_exists, platforms_exists, configurations_exists
             );
 
-            let message = if tables_existed {
-                "数据库迁移已检查并更新"
+            let kind = if tables_existed {
+                "migrated"
             } else {
-                "数据库初始化完成"
+                "initialized"
             };
 
             Ok(Json(json!({
                 "success": true,
-                "message": message,
+                "kind": kind,
+                "message": if tables_existed {
+                    "Database migration checked"
+                } else {
+                    "Database initialized"
+                },
                 "recreated": false,
                 "verification": {
                     "total_tables": total_tables,
@@ -368,7 +368,7 @@ pub async fn init_database(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "error": "Database migration failed",
-                    "message": "数据库迁移失败，请检查数据库连接和权限设置"
+                    "code": "db_migration_failed"
                 })),
             )))
         }
@@ -450,9 +450,8 @@ pub async fn save_database_config(
             StatusCode::FORBIDDEN,
             Json(json!({
                 "error": "Operation not allowed",
-                "message": "数据库配置只能在配置模式下修改。请使用 CONFIG_MODE=true 重启服务。",
-                "reason": "Security protection: Database configuration is locked after initial setup",
-                "hint": "Restart with CONFIG_MODE=true environment variable if you need to reconfigure the database"
+                "code": "config_mode_required",
+                "hint": "Restart with CONFIG_MODE=true if you need to reconfigure the database"
             })),
         )));
     }
@@ -486,7 +485,7 @@ pub async fn save_database_config(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({
                         "error": "Failed to create configuration file",
-                        "message": "无法创建配置文件，请检查文件系统权限"
+                        "code": "config_file_permission"
                     })),
                 )));
             }
@@ -499,7 +498,7 @@ pub async fn save_database_config(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({
                         "error": "Failed to create configuration file",
-                        "message": "无法创建配置文件，请检查文件系统权限"
+                        "code": "config_file_permission"
                     })),
                 )));
             }
@@ -527,7 +526,7 @@ pub async fn save_database_config(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "error": "Failed to read configuration file",
-                    "message": "无法读取配置文件，请检查文件系统权限"
+                    "code": "config_file_permission"
                 })),
             )));
         }
@@ -559,7 +558,7 @@ pub async fn save_database_config(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "error": "Failed to save configuration",
-                    "message": "无法保存配置文件，请检查文件系统权限"
+                    "code": "config_file_permission"
                 })),
             )))
         }

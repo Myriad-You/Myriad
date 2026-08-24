@@ -17,6 +17,8 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../contexts/I18nContext'
 import { useManagedFetch } from '../hooks/useManagedFetch'
+import { reportUserFacingError } from '../utils/reportError'
+import { userFacingError } from '../utils/userFacingError'
 import { Spinner } from './Spinner'
 
 export interface Task {
@@ -96,7 +98,7 @@ export function TaskStatus({
           onError?.(updatedTask)
         }
       } else {
-        throw new Error(data.error || 'Failed to fetch task status')
+        throw new Error(data.error || t.task.fetchFailed)
       }
     } catch (err) {
       // 静默处理取消错误
@@ -105,7 +107,7 @@ export function TaskStatus({
       }
 
       console.error('Error fetching task status:', err)
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      setError(userFacingError(err, t.task.fetchFailed))
       setIsPolling(false)
     }
   }, [
@@ -116,6 +118,7 @@ export function TaskStatus({
     autoClose,
     autoCloseDelay,
     managedFetch,
+    t.task.fetchFailed,
   ])
 
   // 智能轮询间隔：根据轮询次数和任务状态动态调整
@@ -248,7 +251,11 @@ export function TaskStatus({
             </h3>
             {task.error && (
               <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                {task.error}
+                {reportUserFacingError(
+                  task.error,
+                  t.reportsPage.generateNeedData,
+                  t.reportsPage,
+                )}
               </p>
             )}
           </div>

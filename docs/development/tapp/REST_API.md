@@ -443,7 +443,7 @@ Manifest operation/model tier/context/output 声明，并将任务绑定 subject
 除按日聚合的配额计数外，每次受治理的 AI 调用（完成/失败/取消）都会追加一条
 `tapp_ai_cost_ledger` 流水：subject、安装 owner、Tapp、任务、来源（runtime 或
 scheduler）、operation、provider/model、输入/输出 token 估算与终态。同一账本也接收
-站内其它出账点（Arael、报告、数字生命、Playground、语音、图像等）；文字走
+站内其它出账点（Agent、报告、Agent 人设、Playground、语音、图像等）；文字走
 `AiAnalyzer` 钩子，图像/语音走对应运行时钩子。未标明来源的调用记为 `internal`。
 受治理任务在 provider 调用外包一层 suppress，避免与任务级 `record_ai_cost` 重复。
 账本 append-only、不随每日重置，`GET /api/tapp/ai/v2/ledger` 供登录用户读取本人逐次

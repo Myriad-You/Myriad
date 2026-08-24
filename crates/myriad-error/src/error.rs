@@ -34,14 +34,32 @@ pub struct AppError {
 }
 
 impl AppError {
+    /// Stable machine code for well-known public labels.
+    pub fn inferred_code(label: &str) -> Option<&'static str> {
+        match label.trim() {
+            "Database error" | "Database query failed" | "Database not connected" => {
+                Some("database_error")
+            }
+            "Failed to fetch data" => Some("fetch_failed"),
+            "Failed to process password" | "Failed to verify password" => Some("password_failed"),
+            "Failed to create account" => Some("account_create_failed"),
+            "Failed to create session token" | "Failed to refresh session token" => {
+                Some("session_failed")
+            }
+            _ => None,
+        }
+    }
+
     /// Build with an explicit status. `error` is the short public label.
     pub fn new(status: StatusCode, error: impl Into<String>) -> Self {
+        let error = redact_secrets(&error.into());
+        let code = Self::inferred_code(&error).map(str::to_string);
         Self {
             status,
-            error: redact_secrets(&error.into()),
+            error,
             message: None,
             hint: None,
-            code: None,
+            code,
         }
     }
 
@@ -209,6 +227,13 @@ mod tests {
     }
 
     #[test]
+    fn database_error_label_gets_stable_code() {
+        let v = AppError::internal("Database error").to_json();
+        assert_eq!(v["error"], "Database error");
+        assert_eq!(v["code"], "database_error");
+    }
+
+    #[test]
     fn to_json_includes_code_when_set() {
         let e = AppError::bad_gateway("Failed to suggest a name")
             .with_code("name_suggest_failed")
@@ -221,8 +246,7 @@ mod tests {
 
     #[test]
     fn to_json_includes_hint_when_set() {
-        let e = AppError::service_unavailable("updater down")
-            .with_hint("set MYRIAD_UPDATER_URL");
+        let e = AppError::service_unavailable("updater down").with_hint("set MYRIAD_UPDATER_URL");
         let v = e.to_json();
         assert_eq!(v["hint"], "set MYRIAD_UPDATER_URL");
     }

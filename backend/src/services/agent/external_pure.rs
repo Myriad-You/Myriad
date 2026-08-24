@@ -174,10 +174,7 @@ mod tests {
         params.insert("max_length".into(), json!(10));
         assert_eq!(scrape_selector(&params), "article");
         assert_eq!(scrape_max_length(&params), 10);
-        assert_eq!(
-            scrape_selector(&HashMap::new()),
-            "body"
-        );
+        assert_eq!(scrape_selector(&HashMap::new()), "body");
         assert_eq!(
             scrape_max_length(&HashMap::new()),
             WEB_SCRAPE_DEFAULT_MAX_LENGTH

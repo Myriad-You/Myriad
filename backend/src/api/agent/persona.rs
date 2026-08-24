@@ -9,7 +9,7 @@ use serde_json::{json, Map, Value};
 use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::services::site_owner::site_owner_user_id;
-use crate::services::{agent::life, digital_life_rig};
+use crate::services::{agent::merope, merope_rig};
 use axum::http::StatusCode;
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +49,19 @@ pub struct DraftPersonaRequest {
     pub gender: String,
     #[serde(default)]
     pub extra_requirements: String,
+    #[serde(default = "default_signals_language")]
+    pub language: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPersonaRequest {
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub gender: String,
     #[serde(default = "default_signals_language")]
     pub language: String,
 }
@@ -112,39 +125,36 @@ fn normalize_signals_language(raw: &str) -> &'static str {
     }
 }
 
-fn life_disabled() -> HttpError {
+fn merope_disabled() -> HttpError {
     HttpError::from((
         StatusCode::FORBIDDEN,
         Json(json!({
-            "error": "Agent life is disabled",
-            "code": "agent_life_disabled"
+            "error": "Agent persona is disabled",
+            "code": "merope_disabled"
         })),
     ))
 }
 
-async fn require_life_enabled() -> Result<(), HttpError> {
+async fn require_merope_enabled() -> Result<(), HttpError> {
     let enabled = crate::GLOBAL_DYNAMIC_CONFIG
         .read()
         .await
-        .agent_life_enabled_resolved();
+        .merope_enabled_resolved();
     if enabled {
         Ok(())
     } else {
-        Err(life_disabled())
+        Err(merope_disabled())
     }
 }
 
-async fn report_platform_count(
-    db: &DatabaseConnection,
-    user_id: i32,
-) -> Result<usize, HttpError> {
-    life::report_dna::count_report_platforms(db, user_id)
+async fn report_platform_count(db: &DatabaseConnection, user_id: i32) -> Result<usize, HttpError> {
+    merope::report_dna::count_report_platforms(db, user_id)
         .await
         .map_err(|error| {
             tracing::error!(%error, "[Agent persona] report count failed");
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
+                Json(json!({ "error": "Database error", "code": "database_error" })),
             ))
         })
 }
@@ -154,14 +164,14 @@ async fn require_persona_reports(
     user_id: i32,
 ) -> Result<usize, HttpError> {
     let count = report_platform_count(db, user_id).await?;
-    if count < life::report_dna::MIN_PERSONA_REPORTS {
+    if count < merope::report_dna::MIN_PERSONA_REPORTS {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": "Need at least 3 platform reports",
                 "code": "persona_reports_required",
                 "reportCount": count,
-                "required": life::report_dna::MIN_PERSONA_REPORTS,
+                "required": merope::report_dna::MIN_PERSONA_REPORTS,
             })),
         )));
     }
@@ -194,30 +204,34 @@ pub async fn get_persona(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
-    require_life_enabled().await?;
+    require_merope_enabled().await?;
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     let owner = site_owner_user_id(&db).await.ok();
     let is_owner = owner == Some(user_id);
-    let persona = life::get_persona(&db).await.map_err(|error| {
+    let persona = merope::get_persona(&db).await.map_err(|error| {
         tracing::error!(%error, "[Agent persona] load failed");
         HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
+            Json(json!({ "error": "Database error", "code": "database_error" })),
         ))
     })?;
 
-    let (mood, activity, do_not_disturb) = if life::is_logged_in_addressee(user_id) {
-        match life::get_or_create_state(&db, user_id).await {
-            Ok(state) => (
-                state.mood,
-                life::current_activity(&state).to_string(),
-                state.do_not_disturb,
-            ),
-            Err(_) => (70.0, "idle".to_string(), false),
-        }
-    } else {
-        (70.0, "idle".to_string(), false)
-    };
+    let (mood, activity, do_not_disturb, dnd_start, dnd_end, dnd_active) =
+        if merope::is_logged_in_addressee(user_id) {
+            match merope::get_or_create_state(&db, user_id).await {
+                Ok(state) => (
+                    state.mood,
+                    merope::current_activity(&state).to_string(),
+                    state.do_not_disturb,
+                    state.dnd_start_minute.and_then(merope::format_clock_minute),
+                    state.dnd_end_minute.and_then(merope::format_clock_minute),
+                    merope::effective_do_not_disturb(&state),
+                ),
+                Err(_) => (70.0, "idle".to_string(), false, None, None, false),
+            }
+        } else {
+            (70.0, "idle".to_string(), false, None, None, false)
+        };
 
     let report_count = report_platform_count(&db, user_id).await.unwrap_or(0);
 
@@ -229,6 +243,9 @@ pub async fn get_persona(
             "mood": mood,
             "activity": activity,
             "doNotDisturb": do_not_disturb,
+            "doNotDisturbActive": dnd_active,
+            "dndStart": dnd_start,
+            "dndEnd": dnd_end,
             "reportCount": report_count,
         });
         if is_owner {
@@ -246,10 +263,13 @@ pub async fn get_persona(
     let mut body = json!({
         "name": display_name,
         "portraitAssetId": persona.portrait_asset_id,
-        "hasCustomPersona": life::has_custom_persona(&persona),
+        "hasCustomPersona": merope::has_custom_persona(&persona),
         "mood": mood,
         "activity": activity,
         "doNotDisturb": do_not_disturb,
+        "doNotDisturbActive": dnd_active,
+        "dndStart": dnd_start,
+        "dndEnd": dnd_end,
         "reportCount": report_count,
     });
     if is_owner {
@@ -268,33 +288,31 @@ pub async fn put_persona(
     Extension(claims): Extension<Claims>,
     Json(body): Json<PutPersonaRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    require_life_enabled().await?;
+    require_merope_enabled().await?;
     let user_id = require_site_owner(&claims, &db).await?;
     let transaction = db.begin().await.map_err(|error| {
         tracing::error!(%error, "[Agent persona] begin save transaction failed");
         HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
+            Json(json!({ "error": "Database error", "code": "database_error" })),
         ))
     })?;
-    let previous = life::get_persona_on(&transaction)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "[Agent persona] load before save failed");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
-            ))
-        })?;
+    let previous = merope::get_persona_on(&transaction).await.map_err(|error| {
+        tracing::error!(%error, "[Agent persona] load before save failed");
+        HttpError::from((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Database error", "code": "database_error" })),
+        ))
+    })?;
     let previous_portrait = previous
         .as_ref()
         .and_then(|persona| persona.portrait_asset_id.clone());
     let portrait = match body.portrait_asset_id {
-        None => life::PortraitUpdate::Keep,
-        Some(None) => life::PortraitUpdate::Clear,
+        None => merope::PortraitUpdate::Keep,
+        Some(None) => merope::PortraitUpdate::Clear,
         Some(Some(raw)) => match sanitize_portrait_asset_id(&raw) {
-            Some(cleaned) if cleaned.is_empty() => life::PortraitUpdate::Clear,
-            Some(cleaned) => life::PortraitUpdate::Set(cleaned),
+            Some(cleaned) if cleaned.is_empty() => merope::PortraitUpdate::Clear,
+            Some(cleaned) => merope::PortraitUpdate::Set(cleaned),
             None => {
                 return Err(HttpError::from((
                     StatusCode::BAD_REQUEST,
@@ -307,11 +325,11 @@ pub async fn put_persona(
         },
     };
     let visual_profile = match body.visual_profile.as_ref() {
-        None => life::JsonDocumentUpdate::Keep,
-        Some(None) => life::JsonDocumentUpdate::Clear,
+        None => merope::JsonDocumentUpdate::Keep,
+        Some(None) => merope::JsonDocumentUpdate::Clear,
         Some(Some(value)) => {
             let sanitized = sanitize_visual_profile(value)?;
-            life::JsonDocumentUpdate::Set(merge_visual_profile(
+            merope::JsonDocumentUpdate::Set(merge_visual_profile(
                 sanitized,
                 previous
                     .as_ref()
@@ -320,27 +338,27 @@ pub async fn put_persona(
         }
     };
     let effective_visual_profile = match &visual_profile {
-        life::JsonDocumentUpdate::Set(value) => Some(value),
-        life::JsonDocumentUpdate::Clear => None,
-        life::JsonDocumentUpdate::Keep => previous
+        merope::JsonDocumentUpdate::Set(value) => Some(value),
+        merope::JsonDocumentUpdate::Clear => None,
+        merope::JsonDocumentUpdate::Keep => previous
             .as_ref()
             .and_then(|persona| persona.visual_profile.as_ref()),
     };
     let persona = match body.persona.as_ref() {
-        None => life::JsonDocumentUpdate::Keep,
-        Some(None) => life::JsonDocumentUpdate::Clear,
-        Some(Some(value)) => life::JsonDocumentUpdate::Set(sanitize_structured_persona(
+        None => merope::JsonDocumentUpdate::Keep,
+        Some(None) => merope::JsonDocumentUpdate::Clear,
+        Some(Some(value)) => merope::JsonDocumentUpdate::Set(sanitize_structured_persona(
             &body.name,
             value,
             effective_visual_profile,
         )?),
     };
-    let contract = life::PersonaContractUpdate {
+    let contract = merope::PersonaContractUpdate {
         persona,
         visual_profile,
-        ..life::PersonaContractUpdate::default()
+        ..merope::PersonaContractUpdate::default()
     };
-    let saved = life::upsert_persona_on(
+    let saved = merope::upsert_persona_on(
         &transaction,
         body.name,
         body.personality,
@@ -353,19 +371,19 @@ pub async fn put_persona(
         tracing::error!(%error, "[Agent persona] save failed");
         HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
+            Json(json!({ "error": "Database error", "code": "database_error" })),
         ))
     })?;
     let portrait_changed = previous_portrait != saved.portrait_asset_id;
     let cleared_asset = if portrait_changed {
         Some(
-            digital_life_rig::persist_active_asset(&transaction, None)
+            merope_rig::persist_active_asset(&transaction, None)
                 .await
                 .map_err(|error| {
                     tracing::error!(%error, "[Agent persona] stale rig invalidation failed");
                     HttpError::from((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "error": "Database error" })),
+                        Json(json!({ "error": "Database error", "code": "database_error" })),
                     ))
                 })?,
         )
@@ -376,11 +394,11 @@ pub async fn put_persona(
         tracing::error!(%error, "[Agent persona] commit failed");
         HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
+            Json(json!({ "error": "Database error", "code": "database_error" })),
         ))
     })?;
     if let Some(asset_id) = cleared_asset {
-        digital_life_rig::mirror_active_asset(asset_id).await;
+        merope_rig::mirror_active_asset(asset_id).await;
     }
     Ok(Json(json!({
         "name": saved.name,
@@ -389,7 +407,7 @@ pub async fn put_persona(
         "visualProfile": saved.visual_profile,
         "portraitGeneration": saved.portrait_generation,
         "portraitAssetId": saved.portrait_asset_id,
-        "hasCustomPersona": life::has_custom_persona(&saved),
+        "hasCustomPersona": merope::has_custom_persona(&saved),
     })))
 }
 
@@ -398,46 +416,89 @@ pub async fn delete_persona(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
-    require_life_enabled().await?;
+    require_merope_enabled().await?;
     let _user_id = require_site_owner(&claims, &db).await?;
     let transaction = db.begin().await.map_err(|error| {
         tracing::error!(%error, "[Agent persona] begin delete transaction failed");
         HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
+            Json(json!({ "error": "Database error", "code": "database_error" })),
         ))
     })?;
-    life::clear_persona_on(&transaction).await.map_err(|error| {
-        tracing::error!(%error, "[Agent persona] clear failed");
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
-        ))
-    })?;
-    let cleared_asset = digital_life_rig::persist_active_asset(&transaction, None)
+    merope::clear_persona_on(&transaction)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "[Agent persona] clear failed");
+            HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database error", "code": "database_error" })),
+            ))
+        })?;
+    let cleared_asset = merope_rig::persist_active_asset(&transaction, None)
         .await
         .map_err(|error| {
             tracing::error!(%error, "[Agent persona] stale rig invalidation failed");
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
+                Json(json!({ "error": "Database error", "code": "database_error" })),
             ))
         })?;
     transaction.commit().await.map_err(|error| {
         tracing::error!(%error, "[Agent persona] delete commit failed");
         HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error" })),
+            Json(json!({ "error": "Database error", "code": "database_error" })),
         ))
     })?;
-    digital_life_rig::mirror_active_asset(cleared_asset).await;
+    merope_rig::mirror_active_asset(cleared_asset).await;
     Ok(Json(json!({ "ok": true })))
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PutAddresseeRequest {
-    pub do_not_disturb: bool,
+    pub do_not_disturb: Option<bool>,
+    pub dnd_start: Option<String>,
+    pub dnd_end: Option<String>,
+}
+
+fn parse_schedule(
+    start: Option<&str>,
+    end: Option<&str>,
+) -> Result<(Option<i32>, Option<i32>), HttpError> {
+    let start = start.map(str::trim).filter(|value| !value.is_empty());
+    let end = end.map(str::trim).filter(|value| !value.is_empty());
+    match (start, end) {
+        (None, None) => Ok((None, None)),
+        (Some(start), Some(end)) => {
+            let start = merope::parse_clock_minute(start).ok_or_else(|| {
+                HttpError::from((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Invalid do-not-disturb start time",
+                        "code": "dnd_schedule_invalid"
+                    })),
+                ))
+            })?;
+            let end = merope::parse_clock_minute(end).ok_or_else(|| {
+                HttpError::from((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Invalid do-not-disturb end time",
+                        "code": "dnd_schedule_invalid"
+                    })),
+                ))
+            })?;
+            Ok((Some(start), Some(end)))
+        }
+        _ => Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Set both start and end, or clear both",
+                "code": "dnd_schedule_incomplete"
+            })),
+        ))),
+    }
 }
 
 /// PUT /api/agent/addressee — current speaker only. Never another person's state.
@@ -446,9 +507,9 @@ pub async fn put_addressee(
     Extension(claims): Extension<Claims>,
     Json(body): Json<PutAddresseeRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    require_life_enabled().await?;
+    require_merope_enabled().await?;
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
-    if !life::is_logged_in_addressee(user_id) {
+    if !merope::is_logged_in_addressee(user_id) {
         return Err(HttpError::from((
             StatusCode::FORBIDDEN,
             Json(json!({
@@ -457,19 +518,46 @@ pub async fn put_addressee(
             })),
         )));
     }
-    let state = life::set_do_not_disturb(&db, user_id, body.do_not_disturb)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "[Agent addressee] save failed");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
-            ))
-        })?;
+    let mut state = if let Some(do_not_disturb) = body.do_not_disturb {
+        merope::set_do_not_disturb(&db, user_id, do_not_disturb)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "[Agent addressee] save failed");
+                HttpError::from((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "Database error", "code": "database_error" })),
+                ))
+            })?
+    } else {
+        merope::get_or_create_state(&db, user_id)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "[Agent addressee] load failed");
+                HttpError::from((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "Database error", "code": "database_error" })),
+                ))
+            })?
+    };
+    if body.dnd_start.is_some() || body.dnd_end.is_some() {
+        let (start, end) = parse_schedule(body.dnd_start.as_deref(), body.dnd_end.as_deref())?;
+        state = merope::set_dnd_schedule(&db, user_id, start, end)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "[Agent addressee] schedule save failed");
+                HttpError::from((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "Database error", "code": "database_error" })),
+                ))
+            })?;
+    }
     Ok(Json(json!({
         "mood": state.mood,
-        "activity": life::current_activity(&state),
+        "activity": merope::current_activity(&state),
         "doNotDisturb": state.do_not_disturb,
+        "doNotDisturbActive": merope::effective_do_not_disturb(&state),
+        "dndStart": state.dnd_start_minute.and_then(merope::format_clock_minute),
+        "dndEnd": state.dnd_end_minute.and_then(merope::format_clock_minute),
     })))
 }
 
@@ -480,7 +568,7 @@ pub async fn report_signals(
     Extension(claims): Extension<Claims>,
     Json(request): Json<ReportSignalsRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    require_life_enabled().await?;
+    require_merope_enabled().await?;
     let user_id = require_site_owner(&claims, &db).await?;
     require_persona_reports(&db, user_id).await?;
     if !request.consent {
@@ -493,14 +581,10 @@ pub async fn report_signals(
         )));
     }
     let language = normalize_signals_language(&request.language);
-    let distilled = life::report_dna::distill_report_dna(
-        &db,
-        user_id,
-        language,
-        request.regenerate,
-    )
-    .await
-    .map_err(distill_error)?;
+    let distilled =
+        merope::report_dna::distill_report_dna(&db, user_id, language, request.regenerate)
+            .await
+            .map_err(distill_error)?;
     Ok(Json(json!({
         "reportCount": distilled.report_count,
         "tags": distilled.tags,
@@ -508,24 +592,24 @@ pub async fn report_signals(
     })))
 }
 
-fn distill_error(error: life::report_dna::DistillReportDnaError) -> HttpError {
+fn distill_error(error: merope::report_dna::DistillReportDnaError) -> HttpError {
     match error {
-        life::report_dna::DistillReportDnaError::Db(error) => {
+        merope::report_dna::DistillReportDnaError::Db(error) => {
             tracing::error!(%error, "[Agent persona] report DNA load failed");
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
+                Json(json!({ "error": "Database error", "code": "database_error" })),
             ))
         }
-        life::report_dna::DistillReportDnaError::AnalyzerUnavailable => HttpError::from((
+        merope::report_dna::DistillReportDnaError::AnalyzerUnavailable => HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({
                 "error": "Pro model is unavailable",
                 "code": "pro_unavailable"
             })),
         )),
-        life::report_dna::DistillReportDnaError::ProviderFailed
-        | life::report_dna::DistillReportDnaError::EmptyResponse => HttpError::from((
+        merope::report_dna::DistillReportDnaError::ProviderFailed
+        | merope::report_dna::DistillReportDnaError::EmptyResponse => HttpError::from((
             StatusCode::BAD_GATEWAY,
             Json(json!({
                 "error": "Failed to distill report signals",
@@ -542,12 +626,13 @@ pub async fn suggest_name(
     Extension(claims): Extension<Claims>,
     Json(body): Json<SuggestNameRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    require_life_enabled().await?;
+    require_merope_enabled().await?;
     let user_id = require_site_owner(&claims, &db).await?;
     require_persona_reports(&db, user_id).await?;
     let language = normalize_signals_language(&body.language);
-    let tags = life::report_dna::sanitize_onboarding_tags_for_language(&body.selected_tags, language);
-    match life::onboarding_ai::suggest_display_name(
+    let tags =
+        merope::report_dna::sanitize_onboarding_tags_for_language(&body.selected_tags, language);
+    match merope::onboarding_ai::suggest_display_name(
         &tags,
         &body.gender,
         body.avoid_name.as_deref(),
@@ -574,14 +659,14 @@ pub async fn draft_persona(
     Extension(claims): Extension<Claims>,
     Json(body): Json<DraftPersonaRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    require_life_enabled().await?;
+    require_merope_enabled().await?;
     let user_id = require_site_owner(&claims, &db).await?;
     require_persona_reports(&db, user_id).await?;
     let language = normalize_signals_language(&body.language);
-    let tags = life::report_dna::sanitize_onboarding_tags_for_language(&body.tags, language);
+    let tags = merope::report_dna::sanitize_onboarding_tags_for_language(&body.tags, language);
     let name = body.name.trim();
     let display = if name.is_empty() { "Arael" } else { name };
-    let persona = match life::onboarding_ai::suggest_persona(
+    let persona = match merope::onboarding_ai::suggest_persona(
         display,
         language,
         &tags,
@@ -604,6 +689,50 @@ pub async fn draft_persona(
     })))
 }
 
+/// POST /api/agent/persona/import
+/// Pro rewrites an owner-supplied write-up into the structured persona fields.
+pub async fn import_persona(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<ImportPersonaRequest>,
+) -> Result<Json<Value>, HttpError> {
+    require_merope_enabled().await?;
+    let _user_id = require_site_owner(&claims, &db).await?;
+    let language = normalize_signals_language(&body.language);
+    let source = body.source.trim();
+    if source.is_empty() {
+        return Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Import source is required",
+                "code": "import_source_required"
+            })),
+        )));
+    }
+    let name = body.name.trim();
+    let display = if name.is_empty() { "Arael" } else { name };
+    let persona = match merope::onboarding_ai::import_persona(
+        display,
+        language,
+        &body.gender,
+        source,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            return Err(onboarding_generation_error(
+                "persona",
+                "Failed to import a persona",
+                error,
+            ))
+        }
+    };
+    Ok(Json(json!({
+        "persona": persona,
+    })))
+}
+
 /// POST /api/agent/persona/visual-design
 /// Pro turns the saved persona into one complete upper-body visual identity.
 /// The suggestion is returned for owner review and is not persisted here.
@@ -612,15 +741,15 @@ pub async fn suggest_visual_design(
     Extension(claims): Extension<Claims>,
     Json(body): Json<SuggestVisualDesignRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    require_life_enabled().await?;
+    require_merope_enabled().await?;
     let _user_id = require_site_owner(&claims, &db).await?;
-    let persona = life::get_persona(&db)
+    let persona = merope::get_persona(&db)
         .await
         .map_err(|error| {
             tracing::error!(%error, "[Agent persona] visual design load failed");
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
+                Json(json!({ "error": "Database error", "code": "database_error" })),
             ))
         })?
         .ok_or_else(|| {
@@ -641,7 +770,7 @@ pub async fn suggest_visual_design(
             })),
         ))
     })?;
-    if !myriad_digital_life::persona_draft_is_complete(structured) {
+    if !myriad_merope::persona_draft_is_complete(structured) {
         return Err(HttpError::from((
             StatusCode::CONFLICT,
             Json(json!({
@@ -668,12 +797,11 @@ pub async fn suggest_visual_design(
             })),
         ))
     })?;
-    let requirements =
-        myriad_digital_life::normalize_visual_requirements_for_design_with_gender(
-            &sanitize_visual_text(&body.visual_requirements, 500)?,
-            gender,
-        );
-    let clothing_style = myriad_digital_life::normalize_clothing_style(&body.clothing_style)
+    let requirements = myriad_merope::normalize_visual_requirements_for_design_with_gender(
+        &sanitize_visual_text(&body.visual_requirements, 500)?,
+        gender,
+    );
+    let clothing_style = myriad_merope::normalize_clothing_style(&body.clothing_style)
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::BAD_REQUEST,
@@ -685,7 +813,7 @@ pub async fn suggest_visual_design(
         })?;
     let explicit_existing = match body.existing_visual_identity.as_ref() {
         Some(value) => {
-            let sanitized = myriad_digital_life::sanitize_upper_body_visual_identity(value)
+            let sanitized = myriad_merope::sanitize_upper_body_visual_identity(value)
                 .ok_or_else(|| {
                     HttpError::from((
                         StatusCode::BAD_REQUEST,
@@ -696,14 +824,14 @@ pub async fn suggest_visual_design(
                     ))
                 })?;
             Some(
-                myriad_digital_life::normalize_visual_identity_for_prompt(&sanitized)
+                myriad_merope::normalize_visual_identity_for_prompt(&sanitized)
                     .ok_or_else(visual_profile_error)?,
             )
         }
         None => None,
     };
-    let existing = (body.regenerate || body.keep_character)
-        .then(|| explicit_existing.unwrap_or(Value::Null));
+    let existing =
+        (body.regenerate || body.keep_character).then(|| explicit_existing.unwrap_or(Value::Null));
     if body.keep_character && existing.as_ref().is_none_or(Value::is_null) {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
@@ -713,7 +841,7 @@ pub async fn suggest_visual_design(
             })),
         )));
     }
-    let identity = match life::onboarding_ai::suggest_visual_design(
+    let identity = match merope::onboarding_ai::suggest_visual_design(
         persona.name.trim(),
         language,
         structured,
@@ -740,11 +868,7 @@ pub async fn suggest_visual_design(
     })))
 }
 
-fn onboarding_error_body(
-    error: &str,
-    code: &str,
-    message: Option<&str>,
-) -> serde_json::Value {
+fn onboarding_error_body(error: &str, code: &str, message: Option<&str>) -> serde_json::Value {
     let mut body = json!({ "error": error, "code": code });
     if let Some(message) = message.map(str::trim).filter(|value| !value.is_empty()) {
         if message != error {
@@ -757,9 +881,9 @@ fn onboarding_error_body(
 fn onboarding_generation_error(
     kind: &str,
     failed_message: &str,
-    error: life::onboarding_ai::OnboardingAiError,
+    error: merope::onboarding_ai::OnboardingAiError,
 ) -> HttpError {
-    use life::onboarding_ai::OnboardingAiError;
+    use merope::onboarding_ai::OnboardingAiError;
     tracing::error!(%error, kind, "onboarding generation failed");
     let detail = error.public_detail().map(str::to_string);
     match error {
@@ -860,9 +984,9 @@ fn sanitize_structured_persona(
         .and_then(|profile| profile.get("language"))
         .and_then(Value::as_str)
         .unwrap_or("zh-CN");
-    let fallback = myriad_digital_life::fallback_persona_draft(name, language, &[]);
-    let persona = myriad_digital_life::sanitize_persona_draft(value, &fallback)
-        .filter(myriad_digital_life::persona_draft_is_complete)
+    let fallback = myriad_merope::fallback_persona_draft(name, language, &[]);
+    let persona = myriad_merope::sanitize_persona_draft(value, &fallback)
+        .filter(myriad_merope::persona_draft_is_complete)
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::BAD_REQUEST,
@@ -919,7 +1043,7 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
         profile.insert("gender".into(), json!(gender));
     }
     if let Some(clothing_style) = source.get("clothingStyle").and_then(Value::as_str) {
-        let clothing_style = myriad_digital_life::normalize_clothing_style(clothing_style)
+        let clothing_style = myriad_merope::normalize_clothing_style(clothing_style)
             .ok_or_else(|| {
                 HttpError::from((
                     StatusCode::BAD_REQUEST,
@@ -937,7 +1061,10 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
             json!(normalize_signals_language(language)),
         );
     }
-    for (key, max_chars) in [("extraRequirements", 500), ("personaExtraRequirements", 500)] {
+    for (key, max_chars) in [
+        ("extraRequirements", 500),
+        ("personaExtraRequirements", 500),
+    ] {
         if let Some(text) = source.get(key).and_then(Value::as_str) {
             let text = sanitize_visual_text(text, max_chars)?;
             profile.insert(key.into(), json!(text));
@@ -949,7 +1076,7 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
             .filter_map(Value::as_str)
             .map(str::to_string)
             .collect::<Vec<_>>();
-        let tags = life::report_dna::sanitize_onboarding_tags(&tags);
+        let tags = merope::report_dna::sanitize_onboarding_tags(&tags);
         profile.insert("sourceTags".into(), json!(tags));
     }
     if let Some(identity) = source.get("visualIdentity") {
@@ -957,18 +1084,18 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
             profile.insert("visualIdentity".into(), Value::Null);
             return Ok(Value::Object(profile));
         }
-        let mut sanitized = myriad_digital_life::sanitize_upper_body_visual_identity(identity)
+        let mut sanitized = myriad_merope::sanitize_upper_body_visual_identity(identity)
             .ok_or_else(visual_profile_error)?;
         if let Some(style) = profile
             .get("clothingStyle")
             .and_then(Value::as_str)
-            .and_then(myriad_digital_life::normalize_clothing_style)
-            .or_else(|| myriad_digital_life::clothing_style_of(&sanitized))
+            .and_then(myriad_merope::normalize_clothing_style)
+            .or_else(|| myriad_merope::clothing_style_of(&sanitized))
         {
             profile.insert("clothingStyle".into(), json!(style));
-            myriad_digital_life::stamp_clothing_style(&mut sanitized, style);
+            myriad_merope::stamp_clothing_style(&mut sanitized, style);
         }
-        let sanitized = myriad_digital_life::normalize_visual_identity_for_prompt(&sanitized)
+        let sanitized = myriad_merope::normalize_visual_identity_for_prompt(&sanitized)
             .ok_or_else(visual_profile_error)?;
         profile.insert("visualIdentity".into(), sanitized);
     }
@@ -1022,7 +1149,6 @@ fn visual_profile_error() -> HttpError {
     ))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1048,7 +1174,7 @@ mod tests {
 
     #[test]
     fn draft_tags_use_onboarding_sanitize() {
-        let tags = life::report_dna::sanitize_onboarding_tags(&[
+        let tags = merope::report_dna::sanitize_onboarding_tags(&[
             "  夜战  ".into(),
             "夜战".into(),
             "喜欢独立游戏".into(),
@@ -1141,7 +1267,7 @@ mod tests {
             profile["visualIdentity"]["character"]["faceDesign"],
             "成熟的鹅蛋脸与自然眉形"
         );
-        assert!(myriad_digital_life::upper_body_visual_identity_is_complete(
+        assert!(myriad_merope::upper_body_visual_identity_is_complete(
             &profile["visualIdentity"]
         ));
 
@@ -1251,8 +1377,8 @@ mod tests {
             "japanese"
         );
         assert_eq!(
-            myriad_digital_life::character_module(&profile["visualIdentity"])
-                .unwrap()["faceDesign"],
+            myriad_merope::character_module(&profile["visualIdentity"]).unwrap()
+                ["faceDesign"],
             "成熟的鹅蛋脸与自然眉形"
         );
     }
@@ -1266,7 +1392,10 @@ mod tests {
             "sourceTags": ["Night owl", "Clear boundaries"]
         }))
         .expect("seeds");
-        assert_eq!(profile["personaExtraRequirements"], "quieter with strangers");
+        assert_eq!(
+            profile["personaExtraRequirements"],
+            "quieter with strangers"
+        );
         assert_eq!(
             profile["sourceTags"],
             json!(["Night owl", "Clear boundaries"])
@@ -1288,5 +1417,4 @@ mod tests {
         assert_eq!(persona["summary"], "安静但对新事物有持续好奇心");
         assert!(persona.get("gender").is_none());
     }
-
 }

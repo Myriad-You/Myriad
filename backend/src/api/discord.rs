@@ -143,10 +143,7 @@ async fn reload_global_config(
             *dynamic_config.write().await = cfg;
         }
         Err(e) => {
-            tracing::warn!(
-                "Failed to reload dynamic config after Discord OAuth: {}",
-                e
-            );
+            tracing::warn!("Failed to reload dynamic config after Discord OAuth: {}", e);
         }
     }
 }
@@ -238,7 +235,7 @@ pub async fn get_discord_profile(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取 Discord 资料失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }
@@ -268,11 +265,14 @@ pub async fn get_discord_me(
                 message: format!("✓ Discord user {} verified", display),
             }))
         }
-        Err(e) => Ok(Json(ApiResponse {
-            success: false,
-            data: None,
-            message: format!("验证 Discord token 失败: {}", e),
-        })),
+        Err(e) => {
+            tracing::error!("Failed to verify Discord token: {}", e);
+            Ok(Json(ApiResponse {
+                success: false,
+                data: None,
+                message: "Failed to fetch data".to_string(),
+            }))
+        }
     }
 }
 
@@ -352,12 +352,22 @@ pub async fn oauth_start(
         },
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))))?;
-
-    let mut url = url::Url::parse(DISCORD_AUTHORIZE_URL).map_err(|e| {
+    .map_err(|e| {
+        tracing::error!("Discord OAuth state issue failed: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("invalid authorize url: {e}")})),
+            Json(json!({
+                "error": "Failed to start Discord authorization",
+                "code": "oauth_authorize_failed",
+            })),
+        )
+    })?;
+
+    let mut url = url::Url::parse(DISCORD_AUTHORIZE_URL).map_err(|e| {
+        tracing::error!("invalid Discord authorize URL: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Failed to start Discord authorization", "code": "oauth_authorize_failed"})),
         )
     })?;
     url.query_pairs_mut()
@@ -378,9 +388,10 @@ pub async fn oauth_start(
     // MYR-003: bind state to this browser via oauth_tx cookie.
     let is_production = SiteConfig::is_production().await;
     let mut response = no_store_redirect(url.as_str());
-    if let Ok(value) =
-        HeaderValue::from_str(&oauth_tx_set_cookie_value(&issued.browser_tx, is_production))
-    {
+    if let Ok(value) = HeaderValue::from_str(&oauth_tx_set_cookie_value(
+        &issued.browser_tx,
+        is_production,
+    )) {
         response.headers_mut().append(header::SET_COOKIE, value);
     }
     Ok(response)
@@ -421,10 +432,12 @@ pub async fn oauth_callback(
     {
         Some(c) => c.to_string(),
         None => {
-            return Ok(
-                discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "missing_code"))
-                    .await,
-            );
+            return Ok(discord_oauth_tx_cleared(config_redirect(
+                &frontend_base,
+                false,
+                "missing_code",
+            ))
+            .await);
         }
     };
     let state_param = match params
@@ -435,10 +448,12 @@ pub async fn oauth_callback(
     {
         Some(s) => s.to_string(),
         None => {
-            return Ok(
-                discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "missing_state"))
-                    .await,
-            );
+            return Ok(discord_oauth_tx_cleared(config_redirect(
+                &frontend_base,
+                false,
+                "missing_state",
+            ))
+            .await);
         }
     };
 
@@ -481,14 +496,20 @@ pub async fn oauth_callback(
         platform,
     } = purpose
     else {
-        return Ok(
-            discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "wrong_purpose")).await,
-        );
+        return Ok(discord_oauth_tx_cleared(config_redirect(
+            &frontend_base,
+            false,
+            "wrong_purpose",
+        ))
+        .await);
     };
     if platform != "discord" {
-        return Ok(
-            discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "wrong_platform")).await,
-        );
+        return Ok(discord_oauth_tx_cleared(config_redirect(
+            &frontend_base,
+            false,
+            "wrong_platform",
+        ))
+        .await);
     }
 
     // Cookie matched → burn nonce (Fresh or Replay).
@@ -557,10 +578,12 @@ pub async fn oauth_callback(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
     let Some(access_token) = access_token else {
-        return Ok(
-            discord_oauth_tx_cleared(config_redirect(&frontend_base, false, "no_access_token"))
-                .await,
-        );
+        return Ok(discord_oauth_tx_cleared(config_redirect(
+            &frontend_base,
+            false,
+            "no_access_token",
+        ))
+        .await);
     };
 
     let refresh_token = token_json

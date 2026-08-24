@@ -6,6 +6,7 @@ import type { TappInstance } from '../../../types'
 import type { TappListInstallRequestInput } from '../../../utils/tappListInstallRequest'
 import type { TappBridge } from '../../TappBridge'
 import { getDefaultLocale } from '../../../../i18n'
+import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'
 import { resolveManifestText } from '../../../utils/manifestLocale'
 import {
@@ -17,7 +18,7 @@ import {
 function fail(error: unknown) {
   return {
     success: false,
-    error: error instanceof Error ? error.message : 'Failed',
+    error: userFacingError(error),
   }
 }
 

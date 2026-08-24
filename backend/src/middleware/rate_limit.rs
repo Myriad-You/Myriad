@@ -118,23 +118,15 @@ impl RateLimiter {
     /// Touch a bucket: reset if window expired, else increment if under max.
     ///
     /// Returns `true` when the request is allowed (and counted).
-    fn check_bucket(
-        &self,
-        ip: IpAddr,
-        key: &str,
-        max_requests: usize,
-        window: Duration,
-    ) -> bool {
+    fn check_bucket(&self, ip: IpAddr, key: &str, max_requests: usize, window: Duration) -> bool {
         let mut shard = self.lock_shard(ip);
         let now = Instant::now();
 
         let ip_records = shard.records.entry(ip).or_default();
-        let record = ip_records
-            .entry(key.to_string())
-            .or_insert(RequestRecord {
-                count: 0,
-                window_start: now,
-            });
+        let record = ip_records.entry(key.to_string()).or_insert(RequestRecord {
+            count: 0,
+            window_start: now,
+        });
 
         if now.duration_since(record.window_start) > window {
             record.count = 1;
@@ -163,12 +155,7 @@ impl RateLimiter {
 
     /// Check if request should be rate limited (default path budget).
     fn check_limit(&self, ip: IpAddr, endpoint: &str) -> bool {
-        self.check_bucket(
-            ip,
-            endpoint,
-            self.config.max_requests,
-            self.config.window,
-        )
+        self.check_bucket(ip, endpoint, self.config.max_requests, self.config.window)
     }
 
     /// Clean up old records (call periodically). Walks each shard independently.
@@ -183,7 +170,8 @@ impl RateLimiter {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             shard.records.retain(|_, ip_records| {
-                ip_records.retain(|_, record| now.duration_since(record.window_start) <= retain_for);
+                ip_records
+                    .retain(|_, record| now.duration_since(record.window_start) <= retain_for);
                 !ip_records.is_empty()
             });
         }
@@ -274,22 +262,12 @@ pub async fn rate_limit_middleware(req: Request, next: Next) -> Response {
     } else if is_admin_updater_mutate(&path) {
         // Mutating updater admin routes: 10 / 5 min per IP (GET status/jobs stay default).
         (
-            RATE_LIMITER.check_bucket(
-                ip,
-                "admin_updater_mutate",
-                10,
-                Duration::from_secs(300),
-            ),
+            RATE_LIMITER.check_bucket(ip, "admin_updater_mutate", 10, Duration::from_secs(300)),
             300,
         )
     } else if is_image_proxy(&path) {
         (
-            RATE_LIMITER.check_bucket(
-                ip,
-                IMAGE_PROXY_BUCKET,
-                IMAGE_PROXY_MAX,
-                IMAGE_PROXY_WINDOW,
-            ),
+            RATE_LIMITER.check_bucket(ip, IMAGE_PROXY_BUCKET, IMAGE_PROXY_MAX, IMAGE_PROXY_WINDOW),
             IMAGE_PROXY_WINDOW.as_secs(),
         )
     } else if is_compute_intensive(&path) {
@@ -484,7 +462,10 @@ mod tests {
     fn shard_count_is_power_of_two() {
         assert!(SHARD_COUNT.is_power_of_two());
         assert_eq!(SHARD_MASK, SHARD_COUNT - 1);
-        assert!(SHARD_COUNT >= 16, "need enough shards to cut cross-IP contention");
+        assert!(
+            SHARD_COUNT >= 16,
+            "need enough shards to cut cross-IP contention"
+        );
     }
 
     #[test]
@@ -685,11 +666,6 @@ mod tests {
                 IMAGE_PROXY_WINDOW
             ));
         }
-        assert!(!limiter.check_bucket(
-            ip,
-            IMAGE_PROXY_BUCKET,
-            IMAGE_PROXY_MAX,
-            IMAGE_PROXY_WINDOW
-        ));
+        assert!(!limiter.check_bucket(ip, IMAGE_PROXY_BUCKET, IMAGE_PROXY_MAX, IMAGE_PROXY_WINDOW));
     }
 }

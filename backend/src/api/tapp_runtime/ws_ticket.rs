@@ -14,16 +14,14 @@ use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use serde_json::json;
 
+use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::services::permission_service::TappPermission;
-use crate::error::HttpError;
 use crate::services::tapp_ws_ticket::{self, WsTicketError, WsTicketMintIdentity};
 
 use super::RuntimeGrantContext;
 
-pub use crate::services::tapp_ws_ticket::{
-    ConsumedWsTicket, WsTicketKind, TAPP_WS_TICKET_QUERY,
-};
+pub use crate::services::tapp_ws_ticket::{ConsumedWsTicket, WsTicketKind, TAPP_WS_TICKET_QUERY};
 
 // Force the public name into the non-test binary so renames stay intentional.
 const _: &str = TAPP_WS_TICKET_QUERY;

@@ -147,7 +147,7 @@ test('clothing style is an explicit saved choice', () => {
   assert.equal(clothingStyleFromProfile({ clothingStyle: '国风' }), null)
   assert.equal(clothingStyleFromProfile({ language: 'zh-CN' }), null)
   assert.equal(CLOTHING_STYLE_OPTIONS.length, 17)
-  assert.equal(clothingStylePreview('rain'), '/life/clothing/rain.png')
+  assert.equal(clothingStylePreview('rain'), '/merope/clothing/rain.png')
   assert.equal(clothingStyleFromProfile({ clothingStyle: 'military' }), null)
 })
 

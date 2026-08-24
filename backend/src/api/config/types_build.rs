@@ -2239,12 +2239,12 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
-                    key: "agent_life_enabled".to_string(),
-                    label: "Agent 生命".to_string(),
+                    key: "merope_enabled".to_string(),
+                    label: "Agent 人设".to_string(),
                     field_type: "checkbox".to_string(),
                     value: db_config
                         .as_ref()
-                        .map(|c| c.agent_life_enabled.to_string())
+                        .map(|c| c.merope_enabled.to_string())
                         .unwrap_or_else(|| "false".to_string()),
                     placeholder: "false".to_string(),
                     required: false,
@@ -2426,7 +2426,7 @@ pub(crate) struct SettingDescriptor {
 /// 备份/恢复 registry：含仍在用的键。已下线的 `pet_*` / `ui_wallpaper_parallax` /
 /// `github_client_*` / `github_redirect_url` 不在表里——旧备份里这些键会进 ignored。
 pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
-    "agent_life_enabled",
+    "merope_enabled",
     "agent_rig_asset_id",
     "ai_image_model",
     "ai_image_openai_api_key",
@@ -2868,7 +2868,7 @@ pub async fn export_settings(
             tracing::error!("Failed to export settings: {}", error);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Failed to read settings"})),
+                Json(json!({"error": "Failed to read settings", "code": "settings_backup_failed"})),
             );
         }
     };
@@ -2881,7 +2881,9 @@ pub async fn export_settings(
                 tracing::error!("Failed to decode configuration key: {}", error);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Failed to decode settings"})),
+                    Json(
+                        json!({"error": "Failed to decode settings", "code": "settings_backup_failed"}),
+                    ),
                 );
             }
         };
@@ -2900,7 +2902,9 @@ pub async fn export_settings(
                     tracing::error!("Failed to decode configuration value: {}", error);
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({"error": "Failed to decode settings"})),
+                        Json(
+                            json!({"error": "Failed to decode settings", "code": "settings_backup_failed"}),
+                        ),
                     );
                 }
             },
@@ -2995,7 +2999,9 @@ pub async fn restore_settings(
             tracing::error!("Failed to start settings restore transaction: {}", error);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Failed to start settings restore"})),
+                Json(
+                    json!({"error": "Failed to start settings restore", "code": "settings_backup_failed"}),
+                ),
             );
         }
     };
@@ -3055,7 +3061,7 @@ pub async fn restore_settings(
         tracing::error!("Failed to restore settings: {}", error);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to restore settings: {}", error)})),
+            Json(json!({"error": "Failed to restore settings", "code": "settings_backup_failed"})),
         );
     }
 
@@ -3461,15 +3467,15 @@ mod settings_backup_tests {
     }
 
     #[test]
-    fn ui_agent_life_flag_persists_bool() {
+    fn ui_merope_flag_persists_bool() {
         let mut config = empty_config();
-        config.ui_config.config_fields = vec![ui_field("agent_life_enabled", "true")];
+        config.ui_config.config_fields = vec![ui_field("merope_enabled", "true")];
         let on = collect_database_updates(&config);
-        assert_eq!(on.get("agent_life_enabled"), Some(&json!(true)));
+        assert_eq!(on.get("merope_enabled"), Some(&json!(true)));
 
-        config.ui_config.config_fields = vec![ui_field("agent_life_enabled", "false")];
+        config.ui_config.config_fields = vec![ui_field("merope_enabled", "false")];
         let off = collect_database_updates(&config);
-        assert_eq!(off.get("agent_life_enabled"), Some(&json!(false)));
+        assert_eq!(off.get("merope_enabled"), Some(&json!(false)));
     }
 
     #[test]
@@ -3947,7 +3953,9 @@ pub async fn update_config(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "message": format!("Failed to save configuration to database: {}", e)
+                "error": "Failed to save configuration",
+                "code": "config_save_failed",
+                "message": "Failed to save configuration"
             })),
         )));
     }
@@ -3968,7 +3976,9 @@ pub async fn update_config(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "success": false,
-                    "message": format!("Failed to save configuration: {}", e)
+                    "error": "Failed to save configuration",
+                    "code": "config_save_failed",
+                    "message": "Failed to save configuration"
                 })),
             )));
         }
@@ -4004,10 +4014,9 @@ pub async fn update_config(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "message": format!(
-                    "Configuration was saved, but platform auto-refresh could not be updated: {}",
-                    error
-                )
+                "error": "Failed to update platform auto-refresh",
+                "code": "platform_refresh_reconcile_failed",
+                "message": "Configuration was saved, but platform auto-refresh could not be updated."
             })),
         )));
     }
@@ -4638,9 +4647,9 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                 let enabled = field.value == "true";
                 ("memory_saver_enabled", JsonValue::Bool(enabled))
             }
-            "agent_life_enabled" => {
+            "merope_enabled" => {
                 let enabled = field.value == "true";
-                ("agent_life_enabled", JsonValue::Bool(enabled))
+                ("merope_enabled", JsonValue::Bool(enabled))
             }
             _ => continue,
         };
@@ -5266,12 +5275,12 @@ pub async fn get_public_config(
         db_config.as_ref().and_then(|c| c.platform_order.as_ref()),
     );
 
-    let life_enabled = db_config
+    let is_enabled = db_config
         .as_ref()
-        .map(|config| config.agent_life_enabled_resolved())
-        .unwrap_or_else(|| crate::config::DynamicConfig::default().agent_life_enabled_resolved());
-    let stored_name = if life_enabled {
-        crate::services::agent::life::get_persona(&db)
+        .map(|config| config.merope_enabled_resolved())
+        .unwrap_or_else(|| crate::config::DynamicConfig::default().merope_enabled_resolved());
+    let stored_name = if is_enabled {
+        crate::services::agent::merope::get_persona(&db)
             .await
             .ok()
             .flatten()
@@ -5281,9 +5290,9 @@ pub async fn get_public_config(
     };
     let response = json!({
         "platforms": public_platforms,
-        "agentLifeEnabled": life_enabled,
-        "agentPersonaName": crate::services::agent::life::public_persona_name(
-            life_enabled,
+        "meropeEnabled": is_enabled,
+        "agentPersonaName": crate::services::agent::merope::public_persona_name(
+            is_enabled,
             stored_name.as_deref(),
         ),
     });
@@ -5422,11 +5431,14 @@ pub async fn update_dashboard_config(
     }
 
     if let Err(e) = config_service.update_configs(updates).await {
+        tracing::error!("Failed to update dashboard config: {e}");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "message": format!("Failed to update dashboard config: {}", e)
+                "error": "Failed to update dashboard config",
+                "code": "config_save_failed",
+                "message": "Failed to update dashboard config"
             })),
         );
     }
@@ -5462,11 +5474,14 @@ pub async fn update_control_panel_config(
     }
 
     if let Err(e) = config_service.update_configs(updates).await {
+        tracing::error!("Failed to update control panel config: {e}");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "message": format!("Failed to update control panel config: {}", e)
+                "error": "Failed to update control panel config",
+                "code": "config_save_failed",
+                "message": "Failed to update control panel config"
             })),
         );
     }
@@ -5497,11 +5512,14 @@ pub async fn update_tapp_window_schemes(
     updates.insert("tapp_window_schemes".to_string(), json!(payload.schemes));
 
     if let Err(e) = config_service.update_configs(updates).await {
+        tracing::error!("Failed to update tapp window schemes: {e}");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "message": format!("Failed to update tapp window schemes: {}", e)
+                "error": "Failed to update tapp window schemes",
+                "code": "config_save_failed",
+                "message": "Failed to update tapp window schemes"
             })),
         );
     }
@@ -5516,7 +5534,7 @@ pub async fn update_tapp_window_schemes(
 }
 
 const MODULE_VISIBILITY_PREFERENCES_KEY: &str = "module_visibility_preferences";
-const MODULE_VISIBILITY_KEYS: [&str; 6] = ["library", "brew", "reports", "life", "tapp", "agent"];
+const MODULE_VISIBILITY_KEYS: [&str; 5] = ["library", "brew", "reports", "tapp", "agent"];
 const MODULE_VISIBILITY_LEVELS: [&str; 3] = ["all", "authenticated", "admin"];
 /// 兼容旧配置字段（能力已迁至 Tapp 权限预设；读写仍规范化但不参与鉴权）
 const AGENT_GUEST_USAGE_LEVELS: [&str; 2] = ["none", "visible"];
@@ -5575,7 +5593,6 @@ fn default_module_visibility_modules() -> std::collections::HashMap<String, Stri
         ("library".to_string(), "all".to_string()),
         ("brew".to_string(), "all".to_string()),
         ("reports".to_string(), "all".to_string()),
-        ("life".to_string(), "all".to_string()),
         ("tapp".to_string(), "all".to_string()),
         ("agent".to_string(), "all".to_string()),
     ])

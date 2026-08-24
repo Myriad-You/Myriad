@@ -111,9 +111,11 @@ pub async fn speech_probe() -> SpeechProbe {
                     error: if resolved.tts_available {
                         None
                     } else {
-                        Some(resolved.tts_skip_reason.unwrap_or_else(|| {
-                            "官方播报请选 OpenAI".to_string()
-                        }))
+                        Some(
+                            resolved
+                                .tts_skip_reason
+                                .unwrap_or_else(|| "Official speech requires OpenAI".to_string()),
+                        )
                     },
                 },
                 Err(e) => SpeechProbe {
@@ -145,7 +147,9 @@ pub async fn speech_probe() -> SpeechProbe {
 }
 
 pub async fn synthesize_gemini_tts(text: &str) -> Result<Vec<u8>, String> {
-    let resolved = resolve_gemini_speech().await.map_err(|e| gemini_message(&e))?;
+    let resolved = resolve_gemini_speech()
+        .await
+        .map_err(|e| gemini_message(&e))?;
     let result = gemini_media::text_to_speech(
         &resolved.base_url,
         &resolved.api_key,
@@ -160,11 +164,13 @@ pub async fn synthesize_gemini_tts(text: &str) -> Result<Vec<u8>, String> {
 }
 
 pub async fn synthesize_openai_tts(text: &str, codec: &str) -> Result<(Vec<u8>, String), String> {
-    let resolved = resolve_openai_speech().await.map_err(|e| openai_message(&e))?;
+    let resolved = resolve_openai_speech()
+        .await
+        .map_err(|e| openai_message(&e))?;
     if !resolved.tts_available {
         return Err(resolved
             .tts_skip_reason
-            .unwrap_or_else(|| "官方播报请选 OpenAI".to_string()));
+            .unwrap_or_else(|| "Official speech requires OpenAI".to_string()));
     }
     let audio = resolved
         .client
@@ -214,7 +220,9 @@ pub async fn transcribe_bytes(
             (engine.to_string(), result)
         }
         SpeechProviderKind::OpenAi | SpeechProviderKind::OpenRouter => {
-            let resolved = resolve_openai_speech().await.map_err(|e| openai_message(&e))?;
+            let resolved = resolve_openai_speech()
+                .await
+                .map_err(|e| openai_message(&e))?;
             let filename = format!("speech.{format}");
             let mime = audio_mime(format);
             let model = resolved.stt_model.clone();
@@ -226,7 +234,9 @@ pub async fn transcribe_bytes(
             (model, result)
         }
         SpeechProviderKind::Gemini => {
-            let resolved = resolve_gemini_speech().await.map_err(|e| gemini_message(&e))?;
+            let resolved = resolve_gemini_speech()
+                .await
+                .map_err(|e| gemini_message(&e))?;
             let model = resolved.stt_model.clone();
             let result = gemini_media::speech_to_text(
                 &resolved.base_url,
@@ -253,8 +263,7 @@ pub async fn transcribe_bytes(
 }
 
 pub(crate) async fn note_tts(provider: &str, model: &str, text: &str, ok: bool) {
-    let (input_tokens, output_tokens) =
-        crate::services::ai_cost_ledger::estimate_tts_tokens(text);
+    let (input_tokens, output_tokens) = crate::services::ai_cost_ledger::estimate_tts_tokens(text);
     crate::services::ai_cost_ledger::record_ai_tokens_from_attribution(
         provider,
         model,
@@ -266,7 +275,13 @@ pub(crate) async fn note_tts(provider: &str, model: &str, text: &str, ok: bool) 
     .await;
 }
 
-pub(crate) async fn note_stt(provider: &str, model: &str, audio_bytes: usize, transcript: &str, ok: bool) {
+pub(crate) async fn note_stt(
+    provider: &str,
+    model: &str,
+    audio_bytes: usize,
+    transcript: &str,
+    ok: bool,
+) {
     let (input_tokens, output_tokens) =
         crate::services::ai_cost_ledger::estimate_stt_tokens(audio_bytes, transcript);
     crate::services::ai_cost_ledger::record_ai_tokens_from_attribution(
@@ -306,7 +321,7 @@ pub async fn test_speech_roundtrip() -> SpeechTestResult {
             audio: None,
             transcript: None,
             error: probe.error.or_else(|| {
-                Some("转写已配置；官方播报请选 OpenAI".to_string())
+                Some("Transcription is ready; official speech requires OpenAI".to_string())
             }),
         };
     }
@@ -335,7 +350,7 @@ pub async fn test_speech_roundtrip() -> SpeechTestResult {
                     }
                     None => {
                         note_tts(provider.as_str(), "tts", phrase, false).await;
-                        return fail(provider, "TTS 未返回音频".to_string());
+                        return fail(provider, "Speech service returned no audio".to_string());
                     }
                 },
                 Err(e) => {
@@ -358,7 +373,10 @@ pub async fn test_speech_roundtrip() -> SpeechTestResult {
 
     let decoded = match BASE64.decode(&tts) {
         Ok(bytes) => bytes,
-        Err(e) => return fail(provider, format!("无效的音频数据: {e}")),
+        Err(e) => {
+            tracing::warn!("Speech test audio decode failed: {e}");
+            return fail(provider, "Invalid audio data".to_string());
+        }
     };
     let asr_format = if provider == SpeechProviderKind::Gemini {
         "wav"
@@ -370,9 +388,7 @@ pub async fn test_speech_roundtrip() -> SpeechTestResult {
         success: true,
         provider: provider.as_str().to_string(),
         tts_ok: true,
-        asr_ok: transcript
-            .as_deref()
-            .is_some_and(|s| !s.trim().is_empty()),
+        asr_ok: transcript.as_deref().is_some_and(|s| !s.trim().is_empty()),
         tts_skipped: false,
         audio: Some(tts),
         transcript,
@@ -448,7 +464,8 @@ struct ResolvedOpenAiSpeech {
     tts_skip_reason: Option<String>,
 }
 
-pub fn selected_speech_source() -> impl std::future::Future<Output = Option<crate::config::AiVendorSource>> {
+pub fn selected_speech_source(
+) -> impl std::future::Future<Output = Option<crate::config::AiVendorSource>> {
     async {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
         let slug = if config.speech_source.trim().is_empty() {
@@ -540,10 +557,7 @@ async fn resolve_openai_speech() -> Result<ResolvedOpenAiSpeech, OpenAiSpeechErr
     let (tts_available, tts_skip_reason) = if provider == SpeechProviderKind::OpenRouter
         && openrouter_official_tts_unavailable(&tts_model)
     {
-        (
-            false,
-            Some("OpenRouter 目前没有官方 OpenAI 播报型号，请改选 OpenAI".to_string()),
-        )
+        (false, Some("Official speech requires OpenAI".to_string()))
     } else {
         (true, None)
     };
@@ -586,24 +600,20 @@ fn tencent_message(error: &TencentSpeechError) -> String {
 
 fn gemini_message(error: &GeminiMediaError) -> String {
     match error {
-        GeminiMediaError::NotConfigured(_) => {
-            "语音服务未配置，请在 AI 设置里填好 Gemini 密钥".to_string()
-        }
-        GeminiMediaError::Provider(message) | GeminiMediaError::InvalidResponse(message) => {
-            message.clone()
+        GeminiMediaError::NotConfigured(_) => "Speech service is not configured".to_string(),
+        GeminiMediaError::Provider(_) | GeminiMediaError::InvalidResponse(_) => {
+            "Speech service request failed".to_string()
         }
     }
 }
 
 fn openai_message(error: &OpenAiSpeechError) -> String {
     match error {
-        OpenAiSpeechError::ApiKeyNotConfigured => {
-            "语音服务未配置，请在 AI 设置里填好 OpenAI / OpenRouter 密钥".to_string()
-        }
-        OpenAiSpeechError::NetworkError(msg) => msg.clone(),
-        OpenAiSpeechError::ApiError { .. } => error.to_string(),
-        OpenAiSpeechError::InvalidAudioData(msg) => msg.clone(),
-        OpenAiSpeechError::TtsNotAvailable(msg) => msg.clone(),
+        OpenAiSpeechError::ApiKeyNotConfigured => "Speech service is not configured".to_string(),
+        OpenAiSpeechError::NetworkError(_) => "Speech service is unreachable".to_string(),
+        OpenAiSpeechError::ApiError { .. } => "Speech service request failed".to_string(),
+        OpenAiSpeechError::InvalidAudioData(_) => "Invalid audio data".to_string(),
+        OpenAiSpeechError::TtsNotAvailable(_) => "Official speech requires OpenAI".to_string(),
     }
 }
 
@@ -626,13 +636,19 @@ mod tests {
 
     #[test]
     fn parses_provider_kinds() {
-        assert_eq!(SpeechProviderKind::parse("openai"), SpeechProviderKind::OpenAi);
+        assert_eq!(
+            SpeechProviderKind::parse("openai"),
+            SpeechProviderKind::OpenAi
+        );
         assert_eq!(
             SpeechProviderKind::parse("OpenRouter"),
             SpeechProviderKind::OpenRouter
         );
         assert_eq!(SpeechProviderKind::parse(""), SpeechProviderKind::Tencent);
-        assert_eq!(SpeechProviderKind::parse("gemini"), SpeechProviderKind::Gemini);
+        assert_eq!(
+            SpeechProviderKind::parse("gemini"),
+            SpeechProviderKind::Gemini
+        );
     }
 
     #[test]

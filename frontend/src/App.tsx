@@ -79,11 +79,8 @@ const TappPlayground = lazy(
   () => import('./tapp/pages/TappPlaygroundPage.tsx'),
 )
 
-// Arael AI 助手浮动面板
+// Agent 浮动面板（项目名 Arael）
 const AraelPanel = lazy(() => import('./components/agent/AraelPanel'))
-const AraelFaceOverlay = lazy(
-  () => import('./features/digital-life-companion/AraelFaceOverlay'),
-)
 
 /**
  * 路由守卫：复用全局 AuthContext 认证状态
@@ -170,14 +167,14 @@ function ModuleVisibilityGuard({
 }
 
 /**
- * Agent（Arael AI 助手）访问门禁 - 悬浮面板，不做路由跳转，
+ * Agent 访问门禁 - 悬浮面板，不做路由跳转，
  * 无权限时直接不渲染面板。
  * 门禁：页面可见性 + Tapp ai:chat（与权限页 Agent 预设同一真相源）。
  */
 /**
  * Global Agent open_window fallback when multi-window is not mounted.
  * Typed handlers (TappWindowManager) take priority via registerActionHandler(type, …);
- * this global handler covers open_window from Arael on any route.
+ * this global handler covers open_window from Agent on any route.
  */
 function GlobalAgentWindowHandler() {
   const navigate = useNavigate()
@@ -686,11 +683,10 @@ export function App() {
                     <AgentGlobalActions />
                     {/* open_window 全局回退（多窗挂载时由 typed handler 覆盖） */}
                     <GlobalAgentWindowHandler />
-                    {/* Arael AI 助手浮动面板 - 长按触发 */}
+                    {/* Agent 浮动面板 - 长按触发 */}
                     <AgentAccessGate>
                       <Suspense fallback={null}>
                         <AraelPanel />
-                        <AraelFaceOverlay />
                       </Suspense>
                     </AgentAccessGate>
                     <RouteLoader />

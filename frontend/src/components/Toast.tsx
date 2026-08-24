@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { currentCopy } from '../i18n/localeCopy'
 
 import './Toast.css'
 
@@ -184,7 +185,7 @@ export default function Toast({
               e.stopPropagation()
               handleClose()
             }}
-            aria-label="关闭通知"
+            aria-label={currentCopy().common.closeNotification}
           >
             <svg
               width="14"

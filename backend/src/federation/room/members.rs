@@ -142,7 +142,10 @@ pub async fn invite_member(
                 tracing::error!("[Room] Failed to fetch remote actor: {}", e);
                 (
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": format!("Cannot resolve actor: {}", e)})),
+                    Json(json!({
+                        "error": "Cannot resolve actor",
+                        "code": "remote_actor_unresolved",
+                    })),
                 )
             })?;
 
@@ -858,16 +861,24 @@ pub async fn join_room(
                         } else {
                             "REMOTE_HOME_UNREACHABLE"
                         },
-                        "detail": e
                     })),
                 )
             })?;
         materialize_remote_public_room(db, &info, &home)
             .await
             .map_err(|e| {
+                tracing::error!(
+                    room_id = %room_id,
+                    home = %home,
+                    error = %e,
+                    "[Room] failed to materialize remote public room"
+                );
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": format!("Failed to materialize room: {e}")})),
+                    Json(json!({
+                        "error": "Failed to join room",
+                        "code": "ROOM_MATERIALIZE_FAILED",
+                    })),
                 )
             })?;
         room_row = db
@@ -1092,7 +1103,10 @@ pub async fn accept_room_invite(
     if status != "pending" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Cannot accept invite in status {}", status)})),
+            Json(json!({
+                "error": "Cannot accept this invite",
+                "code": "invite_invalid_status",
+            })),
         ));
     }
 
@@ -1800,5 +1814,3 @@ pub async fn leave_room(
 
     Ok(json!({ "success": true, "room_id": room_id }))
 }
-
-

@@ -121,21 +121,21 @@ export const ConfigTipsBanner: React.FC<ConfigTipsBannerProps> = ({
     const greeting = getGreeting(
       user?.username,
       {
-        morning: t.greeting?.morning ?? '早上好',
-        forenoon: t.greeting?.forenoon ?? t.greeting?.morning ?? '上午好',
-        noon: t.greeting?.noon ?? '中午好',
-        afternoon: t.greeting?.afternoon ?? '下午好',
-        dusk: t.greeting?.dusk ?? t.greeting?.evening ?? '傍晚好',
-        evening: t.greeting?.evening ?? '晚上好',
-        night: t.greeting?.night ?? '夜深了',
+        morning: t.greeting.morning,
+        forenoon: t.greeting.forenoon,
+        noon: t.greeting.noon,
+        afternoon: t.greeting.afternoon,
+        dusk: t.greeting.dusk,
+        evening: t.greeting.evening,
+        night: t.greeting.night,
       },
       locale,
     )
 
     const tpl =
-      t.config.tipsBanner?.lastLogin ?? '上次登录 {time}'
+      t.config.tipsBanner.lastLogin
     const neverLabel =
-      t.config.tipsBanner?.lastLoginNever ?? '上次登录 —'
+      t.config.tipsBanner.lastLoginNever
     let lastLoginLine: string | null = null
     if (user?.last_login_at) {
       const formatted = formatLastLogin(user.last_login_at, locale)

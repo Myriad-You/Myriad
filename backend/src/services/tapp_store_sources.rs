@@ -58,9 +58,7 @@ pub enum StoreSourcePolicyError {
 impl StoreSourcePolicyError {
     pub fn message(&self) -> String {
         match self {
-            Self::OfficialUrlImmutable => {
-                "Official store source URL cannot be changed".to_string()
-            }
+            Self::OfficialUrlImmutable => "Official store source URL cannot be changed".to_string(),
             Self::OfficialNotDeletable => "Official store source cannot be deleted".to_string(),
             Self::InvalidUrl { message } => message.clone(),
         }
@@ -125,9 +123,11 @@ pub fn validate_store_source_url(url: &str) -> Result<(), StoreSourcePolicyError
             message: "Only HTTP(S) store source URLs are allowed".to_string(),
         });
     }
-    let host = parsed.host_str().ok_or_else(|| StoreSourcePolicyError::InvalidUrl {
-        message: "Store source URL must include a host".to_string(),
-    })?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| StoreSourcePolicyError::InvalidUrl {
+            message: "Store source URL must include a host".to_string(),
+        })?;
     if is_disallowed_store_host(host) {
         return Err(StoreSourcePolicyError::InvalidUrl {
             message: "Internal network store source URLs are not allowed".to_string(),
@@ -177,7 +177,9 @@ mod tests {
 
     #[test]
     fn validate_store_source_url_rejects_internal_and_empty() {
-        assert!(validate_store_source_url("https://raw.githubusercontent.com/org/repo/main").is_ok());
+        assert!(
+            validate_store_source_url("https://raw.githubusercontent.com/org/repo/main").is_ok()
+        );
         assert!(validate_store_source_url("https://example.com/store/index.json").is_ok());
         assert!(validate_store_source_url("").is_err());
         assert!(validate_store_source_url("not-a-url").is_err());

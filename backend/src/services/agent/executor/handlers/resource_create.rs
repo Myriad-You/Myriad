@@ -14,9 +14,9 @@ use crate::services::agent::resource_create_pure::{
     resolve_bookmark_title, truncate_json_for_prompt, AGENT_BOOKMARKS_TAPP_ID, AGENT_NOTES_TAPP_ID,
     AGENT_REMINDERS_TAPP_ID, AGENT_REPORTS_TAPP_ID,
 };
-use crate::services::tapp_package_read::{installed_core_entry, installed_page_entry};
 use crate::services::data_paths::paths;
 use crate::services::permission_service::{TappPermissionService, UserRole};
+use crate::services::tapp_package_read::{installed_core_entry, installed_page_entry};
 use crate::GLOBAL_DYNAMIC_CONFIG;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set};
@@ -216,7 +216,7 @@ async fn execute_tapp_generate(
         .get("code")
         .and_then(Value::as_str)
         .ok_or("Generated response is missing code")?;
-    let author = json!({"name": "Arael Agent", "type": "ai_generated"});
+    let author = json!({"name": "Agent", "type": "ai_generated"});
     let now = persist_agent_tapp(
         ctx,
         &tapp_id,

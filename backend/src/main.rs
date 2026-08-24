@@ -271,10 +271,10 @@ async fn run_server() -> anyhow::Result<()> {
                 tracing::info!(db_target = %db_target, "✅ Database connection established");
 
                 // Run database migrations automatically on startup (idempotent).
-                // Published migration names stay in the migrator forever, so
-                // startup never rewrites history to hide a missing file. Any
-                // migration failure is fatal to full mode.
-                use sea_orm_migration::MigratorTrait;
+                // Folded 007–015 names are deleted from `seaql_migrations` first
+                // so SeaORM does not require no-op files for them; leftover
+                // `digital_life_*` experiment tables are dropped in the same
+                // step. Any remaining migration failure is fatal to full mode.
                 tracing::debug!("Checking for pending database migrations...");
                 migration::Migrator::up(&db, None)
                     .await
@@ -320,16 +320,16 @@ async fn run_server() -> anyhow::Result<()> {
                         services::memory_profile::apply_from_saver_flag(
                             dynamic_config.memory_saver_enabled,
                         );
-                        if dynamic_config.agent_life_needs_lite() {
+                        if dynamic_config.merope_needs_lite() {
                             tracing::warn!(
-                                "⚠️  Agent life is on without Lite; proactive speech uses a short \
+                                "⚠️  Merope is on without Lite; proactive speech uses a short \
                                  fallback and mood hints stay off (no Standard spend)"
                             );
                         }
-                        if dynamic_config.agent_life_needs_pro() {
+                        if dynamic_config.merope_needs_pro() {
                             tracing::warn!(
-                                "⚠️  Agent life is switched on but the Pro model is not enabled; \
-                                 life stays off so onboarding and gated calls do not fall back \
+                                "⚠️  Merope is switched on but the Pro model is not enabled; \
+                                 it stays off so onboarding and gated calls do not fall back \
                                  to the standard model"
                             );
                         }

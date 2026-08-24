@@ -280,9 +280,15 @@ fn resolve_language(explicit: &str, title: &str, hint: &str) -> &'static str {
         "ja" | "jp" | "japanese" => "ja",
         _ => {
             let sample = format!("{title}{hint}");
-            if sample.chars().any(|c| ('\u{3040}'..='\u{30ff}').contains(&c)) {
+            if sample
+                .chars()
+                .any(|c| ('\u{3040}'..='\u{30ff}').contains(&c))
+            {
                 "ja"
-            } else if sample.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)) {
+            } else if sample
+                .chars()
+                .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+            {
                 "zh"
             } else {
                 "en"
@@ -328,7 +334,10 @@ fn truncate(s: &str, max_chars: usize) -> String {
     if count <= max_chars {
         return s.to_string();
     }
-    s.chars().take(max_chars.saturating_sub(1)).collect::<String>() + "…"
+    s.chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>()
+        + "…"
 }
 
 fn fallback_copy(
@@ -343,13 +352,20 @@ fn fallback_copy(
         truncate(existing_desc.trim(), 160)
     } else if !hint.is_empty() {
         match language {
-            "zh" => truncate(&format!("{title}：{hint} 的个人站点，汇总公开数字生活内容。"), 160),
+            "zh" => truncate(
+                &format!("{title}：{hint} 的个人站点，汇总公开数字生活内容。"),
+                160,
+            ),
             "ja" => truncate(
-                &format!("{title}：{hint} の個人サイト。公開中のデジタルライフ情報をまとめています。"),
+                &format!(
+                    "{title}：{hint} の個人サイト。公開中のデジタルライフ情報をまとめています。"
+                ),
                 160,
             ),
             _ => truncate(
-                &format!("{title}: personal site for {hint}. Public digital-life content in one place."),
+                &format!(
+                    "{title}: personal site for {hint}. Public digital-life content in one place."
+                ),
                 160,
             ),
         }

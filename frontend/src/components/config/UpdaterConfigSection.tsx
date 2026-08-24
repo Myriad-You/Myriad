@@ -41,6 +41,11 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import {
+  httpStatusMessage,
+  isUselessErrorText,
+  userFacingError,
+} from '../../utils/userFacingError'
+import {
   detectVersionDrift,
   makeUpdaterApi,
   UpdaterError,
@@ -203,19 +208,23 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           ) {
             return u.updaterErr403
           }
-          return `${u.updaterErr403Generic}: ${e.message}`
+          return userFacingError(e, u.updaterErr403Generic)
         }
         if (e.status === 409) return u.updaterErr409
-        if (e.status === 412) return `${u.updaterErr412}: ${e.message}`
+        if (e.status === 412) return userFacingError(e, u.updaterErr412)
         if (e.status >= 500) {
           if (/not configured/i.test(e.message))
             return u.updaterErrNotConfigured
           if (e.status === 502 || e.status === 503) return u.updaterErrUpstream
-          return format(u.updaterErrServer, { msg: upstreamDetail(e.message) })
+          const detail = upstreamDetail(e.message)
+          if (detail && !isUselessErrorText(detail)) {
+            return format(u.updaterErrServer, { msg: detail })
+          }
+          return userFacingError(e, httpStatusMessage(e.status))
         }
-        return `${e.status}: ${e.message}`
+        return userFacingError(e, httpStatusMessage(e.status))
       }
-      return String(e)
+      return userFacingError(e)
     },
     [u],
   )

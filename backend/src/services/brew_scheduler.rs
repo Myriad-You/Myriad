@@ -317,7 +317,7 @@ impl BrewSchedulerEngine {
                     e
                 );
 
-                active.last_error = Set(Some(e.to_string()));
+                active.last_error = Set(Some("Failed to fetch feed".to_string()));
                 active.error_count = Set(source.error_count + 1);
 
                 if source.error_count + 1 >= MAX_ERROR_COUNT {
@@ -335,7 +335,7 @@ impl BrewSchedulerEngine {
                                     source.user_id,
                                     source.id,
                                     &source.name,
-                                    &e,
+                                    "Failed to fetch feed",
                                 )
                                 .await;
                         }
@@ -501,11 +501,7 @@ impl BrewSchedulerEngine {
                     return Err(format!("Failed to batch insert items: {e}"));
                 }
             };
-            let titles: Vec<String> = inserted
-                .iter()
-                .map(|m| m.title.clone())
-                .take(5)
-                .collect();
+            let titles: Vec<String> = inserted.iter().map(|m| m.title.clone()).take(5).collect();
             (inserted.len() as i32, titles)
         };
 
@@ -680,7 +676,7 @@ impl BrewSchedulerEngine {
                 Ok(new_count)
             }
             Err(e) => {
-                active.last_error = Set(Some(e.to_string()));
+                active.last_error = Set(Some("Failed to fetch feed".to_string()));
                 active.error_count = Set(source.error_count + 1);
                 active
                     .update(&self.db)

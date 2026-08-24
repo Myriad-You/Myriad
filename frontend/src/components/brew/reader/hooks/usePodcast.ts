@@ -10,6 +10,7 @@ import type {
   VoiceInfo,
 } from '../../../../services/speechApi'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { userFacingError } from '../../../../utils/userFacingError'
 import * as brewliaApi from '../../../../services/brewliaApi'
 import { PodcastPlayer } from '../../../../services/brewliaApi'
 import {
@@ -254,7 +255,7 @@ export function usePodcast({
         console.error('[TTS] Failed to get speech status:', err)
         setCloudTtsAvailable(false)
         setCloudTtsError(
-          err instanceof Error ? err.message : t.brew.cannotConnectVoiceService,
+          userFacingError(err, t.brew.cannotConnectVoiceService),
         )
       })
 
@@ -363,8 +364,7 @@ export function usePodcast({
               }
               setCloudTtsAvailable(true)
             } catch (err) {
-              const errMsg =
-                err instanceof Error ? err.message : t.brew.cannotConnectSpeech
+              const errMsg = userFacingError(err, t.brew.cannotConnectSpeech)
               setCloudTtsAvailable(false)
               setCloudTtsError(errMsg)
               showToastMessage(`${t.brew.cloudTtsUnavailable}: ${errMsg}`, 5000)
@@ -757,9 +757,7 @@ export function usePodcast({
       }
     } catch (err) {
       console.error('Failed to load podcast:', err)
-      setPodcastError(
-        err instanceof Error ? err.message : t.brew.generatePodcastFailed,
-      )
+      setPodcastError(userFacingError(err, t.brew.generatePodcastFailed))
     } finally {
       setPodcastLoading(false)
     }
@@ -816,8 +814,7 @@ export function usePodcast({
       }
     } catch (err) {
       console.error('Failed to regenerate podcast:', err)
-      const errMsg =
-        err instanceof Error ? err.message : t.brew.generatePodcastFailed
+      const errMsg = userFacingError(err, t.brew.generatePodcastFailed)
       setPodcastError(errMsg)
       showToastMessage(errMsg, 3000)
     } finally {
@@ -857,7 +854,7 @@ export function usePodcast({
         }
       }
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : t.brew.loadFailed
+      const errMsg = userFacingError(err, t.brew.loadFailed)
       console.error('Failed to reload cloud TTS:', errMsg, err)
       showToastMessage(`${t.brew.cloudTtsUnavailable}: ${errMsg}`, 3000)
     } finally {

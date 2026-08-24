@@ -26,6 +26,7 @@ pub enum InboundRouteError {
     BodyTooLarge,
     InvalidParams,
     Database,
+    NeedsReauthorization,
 }
 
 impl InboundRouteError {
@@ -41,6 +42,7 @@ impl InboundRouteError {
             Self::BodyTooLarge => "ROUTE_BODY_TOO_LARGE",
             Self::InvalidParams => "ROUTE_INVALID_PARAMS",
             Self::Database => "DATABASE_ERROR",
+            Self::NeedsReauthorization => "TAPP_NEEDS_REAUTHORIZATION",
         }
     }
 
@@ -56,6 +58,7 @@ impl InboundRouteError {
             Self::BodyTooLarge => "Inbound request body exceeds 1 MiB",
             Self::InvalidParams => "Inbound request parameters are invalid",
             Self::Database => "Database error",
+            Self::NeedsReauthorization => "Tapp installation requires permission re-authorization",
         }
     }
 
@@ -68,6 +71,7 @@ impl InboundRouteError {
             Self::BodyTooLarge => 413,
             Self::InvalidParams => 400,
             Self::Database => 500,
+            Self::NeedsReauthorization => 409,
         }
     }
 }
@@ -573,6 +577,11 @@ mod tests {
     fn body_too_large_is_payload_too_large() {
         assert_eq!(InboundRouteError::BodyTooLarge.status_hint(), 413);
         assert_eq!(InboundRouteError::InvalidParams.status_hint(), 400);
+        assert_eq!(InboundRouteError::NeedsReauthorization.status_hint(), 409);
+        assert_eq!(
+            InboundRouteError::NeedsReauthorization.code(),
+            "TAPP_NEEDS_REAUTHORIZATION"
+        );
     }
 
     #[test]

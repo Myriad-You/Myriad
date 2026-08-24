@@ -1,4 +1,4 @@
-import type { LifeOnboardingTag, OnboardingHeaderChrome } from '../onboardingTypes'
+import type { OnboardingTag, OnboardingHeaderChrome } from '../onboardingTypes'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { agentService } from '../../../../services/agent'
@@ -15,7 +15,7 @@ import { ActionBar, PrimaryButton } from '../ui/Chrome'
 import { ErrorNote, Working } from '../ui/Feedback'
 
 interface SignalsCache {
-  tags: LifeOnboardingTag[]
+  tags: OnboardingTag[]
   reportCount: number
   aiDistilled: boolean
 }
@@ -31,7 +31,7 @@ function signalsCacheKey(locale: string) {
   return generationCacheKey('signals', [locale])
 }
 
-function toTags(labels: string[]): LifeOnboardingTag[] {
+function toTags(labels: string[]): OnboardingTag[] {
   const stamp = Date.now().toString(36)
   return uniqPersonaTags(labels).map((label, index) => ({
     id: `${stamp}-${index}`,
@@ -47,10 +47,10 @@ export default function TagBubblesStep({
   onHeaderChange,
 }: Props) {
   const { t, locale } = useI18n()
-  const o = t.life.onboarding
+  const o = t.agentPersona.onboarding
   const cacheKey = signalsCacheKey(locale)
   const cached = getGenerationCache<SignalsCache>(cacheKey)
-  const [tags, setTags] = useState<LifeOnboardingTag[]>(() => cached?.tags || [])
+  const [tags, setTags] = useState<OnboardingTag[]>(() => cached?.tags || [])
   const [loading, setLoading] = useState(() => !cached)
   const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState('')
@@ -102,7 +102,7 @@ export default function TagBubblesStep({
       .catch((reason) => {
         if (cancelled) return
         if (!force && tagsRef.current.length > 0) return
-        if (reason instanceof ApiError && reason.code === 'agent_life_disabled') {
+        if (reason instanceof ApiError && reason.code === 'merope_disabled') {
           setError(o.saveFirst)
           return
         }
@@ -200,8 +200,8 @@ export default function TagBubblesStep({
   ])
 
   return (
-    <section className="life-ob-tags" aria-label={o.step1Title}>
-      <div className="life-ob-tags__board">
+    <section className="merope-ob-tags" aria-label={o.step1Title}>
+      <div className="merope-ob-tags__board">
         {loading || regenerating ? (
           <Working>
             {regenerating ? o.regeneratingSeeds : o.loadingAiSignals}
@@ -216,22 +216,22 @@ export default function TagBubblesStep({
           />
         ) : null}
         <div
-          className="life-ob-tags__fade life-ob-tags__fade--bottom"
+          className="merope-ob-tags__fade merope-ob-tags__fade--bottom"
           aria-hidden
         />
       </div>
       {error && (
-        <div className="life-ob-tags__error">
+        <div className="merope-ob-tags__error">
           <ErrorNote>{error}</ErrorNote>
         </div>
       )}
       {!loading && !regenerating && !error && tags.length === 0 && (
-        <div className="life-ob-tags__error">
+        <div className="merope-ob-tags__error">
           <ErrorNote>{o.signalsEmpty}</ErrorNote>
         </div>
       )}
       {!loading && (
-        <p className="life-ob-tags__status" aria-live="polite">
+        <p className="merope-ob-tags__status" aria-live="polite">
           <span>
             {selectedCount > 0
               ? o.selectedCount.replace('{count}', String(selectedCount))
@@ -239,10 +239,10 @@ export default function TagBubblesStep({
           </span>
           {canPan && (
             <>
-              <span className="life-ob-tags__status-sep" aria-hidden>
+              <span className="merope-ob-tags__status-sep" aria-hidden>
                 ·
               </span>
-              <span className="life-ob-tags__status-pan">{o.dragCanvas}</span>
+              <span className="merope-ob-tags__status-pan">{o.dragCanvas}</span>
             </>
           )}
         </p>

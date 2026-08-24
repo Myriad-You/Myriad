@@ -4,9 +4,9 @@ use super::{
     has_reinstall_orphan_state, installation_conflict_owner_ids, orphaned_tapp_directories,
     recover_tapp_directory, reinstall_orphan_paths, tapp_dir_for, tapp_filesystem_error_message,
     tapp_filesystem_error_status, tapp_setting_value_is_valid, uninstall_post_commit_cleanup_path,
-    validate_asset_path, validate_installed_resources, validate_resource_path,
-    validate_store_manifest_category, validate_tapp_archive, validate_tapp_id,
-    unsupported_package_structure, validate_tapp_manifest, validate_widget_template_contents,
+    unsupported_package_structure, validate_asset_path, validate_installed_resources,
+    validate_resource_path, validate_store_manifest_category, validate_tapp_archive,
+    validate_tapp_id, validate_tapp_manifest, validate_widget_template_contents,
     widget_template_path, write_install_generation, RegisterWidgetRequest, TappCategory,
     TappDirStage, TappManifest, TappSettingDef, TappStorageAccess, TappWidgetCategory,
     TappWidgetDef, WidgetTemplateContents,
@@ -1837,6 +1837,7 @@ fn batch_detail_mapping_applies_current_role_and_brew_capability_rules() {
         updated_at: now,
         error_message: None,
         visibility: "all".to_string(),
+        needs_reauthorization: false,
     };
 
     let config = crate::config::DynamicConfig {

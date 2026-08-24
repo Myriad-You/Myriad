@@ -49,7 +49,7 @@ pub const EVENT_DEFINITIONS: [NotificationEventDefinition; 34] = [
         source: "agent",
     },
     NotificationEventDefinition {
-        key: "agent.life.platform_activity",
+        key: "agent.merope.platform_activity",
         source: "agent",
     },
     NotificationEventDefinition {
@@ -152,7 +152,7 @@ pub const EVENT_DEFINITIONS: [NotificationEventDefinition; 34] = [
         key: "system.info",
         source: "system",
     },
-    // skill.* is Arael skill lifecycle — same source as agent so FE prefs
+    // skill.* is Agent skill lifecycle — same source as agent so FE prefs
     // (system on / agent off) cannot swallow skill notifications.
     NotificationEventDefinition {
         key: "skill.pruned",
@@ -426,8 +426,7 @@ mod tests {
             .any(|definition| definition.key == "platform.sync.failed"));
         assert!(preferences.allows("platform.sync.failed"));
         let mut off = preferences.clone();
-        off.events
-            .insert("platform.sync.failed".to_string(), false);
+        off.events.insert("platform.sync.failed".to_string(), false);
         assert!(!off.allows("platform.sync.failed"));
         assert!(preferences.locations["agent"].toast);
         assert!(!preferences.locations.contains_key("removed"));

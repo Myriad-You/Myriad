@@ -23,6 +23,7 @@ import type {
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
+import { userFacingError } from '../utils/userFacingError'
 import avatarSourceApi from '../services/avatarSourceApi'
 import { Avatar } from './Avatar'
 import { Spinner } from './Spinner'
@@ -104,8 +105,7 @@ export function AvatarSourcePicker({
       setCurrentKey(key)
       onApplied?.()
     } catch (e) {
-      const message = e instanceof Error ? e.message : ''
-      setError(message || t.userModal.profileSourceFailed)
+      setError(userFacingError(e, t.userModal.profileSourceFailed))
     } finally {
       setApplyingKey(null)
     }

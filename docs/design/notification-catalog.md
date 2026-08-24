@@ -16,8 +16,8 @@ and color communicate status, so the UI does not need 28 unrelated pictograms.
 
 | Source key   | Product          | Icon source                          |
 | ------------ | ---------------- | ------------------------------------ |
-| `agent`      | Arael tasks      | `/icons/notifications/arael.webp`     |
-| `heartbeat`  | Arael Heartbeat  | `/icons/notifications/heartbeat.webp` |
+| `agent`      | Agent tasks      | `/icons/notifications/arael.webp`     |
+| `heartbeat`  | Agent Heartbeat  | `/icons/notifications/heartbeat.webp` |
 | `mcp`        | MCP tool servers | `/icons/notifications/mcp.webp`       |
 | `brew`       | Brew             | `/icons/notifications/brew.webp`      |
 | `tapp`       | Tapp runtime     | `/icons/notifications/tapp.webp`      |
@@ -36,7 +36,7 @@ These are intentionally broader than event keys so old history remains readable:
 
 | Source | `notification_type` values |
 | --- | --- |
-| Arael | `task_progress`, `task_completed`, `task_failed`, `task_cancelled`, `agent_clarification` |
+| Agent | `task_progress`, `task_completed`, `task_failed`, `task_cancelled`, `agent_clarification` |
 | Heartbeat | `heartbeat_result` |
 | MCP | `mcp_server_status` |
 | Brew | `brew_new_items`, `brew_source_error` |
@@ -49,12 +49,12 @@ These are intentionally broader than event keys so old history remains readable:
 
 | Source | Event key | Current producer |
 | --- | --- | --- |
-| Arael | `agent.task_progress` | Agent run hub progress |
-| Arael | `agent.task_completed` | Agent run terminal success |
-| Arael | `agent.task_failed` | Agent run terminal failure |
-| Arael | `agent.task_cancelled` | User-cancelled run |
-| Arael | `agent.clarification` | Run waiting for user input |
-| Arael | `agent.life.platform_activity` | High-importance connected-platform activity |
+| Agent | `agent.task_progress` | Agent run hub progress |
+| Agent | `agent.task_completed` | Agent run terminal success |
+| Agent | `agent.task_failed` | Agent run terminal failure |
+| Agent | `agent.task_cancelled` | User-cancelled run |
+| Agent | `agent.clarification` | Run waiting for user input |
+| Agent | `agent.merope.platform_activity` | High-importance connected-platform activity |
 | Heartbeat | `heartbeat.succeeded` | Heartbeat scheduled task success |
 | Heartbeat | `heartbeat.failed` | Heartbeat scheduled task failure |
 | MCP | `mcp.connected` | MCP server connection/recovery |

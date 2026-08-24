@@ -1,6 +1,6 @@
 //! TAPP-facing Tripo 3D surface.
 //!
-//! Admin Digital Life routes stay admin-only. These handlers require a Runtime
+//! Admin Merope routes stay admin-only. These handlers require a Runtime
 //! Grant with `3d:generate` (except public asset reads, which the host does
 //! locally). The Tripo API key never appears in responses or error bodies.
 

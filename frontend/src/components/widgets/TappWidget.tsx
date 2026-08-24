@@ -25,6 +25,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import { isPageVisible, onVisibility } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { TappIconBadge } from '../../tapp/components/TappIconBadge'
@@ -618,11 +619,7 @@ function TappWidgetRuntime({
         setLoading(false)
       } catch (err) {
         if (!cancelled) {
-          setError(
-            err instanceof Error && err.message.trim()
-              ? `${t.tapp.loadAppFailed} · ${err.message}`
-              : t.tapp.loadAppFailed,
-          )
+          setError(userFacingError(err, t.tapp.loadAppFailed))
           setLoading(false)
         }
       }
@@ -718,11 +715,7 @@ function TappWidgetRuntime({
         setLoading(false)
       } catch (err) {
         if (cancelled) return
-        setError(
-          err instanceof Error && err.message.trim()
-            ? `${t.tapp.appCodeLoadFailed} · ${err.message}`
-            : t.tapp.appCodeLoadFailed,
-        )
+        setError(userFacingError(err, t.tapp.appCodeLoadFailed))
         setLoading(false)
       }
     }
@@ -853,11 +846,7 @@ function TappWidgetRuntime({
     try {
       await runtime.startTapp(widget.tappId)
     } catch (error) {
-      setError(
-        error instanceof Error && error.message.trim()
-          ? `${t.tapp.startAppFailed} · ${error.message}`
-          : t.tapp.startAppFailed,
-      )
+      setError(userFacingError(error, t.tapp.startAppFailed))
     }
   }, [widget, runtime, canControlLifecycle, t.tapp.startAppFailed])
 
@@ -1011,7 +1000,7 @@ function TappWidgetRuntime({
 
         {/* 提示 */}
         <div className="text-xs text-gray-500 dark:text-gray-400 mb-4 text-center">
-          {canControlLifecycle ? '需要启动 Tapp 以显示' : 'Tapp 未启动'}
+          {canControlLifecycle ? t.tapp.needStartToShow : t.tapp.stopped}
         </div>
 
         {/* 操作：仅所有者可启动；访客只能看详情，不能把站长已停的 Tapp 拉起来 */}
@@ -1061,7 +1050,7 @@ function TappWidgetRuntime({
             widgetId={widget.config.id || widget.id.split('.').pop() || ''}
             widgetProps={widgetProps}
             onError={(err: Error) => {
-              setError(err.message)
+              setError(userFacingError(err, t.tapp.loadAppFailed))
             }}
             onInstanceSettingsChange={handleInstanceSettingsChange}
             onInvalidate={requestRefresh}

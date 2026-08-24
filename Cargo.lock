@@ -2416,6 +2416,7 @@ version = "0.3.37"
 dependencies = [
  "sea-orm",
  "sea-orm-migration",
+ "serde_json",
  "tokio",
 ]
 
@@ -2526,10 +2527,10 @@ dependencies = [
  "migration",
  "mockall",
  "myriad-data-key",
- "myriad-digital-life",
  "myriad-error",
  "myriad-image-proxy",
  "myriad-json-schema",
+ "myriad-merope",
  "myriad-module-visibility",
  "myriad-outbound",
  "myriad-platform-utils",
@@ -2587,18 +2588,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "myriad-digital-life"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "earcutr",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.19",
-]
-
-[[package]]
 name = "myriad-error"
 version = "0.1.0"
 dependencies = [
@@ -2623,6 +2612,18 @@ name = "myriad-json-schema"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "myriad-merope"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "earcutr",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

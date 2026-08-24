@@ -772,7 +772,10 @@ pub fn db_err(e: sea_orm::DbErr) -> (axum::http::StatusCode, axum::Json<serde_js
     tracing::error!("[Federation] DB error: {}", e);
     (
         axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-        axum::Json(serde_json::json!({"error": "Database error"})),
+        axum::Json(serde_json::json!({
+            "error": "Database error",
+            "code": "database_error"
+        })),
     )
 }
 

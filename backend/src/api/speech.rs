@@ -3,6 +3,7 @@
 //! 提供 TTS（文本转语音）和 ASR（语音转文本）的 HTTP API。
 //! 服务商由设置里的 `speech_provider` 决定：腾讯云、OpenAI、OpenRouter 或 Gemini。
 
+use crate::middleware::auth::Claims;
 use axum::{
     extract::{Extension, Query, State},
     http::StatusCode,
@@ -10,7 +11,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use crate::middleware::auth::Claims;
 use sea_orm::DatabaseConnection;
 
 use crate::middleware::auth::verify_current_admin_from_headers;
@@ -40,9 +40,7 @@ async fn verify_admin(
 }
 
 /// 创建语音服务 API 路由
-pub fn create_speech_routes(
-    app_state: crate::state::AppState,
-) -> Router<crate::state::AppState> {
+pub fn create_speech_routes(app_state: crate::state::AppState) -> Router<crate::state::AppState> {
     use axum::middleware::from_fn_with_state;
     Router::<crate::state::AppState>::new()
         // TTS 文本转语音
@@ -373,17 +371,26 @@ fn speech_error_to_response(error: TencentSpeechError) -> (StatusCode, String) {
     match error {
         TencentSpeechError::ApiKeyNotConfigured => (
             StatusCode::SERVICE_UNAVAILABLE,
-            "语音服务未配置，请在设置中配置腾讯云密钥".to_string(),
+            "Speech service is not configured".to_string(),
         ),
-        TencentSpeechError::NetworkError(msg) => (StatusCode::BAD_GATEWAY, msg),
-        TencentSpeechError::ApiError { code, message } => {
-            (StatusCode::BAD_REQUEST, format!("[{}] {}", code, message))
+        TencentSpeechError::NetworkError(_) => (
+            StatusCode::BAD_GATEWAY,
+            "Speech service is unreachable".to_string(),
+        ),
+        TencentSpeechError::ApiError { .. } => (
+            StatusCode::BAD_REQUEST,
+            "Speech service request failed".to_string(),
+        ),
+        TencentSpeechError::ParseError(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Speech service request failed".to_string(),
+        ),
+        TencentSpeechError::InvalidAudioData(_) => {
+            (StatusCode::BAD_REQUEST, "Invalid audio data".to_string())
         }
-        TencentSpeechError::ParseError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-        TencentSpeechError::InvalidAudioData(msg) => (StatusCode::BAD_REQUEST, msg),
         TencentSpeechError::TextTooLong => (
             StatusCode::BAD_REQUEST,
-            "文本过长，中文最大150字，英文最大500字母".to_string(),
+            "Speech text is too long".to_string(),
         ),
     }
 }
@@ -406,14 +413,12 @@ pub async fn text_to_speech(
     {
         Ok(response) => (StatusCode::OK, Json(response)),
         Err(msg) => {
-            let status = if msg.contains("不能为空") {
+            let status = if msg.contains("empty") {
                 StatusCode::BAD_REQUEST
-            } else if msg.contains("未配置") || msg.contains("过长") {
-                if msg.contains("过长") {
-                    StatusCode::BAD_REQUEST
-                } else {
-                    StatusCode::SERVICE_UNAVAILABLE
-                }
+            } else if msg.contains("too long") {
+                StatusCode::BAD_REQUEST
+            } else if msg.contains("not configured") {
+                StatusCode::SERVICE_UNAVAILABLE
             } else {
                 StatusCode::BAD_GATEWAY
             };
@@ -459,7 +464,7 @@ async fn batch_text_to_speech_inner(request: BatchTtsApiRequest) -> impl IntoRes
                 cache_hits: 0,
                 generated: 0,
                 errors: None,
-                error: Some("对话列表不能为空".to_string()),
+                error: Some("Dialogue list is empty".to_string()),
             }),
         );
     }
@@ -473,7 +478,7 @@ async fn batch_text_to_speech_inner(request: BatchTtsApiRequest) -> impl IntoRes
                 cache_hits: 0,
                 generated: 0,
                 errors: None,
-                error: Some("对话数量超过限制（最多100条）".to_string()),
+                error: Some("Too many dialogues (max 100)".to_string()),
             }),
         );
     }
@@ -494,7 +499,7 @@ async fn batch_text_to_speech_inner(request: BatchTtsApiRequest) -> impl IntoRes
         if dialogue.text.is_empty() {
             errors.push(BatchTtsError {
                 index: dialogue.index,
-                error: "对话文本不能为空".to_string(),
+                error: "empty_dialogue_text".to_string(),
             });
             continue;
         }
@@ -628,18 +633,13 @@ async fn batch_text_to_speech_inner(request: BatchTtsApiRequest) -> impl IntoRes
                 } else {
                     errors.push(BatchTtsError {
                         index: dialogue.index,
-                        error: "TTS服务未返回音频数据".to_string(),
+                        error: "Speech service returned no audio".to_string(),
                     });
                 }
             }
             Err(e) => {
-                crate::services::speech_runtime::note_tts(
-                    "tencent",
-                    "tts",
-                    &dialogue.text,
-                    false,
-                )
-                .await;
+                crate::services::speech_runtime::note_tts("tencent", "tts", &dialogue.text, false)
+                    .await;
                 let (_, msg) = speech_error_to_response(e);
                 errors.push(BatchTtsError {
                     index: dialogue.index,
@@ -696,9 +696,7 @@ pub async fn speech_to_text(
     .await
 }
 
-async fn speech_to_text_inner(
-    request: AsrApiRequest,
-) -> (StatusCode, Json<AsrApiResponse>) {
+async fn speech_to_text_inner(request: AsrApiRequest) -> (StatusCode, Json<AsrApiResponse>) {
     // 验证输入
     if request.audio_data.is_none() && request.url.is_none() {
         return (
@@ -708,7 +706,7 @@ async fn speech_to_text_inner(
                 text: None,
                 duration: None,
                 words: None,
-                error: Some("必须提供 audio_data 或 url".to_string()),
+                error: Some("Please provide audio data".to_string()),
             }),
         );
     }
@@ -748,7 +746,7 @@ async fn speech_to_text_inner(
         // 解码Base64获取原始数据长度
         let data_len = match BASE64.decode(audio_data) {
             Ok(bytes) => bytes.len() as i32,
-            Err(e) => {
+            Err(_) => {
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(AsrApiResponse {
@@ -756,7 +754,7 @@ async fn speech_to_text_inner(
                         text: None,
                         duration: None,
                         words: None,
-                        error: Some(format!("无效的Base64音频数据: {}", e)),
+                        error: Some("Invalid audio data".to_string()),
                     }),
                 );
             }
@@ -850,7 +848,7 @@ async fn openai_speech_to_text(request: AsrApiRequest) -> (StatusCode, Json<AsrA
     let audio = if let Some(audio_data) = request.audio_data {
         match BASE64.decode(&audio_data) {
             Ok(bytes) => bytes,
-            Err(e) => {
+            Err(_) => {
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(AsrApiResponse {
@@ -858,7 +856,7 @@ async fn openai_speech_to_text(request: AsrApiRequest) -> (StatusCode, Json<AsrA
                         text: None,
                         duration: None,
                         words: None,
-                        error: Some(format!("无效的Base64音频数据: {e}")),
+                        error: Some("Invalid audio data".to_string()),
                     }),
                 );
             }
@@ -871,7 +869,7 @@ async fn openai_speech_to_text(request: AsrApiRequest) -> (StatusCode, Json<AsrA
                 text: None,
                 duration: None,
                 words: None,
-                error: Some("请上传音频，暂不支持 URL".to_string()),
+                error: Some("Please upload audio data".to_string()),
             }),
         );
     };

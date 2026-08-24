@@ -89,6 +89,9 @@ pub async fn execute_inbound_route(
 
     let path = inbound_path(&route_segment);
     let tapp = public_tapp(&db, &tapp_id).await?;
+    if tapp.needs_reauthorization {
+        return Err(inbound_http_error(InboundRouteError::NeedsReauthorization));
+    }
     match tapp_inbound_guard::check_tapp_inbound_access(
         &db,
         tapp.user_id,

@@ -32,6 +32,14 @@ export interface TranslationKeys {
     copied: string
     open: string
     optional: string
+    unknown: string
+    closeNotification: string
+    currentLocation: string
+    noDescription: string
+    noContent: string
+    durationSeconds: string
+    durationMinutes: string
+    durationMinutesSeconds: string
   }
 
   // 导航
@@ -84,7 +92,7 @@ export interface TranslationKeys {
     welcome: string
   }
 
-  companion: {
+  merope: {
     title: string
     statusBarTitle: string
     statusLoading: string
@@ -113,10 +121,26 @@ export interface TranslationKeys {
     doNotDisturb: string
     showThought: string
     collapsedByDefault: string
-    deleteCompanion: string
+    deletePersona: string
     deleteConfirm: string
     loadFailed: string
     sendFailed: string
+    psdNeedAsset: string
+    psdTooLarge: string
+    psdPreviewFailed: string
+    psdSpecInvalid: string
+    psdLayerCountInvalid: string
+    canvasUnsupported: string
+    anime25dMissingFace: string
+    anime25dInvalidPixels: string
+    anime25dMissingHandwear: string
+    anime25dMissingLayer: string
+    anime25dPartCount: string
+    anime25dContractMissing: string
+    anime25dLayerTooWide: string
+    anime25dAtlasOverflow: string
+    anime25dBoneLimit: string
+    rigAtlasFailed: string
     statusIdle: string
     statusThinking: string
     statusTalking: string
@@ -142,8 +166,40 @@ export interface TranslationKeys {
     anime25dRuntimeCredit: string
     anime25dDebug: string
     anime25dDebugDescription: string
+    overviewGroup: string
+    overviewGroupDescription: string
+    overviewName: string
+    overviewMood: string
+    overviewActivity: string
+    overviewDoNotDisturb: string
+    overviewDoNotDisturbHint: string
+    overviewDndWindow: string
+    overviewDndStart: string
+    overviewDndEnd: string
+    overviewDndScheduled: string
+    overviewOn: string
+    overviewOff: string
+    overviewPortrait: string
+    overviewPortraitReady: string
+    overviewPortraitEmpty: string
+    overviewRig: string
+    overviewRigReady: string
+    overviewRigEmpty: string
+    overviewSummary: string
+    overviewEmpty: string
+    personaGroup: string
+    personaGroupDescription: string
+    personaEmpty: string
     portraitGroup: string
     portraitGroupDescription: string
+    visualSourceTitle: string
+    visualSourceEmpty: string
+    assetGroup: string
+    assetGroupDescription: string
+    assetEmpty: string
+    assetMake: string
+    assetRig: string
+    assetNeedsPortrait: string
     rigGroup: string
     rigGroupDescription: string
     expressionGroup: string
@@ -153,6 +209,11 @@ export interface TranslationKeys {
     hairBodyGroup: string
     hairBodyGroupDescription: string
     inspectGroupDescription: string
+    anime25dInspectLayersValue: string
+    anime25dInspectStrandsValue: string
+    anime25dInspectEyesValue: string
+    anime25dInspectMouthValue: string
+    anime25dInspectCanvasValue: string
     clusterHead: string
     clusterEyes: string
     clusterBrows: string
@@ -222,6 +283,14 @@ export interface TranslationKeys {
     anime25dInspectEmpty: string
     motionPsd: string
     motionPsdDescription: string
+    rigPathUpload: string
+    rigPathUploadHint: string
+    rigPathSeeThrough: string
+    rigPathSeeThroughHint: string
+    rigTokenReady: string
+    rigPreflightTitle: string
+    rigReadyTitle: string
+    rigReadyHint: string
     motionSeeThroughToken: string
     motionSeeThroughTokenCreate: string
     motionSeeThroughTokenDescription: string
@@ -238,10 +307,7 @@ export interface TranslationKeys {
     motionSeeThroughUpstream: string
     motionSeeThroughGenerate: string
     motionSeeThroughGenerating: string
-    motionReviewEnter: string
-    motionReviewDescription: string
     motionNeedsRig: string
-    motionReviewExit: string
     motionPsdPreflight: string
     motionPsdValidating: string
     motionPsdCommit: string
@@ -252,6 +318,11 @@ export interface TranslationKeys {
     adminEnabled: string
     adminWorker: string
     adminInterval: string
+    personaLabelTemperament: string
+    personaLabelLikes: string
+    personaLabelDrives: string
+    personaLabelSocial: string
+    personaLabelSpeech: string
   }
 
   // 控制面板
@@ -334,6 +405,9 @@ export interface TranslationKeys {
     emailOptional: string
     emailPlaceholder: string
     registerFailed: string
+    registerDisabled: string
+    registerSetupRequired: string
+    usernameTaken: string
     registerResponseIncomplete: string
     usernameRange3to20: string
     passwordRule: string
@@ -419,6 +493,8 @@ export interface TranslationKeys {
     dbConnectionTimeout: string
     dbConnectionTimeoutDesc: string
     dbMigrationFailed: string
+    dbMigrationChecked: string
+    dbInitialized: string
     verificationResult: string
     totalTables: string
     usersTable: string
@@ -440,6 +516,10 @@ export interface TranslationKeys {
     setupSecretHint: string
     setupSecretPlaceholder: string
     setupSecretRequired: string
+    schemaEnsureFailed: string
+    cleanupFailed: string
+    claimFailed: string
+    configModeRequired: string
   }
 
   // 配置
@@ -586,7 +666,7 @@ export interface TranslationKeys {
       aiUsageSourceAgent: string
       aiUsageSourceReports: string
       aiUsageSourceRuntime: string
-      aiUsageSourceLife: string
+      aiUsageSourcePersona: string
       aiUsageSourcePlayground: string
       aiUsageSourceSpeech: string
       aiUsageSourceBrewlia: string
@@ -1293,27 +1373,29 @@ export interface TranslationKeys {
     memorySaverGroupDesc: string
     memorySaver: string
     memorySaverHint: string
-    agentLife: string
-    agentLifeHint: string
+    agentPersona: string
+    agentPersonaBeta: string
+    agentPersonaHint: string
     /** Shown while the Lite tier is off */
-    agentLifeNeedsLite: string
+    agentPersonaNeedsLite: string
     /** Shown while the Pro tier is off */
-    agentLifeNeedsPro: string
+    agentPersonaNeedsPro: string
     /** Shown while the Pro tier is off (legacy key, same copy as needsPro) */
-    agentLifeNeedsLiteAndPro: string
-    agentLifeMood: string
-    agentLifeActivity: string
-    agentLifeEmpty: string
-    agentLifeEmptyLead: string
-    agentLifeNeedsReports: string
-    agentLifeDelete: string
-    agentLifeDeleteConfirm: string
-    agentLifeDeleteFailed: string
+    agentPersonaNeedsLiteAndPro: string
+    agentPersonaMood: string
+    agentPersonaActivity: string
+    agentPersonaEmpty: string
+    agentPersonaEmptyLead: string
+    agentPersonaNeedsReports: string
+    agentPersonaDelete: string
+    agentPersonaDeleteConfirm: string
+    agentPersonaDeleteFailed: string
     enableProxy: string
     enableProxyHint: string
     proxyUrl: string
     proxyUrlHint: string
     proxyUrlDisabledHint: string
+    proxyUrlPlaceholder: string
     proxyBypass: string
     proxyBypassHint: string
     geminiBaseUrl: string
@@ -1380,6 +1462,7 @@ export interface TranslationKeys {
     mcpSaveUpdated: string
     mcpSaveDeleted: string
     mcpSaveFailed: string
+    mcpInvalidConfig: string
     mcpLoadFailed: string
     mcpEmpty: string
     mcpEmptyFiltered: string
@@ -2071,8 +2154,8 @@ export interface TranslationKeys {
     title: string
   }
 
-  // Agent 设定引导
-  life: {
+  // Agent 人设设定引导
+  agentPersona: {
     onboarding: {
       openPage: string
       editPage: string
@@ -2176,6 +2259,16 @@ export interface TranslationKeys {
       regeneratePersona: string
       regeneratingPersona: string
       regeneratePersonaFailed: string
+      importPersona: string
+      importPersonaHint: string
+      importPersonaPlaceholder: string
+      importPersonaSubmit: string
+      importPersonaBusy: string
+      importPersonaFailed: string
+      importPersonaEmpty: string
+      importPortrait: string
+      importPortraitBusy: string
+      importPortraitFailed: string
       personaFieldGenerating: string
       personaDraftLabel: string
       editPersona: string
@@ -2261,6 +2354,137 @@ export interface TranslationKeys {
   errors: {
     networkError: string
     unknown: string
+    setupCheckFailed: string
+    requestRejected: string
+    requestFailed: string
+    invalidResponse: string
+    operationFailed: string
+    rateLimited: string
+    rateLimitedLogin: string
+    rateLimitedFetch: string
+    rateLimitedAnalysis: string
+    rateLimitedRetry: string
+    passwordMinLength: string
+    passwordNeedLower: string
+    passwordNeedUpper: string
+    passwordNeedDigit: string
+    passwordNeedSpecial: string
+    passwordTooCommon: string
+    timeout: string
+    unauthorized: string
+    forbidden: string
+    notFound: string
+    serverError: string
+    database: string
+    passwordFailed: string
+    sessionFailed: string
+    configFilePermission: string
+    aiResponseInvalid: string
+    aiGenerationFailed: string
+    asrInvalidAudio: string
+    speechNotConfigured: string
+    speechTtsNoAudio: string
+    speechTtsOpenAiRequired: string
+    speechTextTooLong: string
+    speechUpstreamFailed: string
+    speechBatchEmpty: string
+    speechBatchTooMany: string
+    domainInvalid: string
+    oauthStartFailed: string
+    roomJoinFailed: string
+    oauthSlugRequired: string
+    oauthSlugInvalid: string
+    oauthSlugDuplicate: string
+    oauthClientIdRequired: string
+    oauthClientSecretRequired: string
+    oauthDiscoveryRequired: string
+    oauthKindUnsupported: string
+    remoteActorUnresolved: string
+    webfingerFailed: string
+    platformFetchFailed: string
+    steamNotConfigured: string
+    platformDisabled: string
+    usernameRequired: string
+    agentProcessingFailed: string
+    invalidUrl: string
+    federationMoveFailed: string
+    notionUrlInvalid: string
+    channelNotReady: string
+    inviteInvalid: string
+    feedNameRequired: string
+    noticeBrewSourceFailed: string
+    noticePlatformSyncFailed: string
+    noticeMcpFailed: string
+    noticeMcpConnected: string
+    noticeScheduleFailed: string
+    noticeTapp: string
+    noticeUpdaterSucceeded: string
+    noticeUpdaterFailed: string
+    noticeUpdaterNeedsManual: string
+    noticeUpdaterRunning: string
+    noticeUpdaterUnknown: string
+    noticeUpdaterSubmitted: string
+    noticeFederationRevoked: string
+    noticeFederationRevokedBody: string
+    noticeNewFollower: string
+    noticeNewFollowerBody: string
+    noticeFollowAccepted: string
+    noticeFollowAcceptedBody: string
+    noticeChannelInvite: string
+    noticeChannelInviteBody: string
+    noticeRoomInvite: string
+    noticeRoomInviteBody: string
+    noticeRoomInviteNamedBody: string
+    noticeRoomInviteAccepted: string
+    noticeRoomInviteAcceptedBody: string
+    noticeRoomInviteAcceptedNamedBody: string
+    noticeChannelAccepted: string
+    noticeChannelAcceptedBody: string
+    noticeDeliveryFailed: string
+    noticeDeliveryFailedBody: string
+    noticePreviewPhoto: string
+    noticePreviewFile: string
+    noticePreviewSystem: string
+    noticePreviewEncrypted: string
+    noticePreviewNew: string
+    noticeSkillPruned: string
+    noticeSkillImproved: string
+    noticeSkillChanged: string
+    gameConfigInvalid: string
+    gameMessageInvalid: string
+    agentUnsupported: string
+    agentConfirmExpired: string
+    agentConfirmMissing: string
+    agentTaskCancelled: string
+    agentTaskInterrupted: string
+    agentStepTimeout: string
+    agentInputEmpty: string
+    agentInputTooLong: string
+    subscribeAllFailed: string
+    noticeAgentTaskFailed: string
+    noticeAgentTaskCompleted: string
+    noticeAgentTaskWaiting: string
+    noticeAgentTaskRunning: string
+    privateNetworkBlocked: string
+    feedNotFound: string
+    rsshubUnavailable: string
+    pipelineTooManySteps: string
+    heartbeatAdminRequired: string
+    writeItemsOverCap: string
+    stepNeedsConfirm: string
+    httpStatus: string
+    lyricsFailed: string
+    weatherFailed: string
+    widgetsLoadFailed: string
+    taskSubmitFailed: string
+    notificationActionFailed: string
+    settingsBackupPreviewFailed: string
+    settingsBackupRestoreFailed: string
+    backendUnreachable: string
+    setupConfigFailed: string
+    emptyDialogueText: string
+    csrfUnavailable: string
+    streamUnreadable: string
   }
 
   wallpaperStatus: {
@@ -2583,6 +2807,8 @@ export interface TranslationKeys {
     adminOnlyGenerate: string
     generateFailed: string
     generateFailedRetry: string
+    generateNeedData: string
+    generateEmptySummary: string
 
     // UI 文本
     close: string
@@ -3301,10 +3527,17 @@ export interface TranslationKeys {
     pleaseWait: string
     cannotLoadApp: string
     appNotExist: string
+    invalidId: string
     appCodeLoadFailed: string
     loadAppFailed: string
     startAppFailed: string
     widgetNotFound: string
+    needStartToShow: string
+    defaultNotificationTitle: string
+    officialStoreName: string
+    officialStoreDescription: string
+    unknownPermission: string
+    sensitivePermissionCombo: string
     backToAppList: string
     exitFullscreen: string
     fullscreen: string
@@ -3443,6 +3676,20 @@ export interface TranslationKeys {
     storeSortByDownloads: string
     loadingRemoteApps: string
     loadRemoteFailed: string
+    storeAdminRequired: string
+    storeSourceExists: string
+    storeCannotRemoveOfficial: string
+    storeSourceNotFound: string
+    storeCannotEditOfficialUrl: string
+    storeUrlExists: string
+    storeInvalidIndex: string
+    storeDownloadFailed: string
+    storeAddFailed: string
+    storeRemoveFailed: string
+    storeUpdateFailed: string
+    storeInvalidSource: string
+    storeAppNotFound: string
+    agentIntentConfirm: string
     noMatchingApps: string
     totalApps: string
     installedCount: string
@@ -3498,6 +3745,8 @@ export interface TranslationKeys {
     source: string
     articles: string
     article: string
+    loadSourcesFailed: string
+    loadArticlesFailed: string
     subscription: string
     subscriptions: string
     unread: string
@@ -3664,6 +3913,8 @@ export interface TranslationKeys {
     errorNotionTokenRequired: string
     errorAddSuccess: string
     errorAddFailed: string
+    errorFeedNeedName: string
+    errorNotionFetch: string
     errorSelectImage: string
     errorImageTooLarge: string
     errorImageReadFailed: string
@@ -3796,6 +4047,8 @@ export interface TranslationKeys {
     resultsCount: string
     refreshAllSources: string
     errorDiscoverFailed: string
+    noMatchingSources: string
+    tryOtherKeywords: string
     errorConfigRsshub: string
     errorEnterUrl: string
     errorLinkNeedName: string
@@ -4085,9 +4338,31 @@ export interface TranslationKeys {
     lightboxDownload: string
     lightboxClose: string
     lightboxCloseHint: string
+    share: string
+    copy: string
+    copied: string
+    comment: string
+    noPodcast: string
+    generatePodcast: string
+    previousDialogue: string
+    nextDialogue: string
+    noMore: string
+    webSearch: string
+    copyCode: string
+    smartReadingList: string
+    prevArticle: string
+    nextArticle: string
+    webSearchNote: string
+    noSummary: string
+    repoLoadFailed: string
+    annotationReference: string
+    annotationImplicit: string
+    annotationTerm: string
+    annotationContext: string
+    annotationAbbreviation: string
   }
 
-  // Arael AI 助手
+  // Agent
   arael: {
     // 问候语
     greeting: {
@@ -4141,7 +4416,7 @@ export interface TranslationKeys {
     personaReset: string
     personaOwnerOnly: string
     personaDoNotDisturb: string
-    personaLifeOff: string
+    agentPersonaOff: string
     statusNeedLogin: string
     emptyHeartbeat: string
     emptyHeartbeatHint: string
@@ -4214,6 +4489,10 @@ export interface TranslationKeys {
     interrupted: string
     executionFailed: string
     unknownError: string
+    presetTitleTooLong: string
+    presetSummaryTooLong: string
+    presetStepsTooLarge: string
+    presetHistoryTooLong: string
     partialComplete: string
     failReason: string
     answerFailed: string

@@ -63,6 +63,6 @@ docs/
 | [theme-system.md](design/theme-system.md) | Surface / Glow |
 | [icon-inventory.md](design/icon-inventory.md) | 图标规范 |
 | [notification-catalog.md](design/notification-catalog.md) | 通知目录 |
-| [digital-life-25d-pipeline.md](design/digital-life-25d-pipeline.md) | Digital Life / See-through / Anime2.5D 形象管线 |
-| [digital-life-3d-pipeline.md](design/digital-life-3d-pipeline.md) | Digital Life / Tripo 3D 管线 |
+| [merope-25d-pipeline.md](design/merope-25d-pipeline.md) | Merope / See-through / Anime2.5D 形象管线 |
+| [merope-3d-pipeline.md](design/merope-3d-pipeline.md) | Merope / Tripo 3D 管线 |
 | [brew-tile-grid.md](design/brew-tile-grid.md) | Brew 磁贴网格改造实施手册 |

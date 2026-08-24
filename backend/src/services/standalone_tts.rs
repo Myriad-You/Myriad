@@ -74,7 +74,12 @@ pub fn generate_text_hash(text: &str) -> String {
 }
 
 /// Audio filename for a voice/speed/sample_rate/codec combination.
-pub fn generate_audio_filename(voice_type: i32, speed: f32, sample_rate: i32, codec: &str) -> String {
+pub fn generate_audio_filename(
+    voice_type: i32,
+    speed: f32,
+    sample_rate: i32,
+    codec: &str,
+) -> String {
     format!("{}_{}_{}.{}", voice_type, speed as i32, sample_rate, codec)
 }
 
@@ -174,19 +179,12 @@ async fn write_tts_file(
 /// Map Tencent speech errors to operator-facing messages (no HTTP status).
 pub fn tencent_speech_error_message(error: &TencentSpeechError) -> String {
     match error {
-        TencentSpeechError::ApiKeyNotConfigured => {
-            // Same guidance string used by agent error catalog.
-            crate::services::agent::response_agent::tts_not_configured()
-        }
-        TencentSpeechError::NetworkError(msg) => msg.clone(),
-        TencentSpeechError::ApiError { code, message } => {
-            format!("[{code}] {message}")
-        }
-        TencentSpeechError::ParseError(msg) => msg.clone(),
-        TencentSpeechError::InvalidAudioData(msg) => msg.clone(),
-        TencentSpeechError::TextTooLong => {
-            "文本过长，中文最大150字，英文最大500字母".to_string()
-        }
+        TencentSpeechError::ApiKeyNotConfigured => "Speech service is not configured".to_string(),
+        TencentSpeechError::NetworkError(_) => "Speech service is unreachable".to_string(),
+        TencentSpeechError::ApiError { .. } => "Speech service request failed".to_string(),
+        TencentSpeechError::ParseError(_) => "Speech service request failed".to_string(),
+        TencentSpeechError::InvalidAudioData(_) => "Invalid audio data".to_string(),
+        TencentSpeechError::TextTooLong => "Speech text is too long".to_string(),
     }
 }
 
@@ -195,7 +193,7 @@ pub fn tencent_speech_error_message(error: &TencentSpeechError) -> String {
 /// Returns the same cache + Tencent path as the product API (base64 audio when successful).
 pub async fn synthesize_standalone_tts(request: &TtsApiRequest) -> Result<TtsApiResponse, String> {
     if request.text.trim().is_empty() {
-        return Err("文本不能为空".to_string());
+        return Err("Speech text is empty".to_string());
     }
 
     let codec = request.codec.as_deref().unwrap_or("mp3");
@@ -384,20 +382,20 @@ mod tests {
         let err = rt
             .block_on(synthesize_standalone_tts(&req))
             .expect_err("empty text");
-        assert!(err.contains("不能为空"), "{err}");
+        assert!(err.contains("empty"), "{err}");
     }
 
     #[test]
     fn tencent_error_messages_cover_key_variants() {
         let msg = tencent_speech_error_message(&TencentSpeechError::ApiKeyNotConfigured);
-        assert!(msg.contains("TTS") || msg.contains("腾讯云") || msg.contains("未配置"), "{msg}");
+        assert_eq!(msg, "Speech service is not configured");
         assert_eq!(
             tencent_speech_error_message(&TencentSpeechError::TextTooLong),
-            "文本过长，中文最大150字，英文最大500字母"
+            "Speech text is too long"
         );
-        assert!(tencent_speech_error_message(&TencentSpeechError::NetworkError(
-            "boom".into()
-        ))
-        .contains("boom"));
+        assert_eq!(
+            tencent_speech_error_message(&TencentSpeechError::NetworkError("boom".into())),
+            "Speech service is unreachable"
+        );
     }
 }

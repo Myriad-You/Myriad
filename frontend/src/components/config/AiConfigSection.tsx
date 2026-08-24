@@ -13,6 +13,7 @@ import {
   LuPalette,
   LuStore,
   LuRefreshCw,
+  LuNotebookPen,
   LuSparkles,
   SiGooglegemini,
   SiOpenai,
@@ -21,17 +22,18 @@ import {
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import { agentService } from '../../services/agent'
 import { invalidatePublicConfigCache } from '../../utils/requestDedup'
 import {
   ADDRESSEE_UPDATED_EVENT,
   activityKey,
   moodBand,
-} from '../agent/lifeVitals'
+} from '../agent/meropeVitals'
 import {
   FACE_UPDATED_EVENT,
-} from '../../features/digital-life-companion/events'
-import SiteMotionWorkbench from '../../features/digital-life-companion/SiteMotionWorkbench'
+} from '../../features/merope/events'
+import SiteMotionWorkbench from '../../features/merope/SiteMotionWorkbench'
 import PersonaOnboardingPage from '../agent/onboarding/PersonaOnboardingPage'
 import { parseFlattenedPersona } from '../agent/onboarding/onboardingTypes'
 import {
@@ -101,7 +103,7 @@ interface AiConfigSectionProps {
   configFields: ConfigField[]
   /** 更新配置字段值 */
   updateValue: (key: string, value: string) => void
-  /** ui bag：Agent 生命总开关存在这里，控件挂在 Lite / Pro 旁边 */
+  /** ui bag：Agent 人设总开关存在这里，控件挂在 Lite / Pro 旁边 */
   uiConfigFields: Array<{ key: string; value: string }>
   updateUiFieldValue: (key: string, value: string) => void
   /** 语音测试回调 */
@@ -265,10 +267,10 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     openPage: openAiSubpage,
     closePage: closeAiSubpage,
   } = useAiSubpage((page) => {
-    if (page === 'persona') setPersonaChrome(null)
+    if (page === 'merope-setup') setPersonaChrome(null)
   })
-  const personaPage = aiSubpage === 'persona'
-  const facePage = aiSubpage === 'face'
+  const setupPage = aiSubpage === 'merope-setup'
+  const meropePage = aiSubpage === 'merope'
   const subpageOpen = aiSubpage != null
 
   const fieldGuideFor = useCallback(
@@ -351,9 +353,9 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     return val === 'true' || val === '1'
   }, [getFieldValue])
 
-  const agentLifeEnabled = useMemo(
+  const agentPersonaEnabled = useMemo(
     () =>
-      uiConfigFields.find((field) => field.key === 'agent_life_enabled')
+      uiConfigFields.find((field) => field.key === 'merope_enabled')
         ?.value === 'true',
     [uiConfigFields],
   )
@@ -657,17 +659,17 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       setSpeechTestResult({
         success: false,
         message:
-          error instanceof Error ? error.message : t.config.speechTestFailed,
+          userFacingError(error, t.config.speechTestFailed),
       })
     } finally {
       setSpeechTesting(false)
     }
   }, [onSpeechTest, t.config.speechTestFailed])
 
-  const o = t.life.onboarding
+  const o = t.agentPersona.onboarding
   const paneKey = aiSubpage ?? 'ai'
-  const personaGuide = bindGuide('ai.agentLife', g.ai.agentLife)
-  const lifeOn = agentLifeEnabled && proEnabled
+  const personaGuide = bindGuide('ai.agentPersona', g.ai.agentPersona)
+  const meropeOn = agentPersonaEnabled && proEnabled
   const [savedPersonaName, setSavedPersonaName] = useState('')
   const [hasSavedPersona, setHasSavedPersona] = useState(false)
   const [mood, setMood] = useState(70)
@@ -688,15 +690,15 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       window.dispatchEvent(new CustomEvent('arael-persona-updated'))
     } catch (error) {
       setPersonaError(
-        error instanceof Error ? error.message : t.config.agentLifeDeleteFailed,
+        userFacingError(error, t.config.agentPersonaDeleteFailed),
       )
     } finally {
       setPersonaBusy(false)
     }
-  }, [t.config.agentLifeDeleteFailed])
+  }, [t.config.agentPersonaDeleteFailed])
 
   useEffect(() => {
-    if (!lifeOn) {
+    if (!meropeOn) {
       setSavedPersonaName('')
       setHasSavedPersona(false)
       setMood(70)
@@ -755,54 +757,54 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       window.removeEventListener(FACE_UPDATED_EVENT, load)
       window.removeEventListener(ADDRESSEE_UPDATED_EVENT, load)
     }
-  }, [lifeOn])
+  }, [meropeOn])
   const personaGateLead = !proEnabled
-    ? t.config.agentLifeNeedsPro
-    : lifeOn && !liteEnabled
-      ? t.config.agentLifeNeedsLite
-      : t.config.agentLifeHint
+    ? t.config.agentPersonaNeedsPro
+    : meropeOn && !liteEnabled
+      ? t.config.agentPersonaNeedsLite
+      : t.config.agentPersonaHint
 
   const personaCardCopy = useMemo(() => {
-    if (!lifeOn || !hasSavedPersona) return null
+    if (!meropeOn || !hasSavedPersona) return null
     const summary = parseFlattenedPersona(personality).summary.replace(/\s+/g, ' ').trim()
     return {
       summary,
       mood: vitalsReady ? o.mood[moodBand(mood)] : '—',
       activity: vitalsReady ? o.activity[activityKey(activity)] : '—',
     }
-  }, [activity, hasSavedPersona, lifeOn, mood, o, personality, vitalsReady])
+  }, [activity, hasSavedPersona, meropeOn, mood, o, personality, vitalsReady])
 
   return (
     <SettingSection
       sectionId={sectionId}
-      className={personaPage ? 'setting-section--persona' : undefined}
+      className={setupPage ? 'setting-section--persona' : undefined}
       title={
-        personaPage
+        setupPage
           ? (personaChrome?.title ?? o.step1Title)
-          : facePage
-            ? t.companion.adminTitle
+          : meropePage
+            ? t.merope.adminTitle
             : title
       }
       icon={subpageOpen ? undefined : icon}
       description={
-        personaPage
+        setupPage
           ? (personaChrome?.description ?? o.step1Lead)
-          : facePage
-            ? t.companion.adminDescription
+          : meropePage
+            ? t.merope.adminDescription
             : description
       }
       detail={
-        personaPage
+        setupPage
           ? (personaChrome?.description ?? o.step1Lead)
-          : facePage
-            ? t.companion.adminDescription
+          : meropePage
+            ? t.merope.adminDescription
             : undefined
       }
-      detailTone={personaPage ? personaChrome?.detailTone : undefined}
+      detailTone={setupPage ? personaChrome?.detailTone : undefined}
       showResetPage={subpageOpen ? false : undefined}
-      {...(personaPage ? personaGuide : {})}
+      {...(setupPage ? personaGuide : {})}
       headerActions={
-        personaPage && personaChrome?.action ? (
+        setupPage && personaChrome?.action ? (
           <SettingsButton
             variant="secondary"
             size="sm"
@@ -830,13 +832,13 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             type="button"
             className="section-header-back"
             onClick={() =>
-              personaPage
+              setupPage
                 ? (personaChrome?.onBack ?? closeAiSubpage)()
                 : closeAiSubpage()
             }
-            disabled={personaPage ? personaChrome?.backDisabled : false}
+            disabled={setupPage ? personaChrome?.backDisabled : false}
             aria-label={
-              personaPage
+              setupPage
                 ? (personaChrome?.backAria ?? t.common.back)
                 : t.common.back
             }
@@ -849,14 +851,14 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     >
       <AutoHeight contentKey={paneKey} animate={false}>
         <div key={paneKey} data-nav={aiPaneNav} className="ai-pane sm-pane">
-          {personaPage ? (
+          {setupPage ? (
             <PersonaOnboardingPage
               onBack={closeAiSubpage}
               onChromeChange={setPersonaChrome}
-              lifeOn={lifeOn}
+              meropeOn={meropeOn}
               gateLead={personaGateLead}
             />
-          ) : facePage ? (
+          ) : meropePage ? (
             <SiteMotionWorkbench mood={mood} activity={activity} />
           ) : (
             <>
@@ -975,68 +977,70 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       </SettingGroup>
 
       <SettingGroup
-        title={t.config.agentLife}
-        icon={<LuSparkles />}
+        title={t.config.agentPersona}
+        icon={<LuNotebookPen />}
         description={personaGateLead}
-        {...bindGuide('ai.agentLife', g.ai.agentLife)}
+        titleExtra={
+          <SettingTitleTag variant="beta">{t.config.agentPersonaBeta}</SettingTitleTag>
+        }
+        {...bindGuide('ai.agentPersona', g.ai.agentPersona)}
         switch={{
-          checked: lifeOn,
+          checked: meropeOn,
           onChange: (value) =>
-            updateUiFieldValue('agent_life_enabled', value ? 'true' : 'false'),
+            updateUiFieldValue('merope_enabled', value ? 'true' : 'false'),
           disabled: !proEnabled,
-          ariaLabel: t.config.agentLife,
+          ariaLabel: t.config.agentPersona,
         }}
       >
-        {lifeOn ? (
+        {meropeOn ? (
           <InfoActionCard
             copyable={false}
             tone={!liteEnabled ? 'info' : 'default'}
             title={
               hasSavedPersona
                 ? savedPersonaName || 'Arael'
-                : t.config.agentLifeEmpty
+                : t.config.agentPersonaEmpty
             }
             preview={
               portraitUrl && hasSavedPersona ? (
                 <img src={portraitUrl} alt={savedPersonaName || 'Arael'} />
               ) : (
                 <span className="info-action-card-preview-empty is-mosaic">
-                  <img src="/life/clothing/everyday.png" alt="" />
-                  <img src="/life/clothing/fantasy.png" alt="" />
-                  <img src="/life/clothing/japanese.png" alt="" />
-                  <img src="/life/clothing/sci-fi.png" alt="" />
+                  <img src="/merope/clothing/everyday.png" alt="" />
+                  <img src="/merope/clothing/fantasy.png" alt="" />
+                  <img src="/merope/clothing/japanese.png" alt="" />
+                  <img src="/merope/clothing/sci-fi.png" alt="" />
                 </span>
               )
             }
             actions={
-              hasSavedPersona || reportCount >= 3
+              hasSavedPersona
                 ? [
                     {
-                      key: 'setup',
-                      label: hasSavedPersona ? o.editPage : o.openPage,
-                      onClick: () => openAiSubpage('persona'),
-                      disabled: personaBusy,
+                      key: 'face',
+                      label: t.merope.faceOpen,
+                      onClick: () => openAiSubpage('merope'),
                     },
-                    ...(hasSavedPersona
-                      ? [
-                          {
-                            key: 'face',
-                            label: t.companion.faceOpen,
-                            onClick: () => openAiSubpage('face'),
-                          },
-                          {
-                            key: 'delete',
-                            label: t.config.agentLifeDelete,
-                            onClick: () => void handleDeletePersona(),
-                            disabled: personaBusy,
-                            loading: personaBusy,
-                            variant: 'danger' as const,
-                            confirm: t.config.agentLifeDeleteConfirm,
-                          },
-                        ]
-                      : []),
+                    {
+                      key: 'delete',
+                      label: t.config.agentPersonaDelete,
+                      onClick: () => void handleDeletePersona(),
+                      disabled: personaBusy,
+                      loading: personaBusy,
+                      variant: 'danger' as const,
+                      confirm: t.config.agentPersonaDeleteConfirm,
+                    },
                   ]
-                : undefined
+                : reportCount >= 3
+                  ? [
+                      {
+                        key: 'setup',
+                        label: o.openPage,
+                        onClick: () => openAiSubpage('merope-setup'),
+                        disabled: personaBusy,
+                      },
+                    ]
+                  : undefined
             }
             footer={personaError}
           >
@@ -1056,10 +1060,10 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             ) : (
               <p className="info-action-card-lede">
                 {reportCount < 3
-                  ? t.config.agentLifeNeedsReports
+                  ? t.config.agentPersonaNeedsReports
                       .replace('{count}', String(reportCount))
                       .replace('{need}', '3')
-                  : t.config.agentLifeEmptyLead}
+                  : t.config.agentPersonaEmptyLead}
               </p>
             )}
           </InfoActionCard>

@@ -68,7 +68,7 @@ const zh: TappPermissionGuides = {
     what: '允许以对话方式调用 AI（多轮聊天能力）。',
     chain:
       '① 应用打开对话会话。\n② 消息经 AI 聊天通道。\n③ 历史可能仅存在于该应用侧。',
-    frontend: '应用内聊天界面；全局 Arael 面板是另一套能力。',
+    frontend: '应用内聊天界面；全局 Agent 面板是另一套能力。',
     notes: '对话轮次会累计消耗配额。',
   },
   'ai:image': {
@@ -184,10 +184,10 @@ const zh: TappPermissionGuides = {
     notes: '影响全站观感，只装可信主题应用。',
   },
   'component:agent': {
-    what: '允许向 Arael Agent 注册能力（工具/技能）。',
+    what: '允许向 Agent 注册能力（工具/技能）。',
     chain:
       '① 应用注册 Agent 能力。\n② 助手可调用这些能力。\n③ 对话中可能触发对应动作。',
-    frontend: 'Arael 面板与 Agent 相关交互。',
+    frontend: 'Agent 面板与相关交互。',
     notes: '等于把能力挂到全站助手，权限极高。',
   },
   'shortcut:register': {
@@ -400,7 +400,7 @@ const en: TappPermissionGuides = {
     what: 'Allows multi-turn AI chat through the site gateway.',
     chain:
       '1) App opens a chat session.\n2) Messages go through AI chat.\n3) History may stay only in the app.',
-    frontend: 'In-app chat UI (separate from the global Arael panel).',
+    frontend: 'In-app chat UI (separate from the global Agent panel).',
     notes: 'Each turn can consume quota.',
   },
   'ai:image': {
@@ -516,10 +516,10 @@ const en: TappPermissionGuides = {
     notes: 'Site-wide visual impact — trust the source.',
   },
   'component:agent': {
-    what: 'Allows registering capabilities with the Arael Agent.',
+    what: 'Allows registering capabilities with Agent.',
     chain:
       '1) App registers agent tools.\n2) Assistant can invoke them.\n3) Chat may trigger those actions.',
-    frontend: 'Arael panel and agent-driven actions.',
+    frontend: 'Agent panel and agent-driven actions.',
     notes: 'Hooks into the global assistant — very high privilege.',
   },
   'shortcut:register': {
@@ -732,7 +732,7 @@ const ja: TappPermissionGuides = {
     what: 'AI との対話（チャット）を呼べます。',
     chain:
       '① セッション開始。\n② チャット経路。\n③ 履歴はアプリ側のことが多い。',
-    frontend: 'アプリ内チャット（全体 Arael とは別）。',
+    frontend: 'アプリ内チャット（全体 Agent とは別）。',
     notes: '往復ごとにクォータを使い得ます。',
   },
   'ai:image': {
@@ -848,10 +848,10 @@ const ja: TappPermissionGuides = {
     notes: '全サイトに影響。出所を確認。',
   },
   'component:agent': {
-    what: 'Arael Agent に能力（ツール）を登録できます。',
+    what: 'Agent に能力（ツール）を登録できます。',
     chain:
       '① 能力登録。\n② アシスタントが呼べる。\n③ 会話から動作が起き得る。',
-    frontend: 'Arael パネルと関連操作。',
+    frontend: 'Agent パネルと関連操作。',
     notes: '全体アシスタントへの接続。非常に強い権限。',
   },
   'shortcut:register': {

@@ -1382,17 +1382,26 @@ mod tests {
     fn federation_split_levels_and_delegation_defaults() {
         let defaults = DynamicConfig::default();
         // ADR 0020 定级：写类 Elevated，互动/ring Basic。
-        assert_eq!(TappPermission::FederationPost.level(), PermissionLevel::Elevated);
+        assert_eq!(
+            TappPermission::FederationPost.level(),
+            PermissionLevel::Elevated
+        );
         assert_eq!(
             TappPermission::FederationChannel.level(),
             PermissionLevel::Elevated
         );
-        assert_eq!(TappPermission::FederationRoom.level(), PermissionLevel::Elevated);
+        assert_eq!(
+            TappPermission::FederationRoom.level(),
+            PermissionLevel::Elevated
+        );
         assert_eq!(
             TappPermission::FederationInteract.level(),
             PermissionLevel::Basic
         );
-        assert_eq!(TappPermission::FederationRing.level(), PermissionLevel::Basic);
+        assert_eq!(
+            TappPermission::FederationRing.level(),
+            PermissionLevel::Basic
+        );
 
         // 旧 federation:write 已从枚举移除，无法解析。
         assert!(TappPermission::from_str("federation:write").is_none());

@@ -87,11 +87,11 @@ describe('federationMediaUrlRejectionReason', () => {
     )
     assert.equal(
       federationMediaUrlRejectionReason(''),
-      'Attachment URL is empty',
+      'Invalid attachment URL',
     )
-    assert.match(
-      federationMediaUrlRejectionReason('https://x/y') || '',
-      /media\/federation/,
+    assert.equal(
+      federationMediaUrlRejectionReason('https://x/y'),
+      'Invalid attachment URL',
     )
   })
 })

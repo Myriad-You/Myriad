@@ -5,8 +5,10 @@
  */
 
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
+import { httpStatusMessage } from '../utils/userFacingError'
 
 const API_BASE = `${API_URL}/api`
 
@@ -51,7 +53,7 @@ export function parseApiErrorBody(
   body: unknown,
   status: number,
 ): { message: string; code?: string; hint?: string; details?: unknown } {
-  const fallback = `API Error: ${status}`
+  const fallback = httpStatusMessage(status)
   if (!body || typeof body !== 'object') {
     return { message: fallback }
   }
@@ -156,7 +158,7 @@ async function request<T>(
 
     if (!response.ok) {
       notifyHttpRateLimit(response)
-      let errorMessage = `API Error: ${response.status}`
+      let errorMessage = httpStatusMessage(response.status)
       let errorCode: string | undefined
       let errorDetails: unknown
       let errorHint: string | undefined
@@ -219,14 +221,10 @@ async function request<T>(
     }
 
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError('Request timeout', 408, 'TIMEOUT')
+      throw new ApiError(currentCopy().errors.timeout, 408, 'TIMEOUT')
     }
 
-    throw new ApiError(
-      error instanceof Error ? error.message : 'Unknown error',
-      0,
-      'NETWORK_ERROR',
-    )
+    throw new ApiError(currentCopy().errors.networkError, 0, 'NETWORK_ERROR')
   }
 }
 
@@ -263,7 +261,7 @@ async function requestBlob(
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      let errorMessage = `API Error: ${response.status}`
+      let errorMessage = httpStatusMessage(response.status)
       let errorCode: string | undefined
       let errorDetails: unknown
       let errorHint: string | undefined
@@ -309,13 +307,9 @@ async function requestBlob(
     clearTimeout(timeoutId)
     if (error instanceof ApiError) throw error
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError('Request timeout', 408, 'TIMEOUT')
+      throw new ApiError(currentCopy().errors.timeout, 408, 'TIMEOUT')
     }
-    throw new ApiError(
-      error instanceof Error ? error.message : 'Unknown error',
-      0,
-      'NETWORK_ERROR',
-    )
+    throw new ApiError(currentCopy().errors.networkError, 0, 'NETWORK_ERROR')
   }
 }
 

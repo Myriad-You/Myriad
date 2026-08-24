@@ -340,14 +340,12 @@ fn merge_task_broadcasts(
                 .payload
                 .get("text")
                 .and_then(Value::as_str)
-                .map(str::to_owned)
-                ?;
+                .map(str::to_owned)?;
             let incoming_text = incoming
                 .payload
                 .get("text")
                 .and_then(Value::as_str)
-                .map(str::to_owned)
-                ?;
+                .map(str::to_owned)?;
             let mut merged = previous_text;
             let remaining = max_text_bytes.saturating_sub(merged.len());
             let boundary = incoming_text
@@ -965,8 +963,7 @@ pub async fn execute_task(execution: AiTaskExecution) {
             } else {
                 input_tokens + output_tokens
             };
-            if let Err(error) = settle_ai_quota(&db, &reservation, settle_tokens).await
-            {
+            if let Err(error) = settle_ai_quota(&db, &reservation, settle_tokens).await {
                 tracing::error!(?error, task_id, "[TAPP] Failed to settle AI Task quota");
             }
             record_ai_cost(

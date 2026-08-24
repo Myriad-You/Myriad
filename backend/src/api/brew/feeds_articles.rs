@@ -4,15 +4,16 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode},
     response::IntoResponse,
-    routing::{get, post, put}, Json, Router,
+    routing::{get, post, put},
+    Json, Router,
 };
 use chrono::Utc;
 use futures::StreamExt;
 use reqwest::Url;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait,
-    DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, QueryTrait, Statement,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait, Statement,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -21,8 +22,7 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::models::entities::{
-    brew_annotations, brew_categories, brew_items, brew_podcasts, brew_sources,
-    brew_user_states,
+    brew_annotations, brew_categories, brew_items, brew_podcasts, brew_sources, brew_user_states,
 };
 use crate::services::brew_parser::{FeedParser, ParsedFeed};
 use crate::services::brew_scheduler::get_brew_scheduler;
@@ -425,124 +425,132 @@ pub(crate) async fn add_source(
         || crate::services::notion_service::NotionService::parse_notion_url(url).is_ok();
 
     // 获取源信息
-    let (name, description, icon, site_url, feed_type, extra_config) = if source_type
-        == brew_sources::SourceType::Link
-    {
-        // 纯链接类型不需要解析，直接添加
-        (
-            req.name.unwrap_or_else(|| url.to_string()),
-            None,
-            None,
-            Some(url.to_string()),
-            brew_sources::FeedType::Rss,
-            None,
-        )
-    } else if is_notion {
-        // Notion 类型需要 token
-        let extra_config = req.extra_config.clone();
-        let token = extra_config
-            .as_ref()
-            .and_then(|config| config.get("token"))
-            .and_then(|token| token.as_str())
-            .map(str::trim)
-            .filter(|token| !token.is_empty());
-        let Some(token) = token else {
-            return Err(HttpError::from((
-                StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "success": false,
-                    "error": "Notion source requires extra_config with token"
-                })),
-            )));
-        };
-
-        // 尝试验证 Notion 源
-        let notion_service = crate::services::notion_service::NotionService::new();
-
-        // 解析 Notion URL
-        let (resource_type, resource_id) =
-            match crate::services::notion_service::NotionService::parse_notion_url(url) {
-                Ok(r) => r,
-                Err(e) => {
-                    return Err(HttpError::from((
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({ "success": false, "error": e.to_string() })),
-                    )));
-                }
-            };
-
-        let config = crate::services::notion_service::NotionConfig {
-            token: token.to_string(),
-            resource_id,
-            resource_type,
-            filter: extra_config.as_ref().and_then(|c| c.get("filter").cloned()),
-            sort: extra_config.as_ref().and_then(|c| c.get("sort").cloned()),
-        };
-
-        // 尝试获取 Notion 信息
-        match notion_service.fetch(&config).await {
-            Ok(feed) => (
-                req.name.unwrap_or(feed.title),
-                feed.description,
-                feed.icon,
-                feed.site_url,
-                brew_sources::FeedType::Notion,
-                extra_config,
-            ),
-            Err(e) => {
+    let (name, description, icon, site_url, feed_type, extra_config) =
+        if source_type == brew_sources::SourceType::Link {
+            // 纯链接类型不需要解析，直接添加
+            (
+                req.name.unwrap_or_else(|| url.to_string()),
+                None,
+                None,
+                Some(url.to_string()),
+                brew_sources::FeedType::Rss,
+                None,
+            )
+        } else if is_notion {
+            // Notion 类型需要 token
+            let extra_config = req.extra_config.clone();
+            let token = extra_config
+                .as_ref()
+                .and_then(|config| config.get("token"))
+                .and_then(|token| token.as_str())
+                .map(str::trim)
+                .filter(|token| !token.is_empty());
+            let Some(token) = token else {
                 return Err(HttpError::from((
                     StatusCode::BAD_REQUEST,
                     Json(json!({
                         "success": false,
-                        "error": format!("Failed to fetch Notion: {}", e)
+                        "error": "Notion source requires extra_config with token"
                     })),
                 )));
-            }
-        }
-    } else {
-        // 标准 RSS/Atom/JSON Feed 或 RSSHub
-        // 检查是否是 RSSHub 类型（由前端传入）
-        let is_rsshub = req.feed_type.as_deref() == Some("rsshub");
+            };
 
-        let parser = FeedParser::new();
-        match parser.fetch_and_parse(url).await {
-            Ok(feed) => {
-                // 如果前端指定了 rsshub，使用 rsshub 类型，否则使用解析器返回的类型
-                let final_feed_type = if is_rsshub {
-                    brew_sources::FeedType::RssHub
-                } else {
-                    feed.feed_type
+            // 尝试验证 Notion 源
+            let notion_service = crate::services::notion_service::NotionService::new();
+
+            // 解析 Notion URL
+            let (resource_type, resource_id) =
+                match crate::services::notion_service::NotionService::parse_notion_url(url) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::warn!("Invalid Notion URL: {e}");
+                        return Err(HttpError::from((
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({
+                                "success": false,
+                                "error": "Invalid Notion URL",
+                                "code": "notion_url_invalid",
+                            })),
+                        )));
+                    }
                 };
-                (
+
+            let config = crate::services::notion_service::NotionConfig {
+                token: token.to_string(),
+                resource_id,
+                resource_type,
+                filter: extra_config.as_ref().and_then(|c| c.get("filter").cloned()),
+                sort: extra_config.as_ref().and_then(|c| c.get("sort").cloned()),
+            };
+
+            // 尝试获取 Notion 信息
+            match notion_service.fetch(&config).await {
+                Ok(feed) => (
                     req.name.unwrap_or(feed.title),
                     feed.description,
                     feed.icon,
                     feed.site_url,
-                    final_feed_type,
-                    None,
-                )
-            }
-            Err(e) => {
-                // 即使解析失败也允许添加，使用用户提供的名称
-                if req.name.is_none() {
+                    brew_sources::FeedType::Notion,
+                    extra_config,
+                ),
+                Err(e) => {
+                    tracing::warn!("Failed to fetch Notion source: {e}");
                     return Err(HttpError::from((
                         StatusCode::BAD_REQUEST,
                         Json(json!({
                             "success": false,
-                            "error": format!("Failed to parse feed: {}. Please provide a name.", e)
+                            "error": "Failed to fetch Notion",
+                            "code": "notion_fetch_failed"
                         })),
                     )));
                 }
-                // 如果前端指定了 rsshub，使用 rsshub 类型
-                let final_feed_type = if is_rsshub {
-                    brew_sources::FeedType::RssHub
-                } else {
-                    brew_sources::FeedType::Rss
-                };
-                (req.name.unwrap(), None, None, None, final_feed_type, None)
             }
-        }
-    };
+        } else {
+            // 标准 RSS/Atom/JSON Feed 或 RSSHub
+            // 检查是否是 RSSHub 类型（由前端传入）
+            let is_rsshub = req.feed_type.as_deref() == Some("rsshub");
+
+            let parser = FeedParser::new();
+            match parser.fetch_and_parse(url).await {
+                Ok(feed) => {
+                    // 如果前端指定了 rsshub，使用 rsshub 类型，否则使用解析器返回的类型
+                    let final_feed_type = if is_rsshub {
+                        brew_sources::FeedType::RssHub
+                    } else {
+                        feed.feed_type
+                    };
+                    (
+                        req.name.unwrap_or(feed.title),
+                        feed.description,
+                        feed.icon,
+                        feed.site_url,
+                        final_feed_type,
+                        None,
+                    )
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse feed: {e}");
+                    // 即使解析失败也允许添加，使用用户提供的名称
+                    if req.name.is_none() {
+                        return Err(HttpError::from((
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({
+                                "success": false,
+                                "error": "Failed to parse feed. Please provide a name.",
+                                "code": "feed_parse_failed"
+                            })),
+                        )));
+                    }
+                    // 如果前端指定了 rsshub，使用 rsshub 类型
+                    let final_feed_type = if is_rsshub {
+                        brew_sources::FeedType::RssHub
+                    } else {
+                        brew_sources::FeedType::Rss
+                    };
+                    (req.name.unwrap(), None, None, None, final_feed_type, None)
+                }
+            }
+        };
 
     let now = Utc::now();
 
@@ -958,11 +966,13 @@ pub(crate) async fn discover_source(
         }
     }
 
+    tracing::warn!("Unable to discover RSS/Atom feed: {direct_error}");
     Err(HttpError::from((
         StatusCode::BAD_REQUEST,
         Json(json!({
             "success": false,
-            "error": format!("Unable to discover RSS/Atom feed: {}", direct_error)
+            "error": "Unable to discover RSS/Atom feed",
+            "code": "feed_discover_failed"
         })),
     )))
 }

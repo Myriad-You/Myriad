@@ -113,7 +113,7 @@ impl PreparedTappPackageHttp for PreparedTappPackage {
                         log_write_failure(self, "write_manifest", context, &manifest_path, &error);
                         (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            api_error(format!("Failed to save manifest: {error}")),
+                            api_error("Failed to save manifest"),
                         )
                     })?;
             }
@@ -128,7 +128,7 @@ impl PreparedTappPackageHttp for PreparedTappPackage {
             log_write_failure(self, "write_install_generation", context, tapp_dir, &error);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error(format!("Failed to save install state: {error}")),
+                api_error("Failed to save install state"),
             )
         })?;
         validate_installed_resources(&self.manifest, tapp_dir)
@@ -342,7 +342,7 @@ async fn write_text(
             );
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error(format!("Failed to save {label}: {error}")),
+                api_error("Failed to save package files"),
             )
         })
 }
@@ -392,14 +392,14 @@ async fn extract_archive(
             );
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error(format!("Failed to save files: {error}")),
+                api_error("Failed to save files"),
             ))
         }
         Err(error) => {
             log_write_failure(package, "extract_join", context, tapp_dir.as_path(), &error);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                api_error(format!("Failed to extract files: {error}")),
+                api_error("Failed to extract files"),
             ))
         }
     }

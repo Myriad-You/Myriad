@@ -34,7 +34,9 @@ pub async fn list_presets(
             tracing::error!("[Agent Presets] Failed to fetch favorites: {}", e);
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to fetch favorites" })),
+                Json(
+                    json!({ "error": "Failed to fetch favorites", "code": "preset_fetch_failed" }),
+                ),
             ))
         })?
         .into_iter()
@@ -46,7 +48,7 @@ pub async fn list_presets(
             tracing::error!("[Agent Presets] Failed to fetch history: {}", e);
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to fetch history" })),
+                Json(json!({ "error": "Failed to fetch history", "code": "preset_fetch_failed" })),
             ))
         })?
         .into_iter()
@@ -79,7 +81,7 @@ pub async fn create_preset(
         if title.len() > 200 {
             return Err(HttpError::from((
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "标题过长，最大 200 字符" })),
+                Json(json!({ "error": "Title is too long", "code": "preset_title_too_long" })),
             )));
         }
     }
@@ -87,7 +89,7 @@ pub async fn create_preset(
         if summary.len() > 500 {
             return Err(HttpError::from((
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "摘要过长，最大 500 字符" })),
+                Json(json!({ "error": "Summary is too long", "code": "preset_summary_too_long" })),
             )));
         }
     }
@@ -96,7 +98,9 @@ pub async fn create_preset(
         if steps_size > 102_400 {
             return Err(HttpError::from((
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "解析步骤数据过大，最大 100KB" })),
+                Json(
+                    json!({ "error": "Parsed steps are too large", "code": "preset_steps_too_large" }),
+                ),
             )));
         }
     }
@@ -104,7 +108,9 @@ pub async fn create_preset(
         if conv.len() > MAX_HISTORY_ITEMS {
             return Err(HttpError::from((
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("对话历史过长，最大 {} 条", MAX_HISTORY_ITEMS) })),
+                Json(
+                    json!({ "error": "Conversation history is too long", "code": "preset_history_too_long" }),
+                ),
             )));
         }
     }
@@ -121,7 +127,7 @@ pub async fn create_preset(
             tracing::error!("[Agent Presets] Failed to check existing preset: {}", e);
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
+                Json(json!({ "error": "Database error", "code": "database_error" })),
             ))
         })?;
 
@@ -155,7 +161,7 @@ pub async fn create_preset(
             tracing::error!("[Agent Presets] Failed to update preset: {}", e);
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to update preset" })),
+                Json(json!({ "error": "Failed to update preset", "code": "preset_update_failed" })),
             ))
         })?;
 
@@ -180,12 +186,12 @@ pub async fn create_preset(
     };
 
     let created = new_preset.insert(&db).await.map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to create preset: {}", e);
-            HttpError::from((
+        tracing::error!("[Agent Presets] Failed to create preset: {}", e);
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Failed to create preset" })),
+            Json(json!({ "error": "Failed to create preset", "code": "preset_update_failed" })),
         ))
-        })?;
+    })?;
 
     // 如果是历史记录，清理超过 20 条的旧记录
     if req.preset_type == "history" {
@@ -253,14 +259,16 @@ pub async fn delete_preset(
             tracing::error!("[Agent Presets] Failed to find preset: {}", e);
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
+                Json(json!({ "error": "Database error", "code": "database_error" })),
             ))
         })?;
 
-    let preset = preset.ok_or_else(|| HttpError::from((
+    let preset = preset.ok_or_else(|| {
+        HttpError::from((
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "Preset not found" })),
-        )))?;
+        ))
+    })?;
 
     // 只允许删除历史类型的预设，收藏类型需要先取消收藏
     if preset.preset_type == "favorite" {
@@ -277,7 +285,7 @@ pub async fn delete_preset(
             tracing::error!("[Agent Presets] Failed to delete preset: {}", e);
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to delete preset" })),
+                Json(json!({ "error": "Failed to delete preset", "code": "preset_update_failed" })),
             ))
         })?;
 
@@ -302,13 +310,15 @@ pub async fn toggle_favorite(
             tracing::error!("[Agent Presets] Failed to find preset: {}", e);
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
+                Json(json!({ "error": "Database error", "code": "database_error" })),
             ))
         })?
-        .ok_or_else(|| HttpError::from((
+        .ok_or_else(|| {
+            HttpError::from((
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "Preset not found" })),
-            )))?;
+            ))
+        })?;
 
     // 切换类型
     let new_type = if preset.preset_type == "favorite" {
@@ -321,12 +331,12 @@ pub async fn toggle_favorite(
     active_model.preset_type = Set(new_type.to_string());
 
     let updated = active_model.update(&db).await.map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to toggle favorite: {}", e);
-            HttpError::from((
+        tracing::error!("[Agent Presets] Failed to toggle favorite: {}", e);
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Failed to toggle favorite" })),
+            Json(json!({ "error": "Failed to toggle favorite", "code": "preset_update_failed" })),
         ))
-        })?;
+    })?;
 
     Ok(Json(TaskPresetResponse::from(updated)))
 }
@@ -351,13 +361,15 @@ pub async fn use_preset(
             tracing::error!("[Agent Presets] Failed to find preset: {}", e);
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
+                Json(json!({ "error": "Database error", "code": "database_error" })),
             ))
         })?
-        .ok_or_else(|| HttpError::from((
+        .ok_or_else(|| {
+            HttpError::from((
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "Preset not found" })),
-            )))?;
+            ))
+        })?;
 
     let new_use_count = preset.use_count + 1;
     let mut active_model: agent_task_presets::ActiveModel = preset.into();
@@ -365,12 +377,12 @@ pub async fn use_preset(
     active_model.use_count = Set(new_use_count);
 
     let updated = active_model.update(&db).await.map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to update use time: {}", e);
-            HttpError::from((
+        tracing::error!("[Agent Presets] Failed to update use time: {}", e);
+        HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Failed to update preset" })),
+            Json(json!({ "error": "Failed to update preset", "code": "preset_update_failed" })),
         ))
-        })?;
+    })?;
 
     Ok(Json(TaskPresetResponse::from(updated)))
 }
@@ -395,23 +407,27 @@ pub async fn execute_preset(
             tracing::error!("[Agent Presets] Failed to find preset: {}", e);
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
+                Json(json!({ "error": "Database error", "code": "database_error" })),
             ))
         })?
-        .ok_or_else(|| HttpError::from((
+        .ok_or_else(|| {
+            HttpError::from((
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "Preset not found" })),
-            )))?;
+            ))
+        })?;
 
     // 检查是否有保存的 recipe
     let mut recipe: crate::services::agent::types::Recipe = preset
         .parsed_steps
         .as_ref()
         .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .ok_or_else(|| HttpError::from((
+        .ok_or_else(|| {
+            HttpError::from((
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "Preset has no saved recipe, please run the task first" })),
-            )))?;
+            ))
+        })?;
 
     // 重要：清除保存的 page_context，让步骤重新执行获取最新数据
     // 这确保 "获取最新文章 → AI总结" 这样的流程会获取当时的最新内容
@@ -514,5 +530,3 @@ pub async fn execute_preset(
 
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
-
-

@@ -3,6 +3,8 @@
  * 防止 XSS、SQL 注入等攻击
  */
 
+import { currentCopy } from '../i18n/localeCopy'
+
 /**
  * HTML 实体编码
  */
@@ -66,9 +68,10 @@ export function checkPasswordStrength(password: string): PasswordStrength {
   const feedback: string[] = []
   let score = 0
 
+  const t = currentCopy().errors
   // 长度检查
   if (password.length < 8) {
-    feedback.push('密码至少需要8个字符')
+    feedback.push(t.passwordMinLength)
     return { isValid: false, score: 0, feedback }
   }
   if (password.length >= 12) score++
@@ -81,15 +84,15 @@ export function checkPasswordStrength(password: string): PasswordStrength {
   if (/[^a-z0-9]/i.test(password)) score++
 
   // 反馈
-  if (!/[a-z]/.test(password)) feedback.push('建议包含小写字母')
-  if (!/[A-Z]/.test(password)) feedback.push('建议包含大写字母')
-  if (!/\d/.test(password)) feedback.push('建议包含数字')
-  if (!/[^a-z0-9]/i.test(password)) feedback.push('建议包含特殊字符')
+  if (!/[a-z]/.test(password)) feedback.push(t.passwordNeedLower)
+  if (!/[A-Z]/.test(password)) feedback.push(t.passwordNeedUpper)
+  if (!/\d/.test(password)) feedback.push(t.passwordNeedDigit)
+  if (!/[^a-z0-9]/i.test(password)) feedback.push(t.passwordNeedSpecial)
 
   // 常见弱密码检查
   const commonPasswords = ['password', '12345678', 'qwerty', 'admin', 'letmein']
   if (commonPasswords.some((weak) => password.toLowerCase().includes(weak))) {
-    feedback.push('密码过于常见，请使用更复杂的密码')
+    feedback.push(t.passwordTooCommon)
     score = Math.max(0, score - 2)
   }
 

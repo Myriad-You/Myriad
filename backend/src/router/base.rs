@@ -33,7 +33,8 @@ pub(super) fn build_config_mode_router() -> Router {
         )
         .route(
             "/api/setup/create-admin",
-            post(api::auth_local::create_admin).route_layer(from_fn(require_installation_capability)),
+            post(api::auth_local::create_admin)
+                .route_layer(from_fn(require_installation_capability)),
         )
         // system status stays public for operators during setup
         .route("/api/system/status", get(api::system::system_status))
@@ -72,7 +73,8 @@ pub(super) fn build_base_api_router(
         )
         .route(
             "/api/setup/create-admin",
-            post(api::auth_local::create_admin).route_layer(from_fn(require_installation_capability)),
+            post(api::auth_local::create_admin)
+                .route_layer(from_fn(require_installation_capability)),
         )
         // System management routes
         // P2: system/status 暴露了一些系统信息，但为了监控保持公开（考虑移除敏感字段）

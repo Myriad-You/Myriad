@@ -745,7 +745,7 @@ html.dark .glass:where(:not(.glass-elev-free)) {
   box-shadow: var(--surface-shadow) !important;
 }
 
-/* 内容密集的 chrome（控制面板信息岛 / Arael 面板 / 对话框）原生为 90%+ 不透明底，
+/* 内容密集的 chrome（控制面板信息岛 / Agent 面板 / 对话框）原生为 90%+ 不透明底，
    流体的高透底会压穿其可读性——升回 90% 不透明，噪点/高光/滤镜自动保留。
    ⚠️ 必须连 --surface-bg 一起在元素上重新声明：自定义属性里的 var()
    在「声明处」（根）即被替换烘焙后才继承，元素级只改 --surface-tint

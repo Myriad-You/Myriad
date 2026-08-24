@@ -6,7 +6,6 @@ use std::cmp::Reverse;
 use super::helpers::*;
 
 impl SmartFilter {
-
     pub(crate) fn filter_mal(data: &Value) -> Result<SmartFilteredData, String> {
         let user = data.get("user");
         let anime_list = data

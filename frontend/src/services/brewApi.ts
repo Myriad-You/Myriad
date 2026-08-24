@@ -16,11 +16,27 @@ import type {
   UpdateSourceRequest,
 } from '../types/brew'
 import { API_URL } from '../config'
+import { ApiError, parseApiErrorBody } from './api'
 import { getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
+import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
 import { requestCache } from '../utils/requestCache'
 
 const API_BASE = `${API_URL}/api/brew`
+
+function brewHttpError(status: number, data: unknown): ApiError {
+  const parsed = parseApiErrorBody(data, status)
+  const message = isUselessErrorText(parsed.message)
+    ? httpStatusMessage(status)
+    : parsed.message
+  return new ApiError(
+    message,
+    status,
+    parsed.code,
+    parsed.details,
+    parsed.hint,
+  )
+}
 
 // 缓存 TTL 配置（毫秒）
 const CACHE_TTL = {
@@ -84,13 +100,13 @@ async function request<T>(
           })
           const retryData = await retryResponse.json()
           if (!retryResponse.ok) {
-            throw new Error(retryData.error || `HTTP ${retryResponse.status}`)
+            throw brewHttpError(retryResponse.status, retryData)
           }
           return retryData
         }
       }
     }
-    throw new Error(data.error || `HTTP ${response.status}`)
+    throw brewHttpError(response.status, data)
   }
 
   return data

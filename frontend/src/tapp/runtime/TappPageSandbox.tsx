@@ -220,6 +220,7 @@ function generatePageHTML(
   safeInsets?: SafeInsets,
   launchParams?: Record<string, string>,
   runtimeScripts?: string,
+  renderFailed = 'Error',
 ): string {
   const { manifest } = tappInstance
   const isDark = getIsDarkMode()
@@ -384,7 +385,7 @@ function generatePageHTML(
           console.error('[Page] Render error:', error);
           Tapp.lifecycle._notifyError(error);
           document.getElementById('tapp-content').innerHTML =
-            '<div class="tapp-empty tapp-text-error">Page Error: ' + error.message + '</div>';
+            '<div class="tapp-empty tapp-text-error">' + ${serializeSandboxScriptValue(renderFailed)} + '</div>';
         }
       }, 50);
     })();
@@ -428,7 +429,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
   }, [previewMode])
 
   const { containerRef, dimensions } = useIframeResize<HTMLDivElement>()
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const animationConfig = useAnimationLevel()
 
   // 使用 ref 存储对象引用，避免依赖变化触发 iframe 重建
@@ -887,6 +888,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
             runtimeScripts
               ? escapeSandboxScriptSource(runtimeScripts)
               : undefined,
+            t.tapp.cannotLoadApp,
           )
       if (cancelled) return
 
@@ -930,6 +932,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     headless,
     previewMode,
     subjectEpoch,
+    t.tapp.cannotLoadApp,
   ])
 
   // When already open (Aro etc.), React Router query changes must refresh

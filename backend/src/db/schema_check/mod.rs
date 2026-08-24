@@ -4,7 +4,7 @@
 //!
 //! | Path | Role |
 //! |------|------|
-//! | `migrations` (Migrator 001–013, including immutable retired-name no-ops) | **Greenfield SoT** — CREATE tables for new installs and preserve published history |
+//! | `migrations` (Migrator 001–006 + 016; folded 007–015 names purged from `seaql_migrations` before up) | **Greenfield SoT** — CREATE tables for new installs |
 //! | `schema_check` (`ensure_schema`) | **Runtime heals** — missing columns/indexes (generic), platform seeds, single owner, recent-feature CREATE / structural heals |
 //!
 //! Boot (`main`) and setup (`init_database`) both run Migrator then `ensure_schema`.
@@ -21,7 +21,6 @@ mod introspect;
 mod orchestrator;
 mod seeds;
 mod tables_agent;
-mod tables_agent_life;
 mod tables_analytics;
 mod tables_brew;
 mod tables_core;

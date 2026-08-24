@@ -221,9 +221,9 @@ pub(crate) async fn spawn_restored_wait_loop(
                         task.status == crate::services::agent::types::TaskStatus::Completed;
                     let message = task.error.clone().unwrap_or_else(|| {
                         if task_success {
-                            "任务已完成".into()
+                            "The task finished".into()
                         } else {
-                            "任务未完成".into()
+                            "Processing failed".into()
                         }
                     });
                     (
@@ -252,5 +252,3 @@ pub(crate) async fn spawn_restored_wait_loop(
         }
     }
 }
-
-

@@ -9,7 +9,9 @@
  */
 
 import type { TappAPIResponse } from '../types'
+import { currentCopy } from '../../i18n/localeCopy'
 import { getCSRFToken } from '../../utils/csrf'
+import { httpStatusMessage, userFacingError } from '../../utils/userFacingError'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 
 // 类型定义
@@ -452,7 +454,7 @@ export class TappScheduler {
         this.reportTaskComplete(
           event.executionId,
           false,
-          error instanceof Error ? error.message : 'Unknown error',
+          userFacingError(error),
         )
       }
     } else {
@@ -560,7 +562,7 @@ export class TappScheduler {
     )
 
     if (!response.success) {
-      throw new Error('Failed to register task')
+      throw new Error(currentCopy().errors.operationFailed)
     }
 
     return response.task
@@ -734,7 +736,7 @@ export class TappScheduler {
     if (!response.ok) {
       const error = await response
         .json()
-        .catch(() => ({ error: 'Request failed' }))
+        .catch(() => ({ error: currentCopy().errors.requestFailed }))
       if (
         response.status === 401 &&
         retryOnRuntimeGrant &&
@@ -748,7 +750,7 @@ export class TappScheduler {
           return this.apiRequest(method, endpoint, body, replacement, false)
         }
       }
-      throw new Error(error.error || `HTTP ${response.status}`)
+      throw new Error(error.error || httpStatusMessage(response.status))
     }
 
     return response.json()

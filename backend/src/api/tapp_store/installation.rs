@@ -439,6 +439,7 @@ async fn install_prepared_package(
         }),
         granted_permissions: Set(persist.granted_permissions),
         approved_permissions: Set(persist.approved_permissions),
+        needs_reauthorization: Set(persist.needs_reauthorization),
         file_path: Set(persist.file_path),
         code_path: Set(persist.code_path),
         installed_at: Set(persist.installed_at),
@@ -832,6 +833,9 @@ pub(super) async fn update_tapp(
     active.manifest = Set(persist.manifest);
     active.granted_permissions = Set(persist.granted_permissions);
     active.approved_permissions = Set(persist.approved_permissions);
+    // A successful update is an explicit re-authorization: the
+    // permission filter above already failed closed on unknown names.
+    active.needs_reauthorization = Set(persist.needs_reauthorization);
     active.code_path = Set(persist.code_path);
     active.updated_at = Set(persist.updated_at);
 

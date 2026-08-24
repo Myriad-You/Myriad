@@ -9,6 +9,7 @@ import type { LibrarySourcePreferences } from '../ModuleConfigSection'
 import type { PermissionConfigValues } from '../PermissionsConfigSection'
 import type { Config, ConfigField, ShowMessage } from './types'
 import { useCallback } from 'react'
+import { userFacingError } from '../../../utils/userFacingError'
 import {
   fetchConfig,
   updateConfig,
@@ -81,8 +82,8 @@ interface ResetI18n {
   configReset: string
   librarySourceSaveFailed: string
   permissionsSaveFailed: string
-  resetCurrentPageNone?: string
-  resetCurrentPageDone?: string
+  resetCurrentPageNone: string
+  resetCurrentPageDone: string
 }
 
 export function useConfigReset(args: {
@@ -210,7 +211,7 @@ export function useConfigReset(args: {
         }),
       )
     } catch (error) {
-      const errorMsg = `${t.config.resetFailed}${error instanceof Error ? error.message : t.errors.unknown}`
+      const errorMsg = `${t.config.resetFailed}${userFacingError(error, t.errors.unknown)}`
       showMessage(errorMsg, 'error', 0)
       window.dispatchEvent(
         new CustomEvent('config-reset-result', {
@@ -439,18 +440,18 @@ export function useConfigReset(args: {
           cloneNotificationPreferences(normalized),
         )
       } else {
-        showMessage(t.config.resetCurrentPageNone ?? '本页无可重置选项', 'info')
+        showMessage(t.config.resetCurrentPageNone, 'info')
         return
       }
 
       notifyDirtyState(false)
       showMessage(
-        t.config.resetCurrentPageDone ?? '本页设置已重置',
+        t.config.resetCurrentPageDone,
         'success',
         3000,
       )
     } catch (error) {
-      const errorMsg = `${t.config.resetFailed}${error instanceof Error ? error.message : t.errors.unknown}`
+      const errorMsg = `${t.config.resetFailed}${userFacingError(error, t.errors.unknown)}`
       showMessage(errorMsg, 'error', 0)
     } finally {
       setSaving(false)

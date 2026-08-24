@@ -461,7 +461,7 @@ REST 商店安装仍是 body `source: "store"` + `storeSource: catalogRef`（源
 
 ### 开发者流程（官方源）
 
-1. 用 `@myriad/tapp-cli` 初始化、`check`、可选 `pack`（见 [QUICKSTART](QUICKSTART.md)）。
+1. 用 `@myriad-you/tapp-cli` 初始化、`check`、可选 `pack`（见 [QUICKSTART](QUICKSTART.md)）。
 2. 确认 `manifest.json`：`category`（稳定 ID）、`permissions`、`main`、模板/CSS/assets；**semver `version`**。
 3. 在商店仓库 **只改一个** `apps/{id}/`；**不要手改** 根 `index.json`。
 4. 可选：`apps/{id}/catalog.json` 写商店展示字段（`long_description` / `tags` / `preview` / `featured` / `locales`…）。`locales` 里的长介绍与预览由索引同步合并进 `index.json`；不要手改根索引。

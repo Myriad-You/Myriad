@@ -109,6 +109,13 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
             )),
         )
         .route(
+            "/persona/import",
+            axum::routing::post(super::persona::import_persona).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
             "/persona/name",
             axum::routing::post(super::persona::suggest_name).route_layer(from_fn_with_state(
                 app_state.clone(),

@@ -77,7 +77,7 @@ pub async fn proxy_hitokoto(Query(params): Query<HitokotoQuery>) -> Response {
             tracing::error!("Failed to fetch Hitokoto: {}", e);
             return (
                 StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "Failed to fetch Hitokoto"})),
+                Json(json!({"error": "Failed to fetch Hitokoto", "code": "hitokoto_fetch_failed"})),
             )
                 .into_response();
         }
@@ -87,7 +87,7 @@ pub async fn proxy_hitokoto(Query(params): Query<HitokotoQuery>) -> Response {
         tracing::error!("Hitokoto API returned status: {}", resp.status());
         return (
             StatusCode::BAD_GATEWAY,
-            Json(json!({"error": "Hitokoto API failed"})),
+            Json(json!({"error": "Hitokoto API failed", "code": "hitokoto_fetch_failed"})),
         )
             .into_response();
     }
@@ -121,7 +121,7 @@ pub async fn proxy_hitokoto(Query(params): Query<HitokotoQuery>) -> Response {
             tracing::error!("Failed to parse Hitokoto response: {}", e);
             (
                 StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "Failed to parse Hitokoto response"})),
+                Json(json!({"error": "Failed to parse Hitokoto response", "code": "hitokoto_fetch_failed"})),
             )
                 .into_response()
         }
@@ -198,6 +198,7 @@ pub async fn fetch_web_content(Query(params): Query<FetchWebContentQuery>) -> Re
                     StatusCode::BAD_GATEWAY,
                     Json(json!({
                         "error": "Failed to fetch page",
+                        "code": "page_fetch_failed",
                         "status": resp.status().as_u16(),
                         "fallbackUrl": url
                     })),
@@ -268,6 +269,7 @@ pub async fn fetch_web_content(Query(params): Query<FetchWebContentQuery>) -> Re
                         StatusCode::BAD_GATEWAY,
                         Json(json!({
                             "error": "Failed to read page content",
+                            "code": "page_fetch_failed",
                             "fallbackUrl": url
                         })),
                     )
@@ -280,7 +282,8 @@ pub async fn fetch_web_content(Query(params): Query<FetchWebContentQuery>) -> Re
             (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({
-                    "error": format!("Failed to fetch: {}", e),
+                    "error": "Failed to fetch page",
+                    "code": "page_fetch_failed",
                     "fallbackUrl": url
                 })),
             )

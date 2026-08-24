@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Spinner } from '../../components/Spinner'
 import { useI18n } from '../../contexts/I18nContext'
+import { userFacingError } from '../../utils/userFacingError'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { usePageSeo } from '../../hooks/usePageSeo'
 import { useBreakpoints } from '../../hooks/useSharedEventListener'
@@ -68,6 +69,7 @@ export function TappRunPage() {
   const { isMobile } = useBreakpoints()
   const isMultiWindow = useTappMultiWindowSession()
   const navigate = useNavigate()
+  const { t } = useI18n()
 
   // /tapp/run?multi=true — 无 seed id
   if (!tappId) {
@@ -76,7 +78,7 @@ export function TappRunPage() {
     }
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-neutral-900">
-        <p className="text-gray-500 dark:text-gray-400">无效的 Tapp ID</p>
+        <p className="text-gray-500 dark:text-gray-400">{t.tapp.invalidId}</p>
       </div>
     )
   }
@@ -231,7 +233,7 @@ function TappRunPageStandard({
         setLoading(false)
       } catch (err) {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : t.tapp.loadAppFailed)
+        setError(userFacingError(err, t.tapp.loadAppFailed))
         setLoading(false)
       }
     }

@@ -41,10 +41,7 @@ async fn verify_admin(
 }
 
 /// 创建 Brewlia API 路由
-pub fn create_brewlia_routes(
-    _app_state: crate::state::AppState,
-) -> Router<crate::state::AppState> {
-    
+pub fn create_brewlia_routes(_app_state: crate::state::AppState) -> Router<crate::state::AppState> {
     Router::<crate::state::AppState>::new()
         // 获取文章注释（优先从数据库，不存在则生成）
         .route("/items/{item_id}/annotations", get(get_annotations))
@@ -201,7 +198,7 @@ async fn get_annotations(
             tracing::error!(error = %e, "Brewlia database error");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "Database error" })),
+                Json(json!({ "success": false, "error": "Database error", "code": "database_error" })),
             )
                 .into_response();
         }
@@ -254,7 +251,7 @@ async fn regenerate_annotations(
             tracing::error!(error = %e, "Brewlia database error");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "Database error" })),
+                Json(json!({ "success": false, "error": "Database error", "code": "database_error" })),
             )
                 .into_response();
         }
@@ -383,7 +380,7 @@ async fn generate_and_save_annotations(
                         Json(json!({
                             "success": false,
                             "error": "Failed to parse AI response",
-                            "raw_response": response
+                            "code": "ai_response_invalid"
                         })),
                     )
                         .into_response()
@@ -394,7 +391,11 @@ async fn generate_and_save_annotations(
             tracing::error!("AI annotation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": format!("AI error: {}", e) })),
+                Json(json!({
+                    "success": false,
+                    "error": "AI generation failed",
+                    "code": "ai_generation_failed",
+                })),
             )
                 .into_response()
         }
@@ -836,7 +837,7 @@ async fn get_podcast_script(
             tracing::error!(error = %e, "Brewlia database error");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "Database error" })),
+                Json(json!({ "success": false, "error": "Database error", "code": "database_error" })),
             )
                 .into_response();
         }
@@ -938,7 +939,8 @@ async fn get_podcast_script(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({
                         "success": false,
-                        "error": "Failed to parse AI response"
+                        "error": "Failed to parse AI response",
+                        "code": "ai_response_invalid"
                     })),
                 )
                     .into_response()
@@ -948,7 +950,11 @@ async fn get_podcast_script(
             tracing::error!("AI podcast generation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": format!("AI error: {}", e) })),
+                Json(json!({
+                    "success": false,
+                    "error": "AI generation failed",
+                    "code": "ai_generation_failed",
+                })),
             )
                 .into_response()
         }
@@ -981,7 +987,7 @@ async fn regenerate_podcast_script(
             tracing::error!(error = %e, "Brewlia database error");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "Database error" })),
+                Json(json!({ "success": false, "error": "Database error", "code": "database_error" })),
             )
                 .into_response();
         }
@@ -1245,7 +1251,7 @@ async fn generate_style_tags(
             tracing::error!(error = %e, "Brewlia database error");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "Database error" })),
+                Json(json!({ "success": false, "error": "Database error", "code": "database_error" })),
             )
                 .into_response();
         }
@@ -1265,7 +1271,7 @@ async fn generate_style_tags(
             tracing::error!(error = %e, "Brewlia database error");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "Database error" })),
+                Json(json!({ "success": false, "error": "Database error", "code": "database_error" })),
             )
                 .into_response();
         }
@@ -1376,6 +1382,7 @@ async fn generate_style_tags(
                     Json(json!({
                         "success": false,
                         "error": "Failed to parse AI response",
+                        "code": "ai_response_invalid",
                         "raw_response": response
                     })),
                 )
@@ -1386,7 +1393,11 @@ async fn generate_style_tags(
             tracing::error!("AI style tags generation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": format!("AI error: {}", e) })),
+                Json(json!({
+                    "success": false,
+                    "error": "AI generation failed",
+                    "code": "ai_generation_failed",
+                })),
             )
                 .into_response()
         }

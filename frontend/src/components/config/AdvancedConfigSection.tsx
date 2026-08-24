@@ -19,6 +19,7 @@ import {
 } from '../../lib/api'
 
 import { getCSRFToken } from '../../utils/csrf'
+import { userFacingError } from '../../utils/userFacingError'
 import { purgeFrontendCachesAndReload } from '../../utils/frontendCachePurge'
 import {
   ButtonItem,
@@ -281,7 +282,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     } catch (error) {
       console.error('Export failed:', error)
       onMessage?.(
-        `${t.config.exportConfigFailed}: ${error instanceof Error ? error.message : ''}`,
+        userFacingError(error, t.config.exportConfigFailed),
         'error',
       )
     }
@@ -349,7 +350,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     } catch (error) {
       console.error('Import failed:', error)
       onMessage?.(
-        `${t.config.importConfigFailed}: ${error instanceof Error ? error.message : ''}`,
+        userFacingError(error, t.config.importConfigFailed),
         'error',
       )
     } finally {
@@ -390,7 +391,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     } catch (error) {
       console.error('Frontend cache purge failed:', error)
       onMessage?.(
-        `${t.config.forceRefreshFrontendCacheFailed}: ${error instanceof Error ? error.message : ''}`,
+        userFacingError(error, t.config.forceRefreshFrontendCacheFailed),
         'error',
       )
       setCachePurgeLoading(false)
@@ -458,7 +459,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
           label={t.config.proxyUrl}
           value={getUiFieldValue('proxy_url')}
           onChange={(v) => updateUiFieldValue('proxy_url', v)}
-          placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080"
+          placeholder={t.config.proxyUrlPlaceholder}
           hint={
             isProxyEnabled
               ? t.config.proxyUrlHint

@@ -7,7 +7,7 @@ import type { NotificationSourceKey } from '../services/notificationPreferencesA
  * iOS 通知中心模型：无已读概念，通知堆积直到被清除。
  * 页头为问候语 + 日期，右侧清理按钮先展示 X 图标，
  * 点击后变为文本二次确认（3 秒未确认自动还原）。
- * 点击通知直接跳转对应内容（任务类 → Arael 会话），无落点时展开详情。
+ * 点击通知直接跳转对应内容（任务类 → Agent 会话），无落点时展开详情。
  * 联邦邀请类通知可从 metadata.actions 一键 Accept / Reject。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -15,6 +15,11 @@ import { useI18n } from '../contexts/I18nContext'
 import { federationApi } from '../services/federationApi'
 import { notificationSourceFor } from '../services/notificationDelivery'
 import { getGreeting } from '../utils/dynamicContent'
+import {
+  notificationFacingBody,
+  notificationFacingTitle,
+} from '../utils/notificationFacing'
+import { userFacingError } from '../utils/userFacingError'
 import { NotificationSourceIcon } from './notifications/NotificationIcons'
 
 /** metadata.actions 单项（后端 notify 写入） */
@@ -96,7 +101,7 @@ type NotifTarget =
   | { kind: 'arael_manage'; tab?: 'heartbeat' | 'skills' | 'memory' }
   | null
 
-/** 解析点击落点：任务类通知带 session_id 时跳回对应 Arael 会话（可带 run/task 以 reattach） */
+/** 解析点击落点：任务类通知带 session_id 时跳回对应 Agent 会话（可带 run/task 以 reattach） */
 function resolveTarget(n: AppNotification): NotifTarget {
   if (n.metadata?.action === 'open_arael') {
     const sid =
@@ -142,14 +147,14 @@ interface Props {
   center: NotificationCenterState
   /** 填满父容器高度（覆盖层模式：继承控制面板高度，列表内部滚动） */
   fill?: boolean
-  /** 打开 Arael 会话（由 GlobalControlPanel 注入：收起面板 + 派发打开事件） */
+  /** 打开 Agent 会话（由 GlobalControlPanel 注入：收起面板 + 派发打开事件） */
   onOpenSession?: (
     sessionId: string,
     opts?: { runId?: string; taskId?: string },
   ) => void
   /** 打开普通应用路由（如 Brew 新内容） */
   onNavigate?: (path: string) => void
-  /** 打开 Arael 管理面板（Heartbeat / Skills 通知；可选初始 tab） */
+  /** 打开 Agent 管理面板（Heartbeat / Skills 通知；可选初始 tab） */
   onOpenAraelManage?: (tab?: 'heartbeat' | 'skills' | 'memory') => void
   /** 当前用户是否允许浏览器系统通知。 */
   browserNotificationsEnabled?: boolean
@@ -264,8 +269,9 @@ function NotificationPanelList({
           }
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Action failed'
-        setActionError(msg)
+        setActionError(
+          userFacingError(err, t.errors.notificationActionFailed),
+        )
       } finally {
         setActionBusyId(null)
       }
@@ -416,14 +422,14 @@ function NotificationPanelList({
                   </div>
 
                   <div className="mt-0.5 truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
-                    {n.title}
+                    {notificationFacingTitle(n)}
                   </div>
                   <p
                     className={`mt-0.5 text-xs text-gray-500 dark:text-gray-400 whitespace-pre-wrap break-words ${
                       expandedId === n.id ? '' : 'line-clamp-2'
                     }`}
                   >
-                    {n.body}
+                    {notificationFacingBody(n)}
                   </p>
                   {typeof n.metadata?.progress === 'number' &&
                     (n.notification_type === 'task_progress' ||
@@ -465,12 +471,11 @@ function NotificationPanelList({
                           >
                             {busy
                               ? '…'
-                              : act.label ||
-                                (isAccept
-                                  ? t.common?.confirm || 'Accept'
-                                  : isReject
-                                    ? t.common?.cancel || 'Decline'
-                                    : act.id)}
+                              : isAccept
+                                ? t.common?.confirm || 'Accept'
+                                : isReject
+                                  ? t.common?.cancel || 'Decline'
+                                  : act.label || act.id}
                           </button>
                         )
                       })}

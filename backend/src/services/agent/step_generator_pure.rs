@@ -24,7 +24,9 @@ pub const GENERATED_STEP_TIMEOUT_MS: u64 = 30_000;
 
 /// Whether all `depends_on` step ids exist in previous outputs.
 pub fn check_dependencies(step: &RecipeStep, outputs: &HashMap<String, Value>) -> bool {
-    step.depends_on.iter().all(|dep_id| outputs.contains_key(dep_id))
+    step.depends_on
+        .iter()
+        .all(|dep_id| outputs.contains_key(dep_id))
 }
 
 /// Parsed condition operator.
@@ -44,22 +46,46 @@ pub fn parse_condition(condition: &str) -> (String, ConditionOp, String) {
     let condition = condition.trim();
     if let Some(pos) = condition.find("!=") {
         let (p, v) = condition.split_at(pos);
-        (p.trim().to_string(), ConditionOp::Ne, v[2..].trim().to_string())
+        (
+            p.trim().to_string(),
+            ConditionOp::Ne,
+            v[2..].trim().to_string(),
+        )
     } else if let Some(pos) = condition.find("==") {
         let (p, v) = condition.split_at(pos);
-        (p.trim().to_string(), ConditionOp::Eq, v[2..].trim().to_string())
+        (
+            p.trim().to_string(),
+            ConditionOp::Eq,
+            v[2..].trim().to_string(),
+        )
     } else if let Some(pos) = condition.find(">=") {
         let (p, v) = condition.split_at(pos);
-        (p.trim().to_string(), ConditionOp::Ge, v[2..].trim().to_string())
+        (
+            p.trim().to_string(),
+            ConditionOp::Ge,
+            v[2..].trim().to_string(),
+        )
     } else if let Some(pos) = condition.find("<=") {
         let (p, v) = condition.split_at(pos);
-        (p.trim().to_string(), ConditionOp::Le, v[2..].trim().to_string())
+        (
+            p.trim().to_string(),
+            ConditionOp::Le,
+            v[2..].trim().to_string(),
+        )
     } else if let Some(pos) = condition.find('>') {
         let (p, v) = condition.split_at(pos);
-        (p.trim().to_string(), ConditionOp::Gt, v[1..].trim().to_string())
+        (
+            p.trim().to_string(),
+            ConditionOp::Gt,
+            v[1..].trim().to_string(),
+        )
     } else if let Some(pos) = condition.find('<') {
         let (p, v) = condition.split_at(pos);
-        (p.trim().to_string(), ConditionOp::Lt, v[1..].trim().to_string())
+        (
+            p.trim().to_string(),
+            ConditionOp::Lt,
+            v[1..].trim().to_string(),
+        )
     } else {
         (condition.to_string(), ConditionOp::Truthy, String::new())
     }
@@ -212,10 +238,7 @@ pub fn extract_json_array_slice(text: &str) -> &str {
 /// Project AI JSON array items into RecipeSteps (max [`MAX_AI_GENERATED_STEPS`]).
 ///
 /// Items without `capability_id` are skipped.
-pub fn project_ai_generated_steps(
-    items: &[Value],
-    parent_step: &RecipeStep,
-) -> Vec<RecipeStep> {
+pub fn project_ai_generated_steps(items: &[Value], parent_step: &RecipeStep) -> Vec<RecipeStep> {
     items
         .iter()
         .take(MAX_AI_GENERATED_STEPS)
@@ -226,7 +249,10 @@ pub fn project_ai_generated_steps(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let cap_id = item.get("capability_id").and_then(|v| v.as_str())?.to_string();
+            let cap_id = item
+                .get("capability_id")
+                .and_then(|v| v.as_str())?
+                .to_string();
             let action = item
                 .get("action")
                 .and_then(|v| v.as_str())
@@ -351,8 +377,7 @@ mod tests {
     #[test]
     fn extract_list_prefers_items_then_data_list() {
         assert_eq!(
-            extract_list_items(&json!({ "items": [1], "data": [2] }))
-                .map(|a| a.len()),
+            extract_list_items(&json!({ "items": [1], "data": [2] })).map(|a| a.len()),
             Some(1)
         );
         assert_eq!(

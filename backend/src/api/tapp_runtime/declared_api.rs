@@ -190,8 +190,8 @@ pub async fn execute_tapp_api(
     };
 
     let settings = if caller_may_invoke {
-        let declared = tapp_declared_api::declared_settings_from_manifest(&tapp.manifest)
-            .map_err(|error| {
+        let declared = tapp_declared_api::declared_settings_from_manifest(&tapp.manifest).map_err(
+            |error| {
                 HttpError::from((
                     StatusCode::BAD_REQUEST,
                     Json(json!({
@@ -199,7 +199,8 @@ pub async fn execute_tapp_api(
                         "error": error
                     })),
                 ))
-            })?;
+            },
+        )?;
         crate::services::tapp_storage::load_declared_setting_values(
             &db,
             tapp.user_id,

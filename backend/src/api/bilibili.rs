@@ -42,7 +42,7 @@ pub async fn get_bilibili_user(
             return Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取用户信息失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }));
         }
     };
@@ -102,7 +102,7 @@ pub async fn get_bilibili_user_info(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }
@@ -133,7 +133,7 @@ pub async fn get_bilibili_favorites(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }
@@ -175,7 +175,7 @@ pub async fn get_bilibili_bangumi(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }
@@ -211,7 +211,7 @@ pub async fn get_all_bilibili_bangumi(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }

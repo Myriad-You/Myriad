@@ -1,5 +1,7 @@
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import apiService from '../services/api'
+import { httpStatusMessage } from './userFacingError'
 
 export interface QuoteData {
   text: string
@@ -170,7 +172,9 @@ export async function updateHitokotoConfig(
     config,
   )
   if (!response.success) {
-    throw new Error(response.message || 'Failed to save hitokoto config')
+    throw new Error(
+      response.message || currentCopy().errors.operationFailed,
+    )
   }
   const saved = normalizeHitokotoConfig(response.config)
   // 刚拿到权威值，直接写进缓存，省掉保存后必然发生的一次回源
@@ -269,7 +273,7 @@ export async function getRandomQuote(
       signal: AbortSignal.timeout(10000),
     })
 
-    if (!response.ok) throw new Error('Hitokoto API failed')
+    if (!response.ok) throw new Error(httpStatusMessage(response.status))
 
     const data = await response.json()
     // 部分源（如日语 meigen）返回数组，取首项

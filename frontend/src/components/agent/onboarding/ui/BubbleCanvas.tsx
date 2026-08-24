@@ -385,7 +385,7 @@ export default function BubbleCanvas({
 
   return (
     <div
-      className={`life-bubble-canvas ${pannable ? 'is-pannable' : ''}`}
+      className={`merope-bubble-canvas ${pannable ? 'is-pannable' : ''}`}
       ref={ref}
       role="group"
       aria-label={label}
@@ -401,7 +401,7 @@ export default function BubbleCanvas({
       }}
     >
       <div
-        className="life-bubble-canvas__layer"
+        className="merope-bubble-canvas__layer"
         style={{ translate: `${pan.x}px ${pan.y}px` }}
       >
         {layout.placed.map((bubble, index) => {
@@ -411,7 +411,7 @@ export default function BubbleCanvas({
             <button
               key={bubble.id}
               type="button"
-              className={`life-choice life-choice--bubble ${live.selected ? 'is-on' : ''}`}
+              className={`merope-choice merope-choice--bubble ${live.selected ? 'is-on' : ''}`}
               style={
                 {
                   '--choice-i': String(Math.min(index, 24)),
@@ -439,10 +439,10 @@ export default function BubbleCanvas({
                 onToggle(bubble.id)
               }}
             >
-              <span className="life-choice__tick" aria-hidden>
+              <span className="merope-choice__tick" aria-hidden>
                 <LuCheck />
               </span>
-              <span className="life-choice__label">{live.label}</span>
+              <span className="merope-choice__label">{live.label}</span>
             </button>
           )
         })}

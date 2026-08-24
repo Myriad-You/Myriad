@@ -1,34 +1,29 @@
 import type {
   ClothingStyle,
-  LifeGender,
+  PersonaGender,
   OnboardingHeaderChrome,
   UpperBodyVisualIdentity,
   UpperBodyVisualIdentityKey,
 } from '../onboardingTypes'
-import { LuCheck, LuEdit3, LuX } from '@lib/icons'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { agentService } from '../../../../services/agent'
 import { generationFailureMessage } from '../generationError'
 import {
-  CHARACTER_VISUAL_KEYS,
   CLOTHING_STYLE_OPTIONS,
   clothingStylePreview,
-  OUTFIT_VISUAL_KEYS,
   parseUpperBodyVisualIdentity,
-  UPPER_BODY_VISUAL_IDENTITY_LIMITS,
-  visualField,
-  withVisualField,
 } from '../onboardingTypes'
 import { ActionBar, PrimaryButton, StepBody } from '../ui/Chrome'
 import { ErrorNote } from '../ui/Feedback'
 import { Field, FieldGroup, TextArea } from '../ui/Field'
+import VisualIdentityView from '../ui/VisualIdentityView'
 
 type VisualPhase = 'setup' | 'draft'
 
 interface Props {
   identity: UpperBodyVisualIdentity | null
-  gender: LifeGender | null
+  gender: PersonaGender | null
   language: string
   clothingStyle: ClothingStyle | null
   requirements: string
@@ -56,15 +51,13 @@ export default function CharacterVisualDesignStep({
   onConfirm,
 }: Props) {
   const { t } = useI18n()
-  const o = t.life.onboarding
+  const o = t.agentPersona.onboarding
   const [phase, setPhase] = useState<VisualPhase>(() =>
     identity ? 'draft' : 'setup',
   )
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
-  const [editingField, setEditingField] =
-    useState<UpperBodyVisualIdentityKey | null>(null)
-  const [draft, setDraft] = useState('')
+  const [editing, setEditing] = useState(false)
   const generatingRef = useRef(false)
   const identityRef = useRef(identity)
   identityRef.current = identity
@@ -168,28 +161,7 @@ export default function CharacterVisualDesignStep({
     onClothingStyle(style)
   }
 
-  const startEdit = (key: UpperBodyVisualIdentityKey) => {
-    if (!identity) return
-    setEditingField(key)
-    setDraft(visualField(identity, key))
-  }
-  const cancelEdit = () => {
-    setEditingField(null)
-    setDraft('')
-  }
-  const commitEdit = () => {
-    if (!identity || !editingField) return
-    const next = draft.trim()
-    if (!next) {
-      cancelEdit()
-      return
-    }
-    onIdentity(withVisualField(identity, editingField, next))
-    setEditingField(null)
-    setDraft('')
-  }
-
-  const blocked = busy || generating || editingField !== null
+  const blocked = busy || generating || editing
 
   useLayoutEffect(() => {
     onHeaderChange({
@@ -235,13 +207,13 @@ export default function CharacterVisualDesignStep({
   ])
 
   return (
-    <section className="life-ob-visual" aria-label={o.step4Title}>
+    <section className="merope-ob-visual" aria-label={o.step4Title}>
       <StepBody>
         {phase === 'setup' ? (
           <>
             <FieldGroup label={o.clothingStyleLabel}>
               <div
-                className="life-ob-styles"
+                className="merope-ob-styles"
                 role="radiogroup"
                 aria-label={o.clothingStyleLabel}
               >
@@ -253,7 +225,7 @@ export default function CharacterVisualDesignStep({
                       type="button"
                       role="radio"
                       aria-checked={selected}
-                      className={`life-ob-styles__card${selected ? ' is-on' : ''}`}
+                      className={`merope-ob-styles__card${selected ? ' is-on' : ''}`}
                       disabled={blocked}
                       onClick={() => pickStyle(style)}
                     >
@@ -272,6 +244,7 @@ export default function CharacterVisualDesignStep({
               label={o.visualRequirements}
               optional
               optionalLabel={o.optional}
+              hint={o.visualRequirementsHint}
             >
               <TextArea
                 value={requirements}
@@ -286,101 +259,21 @@ export default function CharacterVisualDesignStep({
             </Field>
           </>
         ) : identity ? (
-          <div className="life-ob-persona-groups">
-            {(
-              [
-                [o.visualGroupCharacter, CHARACTER_VISUAL_KEYS],
-                [o.visualGroupOutfit, OUTFIT_VISUAL_KEYS],
-              ] as const
-            ).map(([title, keys]) => (
-              <section
-                key={title}
-                className="life-ob-persona-group"
-                aria-label={title}
-              >
-                <h2 className="life-ob-persona-group__title">{title}</h2>
-                <dl className="life-ob-persona-view">
-                  {keys.map((key) => {
-                    const isEditing = editingField === key
-                    return (
-                      <div
-                        key={key}
-                        className={`life-ob-persona-view__row${isEditing ? ' is-editing' : ''}`}
-                      >
-                        {isEditing ? (
-                          <div className="life-ob-persona-view__editor">
-                            <dt>{labels[key]}</dt>
-                            <TextArea
-                              rows={4}
-                              maxLength={UPPER_BODY_VISUAL_IDENTITY_LIMITS[key]}
-                              value={draft}
-                              autoFocus
-                              onChange={(event) => setDraft(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (
-                                  (event.metaKey || event.ctrlKey) &&
-                                  event.key === 'Enter'
-                                ) {
-                                  event.preventDefault()
-                                  commitEdit()
-                                }
-                                if (event.key === 'Escape') {
-                                  event.preventDefault()
-                                  cancelEdit()
-                                }
-                              }}
-                            />
-                            <div className="life-ob-persona-view__actions">
-                              <button
-                                type="button"
-                                className="life-ob-persona-view__action is-cancel"
-                                disabled={busy}
-                                title={o.cancelEdit}
-                                aria-label={o.cancelEdit}
-                                onClick={cancelEdit}
-                              >
-                                <LuX aria-hidden />
-                              </button>
-                              <button
-                                type="button"
-                                className="life-ob-persona-view__action is-save"
-                                disabled={busy}
-                                title={o.doneEditing}
-                                aria-label={o.doneEditing}
-                                onClick={commitEdit}
-                              >
-                                <LuCheck aria-hidden />
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="life-ob-persona-view__copy">
-                              <dt>{labels[key]}</dt>
-                              <dd>{visualField(identity, key)}</dd>
-                            </div>
-                            <button
-                              type="button"
-                              className="life-ob-persona-view__edit"
-                              disabled={busy || generating}
-                              title={o.editVisual}
-                              aria-label={`${o.editVisual} · ${labels[key]}`}
-                              onClick={() => startEdit(key)}
-                            >
-                              <LuEdit3 aria-hidden />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
-                </dl>
-              </section>
-            ))}
-          </div>
+          <VisualIdentityView
+            identity={identity}
+            labels={labels}
+            characterTitle={o.visualGroupCharacter}
+            outfitTitle={o.visualGroupOutfit}
+            editLabel={o.editVisual}
+            cancelLabel={o.cancelEdit}
+            saveLabel={o.doneEditing}
+            busy={busy || generating}
+            onIdentity={onIdentity}
+            onEditingChange={setEditing}
+          />
         ) : generating ? (
-          <div className="life-ob-visual__pending">
-            <span className="life-loading__orb" aria-hidden />
+          <div className="merope-ob-visual__pending">
+            <span className="merope-loading__orb" aria-hidden />
             <span>{o.visualDesignGenerating}</span>
           </div>
         ) : null}
@@ -399,7 +292,7 @@ export default function CharacterVisualDesignStep({
           }
           busy={generating || (busy && phase === 'draft')}
           disabled={
-            editingField !== null ||
+            editing ||
             !clothingStyle ||
             !gender ||
             (phase === 'draft' && (!identity || generating))

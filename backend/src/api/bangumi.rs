@@ -45,7 +45,6 @@ async fn server_bangumi_token_and_ua(
     Ok((token, ua))
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct BangumiQuery {
     pub username: Option<String>,
@@ -127,7 +126,7 @@ pub async fn get_bangumi_user(
             return Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取用户信息失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }));
         }
     };
@@ -193,7 +192,7 @@ pub async fn get_bangumi_user_info(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }
@@ -235,7 +234,7 @@ pub async fn get_bangumi_me(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }
@@ -276,7 +275,7 @@ pub async fn get_bangumi_collections(
             Ok(Json(ApiResponse {
                 success: false,
                 data: None,
-                message: format!("获取失败: {}", e),
+                message: "Failed to fetch data".to_string(),
             }))
         }
     }
@@ -292,7 +291,9 @@ mod bangumi_secret_gate_tests {
         let err = reject_query_access_token(&Some("bgm_token_xyz".into())).unwrap_err();
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
+        let body = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .expect("body");
         let v: serde_json::Value = serde_json::from_slice(&body).expect("json");
         // HttpError/AppError body uses the `error` label field (not a success flag).
         assert_eq!(v["error"], "access_token_not_allowed");

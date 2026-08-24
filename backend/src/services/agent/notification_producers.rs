@@ -69,23 +69,24 @@ impl NotificationManager {
         source_name: &str,
         error: &str,
     ) {
-        let summary = format!("{source_name} 连续抓取失败");
-        crate::services::agent::life::spawn_ingest(user_id, "brew.source_error", &summary);
-        if !crate::services::agent::life::allow_existing_notify(user_id).await {
+        let summary = format!("{source_name} feed failed repeatedly");
+        crate::services::agent::merope::spawn_ingest(user_id, "brew.source_error", &summary);
+        if !crate::services::agent::merope::allow_existing_notify(user_id).await {
             return;
         }
-        // Exactly one click target: with life on the addressee lands in the
+        // Exactly one click target: with Merope on the addressee lands in the
         // conversation, otherwise the old deep link stands. Carrying both would
         // leave `route` dead, since the panel resolves `action` first.
         let mut metadata = serde_json::json!({
             "event_key": "brew.source_error",
             "source_id": source_id,
+            "source_name": source_name,
             "status": "failed",
         });
-        if crate::services::agent::life::life_enabled().await {
+        if crate::services::agent::merope::is_enabled().await {
             metadata["action"] = serde_json::json!("open_arael");
             metadata["session_id"] = serde_json::json!(
-                crate::services::agent::life::ingest::latest_session_id_for(user_id).await
+                crate::services::agent::merope::ingest::latest_session_id_for(user_id).await
             );
         } else {
             metadata["route"] = serde_json::json!("/brew");
@@ -94,7 +95,7 @@ impl NotificationManager {
             user_id,
             NotificationType::BrewSourceError,
             NotificationPriority::High,
-            format!("{} 连续抓取失败", source_name),
+            format!("{source_name} feed failed repeatedly"),
             error,
         )
         .with_metadata(metadata);
@@ -102,9 +103,9 @@ impl NotificationManager {
     }
 
     pub async fn notify_platform_sync_error(&self, user_id: i32, platform: &str, error: &str) {
-        let summary = format!("{platform} 自动刷新失败");
-        crate::services::agent::life::spawn_ingest(user_id, "platform.sync.failed", &summary);
-        if !crate::services::agent::life::allow_existing_notify(user_id).await {
+        let summary = format!("{platform} auto-refresh failed");
+        crate::services::agent::merope::spawn_ingest(user_id, "platform.sync.failed", &summary);
+        if !crate::services::agent::merope::allow_existing_notify(user_id).await {
             return;
         }
         let mut metadata = serde_json::json!({
@@ -112,10 +113,10 @@ impl NotificationManager {
             "platform": platform,
             "status": "failed",
         });
-        if crate::services::agent::life::life_enabled().await {
+        if crate::services::agent::merope::is_enabled().await {
             metadata["action"] = serde_json::json!("open_arael");
             metadata["session_id"] = serde_json::json!(
-                crate::services::agent::life::ingest::latest_session_id_for(user_id).await
+                crate::services::agent::merope::ingest::latest_session_id_for(user_id).await
             );
         } else {
             metadata["route"] = serde_json::json!("/config?section=platforms");
@@ -124,7 +125,7 @@ impl NotificationManager {
             user_id,
             NotificationType::SystemInfo,
             NotificationPriority::High,
-            format!("{} 自动刷新失败", platform),
+            format!("{platform} auto-refresh failed"),
             error,
         )
         .with_metadata(metadata);
@@ -135,17 +136,17 @@ impl NotificationManager {
     pub async fn notify_skill_evolution(&self, skill_id: &str, action: &str, detail: &str) {
         let (title, event_key, priority) = match action {
             "pruned" => (
-                format!("技能已自动淘汰: {}", skill_id),
+                format!("Skill removed: {skill_id}"),
                 "skill.pruned",
                 NotificationPriority::Normal,
             ),
             "improved" => (
-                format!("技能已自动改进: {}", skill_id),
+                format!("Skill improved: {skill_id}"),
                 "skill.improved",
                 NotificationPriority::Low,
             ),
             other => (
-                format!("技能变更 ({}): {}", other, skill_id),
+                format!("Skill changed ({other}): {skill_id}"),
                 "skill.changed",
                 NotificationPriority::Low,
             ),
@@ -180,9 +181,9 @@ impl NotificationManager {
                     NotificationPriority::High
                 },
                 if connected {
-                    format!("MCP {} 已连接", server_id)
+                    format!("MCP {server_id} connected")
                 } else {
-                    format!("MCP {} 连接失败", server_id)
+                    format!("MCP {server_id} disconnected")
                 },
                 detail,
             )
@@ -215,7 +216,7 @@ impl NotificationManager {
             user_id,
             NotificationType::TappNotification,
             priority,
-            title.unwrap_or("Tapp 通知"),
+            title.unwrap_or("App notification"),
             message,
         )
         .with_metadata(serde_json::json!({
@@ -242,12 +243,15 @@ impl NotificationManager {
         detail: &str,
     ) {
         let (title, priority) = match status {
-            "succeeded" => ("系统更新任务已完成", NotificationPriority::Normal),
-            "failed" => ("系统更新任务失败", NotificationPriority::High),
-            "needs_manual" => ("系统更新需要人工处理", NotificationPriority::Urgent),
-            "running" => ("系统更新任务执行中", NotificationPriority::Low),
-            "unknown" => ("系统更新任务状态需确认", NotificationPriority::High),
-            _ => ("系统更新任务已提交", NotificationPriority::Low),
+            "succeeded" => ("System update finished", NotificationPriority::Normal),
+            "failed" => ("System update failed", NotificationPriority::High),
+            "needs_manual" => (
+                "System update needs attention",
+                NotificationPriority::Urgent,
+            ),
+            "running" => ("System update is running", NotificationPriority::Low),
+            "unknown" => ("System update status unknown", NotificationPriority::High),
+            _ => ("System update submitted", NotificationPriority::Low),
         };
         let mut notification = Notification::new(
             user_id,

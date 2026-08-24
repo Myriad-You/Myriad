@@ -251,10 +251,7 @@ impl ImageCacheService {
         let ext = Self::infer_extension("", Some(media_type));
         let cache_path = self.get_cache_path(&filename, ext);
         let subdir = &filename[..2.min(filename.len())];
-        let url = format!(
-            "/api/brew/image-cache/{}/{}.{}",
-            subdir, filename, ext
-        );
+        let url = format!("/api/brew/image-cache/{}/{}.{}", subdir, filename, ext);
         if cache_path.exists() {
             return Ok(StoredImage {
                 url,

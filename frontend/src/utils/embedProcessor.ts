@@ -11,6 +11,7 @@
  * 样式与资料库卡片风格一致
  */
 
+import { currentCopy } from '../i18n/localeCopy'
 import { getNeteaseAudioUrlImmediate } from './musicPlayer'
 import { proxyImageUrlOr } from './proxyImageUrl'
 import { isTrustedIframeHost } from './rssContentProcessor'
@@ -569,7 +570,8 @@ async function loadNeteaseMusicData(container: HTMLElement): Promise<void> {
         if (artistEl) {
           const artists = songData.artists || songData.ar || []
           const artistText =
-            artists.map((a: any) => a.name).join(', ') || '未知艺术家'
+            artists.map((a: any) => a.name).join(', ') ||
+            currentCopy().library.unknownArtist
           artistEl.textContent = artistText
         }
 
@@ -750,7 +752,8 @@ async function loadGithubRepoData(container: HTMLElement): Promise<void> {
         // 更新仓库描述
         const descEl = card.querySelector('.brew-embed-desc')
         if (descEl) {
-          descEl.textContent = repoData.description || '暂无描述'
+          descEl.textContent =
+            repoData.description || currentCopy().common.noDescription
         }
 
         // 更新 Star 数
@@ -797,7 +800,7 @@ async function loadGithubRepoData(container: HTMLElement): Promise<void> {
         // 即使失败也标记，避免重复请求
         const descEl = card.querySelector('.brew-embed-desc')
         if (descEl) {
-          descEl.textContent = '仓库信息加载失败'
+          descEl.textContent = currentCopy().brew.repoLoadFailed
         }
         card.setAttribute('data-loaded', 'true')
       }
@@ -859,9 +862,9 @@ export async function playNeteaseSong(songId: string): Promise<void> {
     // 立刻开播：不 await 详情 / geo（Library 临时播放同策略）
     const song = {
       id: songId,
-      name: `网易云音乐 #${songId}`,
-      artist: '未知艺术家',
-      album: '未知专辑',
+      name: `${currentCopy().widgets.reportNetease} #${songId}`,
+      artist: currentCopy().library.unknownArtist,
+      album: currentCopy().library.unknownAlbum,
       cover: proxyImageUrlOr(fallbackCover, fallbackCover),
       url: getNeteaseAudioUrlImmediate(songId),
       duration: 0,

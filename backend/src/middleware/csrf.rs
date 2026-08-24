@@ -1,13 +1,13 @@
 use axum::{
-    Json,
     extract::Request,
-    http::{HeaderMap, Method, StatusCode, header},
+    http::{header, HeaderMap, Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
+    Json,
 };
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, KeyInit, Mac};
-use jsonwebtoken::{DecodingKey, Validation, decode};
+use jsonwebtoken::{decode, DecodingKey, Validation};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -534,7 +534,7 @@ pub async fn get_csrf_token(headers: HeaderMap) -> impl IntoResponse {
 mod tests {
     use super::*;
     use axum::body::to_bytes;
-    use jsonwebtoken::{EncodingKey, Header, encode};
+    use jsonwebtoken::{encode, EncodingKey, Header};
     use std::sync::Once;
 
     static INIT_JWT: Once = Once::new();

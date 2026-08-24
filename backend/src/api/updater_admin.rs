@@ -574,7 +574,10 @@ pub async fn dismiss_last_failed() -> Response {
         Ok(c) => c,
         Err(r) => return *r,
     };
-    match c.post_json::<Value>("/last-failed/dismiss", None, None).await {
+    match c
+        .post_json::<Value>("/last-failed/dismiss", None, None)
+        .await
+    {
         Ok(v) => Json(v).into_response(),
         Err(e) => err_to_response(e),
     }

@@ -161,8 +161,8 @@ pub fn validate_inline_data_schema(schema: &Value) -> Result<(), String> {
     let object = schema
         .as_object()
         .ok_or_else(|| "Schema must be an inline JSON object".to_string())?;
-    let encoded = serde_json::to_vec(schema)
-        .map_err(|_| "Schema cannot be serialized".to_string())?;
+    let encoded =
+        serde_json::to_vec(schema).map_err(|_| "Schema cannot be serialized".to_string())?;
     if encoded.len() > MAX_INLINE_SCHEMA_BYTES {
         return Err(format!(
             "Schema is too large (max {MAX_INLINE_SCHEMA_BYTES} bytes)"
@@ -231,17 +231,9 @@ mod tests {
             },
             "required": ["title", "n"]
         });
-        assert!(
-            validate_inline_json_value(&schema, &json!({ "title": "ab", "n": 2 })).is_ok()
-        );
-        assert!(
-            validate_inline_json_value(&schema, &json!({ "title": "a", "n": 2 })).is_err()
-        );
-        assert!(
-            validate_inline_json_value(&schema, &json!({ "title": "abcde", "n": 2 })).is_err()
-        );
-        assert!(
-            validate_inline_json_value(&schema, &json!({ "title": "ab", "n": 0 })).is_err()
-        );
+        assert!(validate_inline_json_value(&schema, &json!({ "title": "ab", "n": 2 })).is_ok());
+        assert!(validate_inline_json_value(&schema, &json!({ "title": "a", "n": 2 })).is_err());
+        assert!(validate_inline_json_value(&schema, &json!({ "title": "abcde", "n": 2 })).is_err());
+        assert!(validate_inline_json_value(&schema, &json!({ "title": "ab", "n": 0 })).is_err());
     }
 }

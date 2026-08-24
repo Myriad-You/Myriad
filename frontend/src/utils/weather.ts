@@ -1,3 +1,4 @@
+import { currentCopy } from '../i18n/localeCopy'
 import { resolvePreciseLocation } from './geoLocation'
 import { dedupedFetch } from './requestDedup'
 
@@ -119,7 +120,14 @@ async function getWeatherDataWithCache(location: {
           const response = await fetch(weatherUrl, {
             signal: AbortSignal.timeout(10000),
           })
-          if (!response.ok) throw new Error('Weather fetch failed')
+          if (!response.ok) {
+            throw new Error(
+              currentCopy().errors.weatherFailed.replace(
+                '{status}',
+                String(response.status),
+              ),
+            )
+          }
           return response.json()
         },
         { cacheTTL: 30 * 60 * 1000 },
@@ -196,38 +204,39 @@ async function getWeatherDataWithCache(location: {
  * Open-Meteo 使用 WMO 标准代码
  */
 function getWeatherTextFromWMO(code: number): string {
+  const w = currentCopy().weather
   const weatherMap: Record<number, string> = {
-    0: '晴',
-    1: '晴',
-    2: '多云',
-    3: '阴',
-    45: '雾',
-    48: '雾',
-    51: '小雨',
-    53: '小雨',
-    55: '小雨',
-    56: '冻雨',
-    57: '冻雨',
-    61: '小雨',
-    63: '中雨',
-    65: '大雨',
-    66: '冻雨',
-    67: '冻雨',
-    71: '小雪',
-    73: '中雪',
-    75: '大雪',
-    77: '米雪',
-    80: '阵雨',
-    81: '阵雨',
-    82: '暴雨',
-    85: '阵雪',
-    86: '暴雪',
-    95: '雷暴',
-    96: '雷暴',
-    99: '雷暴',
+    0: w.sunny,
+    1: w.sunny,
+    2: w.partlyCloudy,
+    3: w.cloudy,
+    45: w.foggy,
+    48: w.foggy,
+    51: w.lightRain,
+    53: w.lightRain,
+    55: w.lightRain,
+    56: w.freezingRain,
+    57: w.freezingRain,
+    61: w.lightRain,
+    63: w.moderateRain,
+    65: w.heavyRain,
+    66: w.freezingRain,
+    67: w.freezingRain,
+    71: w.lightSnow,
+    73: w.moderateSnow,
+    75: w.heavySnow,
+    77: w.sleet,
+    80: w.showers,
+    81: w.showers,
+    82: w.heavyShowers,
+    85: w.snowShowers,
+    86: w.heavySnowShowers,
+    95: w.thunderstorm,
+    96: w.thunderstorm,
+    99: w.thunderstorm,
   }
 
-  return weatherMap[code] || '未知'
+  return weatherMap[code] || w.unknown
 }
 
 /**

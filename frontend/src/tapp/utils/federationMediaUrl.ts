@@ -67,15 +67,10 @@ export function parseFederationMediaUrl(
 }
 
 /**
- * Short English reason for UI/logs when validation fails (not i18n — bridge/logs).
+ * Stable label when a federation media URL is rejected.
+ * Display copy is localized by FederationBridge / userFacingError.
  */
 export function federationMediaUrlRejectionReason(url: unknown): string | null {
-  if (url == null || (typeof url === 'string' && !url.trim())) {
-    return 'Attachment URL is empty'
-  }
-  if (typeof url !== 'string') {
-    return 'Attachment URL must be a string'
-  }
   if (parseFederationMediaUrl(url)) return null
-  return 'Attachment URL must look like /media/federation/{userId}/{filename} on http(s)'
+  return 'Invalid attachment URL'
 }

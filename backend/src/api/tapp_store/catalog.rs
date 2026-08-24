@@ -269,12 +269,6 @@ pub(super) async fn get_tapp(
     let role = role_for_optional_subject(user_id, is_admin);
     let (is_temporary, is_admin_tapp) = catalog_install_flags(visible.is_site_owner);
     let config = dynamic_config.read().await;
-    let detail = tapp_detail_from_model(
-        visible.tapp,
-        role,
-        is_temporary,
-        is_admin_tapp,
-        &config,
-    );
+    let detail = tapp_detail_from_model(visible.tapp, role, is_temporary, is_admin_tapp, &config);
     Ok(Json(ApiResponse::success(detail)))
 }

@@ -51,12 +51,12 @@ export default function NameStyleRoll({
   return (
     <div
       ref={rootRef}
-      className={`life-ob-name-dice${open ? ' is-open' : ''}${rolling ? ' is-rolling' : ''}`}
+      className={`merope-ob-name-dice${open ? ' is-open' : ''}${rolling ? ' is-rolling' : ''}`}
     >
-      <div className="life-ob-name-dice__face">
+      <div className="merope-ob-name-dice__face">
         <button
           type="button"
-          className="life-ob-name-dice__style"
+          className="merope-ob-name-dice__style"
           disabled={disabled || rolling}
           aria-haspopup="listbox"
           aria-expanded={open}
@@ -64,20 +64,20 @@ export default function NameStyleRoll({
           aria-label={`${styleLabel}: ${labels[style]}`}
           onClick={() => setOpen((current) => !current)}
         >
-          <span className="life-ob-name-dice__label">{labels[style]}</span>
-          <LuChevronDown className="life-ob-name-dice__chevron" aria-hidden />
+          <span className="merope-ob-name-dice__label">{labels[style]}</span>
+          <LuChevronDown className="merope-ob-name-dice__chevron" aria-hidden />
         </button>
-        <span className="life-ob-name-dice__split" aria-hidden />
+        <span className="merope-ob-name-dice__split" aria-hidden />
         <button
           type="button"
-          className="life-ob-name-dice__roll"
+          className="merope-ob-name-dice__roll"
           disabled={disabled || rolling}
           title={rolling ? busyLabel : rollLabel}
           aria-label={rolling ? busyLabel : rollLabel}
           onClick={onRoll}
         >
           {rolling ? (
-            <LuLoader2 className="life-ob-name-roll__spin" aria-hidden />
+            <LuLoader2 className="merope-ob-name-roll__spin" aria-hidden />
           ) : (
             <LuShuffle aria-hidden />
           )}
@@ -86,7 +86,7 @@ export default function NameStyleRoll({
       {open ? (
         <ul
           id={menuId}
-          className="life-ob-name-dice__menu"
+          className="merope-ob-name-dice__menu"
           role="listbox"
           aria-label={styleLabel}
         >
@@ -98,13 +98,13 @@ export default function NameStyleRoll({
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  className={`life-ob-name-dice__option${selected ? ' is-on' : ''}`}
+                  className={`merope-ob-name-dice__option${selected ? ' is-on' : ''}`}
                   onClick={() => {
                     onStyle(option)
                     setOpen(false)
                   }}
                 >
-                  <span className="life-ob-name-dice__mark" aria-hidden>
+                  <span className="merope-ob-name-dice__mark" aria-hidden>
                     {selected ? <LuCheck /> : null}
                   </span>
                   <span>{labels[option]}</span>

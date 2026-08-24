@@ -63,9 +63,9 @@ fn is_e2e_ciphertext_envelope(payload: &Value) -> bool {
 /// 消息正文预览
 pub fn payload_preview(message_type: &str, payload: &Value) -> String {
     match message_type {
-        "image" => return "📷 图片".to_string(),
-        "file" | "file-meta" => return "📎 文件".to_string(),
-        "system" => return "系统消息".to_string(),
+        "image" => return "Photo".to_string(),
+        "file" | "file-meta" => return "File".to_string(),
+        "system" => return "System message".to_string(),
         "link" => {
             if let Some(u) = payload
                 .get("url")
@@ -80,7 +80,7 @@ pub fn payload_preview(message_type: &str, payload: &Value) -> String {
     }
     // Never dump ciphertext / algorithm envelopes into the notification tray.
     if is_e2e_ciphertext_envelope(payload) {
-        return "🔒 加密消息".to_string();
+        return "Encrypted message".to_string();
     }
     let raw = if let Some(s) = payload.as_str() {
         s.to_string()
@@ -98,12 +98,12 @@ pub fn payload_preview(message_type: &str, payload: &Value) -> String {
     {
         u.to_string()
     } else if payload.is_null() {
-        "新消息".to_string()
+        "New message".to_string()
     } else {
         let s = payload.to_string();
         // Suppress crypto-looking JSON leftovers
         if s.contains("ciphertext") && s.contains("algorithm") {
-            return "🔒 加密消息".to_string();
+            return "Encrypted message".to_string();
         }
         if s.len() > 120 {
             format!("{}…", &s[..117])
@@ -182,7 +182,7 @@ pub async fn notify_channel_message(
     notification.id = format!("fed_ch_{}_u{}", stable_hash(channel_id), user_id);
     notification.read = false;
     manager.upsert(notification).await;
-    crate::services::agent::life::spawn_ingest(
+    crate::services::agent::merope::spawn_ingest(
         user_id,
         "federation.channel_message",
         format!("{sender_label} 发来私信：{preview}"),
@@ -227,7 +227,7 @@ pub async fn notify_room_message(
     notification.id = format!("fed_rm_{}_u{}", stable_hash(room_id), user_id);
     notification.read = false;
     manager.upsert(notification).await;
-    crate::services::agent::life::spawn_ingest(
+    crate::services::agent::merope::spawn_ingest(
         user_id,
         "federation.room_message",
         format!("{sender_label} 在群里说话：{preview}"),
@@ -243,8 +243,8 @@ pub async fn notify_new_follower(user_id: i32, actor_url: &str, actor_label: &st
         user_id,
         NotificationType::FederationFollow,
         NotificationPriority::Normal,
-        "新的关注者",
-        format!("{} 关注了你", actor_label),
+        "New follower",
+        format!("{actor_label} followed you"),
     )
     .with_metadata(json!({
         "event_key": "federation.new_follower",
@@ -252,11 +252,12 @@ pub async fn notify_new_follower(user_id: i32, actor_url: &str, actor_label: &st
         "tapp_id": ARO_TAPP_ID,
         "kind": "follow",
         "actor_url": actor_url,
+        "actor_label": actor_label,
     }));
     notification.id = format!("fed_follower_{}_u{}", stable_hash(actor_url), user_id);
     notification.read = false;
     manager.upsert(notification).await;
-    crate::services::agent::life::spawn_ingest(
+    crate::services::agent::merope::spawn_ingest(
         user_id,
         "federation.new_follower",
         format!("{actor_label} 关注了这个人"),
@@ -272,8 +273,8 @@ pub async fn notify_follow_accepted(user_id: i32, actor_url: &str, actor_label: 
         user_id,
         NotificationType::FederationFollow,
         NotificationPriority::Low,
-        "关注已通过",
-        format!("{} 已接受你的关注", actor_label),
+        "Follow accepted",
+        format!("{actor_label} accepted your follow"),
     )
     .with_metadata(json!({
         "event_key": "federation.follow_accepted",
@@ -281,6 +282,7 @@ pub async fn notify_follow_accepted(user_id: i32, actor_url: &str, actor_label: 
         "tapp_id": ARO_TAPP_ID,
         "kind": "follow_accepted",
         "actor_url": actor_url,
+        "actor_label": actor_label,
     }));
     notification.id = format!("fed_follow_ok_{}_u{}", stable_hash(actor_url), user_id);
     notification.read = false;
@@ -301,8 +303,8 @@ pub async fn notify_channel_invite(
         user_id,
         NotificationType::FederationInvite,
         NotificationPriority::High,
-        "新的私信请求",
-        format!("{} 想与你建立私信通道", actor_label),
+        "New message request",
+        format!("{actor_label} wants to message you"),
     )
     .with_metadata(json!({
         "event_key": "federation.channel_invite",
@@ -311,10 +313,11 @@ pub async fn notify_channel_invite(
         "kind": "channel_invite",
         "channel_id": channel_id,
         "actor_url": actor_url,
+        "actor_label": actor_label,
         // Hint for host UI / Aro deep-link actions
         "actions": [
-            { "id": "accept", "label": "接受", "api": format!("POST /api/federation/channels/{}/accept", channel_id) },
-            { "id": "reject", "label": "拒绝", "api": format!("POST /api/federation/channels/{}/close", channel_id) }
+            { "id": "accept", "api": format!("POST /api/federation/channels/{}/accept", channel_id) },
+            { "id": "reject", "api": format!("POST /api/federation/channels/{}/close", channel_id) }
         ],
     }));
     notification.id = format!("fed_inv_ch_{}_u{}", stable_hash(channel_id), user_id);
@@ -334,15 +337,15 @@ pub async fn notify_room_invite(
         return;
     };
     let body = if room_name.is_empty() {
-        format!("{} 邀请你加入群组", actor_label)
+        format!("{actor_label} invited you to a group")
     } else {
-        format!("{} 邀请你加入「{}」", actor_label, room_name)
+        format!("{actor_label} invited you to {room_name}")
     };
     let mut notification = Notification::new(
         user_id,
         NotificationType::FederationInvite,
         NotificationPriority::High,
-        "群组邀请",
+        "Group invite",
         body,
     )
     .with_metadata(json!({
@@ -351,10 +354,12 @@ pub async fn notify_room_invite(
         "tapp_id": ARO_TAPP_ID,
         "kind": "room_invite",
         "room_id": room_id,
+        "room_name": room_name,
         "actor_url": actor_url,
+        "actor_label": actor_label,
         "actions": [
-            { "id": "accept", "label": "接受", "api": format!("POST /api/federation/rooms/{}/accept", room_id) },
-            { "id": "reject", "label": "拒绝", "api": format!("POST /api/federation/rooms/{}/reject", room_id) }
+            { "id": "accept", "api": format!("POST /api/federation/rooms/{}/accept", room_id) },
+            { "id": "reject", "api": format!("POST /api/federation/rooms/{}/reject", room_id) }
         ],
     }));
     notification.id = format!("fed_inv_rm_{}_u{}", stable_hash(room_id), user_id);
@@ -390,15 +395,15 @@ pub async fn notify_room_invite_accepted(
         return;
     };
     let body = if room_name.is_empty() {
-        format!("{} 已接受你的群组邀请", actor_label)
+        format!("{actor_label} accepted your group invite")
     } else {
-        format!("{} 已加入「{}」", actor_label, room_name)
+        format!("{actor_label} joined {room_name}")
     };
     let mut notification = Notification::new(
         user_id,
         NotificationType::FederationInvite,
         NotificationPriority::Normal,
-        "群组邀请已接受",
+        "Group invite accepted",
         body,
     )
     .with_metadata(json!({
@@ -407,7 +412,9 @@ pub async fn notify_room_invite_accepted(
         "tapp_id": ARO_TAPP_ID,
         "kind": "room_invite_accepted",
         "room_id": room_id,
+        "room_name": room_name,
         "actor_url": actor_url,
+        "actor_label": actor_label,
     }));
     notification.id = format!(
         "fed_rm_ok_{}_{}_u{}",
@@ -425,15 +432,15 @@ pub async fn notify_channel_accepted(user_id: i32, channel_id: &str, actor_label
         return;
     };
     let body = if actor_label.is_empty() {
-        "对方已接受你的私信请求".to_string()
+        "Your message request was accepted".to_string()
     } else {
-        format!("{} 已接受你的私信请求", actor_label)
+        format!("{actor_label} accepted your message request")
     };
     let mut notification = Notification::new(
         user_id,
         NotificationType::FederationInvite,
         NotificationPriority::Normal,
-        "私信通道已建立",
+        "Direct messages are ready",
         body,
     )
     .with_metadata(json!({
@@ -442,6 +449,7 @@ pub async fn notify_channel_accepted(user_id: i32, channel_id: &str, actor_label
         "tapp_id": ARO_TAPP_ID,
         "kind": "channel_accepted",
         "channel_id": channel_id,
+        "actor_label": actor_label,
     }));
     notification.id = format!("fed_ch_ok_{}_u{}", stable_hash(channel_id), user_id);
     notification.read = false;
@@ -472,12 +480,12 @@ pub async fn notify_delivery_failed(
         activity_type
     };
     let err_short = truncate(error, 140);
-    let body = format!("投递到 {} 的 {} 已放弃：{}", domain, kind, err_short);
+    let body = format!("Delivery to {domain} failed");
     let mut notification = Notification::new(
         user_id,
         NotificationType::SystemInfo,
         NotificationPriority::High,
-        "联邦投递失败",
+        "Federation delivery failed",
         body,
     )
     .with_metadata(json!({
@@ -521,14 +529,13 @@ pub async fn notify_domain_relationship_revoked(
         target_domain
     };
     let body = format!(
-        "{} 长期无法送达，已解除与该实例的联邦关系；你有 {} 条待投递活动被取消。",
-        domain, cancelled_deliveries
+        "{domain} could not be reached for a long time. Federation was unlinked and {cancelled_deliveries} queued items were cancelled."
     );
     let mut notification = Notification::new(
         user_id,
         NotificationType::SystemInfo,
         NotificationPriority::High,
-        "联邦关系已解除",
+        "Federation unlinked",
         body,
     )
     .with_metadata(json!({
@@ -591,8 +598,8 @@ mod tests {
             payload_preview("text", &json!({"text": "hello world"})),
             "hello world"
         );
-        assert_eq!(payload_preview("image", &json!({})), "📷 图片");
-        assert_eq!(payload_preview("file", &json!({})), "📎 文件");
+        assert_eq!(payload_preview("image", &json!({})), "Photo");
+        assert_eq!(payload_preview("file", &json!({})), "File");
         assert_eq!(payload_preview("text", &json!("plain")), "plain");
         let long = "x".repeat(200);
         let preview = payload_preview("text", &json!(long));
@@ -608,7 +615,7 @@ mod tests {
                     "ephemeral_key": "xyz"
                 })
             ),
-            "🔒 加密消息"
+            "Encrypted message"
         );
         assert_eq!(
             payload_preview("link", &json!({"url": "https://example.com/a"})),

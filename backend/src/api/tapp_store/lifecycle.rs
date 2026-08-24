@@ -18,6 +18,7 @@ use sea_orm::{
 };
 use serde::Deserialize;
 
+use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::models::entities::{tapp_user_activities, tapps};
 use crate::services::tapp_lifecycle::{
@@ -25,7 +26,6 @@ use crate::services::tapp_lifecycle::{
     RecentTappItem, StartOutcome, StopOutcome,
 };
 use crate::services::tapp_ownership::public_install_visible_to_viewer;
-use crate::error::HttpError;
 use myriad_error::AppError;
 
 /// 启动 Tapp
@@ -41,7 +41,10 @@ pub(super) async fn start_tapp(
     Extension(claims): Extension<Claims>,
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, HttpError> {
-    let user_id: i32 = claims.sub.parse().map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
+    let user_id: i32 = claims
+        .sub
+        .parse()
+        .map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
     validate_tapp_id(&tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let admin_id = find_admin_user_id(&db).await?;
     let now = Utc::now().fixed_offset();
@@ -66,9 +69,7 @@ pub(super) async fn start_tapp(
             .await
             .map_err(|_| HttpError(AppError::internal("Database error")))?;
         // Admin-only public installs are invisible to non-admins (same as catalog).
-        row.filter(|tapp| {
-            public_install_visible_to_viewer(&tapp.visibility, is_current_admin)
-        })
+        row.filter(|tapp| public_install_visible_to_viewer(&tapp.visibility, is_current_admin))
     } else {
         None
     };
@@ -85,6 +86,11 @@ pub(super) async fn start_tapp(
     ) {
         StartOutcome::MutatePrivate => {
             let tapp = private_tapp.expect("has_private");
+            // Refuse startup while the install needs re-authorization.
+            // The frontend already blocks this; the backend gate is the server-side
+            // half of the same fail-closed contract. Both start branches share the
+            // pure decision below.
+            refuse_marked_start(tapp.needs_reauthorization)?;
             let mut active: tapps::ActiveModel = tapp.into();
             active.status = Set(tapps::TappStatus::Running);
             active.last_run_at = Set(Some(now));
@@ -98,6 +104,8 @@ pub(super) async fn start_tapp(
         }
         StartOutcome::MutatePublic => {
             let tapp = public_tapp.expect("has_public");
+            // Refuse startup while the install needs re-authorization.
+            refuse_marked_start(tapp.needs_reauthorization)?;
             let mut active: tapps::ActiveModel = tapp.into();
             active.status = Set(tapps::TappStatus::Running);
             active.last_run_at = Set(Some(now));
@@ -110,6 +118,8 @@ pub(super) async fn start_tapp(
             Ok(Json(ApiResponse::success(())))
         }
         StartOutcome::RecordActivityOnly => {
+            let tapp = public_tapp.expect("has_public");
+            refuse_marked_start(tapp.needs_reauthorization)?;
             record_user_activity(&db, user_id, &tapp_id, now).await?;
             Ok(Json(ApiResponse::success(())))
         }
@@ -144,6 +154,21 @@ async fn record_user_activity(
     Ok(())
 }
 
+/// 重新授权 start 生命周期闸门的最小纯判定。
+///
+/// 安装仍标记为需重新授权时不得把 status 置为 Running，也不得把已在跑的
+/// 公开安装记成一次成功 start。`MutatePrivate` / `MutatePublic` /
+/// `RecordActivityOnly` 共用此判定，测试直接覆盖它本身（不复制逻辑）。
+fn refuse_marked_start(needs_reauthorization: bool) -> Result<(), HttpError> {
+    if needs_reauthorization {
+        Err(HttpError(AppError::conflict(
+            "Tapp requires permission re-authorization before it can be started",
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 /// 停止 Tapp
 ///
 /// 权限模型（private-first，与 list/detail/runtime 一致）：
@@ -155,7 +180,10 @@ pub(super) async fn stop_tapp(
     Extension(claims): Extension<Claims>,
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, HttpError> {
-    let user_id: i32 = claims.sub.parse().map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
+    let user_id: i32 = claims
+        .sub
+        .parse()
+        .map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
     validate_tapp_id(&tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let admin_id = find_admin_user_id(&db).await?;
     let is_current_admin = current_is_admin(&claims, &db).await;
@@ -178,9 +206,7 @@ pub(super) async fn stop_tapp(
             .one(&db)
             .await
             .map_err(|_| HttpError(AppError::internal("Database error")))?;
-        row.filter(|tapp| {
-            public_install_visible_to_viewer(&tapp.visibility, is_current_admin)
-        })
+        row.filter(|tapp| public_install_visible_to_viewer(&tapp.visibility, is_current_admin))
     } else {
         None
     };
@@ -244,7 +270,10 @@ pub(super) async fn get_recent_tapps(
     Extension(claims): Extension<Claims>,
     Query(query): Query<GetRecentTappsQuery>,
 ) -> Result<Json<ApiResponse<Vec<RecentTappItem>>>, HttpError> {
-    let user_id: i32 = claims.sub.parse().map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
+    let user_id: i32 = claims
+        .sub
+        .parse()
+        .map_err(|_| HttpError(AppError::unauthorized("Unauthorized")))?;
     let limit = clamp_recent_limit(query.limit);
 
     // 获取用户活动记录
@@ -318,4 +347,23 @@ pub(super) async fn get_recent_tapps(
     }
 
     Ok(Json(ApiResponse::success(result)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_gate_refuses_marked_installs_with_conflict() {
+        // L2: all three start success branches (MutatePrivate / MutatePublic /
+        // RecordActivityOnly) call this shared pure decision; the test covers
+        // the exact branch the handlers execute for a marked vs unmarked install.
+        let err = refuse_marked_start(true).expect_err("marked install must be refused");
+        assert_eq!(err.0.status_u16(), 409);
+        assert!(err.0.to_string().contains("permission re-authorization"));
+        assert!(
+            refuse_marked_start(false).is_ok(),
+            "unmarked install starts"
+        );
+    }
 }

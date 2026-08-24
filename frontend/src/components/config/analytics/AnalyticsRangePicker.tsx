@@ -113,7 +113,11 @@ export const AnalyticsRangePicker: React.FC<AnalyticsRangePickerProps> = ({
     const weekdays =
       labels.weekdays && labels.weekdays.length === 7
         ? labels.weekdays
-        : ['一', '二', '三', '四', '五', '六', '日']
+        : Array.from({ length: 7 }, (_, i) =>
+            new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(
+              new Date(Date.UTC(2021, 0, 4 + i)),
+            ),
+          )
     const monthTpl = labels.monthTitle || '{y}-{m}'
     return {
       title: labels.customTitle || labels.custom,

@@ -31,7 +31,7 @@ pub fn sanitize_feed_name(name: &str) -> Result<String, String> {
     let trimmed: String = name.chars().take(MAX_FEED_NAME_LEN).collect();
     let trimmed = trimmed.trim().to_string();
     if trimmed.is_empty() {
-        return Err("订阅源名称不能为空".to_string());
+        return Err("Feed name is required".to_string());
     }
     Ok(trimmed)
 }
@@ -47,7 +47,7 @@ pub fn platform_write_items_over_cap(count: usize) -> bool {
 }
 
 pub fn platform_write_cap_error() -> String {
-    format!("单次最多写入 {MAX_PLATFORM_WRITE_ITEMS} 条数据")
+    "Too many items to write at once".to_string()
 }
 
 /// Disallowed hostname forms for subscribe URLs (before DNS).
@@ -61,9 +61,7 @@ pub fn is_disallowed_subscribe_ip(ip: IpAddr) -> bool {
         return true;
     }
     match ip {
-        IpAddr::V4(v4) => {
-            v4.is_private() || v4.is_link_local() || v4.octets()[0] == 169
-        }
+        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.octets()[0] == 169,
         IpAddr::V6(v6) => {
             // 阻止 IPv6 回环和链路本地
             v6.is_loopback() || (v6.segments()[0] & 0xffc0) == 0xfe80
@@ -76,26 +74,25 @@ pub fn is_disallowed_subscribe_ip(ip: IpAddr) -> bool {
 /// Hostname DNS resolution remains in the handler (IO). When the host is an IP
 /// literal it is checked here; hostname-only URLs pass if the host string is allowed.
 pub fn validate_subscribe_url_policy(url: &str) -> Result<(), String> {
-    let parsed = url::Url::parse(url).map_err(|_| format!("无效的 URL: {url}"))?;
+    let parsed = url::Url::parse(url).map_err(|_| "Invalid URL".to_string())?;
 
     match parsed.scheme() {
         "http" | "https" => {}
-        scheme => return Err(format!("不允许的 URL scheme: {scheme}")),
+        _ => return Err("This address is not allowed".to_string()),
     }
 
-    let host = parsed.host_str().ok_or_else(|| "URL 缺少 host".to_string())?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "This URL is missing a host".to_string())?;
 
     if is_disallowed_subscribe_host(host) {
-        return Err("不允许访问内网地址".to_string());
+        return Err("This address is not allowed".to_string());
     }
 
     // If host is already an IP literal, reject private ranges without DNS.
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_disallowed_subscribe_ip(ip) {
-            return match ip {
-                IpAddr::V4(_) => Err("不允许访问内网地址".to_string()),
-                IpAddr::V6(_) => Err("不允许访问内网 IPv6 地址".to_string()),
-            };
+            return Err("This address is not allowed".to_string());
         }
     }
 
@@ -165,19 +162,17 @@ pub fn collect_subscribe_url_candidates(
     } else if let Some(url) = single_url {
         vec![(url.to_string(), None)]
     } else {
-        return Err("缺少 url 或 feeds 参数".to_string());
+        return Err("Missing url or feeds".to_string());
     };
 
     if urls_to_try.is_empty() {
-        return Err("没有可用的订阅源 URL".to_string());
+        return Err("No feed URL to try".to_string());
     }
     Ok(urls_to_try)
 }
 
 /// Cap the number of URLs actually attempted.
-pub fn take_feed_urls_to_try(
-    urls: Vec<(String, Option<String>)>,
-) -> Vec<(String, Option<String>)> {
+pub fn take_feed_urls_to_try(urls: Vec<(String, Option<String>)>) -> Vec<(String, Option<String>)> {
     urls.into_iter().take(MAX_FEED_URLS).collect()
 }
 
@@ -192,7 +187,10 @@ mod tests {
         assert_eq!(sanitize_feed_name("  天利  ").unwrap(), "天利");
         assert!(sanitize_feed_name("   ").is_err());
         let long = "a".repeat(300);
-        assert_eq!(sanitize_feed_name(&long).unwrap().chars().count(), MAX_FEED_NAME_LEN);
+        assert_eq!(
+            sanitize_feed_name(&long).unwrap().chars().count(),
+            MAX_FEED_NAME_LEN
+        );
     }
 
     #[test]
@@ -202,7 +200,10 @@ mod tests {
         assert_eq!(clamp_update_interval_minutes(30), 30);
         assert!(!platform_write_items_over_cap(10));
         assert!(platform_write_items_over_cap(MAX_PLATFORM_WRITE_ITEMS + 1));
-        assert!(platform_write_cap_error().contains(&MAX_PLATFORM_WRITE_ITEMS.to_string()));
+        assert_eq!(
+            platform_write_cap_error(),
+            "Too many items to write at once"
+        );
     }
 
     #[test]
@@ -213,15 +214,21 @@ mod tests {
         assert!(validate_subscribe_url_policy("http://svc.local/rss").is_err());
         assert!(validate_subscribe_url_policy("http://192.168.0.1/rss").is_err());
         assert!(validate_subscribe_url_policy("http://127.0.0.1/rss").is_err());
-        assert!(is_disallowed_subscribe_ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(is_disallowed_subscribe_ip(IpAddr::V4(Ipv4Addr::new(
+            10, 0, 0, 1
+        ))));
         assert!(is_disallowed_subscribe_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
-        assert!(!is_disallowed_subscribe_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+        assert!(!is_disallowed_subscribe_ip(IpAddr::V4(Ipv4Addr::new(
+            8, 8, 8, 8
+        ))));
     }
 
     #[test]
     fn feed_priority_and_collect() {
-        assert!(feed_priority_score("https://a.com", true, "official")
-            > feed_priority_score("http://rsshub.app/x", false, ""));
+        assert!(
+            feed_priority_score("https://a.com", true, "official")
+                > feed_priority_score("http://rsshub.app/x", false, "")
+        );
 
         let feeds = json!([
             { "url": "http://rsshub.app/x", "verified": false, "source": "mirror" },

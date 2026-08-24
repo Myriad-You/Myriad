@@ -2,6 +2,7 @@ import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 
 import axios from 'axios'
 
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import { parseApiErrorBody } from '../services/api'
 import { clearCSRFToken, getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
 import {
@@ -10,6 +11,7 @@ import {
 } from '../utils/httpRateLimitToast'
 import { checkRateLimit, RateLimitError } from '../utils/rateLimiter'
 import TokenManager from '../utils/tokenManager'
+import { isUselessErrorText } from '../utils/userFacingError'
 
 // 智能 API URL 检测（与 config.ts 保持一致）
 // 生产环境使用相对路径（空字符串），开发环境使用 localhost
@@ -129,25 +131,25 @@ api.interceptors.request.use(
       if (endpoint.includes('/auth/login')) {
         if (!checkRateLimit(endpoint, 'login')) {
           return Promise.reject(
-            new RateLimitError('登录尝试过于频繁，请稍后再试', 300000),
+            new RateLimitError(currentCopy().errors.rateLimitedLogin, 300000),
           )
         }
       } else if (endpoint.includes('/fetch')) {
         if (!checkRateLimit(endpoint, 'fetch')) {
           return Promise.reject(
-            new RateLimitError('数据获取请求过于频繁，请稍后再试', 60000),
+            new RateLimitError(currentCopy().errors.rateLimitedFetch, 60000),
           )
         }
       } else if (endpoint.includes('/analysis')) {
         if (!checkRateLimit(endpoint, 'analysis')) {
           return Promise.reject(
-            new RateLimitError('分析请求过于频繁，请稍后再试', 60000),
+            new RateLimitError(currentCopy().errors.rateLimitedAnalysis, 60000),
           )
         }
       } else {
         if (!checkRateLimit(endpoint, 'api')) {
           return Promise.reject(
-            new RateLimitError('请求过于频繁，请稍后再试', 60000),
+            new RateLimitError(currentCopy().errors.rateLimited, 60000),
           )
         }
       }
@@ -315,7 +317,13 @@ export interface SettingsRestorePreview {
 export async function previewSettingsBackup(backup: unknown) {
   const response = await api.post('/api/config/settings-backup/preview', backup)
   if (response.status >= 400 || !response.data?.preview) {
-    throw new Error(response.data?.error || 'Failed to preview settings backup')
+    const previewError =
+      typeof response.data?.error === 'string' ? response.data.error : ''
+    throw new Error(
+      previewError && !isUselessErrorText(previewError)
+        ? previewError
+        : currentCopy().errors.settingsBackupPreviewFailed,
+    )
   }
   return response.data.preview as SettingsRestorePreview
 }
@@ -323,7 +331,13 @@ export async function previewSettingsBackup(backup: unknown) {
 export async function restoreSettingsBackup(backup: unknown) {
   const response = await api.post('/api/config/settings-backup', backup)
   if (response.status >= 400 || response.data?.success !== true) {
-    throw new Error(response.data?.error || 'Failed to restore settings backup')
+    const restoreError =
+      typeof response.data?.error === 'string' ? response.data.error : ''
+    throw new Error(
+      restoreError && !isUselessErrorText(restoreError)
+        ? restoreError
+        : currentCopy().errors.settingsBackupRestoreFailed,
+    )
   }
   return response.data
 }

@@ -10,10 +10,10 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::error::HttpError;
 use crate::middleware::auth::Claims;
 use crate::services::permission_service::TappPermission;
 use crate::services::tapp_notification::{self, TappNotificationError};
-use crate::error::HttpError;
 
 use super::common::authorize_tapp_permission;
 use super::runtime_grant::RuntimeGrantContext;
@@ -61,7 +61,9 @@ pub async fn create_tapp_notification(
         &claims,
         &request.tapp_id,
         TappPermission::UiNotification,
-        &dynamic_config).await?;
+        &dynamic_config,
+    )
+    .await?;
 
     let notification_id = tapp_notification::create_tapp_notification(
         user_id,

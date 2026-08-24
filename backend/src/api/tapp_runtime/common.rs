@@ -141,15 +141,26 @@ pub async fn get_rate_limiter_active_count(
 
 fn tapp_access_http_error(err: TappAccessError) -> HttpError {
     HttpError::from(match err {
-        TappAccessError::Database | TappAccessError::NoAdmin => (
+        TappAccessError::Database => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": err.error_code() })),
+            Json(json!({
+                "error": err.error_code(),
+                "code": "database_error",
+            })),
+        ),
+        TappAccessError::NoAdmin => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "error": err.error_code(),
+                "code": "no_admin",
+            })),
         ),
         TappAccessError::AccessDenied { .. } => (
             StatusCode::FORBIDDEN,
             Json(json!({
                 "error": err.error_code(),
                 "message": err.message(),
+                "code": "access_denied",
             })),
         ),
         TappAccessError::PermissionNotGranted { .. } => (

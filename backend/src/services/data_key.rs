@@ -75,4 +75,3 @@ pub async fn migrate_plaintext_config_values(
     }
     Ok(migrated)
 }
-

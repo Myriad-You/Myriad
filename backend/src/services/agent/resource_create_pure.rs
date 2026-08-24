@@ -132,7 +132,10 @@ pub fn relative_require_request(from_module: &str, to_module: &str) -> Result<St
         Some((dir, _)) => dir.split('/').filter(|part| !part.is_empty()).collect(),
         None => Vec::new(),
     };
-    let to_parts: Vec<&str> = to_module.split('/').filter(|part| !part.is_empty()).collect();
+    let to_parts: Vec<&str> = to_module
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect();
     let to_file = *to_parts
         .last()
         .ok_or_else(|| format!("Invalid Tapp resource path: {to_module}"))?;
@@ -153,7 +156,10 @@ pub fn relative_require_request(from_module: &str, to_module: &str) -> Result<St
 }
 
 /// Page 入口里那一行：把共享层拉进来。写入路径必须等于声明入口。
-pub fn agent_page_require_core_source(page_entry: &str, core_entry: &str) -> Result<String, String> {
+pub fn agent_page_require_core_source(
+    page_entry: &str,
+    core_entry: &str,
+) -> Result<String, String> {
     let request = relative_require_request(page_entry, core_entry)?;
     Ok(format!("require('{request}');\n"))
 }
@@ -294,10 +300,7 @@ pub fn extract_html_title(html: &str) -> Option<String> {
 }
 
 /// Bookmark final title: explicit → fetched → Untitled.
-pub fn resolve_bookmark_title<'a>(
-    explicit: Option<&'a str>,
-    fetched: Option<&'a str>,
-) -> &'a str {
+pub fn resolve_bookmark_title<'a>(explicit: Option<&'a str>, fetched: Option<&'a str>) -> &'a str {
     explicit.or(fetched).unwrap_or("Untitled")
 }
 
@@ -322,10 +325,7 @@ mod tests {
 
     #[test]
     fn escape_html_entities() {
-        assert_eq!(
-            escape_html(r#"a&b<c>"d""#),
-            "a&amp;b&lt;c&gt;&quot;d&quot;"
-        );
+        assert_eq!(escape_html(r#"a&b<c>"d""#), "a&amp;b&lt;c&gt;&quot;d&quot;");
     }
 
     #[test]
@@ -381,7 +381,10 @@ mod tests {
         let perms = manifest_permission_strings(&json!({
             "permissions": ["storage:read", 1, "network"]
         }));
-        assert_eq!(perms, vec!["storage:read".to_string(), "network".to_string()]);
+        assert_eq!(
+            perms,
+            vec!["storage:read".to_string(), "network".to_string()]
+        );
     }
 
     #[test]
@@ -453,13 +456,7 @@ mod tests {
         );
         assert!(md.contains("# T"));
         assert!(md.contains("分析结果"));
-        let html = render_report_content(
-            "<bad>",
-            "html",
-            &json!({}),
-            "t",
-            "t",
-        );
+        let html = render_report_content("<bad>", "html", &json!({}), "t", "t");
         assert!(html.contains("&lt;bad&gt;"));
         assert_eq!(format_report_id(42), "report_42");
     }

@@ -357,7 +357,7 @@ export const en: SettingGuidesCatalog = {
     eventAnalytics: {
       what: 'How often product events fire in the selected range, and how many visitors hit them.',
       chain:
-        '1) Shares the visitor-stats collection switch, date range, and exclusions (admin/owner not counted).\n2) Count = sum in range; visitors = distinct people who fired the event.\n3) Built-ins cover login/OAuth, music, library, Brew, report stage, Arael, Tapp, friend links, theme/locale/control panel; pass target for per-entity split (tapp id, platform slug, …).\n4) Main row = event total; sub-rows = target breakdown (up to ~20).\n5) Turning collection off stops new writes; history stays readable.',
+        '1) Shares the visitor-stats collection switch, date range, and exclusions (admin/owner not counted).\n2) Count = sum in range; visitors = distinct people who fired the event.\n3) Built-ins cover login/OAuth, music, library, Brew, report stage, Agent, Tapp, friend links, theme/locale/control panel; pass target for per-entity split (tapp id, platform slug, …).\n4) Main row = event total; sub-rows = target breakdown (up to ~20).\n5) Turning collection off stops new writes; history stays readable.',
       frontend: 'Data & stats → Visitor stats → Events section (beside Referrers).',
       notes: 'Keep custom event names stable and short; noisy high-frequency events crowd the ranking. Export/import backups include event aggregates and are sealed with an instance integrity token so hand-edited metrics are rejected.',
     },
@@ -371,7 +371,7 @@ export const en: SettingGuidesCatalog = {
     aiUsage: {
       what: 'Full-site AI usage (including admins/owner): daily trend, by user/model/source ranks, with filters.',
       chain:
-        '1) Every provider call (text, image, speech) writes tapp_ai_cost_ledger. Tapp / scheduled jobs still settle quota on the governed path; Arael, reports, digital life, playground, and speech are labeled; unlabeled calls land as internal.\n2) Admin GET /api/analytics/ai-usage aggregates by the server local calendar day and does not exclude staff.\n3) Bars = calls (left axis), line = tokens (right axis, independent scale); lists by user, model, and source.\n4) Independent of the visitor-stats collection switch.',
+        '1) Every provider call (text, image, speech) writes tapp_ai_cost_ledger. Tapp / scheduled jobs still settle quota on the governed path; Agent, reports, Agent persona, playground, and speech are labeled; unlabeled calls land as internal.\n2) Admin GET /api/analytics/ai-usage aggregates by the server local calendar day and does not exclude staff.\n3) Bars = calls (left axis), line = tokens (right axis, independent scale); lists by user, model, and source.\n4) Independent of the visitor-stats collection switch.',
       frontend: 'Settings → Data & stats → “AI usage stats” (KPIs, chart, by user / model / source).',
       notes: 'Tokens are often estimates (images by resolution, speech by text/audio length). Panel is admin-only.',
     },
@@ -530,7 +530,7 @@ export const en: SettingGuidesCatalog = {
     llm: {
       what: 'The three text-model tiers: Standard for daily work, Lite to save, Pro for hard jobs.',
       chain:
-        '1) Keys live in Providers above; here you only pick a source and model name.\n2) Standard is the default. Pro falls back to Standard when off. Lite jobs stop when Lite is off — they do not fall back.\n3) Agent life needs Pro. Lite only writes proactive lines and mood hints.\n4) Permissions and quota still apply.',
+        '1) Keys live in Providers above; here you only pick a source and model name.\n2) Standard is the default. Pro falls back to Standard when off. Lite jobs stop when Lite is off — they do not fall back.\n3) Agent persona needs Pro. Lite selects motion and writes proactive lines and mood hints.\n4) Permissions and quota still apply.',
       frontend:
         'Assistant chat, reports, and background text jobs use these tiers. Send one line in the assistant to test Standard first.',
       notes: 'Get Standard working before turning on the other two.',
@@ -550,10 +550,10 @@ export const en: SettingGuidesCatalog = {
       frontend: 'Users usually don’t see a separate page — mainly which setup simple background tasks use.',
       notes: 'Can use a different provider than Standard; safer to make sure Standard works first.',
     },
-    agentLife: {
-      what: 'Let Arael speak with the site persona, keep per-person mood and diary, and speak after named events.',
+    agentPersona: {
+      what: 'Let Agent speak with the site persona, keep per-person mood and diary, and speak after named events.',
       chain:
-        '1) Off by default. Off means chat and tasks only — no event listening, no hidden speech, persona unused.\n2) The switch needs Pro. Chat only injects the persona as system text; it uses the planner/reply tiers.\n3) Lite writes proactive lines and mood hints. Without Lite those stop — they do not fall back to Standard.\n4) On: write the persona on this item’s secondary page. Tags, name, and persona run through Pro.\n5) AGENT_LIFE_ENABLED can override the saved switch, but still needs Pro.\n6) Autonomic speech stays hidden; valuable events also notify if the person is not chatting.',
+        '1) Off by default. Off means chat and tasks only — no event listening, no hidden speech, persona unused.\n2) The switch needs Pro. Chat only injects the persona as system text; it uses the planner/reply tiers.\n3) Lite selects semantic motion and writes proactive lines and mood hints. Without Lite, semantic motion stops and only local blink, breath, hair, and other ambient physics remain; there is no Standard fallback.\n4) On: write the persona on this item’s secondary page. Tags, name, and persona run through Pro.\n5) MEROPE_ENABLED can override the saved switch, but still needs Pro.\n6) Autonomic speech stays hidden; valuable events also notify if the person is not chatting.',
       frontend:
         'Chat uses this persona. Write it on this item’s secondary settings page. The first-level row shows your mood band and current activity. Guests do not see mood.',
       notes: 'Only the site owner can write the persona. Deleting the persona also clears mood and diary. Heartbeat is never blocked by mood.',
@@ -561,7 +561,7 @@ export const en: SettingGuidesCatalog = {
     liteEnable: {
       what: 'Whether to enable the Lite tier.',
       chain:
-        '1) Off = Lite jobs stop. They do not fall back to Standard.\n2) On = lite tasks use the Lite setup.\n3) Turning off does not delete what you already filled in.\n4) Agent life can turn on without Lite; proactive lines stay short and mood hints stay off.',
+        '1) Off = Lite jobs stop. They do not fall back to Standard.\n2) On = motion selection and other lite tasks use the Lite setup.\n3) Turning off does not delete what you already filled in.\n4) Agent persona can turn on without Lite; only local ambient physics remain, proactive lines stay short, and mood hints stay off.',
       frontend: 'Indirectly affects which model is used; simple tasks can show cost/speed differences.',
       notes: 'If Standard still doesn’t work, don’t rush to enable Lite.',
     },
@@ -929,7 +929,7 @@ export const en: SettingGuidesCatalog = {
       notes: 'Only this browser; other devices are unaffected.',
     },
     mcp: {
-      what: 'Manage external MCP (stdio) tool servers for Arael in the UI: add/edit/remove, enable/disable, and inspect live health.',
+      what: 'Manage external MCP (stdio) tool servers for Agent in the UI: add/edit/remove, enable/disable, and inspect live health.',
       chain:
         '1) Save writes runtime data/agent/mcp_servers.json (often /data/agent/mcp_servers.json in the container) and hot-reloads children (no full site restart).\n2) Enabled servers start command/args; tools surface as mcp.{id}.{tool} for the agent.\n3) The list shows health and tool counts; disabled entries stay on disk but do not start.\n4) Env fields can hold secrets that live only on the server.',
       frontend: 'Settings → Advanced → “MCP tool servers” (admin only). Deep link /config?section=mcp.',

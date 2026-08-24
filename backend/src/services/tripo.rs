@@ -177,7 +177,7 @@ impl TripoClient {
         let builder = Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(120))
-            .user_agent("Myriad-Digital-Life/Tripo-v3");
+            .user_agent("Myriad-Merope/Tripo-v3");
         let client = crate::services::http_client::apply_proxy(builder, &proxy_config)
             .map_err(|error| TripoError::Transport(error.to_string()))?
             .build()
@@ -529,7 +529,7 @@ async fn persist_model_url(
     let (safe_url, client) = crate::services::outbound_security::build_public_http_client(
         model_url,
         Duration::from_secs(120),
-        Some("Myriad-Digital-Life/Model-Download"),
+        Some("Myriad-Merope/Model-Download"),
     )
     .await
     .map_err(TripoError::Transport)?;
@@ -569,8 +569,8 @@ async fn persist_model_url(
     persist_once(&directory.join(format!("{asset_id}.json")), &metadata).await?;
 
     Ok(PersistedTripoAsset {
-        model_url: format!("/api/digital-life/3d/assets/{asset_id}"),
-        metadata_url: format!("/api/digital-life/3d/assets/{asset_id}/metadata"),
+        model_url: format!("/api/merope/3d/assets/{asset_id}"),
+        metadata_url: format!("/api/merope/3d/assets/{asset_id}/metadata"),
         asset_id,
         output_index,
         metrics,
@@ -580,7 +580,7 @@ async fn persist_model_url(
 pub fn model_storage_dir() -> PathBuf {
     crate::services::data_paths::paths()
         .root
-        .join("digital-life/models")
+        .join("merope/models")
 }
 
 pub fn asset_path(asset_id: &str, metadata: bool) -> Result<PathBuf, TripoError> {

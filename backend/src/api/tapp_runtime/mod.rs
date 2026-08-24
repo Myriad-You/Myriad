@@ -104,7 +104,7 @@ pub use context::{
 // Media API
 pub use media::{media_control, media_status};
 
-// Tripo 3D (TAPP Runtime Grant; admin Digital Life routes stay separate)
+// Tripo 3D (TAPP Runtime Grant; admin Merope routes stay separate)
 pub use model3d::{
     await_task as await_model3d_task, create_task as create_model3d_task,
     get_task as get_model3d_task, status as model3d_status, upload as upload_model3d_file,

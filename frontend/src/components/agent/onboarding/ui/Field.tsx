@@ -18,15 +18,15 @@ export function Field({
   children: ReactNode
 }) {
   return (
-    <label className="life-ob-field">
-      <span className="life-ob-field__label">
+    <label className="merope-ob-field">
+      <span className="merope-ob-field__label">
         {label}
         {optional && optionalLabel && (
-          <i className="life-ob-field__optional">{optionalLabel}</i>
+          <i className="merope-ob-field__optional">{optionalLabel}</i>
         )}
       </span>
       {children}
-      {hint && <small className="life-ob-field__hint">{hint}</small>}
+      {hint && <small className="merope-ob-field__hint">{hint}</small>}
     </label>
   )
 }
@@ -39,17 +39,17 @@ export function FieldGroup({
   children: ReactNode
 }) {
   return (
-    <fieldset className="life-ob-field">
-      <legend className="life-ob-field__label">{label}</legend>
+    <fieldset className="merope-ob-field">
+      <legend className="merope-ob-field__label">{label}</legend>
       {children}
     </fieldset>
   )
 }
 
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className="life-ob-input" {...props} />
+  return <input className="merope-ob-input" {...props} />
 }
 
 export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className="life-ob-input life-ob-input--area" {...props} />
+  return <textarea className="merope-ob-input merope-ob-input--area" {...props} />
 }

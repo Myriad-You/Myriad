@@ -14,6 +14,7 @@ import React, { useCallback, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { testSpeechService } from '../lib/api'
+import { userFacingError } from '../utils/userFacingError'
 import {
   AboutConfigSection,
   AdvancedConfigSection,
@@ -292,7 +293,7 @@ const ModernConfigForm: React.FC = () => {
     message: string
   }> => {
     if (!config) {
-      return { success: false, message: 'Config not loaded' }
+      return { success: false, message: t.config.speechTestFailed }
     }
     try {
       const result = await testSpeechService()
@@ -327,14 +328,17 @@ const ModernConfigForm: React.FC = () => {
         if (result.tts_skipped) {
           return {
             success: true,
-            message: result.error || t.config.speechOpenRouterTtsHint,
+            message: userFacingError(
+              result.error,
+              t.config.speechOpenRouterTtsHint,
+            ),
           }
         }
         return { success: true, message: t.config.speechTestSuccess }
       }
       return {
         success: false,
-        message: result.error || t.config.speechTestFailed,
+        message: userFacingError(result.error, t.config.speechTestFailed),
       }
     } catch {
       return { success: false, message: t.config.speechTestFailed }

@@ -938,9 +938,9 @@ export default function BrewSourceGrid({
         <div className="flex flex-col items-center justify-center py-16 text-gray-500 dark:text-gray-400">
           <Search className="w-12 h-12 mb-3 opacity-30" />
           <p className="text-lg font-medium text-gray-700 dark:text-gray-300">
-            未找到匹配的订阅源
+            {t.brew.noMatchingSources}
           </p>
-          <p className="text-sm mt-1 opacity-70">尝试其他关键词</p>
+          <p className="text-sm mt-1 opacity-70">{t.brew.tryOtherKeywords}</p>
         </div>
       )}
 

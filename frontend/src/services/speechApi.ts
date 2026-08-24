@@ -5,6 +5,7 @@
  */
 
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import { ApiError, parseApiErrorBody } from './api'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
@@ -225,7 +226,11 @@ async function request<T>(
       }
       return request<T>(endpoint, options, false)
     }
-    throw speechHttpError(response.status, text, '请求被拒绝')
+    throw speechHttpError(
+      response.status,
+      text,
+      currentCopy().errors.requestRejected,
+    )
   }
 
   if (!response.ok) {
@@ -234,7 +239,7 @@ async function request<T>(
     throw speechHttpError(
       response.status,
       error,
-      `请求失败: ${response.status}`,
+      `${currentCopy().errors.requestFailed} (HTTP ${response.status})`,
     )
   }
 
@@ -525,11 +530,17 @@ export class CloudPodcastPlayer {
         if (response.errors && response.errors.length > 0) {
           // 显示第一个错误
           const firstError = response.errors[0]
-          throw new Error(`TTS失败: ${firstError.error}`)
+          throw new Error(
+            `${currentCopy().brew.generateFailed}: ${
+              firstError.error === 'empty_dialogue_text'
+                ? currentCopy().errors.emptyDialogueText
+                : firstError.error
+            }`,
+          )
         } else if (response.error) {
           throw new Error(response.error)
         } else {
-          throw new Error('批量TTS请求失败：未返回任何音频')
+          throw new Error(currentCopy().brew.generatePodcastFailed)
         }
       }
 

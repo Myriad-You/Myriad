@@ -21,33 +21,44 @@ mod oauth_identities;
 
 mod retired_history;
 
-#[path = "014_federation_delivery_leases.rs"]
-mod federation_delivery_leases;
+// 016 is data cleanup (#336). Schema columns live in 001–006; this migration
+// still has to run on existing installs that carry retired permission strings.
+#[path = "016_tapp_legacy_grant_clear.rs"]
+mod tapp_legacy_grant_clear;
 
-#[path = "015_federation_delivery_health.rs"]
-mod federation_delivery_health;
+pub use retired_history::{purge_retired_migration_history, RETIRED_MIGRATION_NAMES};
 
 pub struct Migrator;
+
+impl Migrator {
+    /// Strip folded 007–015 names from `seaql_migrations`, drop leftover
+    /// `digital_life_*` experiment tables, then apply 001–006 + 016.
+    ///
+    /// SeaORM rejects applied versions that have no file *before* any `up()`
+    /// body runs, so 016 cannot delete those rows itself. This wrapper is the
+    /// only `Migrator::up` call path.
+    pub async fn up<'c, C>(db: C, steps: Option<u32>) -> Result<(), DbErr>
+    where
+        C: IntoSchemaManagerConnection<'c>,
+    {
+        let executor = db.into_database_executor();
+        purge_retired_migration_history(&executor).await?;
+        <Self as MigratorTrait>::up(executor, steps).await
+    }
+}
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        let mut migrations: Vec<Box<dyn MigrationTrait>> = vec![
+        vec![
             Box::new(initial_schema::Migration),
             Box::new(tapp_system::Migration),
             Box::new(brew_system::Migration),
             Box::new(agent_system::Migration),
             Box::new(federation::Migration),
             Box::new(oauth_identities::Migration),
-        ];
-        // Applied migration names are an immutable compatibility contract.
-        // These historical implementations were folded into the complete
-        // greenfield schema, but their names must remain so startup never has
-        // to rewrite `seaql_migrations` to make history appear valid.
-        migrations.extend(retired_history::migrations());
-        migrations.push(Box::new(federation_delivery_leases::Migration));
-        migrations.push(Box::new(federation_delivery_health::Migration));
-        migrations
+            Box::new(tapp_legacy_grant_clear::Migration),
+        ]
     }
 }
 
@@ -57,7 +68,7 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn migration_names_are_unique_and_retain_published_history() {
+    fn migrator_contains_only_greenfield_and_grant_clear() {
         let migrations = Migrator::migrations();
         let names: Vec<&str> = migrations
             .iter()
@@ -65,28 +76,23 @@ mod tests {
             .collect();
         let unique: HashSet<&str> = names.iter().copied().collect();
         assert_eq!(unique.len(), names.len(), "migration names must be unique");
-
-        for retired in retired_history::RETIRED_MIGRATION_NAMES {
+        assert_eq!(
+            names,
+            [
+                "001_initial_schema",
+                "002_tapp_system",
+                "003_brew_system",
+                "004_agent_system",
+                "005_federation",
+                "006_oauth_identities",
+                "016_tapp_legacy_grant_clear",
+            ]
+        );
+        for retired in RETIRED_MIGRATION_NAMES {
             assert!(
-                unique.contains(retired),
-                "published migration history entry {retired} must never be removed"
+                !unique.contains(retired),
+                "folded history entry {retired} must not stay in the migrator"
             );
         }
-        assert!(
-            unique.contains("012_federation_inbox_receipts"),
-            "published receipt migration name must remain registered"
-        );
-        assert!(
-            unique.contains("013_federation_inbox_receipts_v2"),
-            "published receipt-shape repair name must remain registered"
-        );
-        assert!(
-            unique.contains("014_federation_delivery_leases"),
-            "delivery lease ownership migration must remain registered"
-        );
-        assert!(
-            unique.contains("015_federation_delivery_health"),
-            "delivery health streak migration must remain registered"
-        );
     }
 }

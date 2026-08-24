@@ -17,9 +17,9 @@ use axum::{
     response::IntoResponse,
     response::Response,
 };
-use sea_orm::DatabaseConnection;
 use futures::{SinkExt, StreamExt};
 use once_cell::sync::Lazy;
+use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -214,10 +214,9 @@ async fn resolve_ws_ticket(
         .sub
         .parse()
         .map_err(|_| ws_ticket_http_error(WsTicketError::InvalidSubject))?;
-    let consumed =
-        tapp_ws_ticket::consume_ws_ticket(db, ticket, subject_id, kind, resource_id)
-            .await
-            .map_err(ws_ticket_http_error)?;
+    let consumed = tapp_ws_ticket::consume_ws_ticket(db, ticket, subject_id, kind, resource_id)
+        .await
+        .map_err(ws_ticket_http_error)?;
     Ok(Some(consumed))
 }
 
@@ -647,10 +646,8 @@ async fn handle_ws_client_message(
                 reply_to: reply_to.map(|s| s.to_string()),
                 encrypt: msg.get("encrypt").and_then(|v| v.as_bool()),
             };
-            match crate::federation::channel::send_message(
-                user_id, username, channel_id, db, &req,
-            )
-            .await
+            match crate::federation::channel::send_message(user_id, username, channel_id, db, &req)
+                .await
             {
                 Ok(_resp) => {
                     // send_message 内部已经调用了 broadcast_to_channel

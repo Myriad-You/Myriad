@@ -133,7 +133,7 @@ impl LaneQueue {
                 .clone()
                 .acquire_owned()
                 .await
-                .map_err(|_| "系统正在关闭".to_string())?;
+                .map_err(|_| "The system is shutting down".to_string())?;
 
             tracing::debug!(
                 lane = %lane_key,

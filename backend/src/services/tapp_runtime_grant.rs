@@ -126,6 +126,10 @@ pub enum RuntimeGrantError {
     ScopeChanged,
     SubjectMismatch,
     RoleChanged,
+    /// Installation carries the persistent re-authorization marker: the upgrade
+    /// migration removed retired permission strings and the operator has not
+    /// explicitly re-authorized this install yet.
+    NeedsReauthorization,
     UnknownPermission {
         permission: String,
     },
@@ -144,6 +148,7 @@ impl RuntimeGrantError {
             Self::Invalid | Self::ScopeChanged => "INVALID_RUNTIME_GRANT",
             Self::SubjectMismatch => "RUNTIME_GRANT_SUBJECT_MISMATCH",
             Self::RoleChanged => "RUNTIME_GRANT_ROLE_CHANGED",
+            Self::NeedsReauthorization => "TAPP_NEEDS_REAUTHORIZATION",
             Self::UnknownPermission { .. } => "UNKNOWN_TAPP_PERMISSION",
             Self::PermissionDenied { .. } => "RUNTIME_GRANT_PERMISSION_DENIED",
             Self::TappMismatch => "RUNTIME_GRANT_TAPP_MISMATCH",
@@ -160,6 +165,9 @@ impl RuntimeGrantError {
             Self::SubjectMismatch => "Runtime grant subject mismatch".to_string(),
             Self::RoleChanged => {
                 "Runtime grant administrator role is no longer current".to_string()
+            }
+            Self::NeedsReauthorization => {
+                "Tapp installation requires permission re-authorization".to_string()
             }
             Self::UnknownPermission { permission } => {
                 match tapp_permission_replacement_hint(permission) {
@@ -184,6 +192,7 @@ impl RuntimeGrantError {
             Self::Unavailable => 503,
             Self::Invalid | Self::ScopeChanged => 401,
             Self::UnknownPermission { .. } => 409,
+            Self::NeedsReauthorization => 409,
             Self::SubjectMismatch
             | Self::RoleChanged
             | Self::PermissionDenied { .. }
@@ -260,6 +269,21 @@ fn map_db_err(error: impl std::fmt::Display) -> RuntimeGrantError {
     RuntimeGrantError::Unavailable
 }
 
+/// 重新授权 fail-closed gate 的最小纯判定。
+///
+/// 安装仍标记为需重新授权（升级迁移清除了退役串、剩余权限都能解析，未知权限
+/// 检查不会再触发）时拒绝。runtime grant 签发（issue）与逐请求
+/// rebind（validate）两条生产路径共用此判定，测试直接覆盖它本身。
+pub fn refuse_if_needs_reauthorization(
+    needs_reauthorization: bool,
+) -> Result<(), RuntimeGrantError> {
+    if needs_reauthorization {
+        Err(RuntimeGrantError::NeedsReauthorization)
+    } else {
+        Ok(())
+    }
+}
+
 /// Validate a bearer grant token and rebind permissions to the current install/role.
 ///
 /// `admin_role_revoked` is true when the JWT still claims admin but the live
@@ -297,6 +321,11 @@ pub async fn validate_runtime_grant(
     };
     let installed_permissions: Vec<String> =
         serde_json::from_value(tapp.approved_permissions).unwrap_or_default();
+    // Refuse the rebind while the install still needs re-authorization.
+    // The migration already removed the retired strings, so the
+    // unknown-permission failure alone would no longer trip — the persistent
+    // marker carries the fail-closed gate until an explicit re-approval.
+    refuse_if_needs_reauthorization(tapp.needs_reauthorization)?;
     let currently_allowed = {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
         TappPermissionService::filter_permissions_for_role(&config, role, &installed_permissions)?
@@ -464,8 +493,8 @@ pub async fn revoke_all_tapp_runtime_grants(db: &DatabaseConnection, tapp_id: &s
 #[cfg(test)]
 mod tests {
     use super::{
-        intersect_current_permissions, token_hash, valid_instance_id, RuntimeGrantError,
-        RuntimeKind,
+        intersect_current_permissions, refuse_if_needs_reauthorization, token_hash,
+        valid_instance_id, RuntimeGrantError, RuntimeKind,
     };
 
     #[test]
@@ -522,6 +551,15 @@ mod tests {
             "RUNTIME_GRANT_ROLE_CHANGED"
         );
         assert_eq!(
+            RuntimeGrantError::NeedsReauthorization.code(),
+            "TAPP_NEEDS_REAUTHORIZATION"
+        );
+        assert_eq!(
+            RuntimeGrantError::NeedsReauthorization.message(),
+            "Tapp installation requires permission re-authorization"
+        );
+        assert_eq!(RuntimeGrantError::NeedsReauthorization.status_hint(), 409);
+        assert_eq!(
             RuntimeGrantError::UnknownPermission {
                 permission: "legacy:unknown".into()
             }
@@ -547,6 +585,17 @@ mod tests {
             RuntimeGrantError::LimitExceeded.code(),
             "RUNTIME_GRANT_LIMIT_EXCEEDED"
         );
+    }
+
+    #[test]
+    fn reauthorization_gate_refuses_marked_installs_only() {
+        // L2: production issue/validate paths share this pure decision; the
+        // test exercises the exact helper the runtime calls.
+        assert_eq!(
+            refuse_if_needs_reauthorization(true).unwrap_err(),
+            RuntimeGrantError::NeedsReauthorization
+        );
+        assert!(refuse_if_needs_reauthorization(false).is_ok());
     }
 
     #[test]

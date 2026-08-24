@@ -229,9 +229,10 @@ async fn process_platform_task(task_id: String, platform: String) {
 
     // 如果分平台数据读取失败，报错
     if platform_data_value.is_none() {
-        let error = format!("Raw data file not found for platform: {}", platform);
-        tracing::error!("❌ {}", error);
-        BACKGROUND_PROCESSOR.fail_task(task_id, error).await;
+        tracing::error!("Raw data file not found for platform: {}", platform);
+        BACKGROUND_PROCESSOR
+            .fail_task(task_id, "Raw data file not found".to_string())
+            .await;
         return;
     }
 
@@ -247,8 +248,11 @@ async fn process_platform_task(task_id: String, platform: String) {
         .update_task(task_id, TaskStatus::Processing, 80.0, None)
         .await;
 
-    let process_result = SmartFilter::process_and_save_single(platform, &platform_data)
-        .map_err(|e| format!("Failed to process {}: {}", platform, e));
+    let process_result =
+        SmartFilter::process_and_save_single(platform, &platform_data).map_err(|error| {
+            tracing::error!("Failed to process {platform}: {error}");
+            format!("Failed to process {platform}")
+        });
 
     match process_result {
         Ok(_) => {
@@ -256,7 +260,6 @@ async fn process_platform_task(task_id: String, platform: String) {
             BACKGROUND_PROCESSOR.complete_task(task_id).await;
         }
         Err(error) => {
-            tracing::error!("❌ {}", error);
             BACKGROUND_PROCESSOR.fail_task(task_id, error).await;
         }
     }

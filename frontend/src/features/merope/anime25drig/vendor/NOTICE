@@ -1,0 +1,10 @@
+Anime2.5DRig
+https://github.com/852wa/Anime2.5DRig
+MIT License
+Copyright (c) 2026 hakoniwa
+
+rigger.js and genericparts.js are copies of the upstream sources.
+The UMD boot line in rigger.js is adjusted so it loads under ESM; the rigger itself is unchanged.
+The base bind, deform, and fade math follows index.html. Myriad supplies its own
+bounded ambient and text-free preview speech timing.
+The surrounding Myriad page, overlay, and settings chrome are not from that project.

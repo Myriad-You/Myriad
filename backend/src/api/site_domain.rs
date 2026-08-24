@@ -63,7 +63,7 @@ pub fn validate_and_normalize_origin(raw: &str) -> Result<String, String> {
         return Err("Wildcard origins are not allowed".to_string());
     }
 
-    let parsed = Url::parse(trimmed).map_err(|e| format!("Invalid URL: {e}"))?;
+    let parsed = Url::parse(trimmed).map_err(|_| "Invalid origin".to_string())?;
 
     let scheme = parsed.scheme();
     let host = parsed
@@ -405,6 +405,8 @@ pub async fn change_site_domain(
                 StatusCode::BAD_REQUEST,
                 Json(json!({
                     "success": false,
+                    "error": "Invalid origin",
+                    "code": "domain_invalid",
                     "message": e,
                 })),
             );
@@ -444,7 +446,9 @@ pub async fn change_site_domain(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "success": false,
-                    "message": format!("Failed to save domain keys to database: {e}"),
+                    "error": "Failed to save domain keys",
+                    "code": "config_save_failed",
+                    "message": "Failed to save domain keys",
                 })),
             );
         }
@@ -460,11 +464,14 @@ pub async fn change_site_domain(
                 match fs::read(&path) {
                     Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
                     Err(e2) => {
+                        tracing::error!("Failed to read .env: {e2}");
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(json!({
                                 "success": false,
-                                "message": format!("Failed to read .env: {e2}"),
+                                "error": "Failed to read configuration file",
+                                "code": "config_file_permission",
+                                "message": "Failed to read configuration file",
                             })),
                         );
                     }
@@ -492,6 +499,8 @@ pub async fn change_site_domain(
                     StatusCode::BAD_REQUEST,
                     Json(json!({
                         "success": false,
+                        "error": "Invalid origin",
+                        "code": "domain_invalid",
                         "message": e,
                     })),
                 );
@@ -506,7 +515,9 @@ pub async fn change_site_domain(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "message": e,
+                "error": "Failed to write configuration file",
+                "code": "config_file_permission",
+                "message": "Failed to write configuration file",
             })),
         );
     }

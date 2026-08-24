@@ -118,3 +118,4 @@ docker/volumes/
 /Upload/
 /tapp-store
 backend/data/.bootstrap-claimed
+/backend/data

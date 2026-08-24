@@ -266,7 +266,10 @@ WHERE status IN ('pending', 'running')
             vec![crate::services::agent::response_agent::task_interrupted().into()],
         ))
         .await
-        .map_err(|error| format!("终结重启中断任务失败: {error}"))?
+        .map_err(|error| {
+            tracing::error!("Failed to finalize interrupted tasks: {error}");
+            "Failed to finalize interrupted tasks".to_string()
+        })?
         .rows_affected();
 
     let pending_tasks = agent_tasks::Entity::find()
@@ -274,7 +277,10 @@ WHERE status IN ('pending', 'running')
         .order_by_desc(agent_tasks::Column::StartedAt)
         .all(db)
         .await
-        .map_err(|e| format!("查询待处理任务失败: {}", e))?;
+        .map_err(|e| {
+            tracing::error!("Failed to list pending tasks: {e}");
+            "Failed to list pending tasks".to_string()
+        })?;
 
     let mut store = TASK_STORE.write().await;
     for task_model in pending_tasks {
@@ -380,7 +386,7 @@ pub use task_store_pure::session_id_from_lane_id;
 /// 保存任务到数据库
 pub async fn save_task_to_db(user_id: i32, task: &TaskState) -> Result<(), String> {
     let db_guard = DB_FOR_TASKS.read().await;
-    let db = db_guard.as_ref().ok_or("数据库连接未初始化")?;
+    let db = db_guard.as_ref().ok_or("Database is not connected")?;
 
     let status_str = task_status_to_db_str(&task.status);
 
@@ -388,7 +394,10 @@ pub async fn save_task_to_db(user_id: i32, task: &TaskState) -> Result<(), Strin
     let existing = agent_tasks::Entity::find_by_id(&task.task_id)
         .one(db)
         .await
-        .map_err(|e| format!("查询任务失败: {}", e))?;
+        .map_err(|e| {
+            tracing::error!("Failed to load task: {e}");
+            "Failed to load task".to_string()
+        })?;
 
     if let Some(existing_task) = existing {
         // 更新现有任务
@@ -407,10 +416,10 @@ pub async fn save_task_to_db(user_id: i32, task: &TaskState) -> Result<(), Strin
             active_model.session_id = Set(Some(sid));
         }
 
-        active_model
-            .update(db)
-            .await
-            .map_err(|e| format!("更新任务失败: {}", e))?;
+        active_model.update(db).await.map_err(|e| {
+            tracing::error!("Failed to update task: {e}");
+            "Failed to update task".to_string()
+        })?;
     } else {
         // 创建新任务
         let session_id = session_id_from_lane_id(task.lane_id.as_deref());
@@ -442,10 +451,10 @@ pub async fn save_task_to_db(user_id: i32, task: &TaskState) -> Result<(), Strin
             )),
         };
 
-        new_task
-            .insert(db)
-            .await
-            .map_err(|e| format!("创建任务失败: {}", e))?;
+        new_task.insert(db).await.map_err(|e| {
+            tracing::error!("Failed to create task: {e}");
+            "Failed to create task".to_string()
+        })?;
     }
 
     Ok(())
@@ -454,13 +463,16 @@ pub async fn save_task_to_db(user_id: i32, task: &TaskState) -> Result<(), Strin
 /// 从数据库清理过期任务
 async fn cleanup_expired_tasks_from_db(task_ids: &[String]) -> Result<(), String> {
     let db_guard = DB_FOR_TASKS.read().await;
-    let db = db_guard.as_ref().ok_or("数据库连接未初始化")?;
+    let db = db_guard.as_ref().ok_or("Database is not connected")?;
 
     for task_id in task_ids {
         agent_tasks::Entity::delete_by_id(task_id)
             .exec(db)
             .await
-            .map_err(|e| format!("删除任务失败: {}", e))?;
+            .map_err(|e| {
+                tracing::error!("Failed to delete task: {e}");
+                "Failed to delete task".to_string()
+            })?;
     }
 
     Ok(())
@@ -534,7 +546,7 @@ pub async fn claim_task_for_resume(task_id: &str, user_id: i32) -> Result<bool, 
         .read()
         .await
         .clone()
-        .ok_or("数据库连接未初始化")?;
+        .ok_or("Database is not connected")?;
     let result = db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -546,7 +558,10 @@ WHERE id = $1 AND user_id = $2 AND status = 'waiting_for_input'
             vec![task_id.to_string().into(), user_id.into()],
         ))
         .await
-        .map_err(|error| format!("获取任务恢复执行权失败: {error}"))?;
+        .map_err(|error| {
+            tracing::error!("Failed to resume task: {error}");
+            "Failed to resume task".to_string()
+        })?;
     Ok(result.rows_affected() == 1)
 }
 

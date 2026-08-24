@@ -198,12 +198,12 @@ pub(super) fn build_authenticated_router(
         // Provider operations are admin-only; content-addressed GLB assets
         // remain public so guest home scenes can render them.
         .nest(
-            "/api/digital-life/3d",
-            api::digital_life_3d::create_routes(app_state.clone()),
+            "/api/merope/3d",
+            api::merope_3d::create_routes(app_state.clone()),
         )
         .nest(
-            "/api/digital-life/rig",
-            api::digital_life_rig::create_routes(app_state.clone()),
+            "/api/merope/rig",
+            api::merope_rig::create_routes(app_state.clone()),
         )
         // Brew 阅读 API
         // RSS/Atom 订阅管理、文章获取、阅读状态同步
@@ -307,7 +307,7 @@ pub(super) fn build_authenticated_router(
                 middleware::auth::optional_auth_middleware,
             )),
         )
-        // TAPP Tripo 3D — Runtime Grant `3d:generate`; admin Digital Life routes stay admin-only.
+        // TAPP Tripo 3D — Runtime Grant `3d:generate`; admin Merope routes stay admin-only.
         .route(
             "/api/tapp/3d/status",
             get(api::tapp_runtime::model3d_status).route_layer(from_fn_with_state(

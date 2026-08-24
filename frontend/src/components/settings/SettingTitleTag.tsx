@@ -11,7 +11,7 @@ import React, { useCallback } from 'react'
 import { SettingTitleHelp } from './SettingTitleHelp'
 import './SettingTitleTag.css'
 
-export type SettingTitleTagVariant = 'default' | 'muted' | 'danger'
+export type SettingTitleTagVariant = 'default' | 'muted' | 'danger' | 'beta'
 
 export interface SettingTitleTagProps {
   /** 标签文案 */
@@ -29,7 +29,8 @@ export interface SettingTitleTagProps {
   disabled?: boolean
   /**
    * default = 品牌色强调；muted = 中性信息；
-   * danger = 选项/分组标题旁报错（与站点分析错误标签同款）
+   * danger = 选项/分组标题旁报错（与站点分析错误标签同款）；
+   * beta = 实验功能标记
    */
   variant?: SettingTitleTagVariant
   className?: string
@@ -58,6 +59,7 @@ export const SettingTitleTag: React.FC<SettingTitleTagProps> = ({
     'setting-title-tag',
     variant === 'muted' ? 'setting-title-tag--muted' : '',
     variant === 'danger' ? 'setting-title-tag--danger' : '',
+    variant === 'beta' ? 'setting-title-tag--beta' : '',
     onDismiss ? 'setting-title-tag--dismissible' : '',
     onClick ? 'setting-title-tag--actionable' : '',
     className,

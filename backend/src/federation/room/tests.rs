@@ -1,12 +1,10 @@
 //! Room unit tests (mechanical move from room.rs).
-use super::*;
 use super::helpers::*;
 use super::members::{
     home_servers_match, may_promote_private_room_to_public, validate_remote_public_room_doc,
 };
-use super::stickers::{
-    parse_room_stickers, stickers_to_json, ROOM_STICKER_MAX_DATA_LEN,
-};
+use super::stickers::{parse_room_stickers, stickers_to_json, ROOM_STICKER_MAX_DATA_LEN};
+use super::*;
 use serde_json::json;
 
 #[test]
@@ -30,9 +28,8 @@ fn parse_room_join_ref_bare_and_shareable() {
     assert_eq!(id, "rm_6297d497-1ecb-494c-9abe-5247585c75a9");
     assert_eq!(home.as_deref(), Some("example.com:8443"));
 
-    let (id, home) = parse_room_join_ref(
-        "myriad:room:rm_6297d497-1ecb-494c-9abe-5247585c75a9@127.0.0.1:1103",
-    );
+    let (id, home) =
+        parse_room_join_ref("myriad:room:rm_6297d497-1ecb-494c-9abe-5247585c75a9@127.0.0.1:1103");
     assert_eq!(id, "rm_6297d497-1ecb-494c-9abe-5247585c75a9");
     assert_eq!(home.as_deref(), Some("127.0.0.1:1103"));
 }
@@ -203,10 +200,12 @@ fn invite_object_game_parses_into_room_config() {
     assert_eq!(config.tapp_id, "com.example.chess");
     assert_eq!(config.protocol, "v1");
     assert_eq!(config.max_message_bytes, Some(65536));
-    assert!(crate::federation::room::game::parse_room_game_config(Some(&json!({
-        "game": {"tapp_id": "not-an-id", "protocol": "v1"}
-    })))
-    .is_none());
+    assert!(
+        crate::federation::room::game::parse_room_game_config(Some(&json!({
+            "game": {"tapp_id": "not-an-id", "protocol": "v1"}
+        })))
+        .is_none()
+    );
 }
 
 #[test]
@@ -324,8 +323,6 @@ fn stickers_to_json_roundtrip_shape() {
     assert_eq!(again[0].id, "stk_1");
     assert_eq!(again[0].name.as_deref(), Some("hi"));
 }
-
-
 
 // ---------- myriad:RoomJoin authorization ----------
 //

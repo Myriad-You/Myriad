@@ -264,7 +264,8 @@ pub fn infer_button_action(id: &str, class: &str, title: &str, text: &str) -> St
 
     if combined.contains("send") || combined.contains("submit") || combined.contains("发送") {
         "submit".to_string()
-    } else if combined.contains("add") || combined.contains("新增") || combined.contains("添加") {
+    } else if combined.contains("add") || combined.contains("新增") || combined.contains("添加")
+    {
         "add".to_string()
     } else if combined.contains("delete")
         || combined.contains("remove")
@@ -829,14 +830,8 @@ mod tests {
         assert!(!buttons.is_empty());
         assert_eq!(buttons[0]["action"], "submit");
 
-        assert_eq!(
-            infer_button_action("add-item", "", "", "新增"),
-            "add"
-        );
-        assert_eq!(
-            infer_input_purpose("user-email", "text", "邮箱"),
-            "email"
-        );
+        assert_eq!(infer_button_action("add-item", "", "", "新增"), "add");
+        assert_eq!(infer_input_purpose("user-email", "text", "邮箱"), "email");
     }
 
     #[test]
@@ -901,10 +896,7 @@ mod tests {
             parse_playlist_id_param(&json!("12345")).as_deref(),
             Some("12345")
         );
-        assert_eq!(
-            parse_playlist_id_param(&json!(99)).as_deref(),
-            Some("99")
-        );
+        assert_eq!(parse_playlist_id_param(&json!(99)).as_deref(), Some("99"));
         assert!(parse_playlist_id_param(&json!("")).is_none());
     }
 

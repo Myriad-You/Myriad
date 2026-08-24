@@ -854,7 +854,7 @@ SELECT EXISTS (
         Self::update_task_after_frontend_completion(db, &task, &status, result, error.clone())
             .await?;
         if matches!(status, ExecutionStatus::Failed | ExecutionStatus::Timeout) {
-            Self::notify_task_failure(&task, error.as_deref().unwrap_or("前端任务执行失败")).await;
+            Self::notify_task_failure(&task, error.as_deref().unwrap_or("The scheduled task failed")).await;
         }
         Ok(())
     }
@@ -873,7 +873,7 @@ SELECT EXISTS (
                 .notify_tapp(
                     task.user_id,
                     &task.tapp_id,
-                    Some(&format!("定时任务失败: {}", task.name)),
+                    Some("Scheduled task failed"),
                     error,
                     "error",
                 )
@@ -945,6 +945,10 @@ SELECT EXISTS (
         )
         .await
         .map_err(|e| format!("Scheduled Tapp is no longer accessible: {e}"))?;
+        crate::services::tapp_runtime_grant::refuse_if_needs_reauthorization(
+            tapp.needs_reauthorization,
+        )
+        .map_err(|error| error.message())?;
         let approved = tapp
             .approved_permissions
             .as_array()
@@ -1272,7 +1276,8 @@ SELECT EXISTS (
         platform: &str,
     ) -> Result<serde_json::Value, String> {
         tracing::info!("[TappScheduler] Platform sync: {}", platform);
-        let data = crate::services::platform_refresh::refresh_platform_for_scheduler(db, platform).await?;
+        let data =
+            crate::services::platform_refresh::refresh_platform_for_scheduler(db, platform).await?;
         Ok(json!({ "platform": platform, "synced": true, "data": data }))
     }
 
@@ -1698,13 +1703,20 @@ fn daily_next_wall_clock(
     from: DateTime<Utc>,
     timezone: Option<&str>,
 ) -> Result<DateTime<Utc>, String> {
-    let tz = timezone.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("local");
+    let tz = timezone
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("local");
 
     if tz.eq_ignore_ascii_case("local") {
         return daily_next_in_local(time, from);
     }
     if tz.eq_ignore_ascii_case("utc") || tz.eq_ignore_ascii_case("z") {
-        return Ok(daily_next_in_offset(time, from, FixedOffset::east_opt(0).unwrap()));
+        return Ok(daily_next_in_offset(
+            time,
+            from,
+            FixedOffset::east_opt(0).unwrap(),
+        ));
     }
     let offset = parse_daily_fixed_offset(tz)?;
     Ok(daily_next_in_offset(time, from, offset))
@@ -1763,7 +1775,6 @@ fn daily_next_in_offset(
 
 // keep impl methods that follow (register_task etc.) in a separate impl block
 impl TappSchedulerEngine {
-
     /// 注册新任务
     #[allow(clippy::too_many_arguments)]
     pub async fn register_task(

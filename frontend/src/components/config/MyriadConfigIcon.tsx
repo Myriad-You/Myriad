@@ -14,7 +14,7 @@ export type MyriadConfigIconKind =
   | 'about'
   | 'users'
   | 'federation'
-  /** Arael Agent — same asset as notification source `agent` */
+  /** Agent — same asset as notification source `agent` */
   | 'agent'
 
 interface MyriadConfigIconProps {
@@ -29,7 +29,7 @@ const SHARED_CONFIG_ICON_ASSETS: Partial<Record<MyriadConfigIconKind, string>> =
     tripo: '/icons/config/tripo.svg',
     // Same icon as notification center federation source
     federation: '/icons/notifications/aro.webp',
-    // Same icon as notification center Arael / agent source
+    // Same icon as notification center Agent / agent source
     agent: '/icons/notifications/arael.webp',
   }
 

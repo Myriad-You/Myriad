@@ -61,7 +61,7 @@ export type AiUsageSourceLabels = {
   agent: string
   reports: string
   runtime: string
-  life: string
+  merope: string
   playground: string
   speech: string
   brewlia: string
@@ -82,7 +82,7 @@ export function aiSourceDisplayName(
   }
   if (key === 'agent') return labels.agent
   if (key === 'reports') return labels.reports
-  if (key === 'life') return labels.life
+  if (key === 'merope') return labels.merope
   if (key === 'playground') return labels.playground
   if (key === 'speech') return labels.speech
   if (key === 'brewlia') return labels.brewlia

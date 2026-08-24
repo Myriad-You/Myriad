@@ -129,7 +129,10 @@ pub fn validate_config(mut config: McpServersConfig) -> Result<McpServersConfig,
                 ));
             }
             if env.len() >= 64 {
-                return Err(format!("server '{}': too many env entries (max 64)", server.id));
+                return Err(format!(
+                    "server '{}': too many env entries (max 64)",
+                    server.id
+                ));
             }
             env.insert(key, v);
         }
@@ -147,8 +150,8 @@ pub fn validate_config(mut config: McpServersConfig) -> Result<McpServersConfig,
 
 /// Atomically write config JSON (pretty) to `path`.
 pub async fn save_config(path: &Path, config: &McpServersConfig) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(config)
-        .map_err(|e| format!("serialize mcp config: {e}"))?;
+    let json =
+        serde_json::to_string_pretty(config).map_err(|e| format!("serialize mcp config: {e}"))?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     tokio::fs::create_dir_all(parent)
         .await

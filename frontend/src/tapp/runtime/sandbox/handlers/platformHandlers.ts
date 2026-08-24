@@ -9,6 +9,7 @@ import type {
   WidgetRegistration,
 } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
+import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'
 import { getTappRuntime } from '../../TappRuntime'
 
@@ -33,7 +34,7 @@ export function registerWidgetHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -52,7 +53,7 @@ export function registerWidgetHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -65,7 +66,7 @@ export function registerWidgetHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -94,7 +95,7 @@ export function registerWidgetHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -126,7 +127,7 @@ export function registerAnalyticsHandlers(bridge: TappBridge): void {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -140,7 +141,7 @@ export function registerAnalyticsHandlers(bridge: TappBridge): void {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -163,7 +164,7 @@ export function registerPlatformHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -182,7 +183,7 @@ export function registerPlatformHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -199,7 +200,7 @@ export function registerPlatformHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -219,7 +220,7 @@ export function registerPlatformHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -239,7 +240,7 @@ export function registerPlatformHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -258,7 +259,7 @@ export function registerPlatformHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })
@@ -278,7 +279,7 @@ export function registerPlatformHandlers(
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed',
+        error: userFacingError(error),
       }
     }
   })

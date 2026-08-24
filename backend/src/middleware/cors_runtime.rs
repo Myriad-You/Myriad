@@ -77,24 +77,24 @@ mod tests {
             "https://a.example".into(),
             "http://localhost:1102".into(),
         ]);
-        assert!(origin_is_allowed(
-            &HeaderValue::from_static("https://a.example")
-        ));
-        assert!(origin_is_allowed(
-            &HeaderValue::from_static("http://localhost:1102")
-        ));
-        assert!(!origin_is_allowed(
-            &HeaderValue::from_static("https://evil.example")
-        ));
+        assert!(origin_is_allowed(&HeaderValue::from_static(
+            "https://a.example"
+        )));
+        assert!(origin_is_allowed(&HeaderValue::from_static(
+            "http://localhost:1102"
+        )));
+        assert!(!origin_is_allowed(&HeaderValue::from_static(
+            "https://evil.example"
+        )));
         assert_eq!(cors_origin_count(), 2);
 
         set_cors_origins(vec!["*".into(), "https://ok.example".into()]);
         assert_eq!(cors_origin_count(), 1);
-        assert!(origin_is_allowed(
-            &HeaderValue::from_static("https://ok.example")
-        ));
-        assert!(!origin_is_allowed(
-            &HeaderValue::from_static("https://a.example")
-        ));
+        assert!(origin_is_allowed(&HeaderValue::from_static(
+            "https://ok.example"
+        )));
+        assert!(!origin_is_allowed(&HeaderValue::from_static(
+            "https://a.example"
+        )));
     }
 }

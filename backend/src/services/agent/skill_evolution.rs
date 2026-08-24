@@ -326,25 +326,26 @@ impl SkillEvolution {
                         let old_instructions = skill.full_instructions.clone();
                         if let Some(evolution) = get_skill_evolution() {
                             let evo = evolution.clone();
-                            crate::services::ai_cost_ledger::spawn_with_current_ai_attribution(move || async move {
-                                match Self::ai_improve_skill(
-                                    &evo,
-                                    &skill_id_owned,
-                                    &old_instructions,
-                                    failure_reason_owned.as_deref(),
-                                )
-                                .await
-                                {
-                                    Ok(()) => {
-                                        // 成功：确认改进时间戳
-                                        let mut stats = evo.stats.lock().await;
-                                        if let Some(entry) = stats.get_mut(&stats_key_owned) {
-                                            entry.last_improved_at = Some(Utc::now());
-                                        }
-                                        evo.mark_stats_dirty();
-                                        drop(stats);
-                                        evo.flush().await;
-                                        if let Some(nm) = crate::services::agent::notifications::get_notification_manager()
+                            crate::services::ai_cost_ledger::spawn_with_current_ai_attribution(
+                                move || async move {
+                                    match Self::ai_improve_skill(
+                                        &evo,
+                                        &skill_id_owned,
+                                        &old_instructions,
+                                        failure_reason_owned.as_deref(),
+                                    )
+                                    .await
+                                    {
+                                        Ok(()) => {
+                                            // 成功：确认改进时间戳
+                                            let mut stats = evo.stats.lock().await;
+                                            if let Some(entry) = stats.get_mut(&stats_key_owned) {
+                                                entry.last_improved_at = Some(Utc::now());
+                                            }
+                                            evo.mark_stats_dirty();
+                                            drop(stats);
+                                            evo.flush().await;
+                                            if let Some(nm) = crate::services::agent::notifications::get_notification_manager()
                                         {
                                             nm.notify_skill_evolution(
                                                 &skill_id_owned,
@@ -353,25 +354,27 @@ impl SkillEvolution {
                                             )
                                             .await;
                                         }
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            skill_id = %skill_id_owned,
-                                            error = %e,
-                                            "[SkillEvolution] AI improvement failed, rolling back cooldown"
-                                        );
-                                        // 失败：回滚 last_improved_at（允许下次失败重新触发）
-                                        let mut stats = evo.stats.lock().await;
-                                        if let Some(entry) = stats.get_mut(&stats_key_owned) {
-                                            // 只回滚自己设置的时间戳，避免覆盖其他并发改进
-                                            if entry.last_improved_at == Some(improving_marker) {
-                                                entry.last_improved_at = None;
-                                            }
                                         }
-                                        evo.mark_stats_dirty();
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                skill_id = %skill_id_owned,
+                                                error = %e,
+                                                "[SkillEvolution] AI improvement failed, rolling back cooldown"
+                                            );
+                                            // 失败：回滚 last_improved_at（允许下次失败重新触发）
+                                            let mut stats = evo.stats.lock().await;
+                                            if let Some(entry) = stats.get_mut(&stats_key_owned) {
+                                                // 只回滚自己设置的时间戳，避免覆盖其他并发改进
+                                                if entry.last_improved_at == Some(improving_marker)
+                                                {
+                                                    entry.last_improved_at = None;
+                                                }
+                                            }
+                                            evo.mark_stats_dirty();
+                                        }
                                     }
-                                }
-                            });
+                                },
+                            );
                         }
                     }
                 }

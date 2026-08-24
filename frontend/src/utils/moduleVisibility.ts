@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { currentCopy } from '../i18n/localeCopy'
 import apiService from '../services/api'
 import { dedupedFetch } from './requestDedup'
 
@@ -7,7 +8,6 @@ export type ModuleVisibilityKey =
   | 'library'
   | 'brew'
   | 'reports'
-  | 'life'
   | 'tapp'
   | 'agent'
 
@@ -38,23 +38,13 @@ export const MODULE_VISIBILITY_KEYS: ModuleVisibilityKey[] = [
   'library',
   'brew',
   'reports',
-  'life',
   'tapp',
   'agent',
 ]
 
-/**
- * What settings actually offers. `life` stays in the stored shape above for API
- * compatibility, but its SPA route is retired — there is no page left to hide.
- */
-export type ConfigurableModuleKey = Exclude<ModuleVisibilityKey, 'life'>
-export const CONFIGURABLE_MODULE_KEYS: ConfigurableModuleKey[] = [
-  'library',
-  'brew',
-  'reports',
-  'tapp',
-  'agent',
-]
+export type ConfigurableModuleKey = ModuleVisibilityKey
+export const CONFIGURABLE_MODULE_KEYS: ConfigurableModuleKey[] =
+  MODULE_VISIBILITY_KEYS
 
 export const MODULE_VISIBILITY_LEVELS: ModuleVisibilityLevel[] = [
   'all',
@@ -88,8 +78,6 @@ export const DEFAULT_MODULE_VISIBILITY_PREFERENCES: ModuleVisibilityPreferences 
       library: 'all',
       brew: 'all',
       reports: 'all',
-      // Retired SPA route (/life); keep key for API compatibility, hide from guests
-      life: 'admin',
       tapp: 'all',
       agent: 'all',
     },
@@ -320,7 +308,9 @@ export async function updateModuleVisibilityPreferences(
     normalized,
   )
   if (!response.success) {
-    throw new Error(response.message || 'Failed to save module visibility')
+    throw new Error(
+      response.message || currentCopy().errors.operationFailed,
+    )
   }
   const next = normalizeModuleVisibilityPreferences(response.preferences)
   rememberSessionPreferences(next)

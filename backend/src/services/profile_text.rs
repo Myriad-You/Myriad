@@ -17,9 +17,7 @@
 //!
 //! 不写解析快照：文案来自 JSON / 用户列，实时解析即可。
 
-use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue,
-};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue};
 use serde_json::{json, Value};
 
 use crate::services::avatar::{
@@ -218,9 +216,7 @@ async fn load_identities(
 
     let mut out = Vec::new();
     for row in rows {
-        let provider = row
-            .try_get::<String>("", "provider")
-            .unwrap_or_default();
+        let provider = row.try_get::<String>("", "provider").unwrap_or_default();
         if provider.is_empty() {
             continue;
         }
@@ -243,7 +239,8 @@ fn identity_resolved(identity: &IdentityText) -> ResolvedProfileText {
         name: identity.username.clone(),
         bio: LAZY_BIO.to_string(),
         platform: Some(platform_display_label(
-            identity_provider_platform_key(&identity.provider).unwrap_or(identity.provider.as_str()),
+            identity_provider_platform_key(&identity.provider)
+                .unwrap_or(identity.provider.as_str()),
         )),
         source: "identity",
     }
@@ -420,7 +417,8 @@ pub async fn set_profile_text_source(
             Some(identity_id.to_string())
         }
         ProfileTextSourceKind::Platform => {
-            let platform = source_ref.ok_or_else(|| "platform source requires a ref".to_string())?;
+            let platform =
+                source_ref.ok_or_else(|| "platform source requires a ref".to_string())?;
             // Platform text source is site-owner only. Gate on is_owner before profiles
             // so disk-cache fallback cannot validate platform refs for non-owners.
             let row = load_user_text_row(db, user_id)
@@ -428,8 +426,7 @@ pub async fn set_profile_text_source(
                 .ok_or_else(|| "User not found".to_string())?;
             if !row.is_owner {
                 return Err(
-                    "Platform profile text source is only available for the site owner"
-                        .to_string(),
+                    "Platform profile text source is only available for the site owner".to_string(),
                 );
             }
             let available = owner_platform_profiles(db, user_id).await;

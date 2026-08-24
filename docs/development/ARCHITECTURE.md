@@ -43,7 +43,7 @@ host HTTP_PORT
 
 - **Platforms / profiles**：GitHub、Bilibili、Steam、网易云、YouTube、Bangumi、Discord、X、MAL、Xbox、PSN 等同步与资料库
 - **Brew**：RSS / Notion / RSSHub 等阅读源
-- **Arael Agent**：计划 / 执行 / 记忆 / MCP
+- **Agent**（项目名 Arael）：计划 / 执行 / 记忆 / MCP
   - MCP first-cut hardening (MYR-009): max stdio line **4 MiB**, max **32** concurrent children, env allowlist. **Residual:** full OS sandbox / seccomp for MCP children is still future work.
 - **Tapp**：安装校验、商店、Playground、沙箱 Bridge（见 [Tapp](TAPP_DEVELOPMENT.md)）
 - **Federation**：ActivityPub + MFP（见 [FEDERATION.md](FEDERATION.md)）；file-transfer concurrent budgets (MYR-008) documented there
@@ -55,7 +55,7 @@ Schema 权威在 `backend/migrations/`（SeaORM），不是独立 `database/` SQ
 ## Frontend surfaces (high level)
 
 - 首页可编排 widgets（欢迎、音乐、天气、访客、游戏 Presence、Report Card、社交网络、Tapp 等）
-- Library / Brew / Reports / Config / Arael / Tapp Store
+- Library / Brew / Reports / Config / Agent / Tapp Store
 - i18n：`zh-CN` / `en-US` / `ja-JP`
 
 ## Data & AI

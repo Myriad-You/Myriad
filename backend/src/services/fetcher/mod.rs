@@ -2,15 +2,13 @@
 //!
 //! Real submodules: [`types`], platform impls, and [`x_share`] text helpers.
 
-mod types;
 mod platforms_core;
 mod platforms_extended;
+mod types;
 mod x_share;
 
 pub use types::PlatformFetcher;
-pub use x_share::{
-    build_x_intent_url, compose_x_share_text, X_SHARE_DEFAULT_MAX_LEN,
-};
+pub use x_share::{build_x_intent_url, compose_x_share_text, X_SHARE_DEFAULT_MAX_LEN};
 
 // Re-export response types commonly used by API handlers.
 pub use types::SteamUserInfo;

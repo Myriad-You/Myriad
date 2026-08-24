@@ -28,10 +28,12 @@ pub async fn create_session(
     agent_sessions::Entity::insert(session)
         .exec(&db)
         .await
-        .map_err(|e| HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("Failed to create session: {}", e); Json(json!({"error": "Database error"})) },
-            )))?;
+        .map_err(|e| {
+            HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("Failed to create session: {}", e);
+                Json(json!({"error": "Database error", "code": "database_error"}))
+            }))
+        })?;
 
     Ok(Json(json!({
         "id": session_id,
@@ -65,8 +67,8 @@ pub async fn list_sessions(
     Query(query): Query<SessionListQuery>,
 ) -> Result<Json<Value>, HttpError> {
     let user_id = parse_user_id(&claims)?;
-    if crate::services::agent::life::is_logged_in_addressee(user_id) {
-        crate::services::agent::life::spawn_presence(user_id);
+    if crate::services::agent::merope::is_logged_in_addressee(user_id) {
+        crate::services::agent::merope::spawn_presence(user_id);
     }
 
     let sessions = agent_sessions::Entity::find()
@@ -76,10 +78,12 @@ pub async fn list_sessions(
         .paginate(&db, query.limit)
         .fetch_page(query.page.saturating_sub(1))
         .await
-        .map_err(|e| HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("Failed to list sessions: {}", e); Json(json!({"error": "Database error"})) },
-            )))?;
+        .map_err(|e| {
+            HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("Failed to list sessions: {}", e);
+                Json(json!({"error": "Database error", "code": "database_error"}))
+            }))
+        })?;
 
     let sessions_json: Vec<Value> = sessions
         .into_iter()
@@ -112,10 +116,12 @@ pub async fn get_session_messages(
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            )))?;
+                Json(json!({"error": "Database error", "code": "database_error"})),
+            ))
+        })?;
 
     if session.is_none() {
         return Err(HttpError::from((
@@ -130,10 +136,12 @@ pub async fn get_session_messages(
         .paginate(&db, query.limit)
         .fetch_page(query.page.saturating_sub(1))
         .await
-        .map_err(|e| HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                { tracing::error!("Failed to list messages: {}", e); Json(json!({"error": "Database error"})) },
-            )))?;
+        .map_err(|e| {
+            HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
+                tracing::error!("Failed to list messages: {}", e);
+                Json(json!({"error": "Database error", "code": "database_error"}))
+            }))
+        })?;
 
     let messages_json: Vec<Value> = messages
         .into_iter()
@@ -166,10 +174,12 @@ pub async fn archive_session(
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            )))?;
+                Json(json!({"error": "Database error", "code": "database_error"})),
+            ))
+        })?;
 
     if session.is_none() {
         return Err(HttpError::from((
@@ -180,10 +190,12 @@ pub async fn archive_session(
 
     let mut active: agent_sessions::ActiveModel = session.unwrap().into();
     active.archived = Set(true);
-    active.update(&db).await.map_err(|e| HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            { tracing::error!("Failed to archive session: {}", e); Json(json!({"error": "Database error"})) },
-        )))?;
+    active.update(&db).await.map_err(|e| {
+        HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
+            tracing::error!("Failed to archive session: {}", e);
+            Json(json!({"error": "Database error", "code": "database_error"}))
+        }))
+    })?;
 
     Ok(Json(json!({"success": true})))
 }
@@ -208,10 +220,12 @@ pub async fn update_session(
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            )))?;
+                Json(json!({"error": "Database error", "code": "database_error"})),
+            ))
+        })?;
 
     if session.is_none() {
         return Err(HttpError::from((
@@ -224,10 +238,12 @@ pub async fn update_session(
     if let Some(title) = req.title {
         active.title = Set(Some(title));
     }
-    let updated = active.update(&db).await.map_err(|e| HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            { tracing::error!("Failed to update session: {}", e); Json(json!({"error": "Database error"})) },
-        )))?;
+    let updated = active.update(&db).await.map_err(|e| {
+        HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
+            tracing::error!("Failed to update session: {}", e);
+            Json(json!({"error": "Database error", "code": "database_error"}))
+        }))
+    })?;
 
     Ok(Json(json!({
         "id": updated.id,
@@ -251,10 +267,12 @@ pub async fn generate_session_title(
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|_e| HttpError::from((
+        .map_err(|_e| {
+            HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"})),
-            )))?;
+                Json(json!({"error": "Database error", "code": "database_error"})),
+            ))
+        })?;
 
     if session.is_none() {
         return Err(HttpError::from((
@@ -375,7 +393,10 @@ pub(crate) async fn persist_user_message(
     agent_messages::Entity::insert(msg)
         .exec(db)
         .await
-        .map_err(|e| { tracing::error!("Failed to persist user message: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("Failed to persist user message: {}", e);
+            "Database error".to_string()
+        })?;
     Ok(())
 }
 
@@ -399,7 +420,10 @@ pub(crate) async fn persist_assistant_message(
     agent_messages::Entity::insert(msg)
         .exec(db)
         .await
-        .map_err(|e| { tracing::error!("Failed to persist assistant message: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("Failed to persist assistant message: {}", e);
+            "Database error".to_string()
+        })?;
 
     // 更新会话消息计数和最后活跃时间
     if let Ok(Some(session)) = agent_sessions::Entity::find_by_id(session_id).one(db).await {
@@ -491,7 +515,10 @@ pub(crate) async fn ensure_session(
             .filter(agent_sessions::Column::UserId.eq(user_id))
             .one(db)
             .await
-            .map_err(|e| { tracing::error!("DB error: {}", e); "Database error".to_string() })?
+            .map_err(|e| {
+                tracing::error!("DB error: {}", e);
+                "Database error".to_string()
+            })?
             .is_some()
         {
             return Ok(sid.to_string());
@@ -514,9 +541,10 @@ pub(crate) async fn ensure_session(
     agent_sessions::Entity::insert(session)
         .exec(db)
         .await
-        .map_err(|e| { tracing::error!("Failed to create session: {}", e); "Database error".to_string() })?;
+        .map_err(|e| {
+            tracing::error!("Failed to create session: {}", e);
+            "Database error".to_string()
+        })?;
 
     Ok(new_id)
 }
-
-
