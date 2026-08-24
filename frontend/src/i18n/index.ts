@@ -3859,6 +3859,9 @@ export interface TranslationKeys {
     tileToday: string
     tileFailedTimes: string
     tileOpenSite: string
+    tilePagePrev: string
+    tilePageNext: string
+    tilePageNth: string
     topicAggregate: string
     topicSourceCount: string
     topicFeedTitle: string

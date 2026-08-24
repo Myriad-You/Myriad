@@ -116,15 +116,20 @@ function siteHost(source: BrewSource): string {
   }
 }
 
-/** 轮播分页：把条目切成每页 pageSize 条，最多 ROTATE_MAX_PAGES 页。 */
+/**
+ * 轮播分页：把条目切成每页 pageSize 条，最多 ROTATE_MAX_PAGES 页。
+ *
+ * **只保留满页。** 末页只有一两条时，同样高度里行数不同，轮播过去会看到
+ * 行距忽然变大、内容忽上忽下 —— 也就是「切文章时高度乱跳」。宁可少转一页，
+ * 也不要让每一轮的版面都不一样。
+ */
 function paginate<T>(items: T[], pageSize: number): T[][] {
-  if (items.length === 0) return []
+  if (items.length < pageSize) return items.length > 0 ? [items] : []
   const pages: T[][] = []
-  for (let i = 0; i < items.length; i += pageSize) {
+  for (let i = 0; i + pageSize <= items.length; i += pageSize) {
     pages.push(items.slice(i, i + pageSize))
     if (pages.length >= ROTATE_MAX_PAGES) break
   }
-  // 末页不足时不补空行：宁可最后一页短一点，也不要画空占位
   return pages
 }
 
@@ -527,7 +532,9 @@ export const BrewSourceTile = memo(
                         animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
                         animationDelay: `${stagger}ms`,
                       }
-                    : undefined
+                    // 不轮播时也要显式给 100% 高：轨道 auto 高会让里面的
+                    // `height: 100%` 退化成内容高，几条标题全挤在卡片上半部
+                    : { height: '100%' }
                 }
               >
                 {(rotating ? pages : pages.slice(0, 1)).map((page, pi) => (
@@ -577,7 +584,7 @@ export const BrewSourceTile = memo(
                       animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
                       animationDelay: `${stagger}ms`,
                     }
-                  : undefined
+                  : { height: '100%' }
               }
             >
               {(rotating ? pages : pages.slice(0, 1)).map((page, pi) => (
@@ -601,10 +608,20 @@ export const BrewSourceTile = memo(
                           openItem(item)
                         }}
                       >
-                        <TileCover
-                          image={item.image}
-                          square={sp(LEAD_THUMB_SIZE, scale)}
-                        />
+                        {/* 无图不画灰块，但行高要保住：否则有图页 52px、
+                            无图页塌成一行，轮播过去像在抽搐 */}
+                        <div
+                          className="shrink-0"
+                          style={{
+                            width: item.image ? undefined : 0,
+                            height: sp(LEAD_THUMB_SIZE, scale),
+                          }}
+                        >
+                          <TileCover
+                            image={item.image}
+                            square={sp(LEAD_THUMB_SIZE, scale)}
+                          />
+                        </div>
                         <div className="flex min-w-0 flex-1 flex-col" style={{ gap: sp(3, scale) }}>
                           <span
                             className="min-w-0 font-medium text-gray-800 dark:text-gray-100"

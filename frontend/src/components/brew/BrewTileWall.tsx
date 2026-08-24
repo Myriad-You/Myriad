@@ -27,7 +27,7 @@ import { useMediaQuery } from '../../hooks/useSharedEventListener'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { homeGridColsForBand, VIEWPORT_MQ } from '../../utils/viewportBands'
 import { standardCellSizeForBand } from '../../utils/widgetSizeScale'
-import { BrewPageDots } from './BrewPageDots'
+import { BrewPager } from './BrewPageDots'
 import { brewMainCategory } from './constants'
 import { tileSize, topicTileSize } from './logic/layout'
 import { packBrewCards, parseTileSize } from './logic/pack'
@@ -36,12 +36,27 @@ import { BrewSourceTile } from './tiles/BrewSourceTile'
 import { BrewTopicTile } from './tiles/BrewTopicTile'
 import './BrewTileWall.css'
 
-/** 行数恒为 4，与首页一致。Demo 的 16×8 只是画布预览，不是生产。 */
-const ROWS = 4
-/** 磁贴之间的间距（每张卡自己吃 padding，不用 grid gap） */
-const TILE_PADDING = 4
+/**
+ * 行数下限/上限。
+ *
+ * **格子边长与首页完全一致**（`standardCellSizeForBand`），所以一个 4×4 磁贴
+ * 在首页和这里的物理尺寸仍然相同 —— 复用不打折。变的只是「一页放几行」：
+ * /brew 是整页视图，固定 4 行会在 1000px 高的屏幕上只用掉 320px，剩下的全是
+ * 空白，还把源硬拆成三页。按可用高度取 4~8 行（偶数，否则高 2 的磁贴会剩半行）。
+ */
+const ROWS_MIN = 4
+const ROWS_MAX = 8
+/** 底部留给控制岛 + 分页点的高度 */
+const BOTTOM_RESERVE = 150
+/**
+ * 磁贴之间的间距（每张卡自己吃 padding，不用 grid gap）。
+ *
+ * 4px 时相邻卡的玻璃面几乎贴在一起，一屏磁贴会糊成一整块直角大板子，
+ * 外沿看起来像凭空多了一个方框。8px（实际间隙 16px）与旧网格的 `gap-4` 一致。
+ */
+const TILE_PADDING = 8
 /** 布局缓存版本；改装箱规则就 +1，避免读到旧形状 */
-const LAYOUT_CACHE_VERSION = 1
+const LAYOUT_CACHE_VERSION = 2
 
 interface CachedSlot {
   key: string
@@ -50,16 +65,25 @@ interface CachedSlot {
   y: number
 }
 
+/** 骨架要按当时的行数还原，否则位置会错。 */
+interface CachedLayout {
+  rows: number
+  slots: CachedSlot[]
+}
+
 function layoutCacheKey(scope: string, cols: number): string {
   return `brew:wall:v${LAYOUT_CACHE_VERSION}:${cols}:${scope}`
 }
 
-function readLayoutCache(scope: string, cols: number): CachedSlot[] | null {
+function readLayoutCache(scope: string, cols: number): CachedLayout | null {
   try {
     const raw = globalThis.localStorage?.getItem(layoutCacheKey(scope, cols))
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as CachedSlot[]) : null
+    if (!parsed || !Array.isArray(parsed.slots)) return null
+    const rows = Number(parsed.rows)
+    if (!Number.isFinite(rows) || rows < ROWS_MIN) return null
+    return { rows, slots: parsed.slots as CachedSlot[] }
   } catch {
     return null
   }
@@ -69,18 +93,17 @@ function readLayoutCache(scope: string, cols: number): CachedSlot[] | null {
 function writeLayoutCache(
   scope: string,
   cols: number,
+  rows: number,
   firstPage: PackedCard[],
 ): void {
   try {
-    const slim: CachedSlot[] = firstPage.map((c) => ({
-      key: c.key,
-      size: c.size,
-      x: c.x,
-      y: c.y,
-    }))
+    const payload: CachedLayout = {
+      rows,
+      slots: firstPage.map((c) => ({ key: c.key, size: c.size, x: c.x, y: c.y })),
+    }
     globalThis.localStorage?.setItem(
       layoutCacheKey(scope, cols),
-      JSON.stringify(slim),
+      JSON.stringify(payload),
     )
   } catch {
     // 配额满 / 隐私模式：骨架只是优化，丢了不影响正确性
@@ -120,14 +143,15 @@ function useViewportBand(): ViewportBand {
 function slotStyle(
   slot: { x: number; y: number; size: string },
   cols: number,
+  rows: number,
 ): CSSProperties {
   const span = parseTileSize(slot.size) ?? { w: 2, h: 2 }
   return {
     position: 'absolute',
     left: `${(slot.x / cols) * 100}%`,
-    top: `${(slot.y / ROWS) * 100}%`,
+    top: `${(slot.y / rows) * 100}%`,
     width: `${(span.w / cols) * 100}%`,
-    height: `${(span.h / ROWS) * 100}%`,
+    height: `${(span.h / rows) * 100}%`,
     padding: TILE_PADDING,
   }
 }
@@ -182,6 +206,11 @@ export interface BrewTileWallProps {
    * 传 `null` 表示解锁。
    */
   onToggleSizeLock?: (source: BrewSource, next: BrewTileSize | null) => void
+  /** 翻页控件的无障碍标签 */
+  prevPageLabel?: string
+  nextPageLabel?: string
+  /** `{n}` 替换成页码 */
+  pageLabel?: string
 }
 
 export default function BrewTileWall({
@@ -202,9 +231,35 @@ export default function BrewTileWall({
   draggingSourceId = null,
   dragOverSourceId = null,
   onToggleSizeLock,
+  prevPageLabel,
+  nextPageLabel,
+  pageLabel,
 }: BrewTileWallProps) {
   const band = useViewportBand()
   const cols = homeGridColsForBand(band)
+  const cell = standardCellSizeForBand(band)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+
+  /**
+   * 按可用高度派生行数。格子边长不变（还是首页那一套），只是一页多放几行 ——
+   * /brew 是整页视图，固定 4 行会白扔掉半屏，还把源硬拆成更多页。
+   */
+  const [rows, setRows] = useState(ROWS_MIN)
+  useEffect(() => {
+    const measure = () => {
+      const el = viewportRef.current
+      if (!el) return
+      const top = Math.max(0, el.getBoundingClientRect().top)
+      const avail = window.innerHeight - top - BOTTOM_RESERVE
+      const fit = Math.floor(avail / cell)
+      // 取偶数：高 2 的磁贴才不会在底部剩半行
+      const even = fit - (fit % 2)
+      setRows(Math.max(ROWS_MIN, Math.min(ROWS_MAX, even)))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [cell])
 
   // 会话内冻结的时钟。scope 变化（切排序 / 切分类）才重算，未读数字变化不挪卡。
   const [now, setNow] = useState(() => Date.now())
@@ -237,21 +292,21 @@ export default function BrewTileWall({
 
   const pages = useMemo(
     () =>
-      packBrewCards(cards, cols, ROWS, {
+      packBrewCards(cards, cols, rows, {
         breakOn: breakOnCategory
           ? (prev, next) =>
               mainCategoryOf(prev, uncategorizedLabel) !==
               mainCategoryOf(next, uncategorizedLabel)
           : undefined,
       }),
-    [cards, cols, breakOnCategory, uncategorizedLabel],
+    [cards, cols, rows, breakOnCategory, uncategorizedLabel],
   )
 
   useEffect(() => {
     if (!isSearching && pages.length > 0) {
-      writeLayoutCache(scope, cols, pages[0])
+      writeLayoutCache(scope, cols, rows, pages[0])
     }
-  }, [pages, scope, cols, isSearching])
+  }, [pages, scope, cols, rows, isSearching])
 
   const pageCount = Math.max(1, pages.length)
   const clampedPage = Math.min(page, pageCount - 1)
@@ -290,8 +345,48 @@ export default function BrewTileWall({
     return () => window.removeEventListener('keydown', onKey)
   }, [isSearching, pageCount, clampedPage, goToPage])
 
+  /**
+   * 翻页手势。只有 ←→ 和一排小圆点太难发现也太难用（用户反馈「很难切页」），
+   * 这里补上滚轮/触控板横向滚动、Shift+滚轮、触屏横滑，外加两侧的箭头按钮。
+   */
+  const wheelLockRef = useRef(0)
+  const onWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (isSearching || pageCount <= 1) return
+      // 只吃横向意图，纵向留给页面滚动
+      const dx = e.shiftKey ? e.deltaY : e.deltaX
+      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(e.deltaY) * 0.8) return
+      const now = Date.now()
+      // 触控板一次滑动会连发几十个事件，加个节流免得一路翻到底
+      if (now - wheelLockRef.current < 420) return
+      wheelLockRef.current = now
+      e.preventDefault()
+      goToPage(clampedPage + (dx > 0 ? 1 : -1))
+    },
+    [isSearching, pageCount, clampedPage, goToPage],
+  )
+
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    const t = e.touches[0]
+    touchStartRef.current = { x: t.clientX, y: t.clientY }
+  }, [])
+  const onTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const start = touchStartRef.current
+      touchStartRef.current = null
+      if (!start || isSearching || pageCount <= 1) return
+      const t = e.changedTouches[0]
+      const dx = start.x - t.clientX
+      const dy = Math.abs(start.y - t.clientY)
+      // 横向位移要明显压过纵向，否则是在滚页面
+      if (Math.abs(dx) < 48 || Math.abs(dx) < dy) return
+      goToPage(clampedPage + (dx > 0 ? 1 : -1))
+    },
+    [isSearching, pageCount, clampedPage, goToPage],
+  )
+
   // 非当前页 / 滚出视口 / 标签页隐藏 → 暂停列表轮播
-  const viewportRef = useRef<HTMLDivElement | null>(null)
   const [offscreen, setOffscreen] = useState(false)
   useEffect(() => {
     const el = viewportRef.current
@@ -312,7 +407,7 @@ export default function BrewTileWall({
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [])
 
-  const pageHeight = standardCellSizeForBand(band) * ROWS
+  const pageHeight = cell * rows
 
   // 搜索态：不装箱。统一 2×2 的规整网格，单页可滚动 —— 找特定源不需要层次。
   if (isSearching) {
@@ -353,8 +448,14 @@ export default function BrewTileWall({
   }
 
   return (
-    <div>
-      <div className="brew-wall-viewport" ref={viewportRef}>
+    <div className="relative">
+      <div
+        className="brew-wall-viewport"
+        ref={viewportRef}
+        onWheel={onWheel}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
         <div
           className="brew-wall-track"
           style={{
@@ -371,7 +472,7 @@ export default function BrewTileWall({
                 style={{ width: `${100 / pageCount}%`, height: pageHeight }}
               >
                 {packed.map((card) => {
-                  const style = slotStyle(card, cols)
+                  const style = slotStyle(card, cols, rows)
                   if (card.kind === 'topic') {
                     return (
                       <div key={card.key} style={style}>
@@ -471,10 +572,15 @@ export default function BrewTileWall({
           })}
         </div>
       </div>
-      <BrewPageDots
+      <BrewPager
         count={pageCount}
         current={clampedPage}
         onSelect={goToPage}
+        labels={{
+          prev: prevPageLabel,
+          next: nextPageLabel,
+          page: pageLabel,
+        }}
       />
     </div>
   )
@@ -496,9 +602,6 @@ export function pageCategoryTitle(
   return brewMainCategory(first.src.category, uncategorized)
 }
 
-/** 一页容纳的行数（键盘 / 测试用）。 */
-export { ROWS as BREW_WALL_ROWS }
-
 /**
  * 首屏骨架：读上次的装箱结果，按旧位置铺一层灰块。
  *
@@ -510,19 +613,19 @@ export { ROWS as BREW_WALL_ROWS }
 export function BrewWallSkeleton({ scope }: { scope: string }) {
   const band = useViewportBand()
   const cols = homeGridColsForBand(band)
-  const slots = useMemo(() => readLayoutCache(scope, cols), [scope, cols])
+  const layout = useMemo(() => readLayoutCache(scope, cols), [scope, cols])
 
-  if (!slots || slots.length === 0) return null
+  if (!layout || layout.slots.length === 0) return null
 
   return (
     <div className="brew-wall-viewport">
       <div
         className="brew-wall-page"
-        style={{ width: '100%', height: standardCellSizeForBand(band) * ROWS }}
+        style={{ width: '100%', height: standardCellSizeForBand(band) * layout.rows }}
         aria-hidden
       >
-        {slots.map((slot) => (
-          <div key={slot.key} style={slotStyle(slot, cols)}>
+        {layout.slots.map((slot) => (
+          <div key={slot.key} style={slotStyle(slot, cols, layout.rows)}>
             <div className="h-full w-full rounded-xl bg-black/4 dark:bg-white/5" />
           </div>
         ))}

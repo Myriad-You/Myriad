@@ -361,6 +361,29 @@ export default function BrewReader({
   )
   const enableAnimations = !isExlight(animConfig)
 
+  /**
+   * 换文章时给正文做一次淡入。
+   *
+   * 直接替换 DOM 会「啪」地跳一下：上一篇的段落瞬间变成下一篇，滚动位置又在
+   * 同一帧归零，读者会彻底丢失位置感。260ms 淡入 + 8px 上移把「换了一篇」这件
+   * 事说清楚，也顺手把滚动复位藏在动画里。
+   *
+   * exlight 一律不做 —— `prefers-reduced-motion` 在本仓库就会解析成 exlight。
+   */
+  useEffect(() => {
+    if (!enableAnimations) return
+    const body = articleRef.current?.firstElementChild as HTMLElement | null
+    if (!body || typeof body.animate !== 'function') return
+    const swap = body.animate(
+      [
+        { opacity: 0, transform: 'translateY(8px)' },
+        { opacity: 1, transform: 'translateY(0)' },
+      ],
+      { duration: 260, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'none' },
+    )
+    return () => swap.cancel()
+  }, [item.id, enableAnimations])
+
   // WebKit 优化：延迟渲染内容，让入场动画先完成
   const [contentReady, setContentReady] = useState(!enableAnimations)
 

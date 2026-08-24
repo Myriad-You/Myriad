@@ -965,6 +965,9 @@ export default function BrewSourceGrid({
           scope={`${category ?? 'all'}:${sortMode}`}
           breakOnCategory={sortMode === 'category'}
           uncategorizedLabel={t.brew.uncategorized}
+          prevPageLabel={t.brew.tilePagePrev}
+          nextPageLabel={t.brew.tilePageNext}
+          pageLabel={t.brew.tilePageNth}
           onSourceClick={onSourceClick}
           registerCardRef={setCardRef}
           isEditMode={isEditMode}
