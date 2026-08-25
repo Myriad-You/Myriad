@@ -30,7 +30,7 @@ import {
   normalizeThemeColor,
 } from '../constants'
 import { downgradeForBand, tileLayout } from '../logic/layout'
-import { roleFromAuth } from '../logic/score'
+import { roleFromAuth, sortByScore } from '../logic/score'
 import { Cadence, CADENCE_WINDOW_DAYS, pulsesFromTimestamps } from './Cadence'
 import { MinorRow } from './MinorRow'
 import { TileCover } from './TileCover'
@@ -864,7 +864,9 @@ export const BrewSourceWidget = memo(
     }, [])
 
     const load = useCallback(async () => {
-      if (isPreview) return
+      // 预览态（小组件库）也拉一次：`getSources()` 走 requestCache，一屏
+      // 多个磁贴只会合并成一个请求。库里全是「暂无订阅源」的空盒子时，
+      // 用户根本看不出这三个磁贴是什么。轮询仍然只在非预览态开。
       try {
         const next = await getSources()
         if (mountedRef.current) setSources(next)
@@ -896,7 +898,12 @@ export const BrewSourceWidget = memo(
     )
 
     const size = downgradeForBand(config.size as BrewTileSize, viewportBand)
-    const source = sourceId ? sources.find((s) => s.id === sourceId) : undefined
+    // 库里的预览没有绑源：拿评分最高的那个当样例，否则一格空盒子看不出这是什么
+    const source = sourceId
+      ? sources.find((s) => s.id === sourceId)
+      : isPreview
+        ? sortByScore(sources, role, now)[0]
+        : undefined
     const locked = isEditMode || isPreview
 
     // 未绑源：编辑模式给一个原地选择器，其它情况给一句提示

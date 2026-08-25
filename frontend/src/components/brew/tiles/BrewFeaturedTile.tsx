@@ -148,7 +148,9 @@ export const BrewFeaturedWidget = memo(
     }, [])
 
     const load = useCallback(async () => {
-      if (isPreview) return
+      // 预览态（小组件库）也拉一次：`getSources()` 走 requestCache，一屏
+      // 多个磁贴只会合并成一个请求。库里全是「暂无订阅源」的空盒子时，
+      // 用户根本看不出这三个磁贴是什么。轮询仍然只在非预览态开。
       try {
         const next = await getSources()
         if (mountedRef.current) setSources(next)

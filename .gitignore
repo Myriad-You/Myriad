@@ -119,3 +119,4 @@ docker/volumes/
 /tapp-store
 backend/data/.bootstrap-claimed
 /backend/data
+.brew-shots/
