@@ -19,6 +19,7 @@ import type { SecondaryNavItem } from '../contexts/NavigationContext'
 import type {
   AddSourceInput,
   BrewItem,
+  BrewItemPreview,
   BrewSource,
   BrewStats,
 } from '../types/brew'
@@ -1151,6 +1152,21 @@ export default function Brew() {
     }
   }
 
+  /**
+   * 磁贴上的文章行直接进阅读器。
+   * 先走点源的那条路（切到该源的列表，prev/next 才有上下文），再按 id 拉整篇 ——
+   * 磁贴里的 preview 只有标题和缩略图，不够渲染正文。
+   */
+  const handleOpenPreview = async (preview: BrewItemPreview, source: BrewSource) => {
+    handleSourceClick(source)
+    try {
+      const item = await brewApi.getItem(preview.id)
+      await handleItemSelect(item)
+    } catch (error) {
+      console.error('Failed to open item from tile:', error)
+    }
+  }
+
   // 阅读列表导航 - 根据文章 ID 跳转
   const handleNavigateToArticle = useCallback(
     async (articleId: number) => {
@@ -1581,6 +1597,7 @@ export default function Brew() {
               }}
               onAddSource={handleAddSource}
               onTopicClick={handleTopicClick}
+              onOpenItem={handleOpenPreview}
               isAuthenticated={isAuthenticated}
               isAdmin={isAdmin}
             />
