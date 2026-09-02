@@ -84,50 +84,6 @@ pub(crate) async fn list_notifications(
     })))
 }
 
-/// 标记通知已读
-pub(crate) async fn mark_notification_read(
-    Extension(claims): Extension<Claims>,
-    Path(notification_id): Path<String>,
-) -> Result<Json<Value>, HttpError> {
-    let user_id = parse_user_id(&claims)?;
-    let manager = crate::services::agent::notifications::get_notification_manager().ok_or((
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({"error": "Notification system not initialized", "code": "notification_unavailable"})),
-    ))?;
-
-    let found = manager
-        .mark_read(&notification_id, user_id)
-        .await
-        .map_err(|error| {
-            tracing::error!("Notification mark-read failed: {error}");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Notification action failed", "code": "notification_failed"})),
-            ))
-        })?;
-    Ok(Json(json!({"success": found})))
-}
-
-/// 标记全部已读
-pub(crate) async fn mark_all_notifications_read(
-    Extension(claims): Extension<Claims>,
-) -> Result<Json<Value>, HttpError> {
-    let user_id = parse_user_id(&claims)?;
-    let manager = crate::services::agent::notifications::get_notification_manager().ok_or((
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({"error": "Notification system not initialized", "code": "notification_unavailable"})),
-    ))?;
-
-    manager.mark_all_read(user_id).await.map_err(|error| {
-        tracing::error!("Notification mark-all failed: {error}");
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Notification action failed", "code": "notification_failed"})),
-        ))
-    })?;
-    Ok(Json(json!({"success": true})))
-}
-
 /// 删除单条通知
 pub(crate) async fn delete_notification(
     Extension(claims): Extension<Claims>,

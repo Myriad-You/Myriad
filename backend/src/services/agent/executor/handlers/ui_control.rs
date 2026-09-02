@@ -6,12 +6,14 @@
 use super::HandlerContext;
 use crate::models::entities::{tapp_scheduled_tasks, tapp_task_executions, tapp_widgets, tapps};
 use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
+use crate::services::agent::external_pure::classify_outbound_fetch;
 use crate::services::agent::ui_analysis::{
     build_breadcrumb, build_navigate_full_path, detect_page_type, extract_json_from_response,
     extract_route_context, generate_suggested_actions, get_page_name, is_safe_agent_tapp_id,
     is_valid_page_interact_action, is_valid_router_path, join_layer_analysis_sources,
-    normalize_music_control, parse_html_elements, parse_html_structure, parse_i18n,
-    parse_js_events, parse_js_functions, parse_playlist_id_param, resolve_window_close_target,
+    normalize_music_control, page_understand_context, page_understand_frontend_actions,
+    page_understand_query, parse_html_elements, parse_html_structure, parse_i18n, parse_js_events,
+    parse_js_functions, parse_playlist_id_param, resolve_window_close_target,
     resolve_window_focus_target, router_can_go_back,
 };
 use crate::services::data_paths::paths;
@@ -53,14 +55,14 @@ pub async fn execute(
         "tapp.windows" => execute_tapp_windows_query(params, ctx).await,
         "tapp.window.open" => execute_tapp_window_open(params, ctx).await,
         "tapp.window.close" => execute_tapp_window_close(params, ctx).await,
-        "tapp.window.focus" => execute_tapp_window_focus(params).await,
+        "tapp.window.focus" => execute_tapp_window_focus(params, ctx).await,
         "router.navigate" => execute_router_navigate(params).await,
         "router.state" => execute_router_state(params).await,
         "page.interact" => execute_page_interact(params).await,
         "page.understand" => execute_page_understand(params, ctx).await,
         "page.content" => execute_page_content(params, ctx).await,
         "music.control" => execute_music_control(params).await,
-        "music.status" => execute_music_status().await,
+        "music.status" => execute_music_status(params).await,
         "music.playlist" => execute_music_playlist(params).await,
         _ => Err(format!("Unknown ui_control capability: {}", capability_id)),
     }
@@ -180,10 +182,10 @@ async fn execute_tapp_understand(
         .ok_or("Missing tappId")?;
     // 始终使用已认证的 user_id，防止 IDOR
     let user_id = ctx.user_id;
-    let user_intent = params
-        .get("userIntent")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing user intent")?;
+    let user_intent = page_understand_query(params);
+    if user_intent.is_empty() {
+        return Err("Missing user intent".to_string());
+    }
     // 获取或复用 UI 分析结果
     let ui_analysis = if let Some(existing) = params.get("uiAnalysis") {
         existing.clone()
@@ -240,10 +242,10 @@ async fn execute_tapp_understand(
         user_intent = user_intent,
     );
 
-    let ai_result = analyzer
-        .analyze(&prompt)
-        .await
-        .map_err(|e| format!("AI analysis failed: {}", e))?;
+    let ai_result = analyzer.analyze(&prompt).await.map_err(|error| {
+        tracing::error!(%error, "UI analysis failed");
+        classify_outbound_fetch("UI analysis failed", &error.to_string())
+    })?;
 
     let parsed: Value = extract_json_from_response(&ai_result)
         .and_then(|json_str| serde_json::from_str(&json_str).ok())
@@ -856,24 +858,51 @@ async fn execute_tapp_windows_query(
         })
         .collect();
 
+    let snapshot = params.get("windowState").cloned().unwrap_or(json!({}));
+    let available = snapshot
+        .get("available")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let windows = if available {
+        snapshot.get("windows").cloned().unwrap_or(json!([]))
+    } else {
+        json!([])
+    };
+    let active_window_id = if available {
+        snapshot
+            .get("activeWindowId")
+            .cloned()
+            .unwrap_or(json!(null))
+    } else {
+        json!(null)
+    };
+    let window_count = if available {
+        snapshot
+            .get("windowCount")
+            .cloned()
+            .unwrap_or_else(|| json!(windows.as_array().map(Vec::len).unwrap_or(0)))
+    } else {
+        json!(0)
+    };
+
     Ok(json!({
         "success": true,
-        "message": "窗口状态需要从前端获取",
+        "available": available,
+        "windows": windows,
+        "activeWindowId": active_window_id,
+        "windowCount": window_count,
         "availableTapps": available_tapps,
         "maxWindows": 3,
+        "message": if available {
+            Value::Null
+        } else {
+            json!("Window manager is not mounted; windows is not an empty desktop")
+        },
         "frontendAction": {
             "type": "query_windows",
             "action": "getWindowState",
             "includeUiAnalysis": include_ui,
             "timestamp": chrono::Utc::now().timestamp_millis()
-        },
-        "instructions": {
-            "description": "前端应返回当前窗口状态",
-            "expectedResponse": {
-                "windows": "当前打开的窗口列表",
-                "activeWindowId": "活跃窗口 ID",
-                "windowCount": "窗口数量"
-            }
         }
     }))
 }
@@ -958,13 +987,37 @@ async fn execute_tapp_window_close(
 }
 
 /// 聚焦窗口
-async fn execute_tapp_window_focus(params: &HashMap<String, Value>) -> Result<Value, String> {
+async fn execute_tapp_window_focus(
+    params: &HashMap<String, Value>,
+    ctx: &HandlerContext<'_>,
+) -> Result<Value, String> {
     let window_id = params.get("windowId").and_then(|v| v.as_str());
-    let tapp_id = params.get("tappId").and_then(|v| v.as_str());
+    let mut tapp_id = params
+        .get("tappId")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let tapp_name = params.get("tappName").and_then(|v| v.as_str());
     let position = params.get("position").and_then(|v| v.as_str());
 
-    let focus_target = resolve_window_focus_target(window_id, tapp_id, tapp_name, position)?;
+    // Frontend `resolveWindowTarget` only matches windowId / tappId / position.
+    // Schema advertises tappName — resolve it here the same way open does.
+    if tapp_id.is_none() {
+        if let Some(name) = tapp_name {
+            let tapp = tapps::Entity::find()
+                .filter(tapps::Column::UserId.eq(ctx.user_id))
+                .filter(tapps::Column::Name.contains(name))
+                .one(ctx.db)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, "Agent ui_control database error");
+                    "Database error".to_string()
+                })?
+                .ok_or("Tapp not found")?;
+            tapp_id = Some(tapp.tapp_id);
+        }
+    }
+
+    let focus_target = resolve_window_focus_target(window_id, tapp_id.as_deref(), None, position)?;
 
     Ok(json!({
         "success": true,
@@ -1016,23 +1069,33 @@ async fn execute_page_interact(params: &HashMap<String, Value>) -> Result<Value,
         .and_then(|v| v.as_str())
         .ok_or("Missing action parameter")?;
     let target = params.get("target").ok_or("Missing target parameter")?;
-    let value = params.get("value").and_then(|v| v.as_str());
 
     if !is_valid_page_interact_action(action) {
         return Err("Invalid action".to_string());
     }
 
-    Ok(json!({
-        "success": true,
+    let mut frontend_action = json!({
+        "type": "page_interact",
         "action": action,
         "target": target,
-        "frontendAction": {
-            "type": "page_interact",
-            "action": action,
-            "target": target,
-            "value": value,
-            "timestamp": chrono::Utc::now().timestamp_millis()
-        }
+        "timestamp": chrono::Utc::now().timestamp_millis()
+    });
+    if let Some(value) = params.get("value") {
+        frontend_action["value"] = value.clone();
+    }
+    if let Some(scroll_options) = params.get("scrollOptions") {
+        frontend_action["scrollOptions"] = scroll_options.clone();
+    }
+    if let Some(wait_for) = params.get("waitFor") {
+        frontend_action["waitFor"] = wait_for.clone();
+    }
+
+    Ok(json!({
+        "success": true,
+        "queued": true,
+        "action": action,
+        "target": target,
+        "frontendAction": frontend_action
     }))
 }
 
@@ -1040,8 +1103,8 @@ async fn execute_page_understand(
     params: &HashMap<String, Value>,
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
-    let page_context = params.get("context").cloned().unwrap_or(json!({}));
-    let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("");
+    let page_context = page_understand_context(params);
+    let query = page_understand_query(params);
 
     if let Some(analyzer) = ctx.ai_analyzer {
         let context_str = serde_json::to_string_pretty(&page_context).unwrap_or_default();
@@ -1055,7 +1118,7 @@ async fn execute_page_understand(
             {{\n\
               \"understood_intent\": \"对用户意图的理解\",\n\
               \"actions\": [\n\
-                {{\"type\": \"click|input|navigate|scroll\", \"target\": \"目标元素描述\", \"value\": \"输入值（如有）\"}}\n\
+                {{\"type\": \"click|input|type|navigate|scroll\", \"target\": \"目标元素描述\", \"value\": \"输入值（如有）\"}}\n\
               ],\n\
               \"explanation\": \"操作计划说明\"\n\
             }}\n\n\
@@ -1063,16 +1126,38 @@ async fn execute_page_understand(
             truncated_context, query
         );
 
-        let result = analyzer
-            .analyze(&prompt)
-            .await
-            .map_err(|e| format!("AI analysis failed: {}", e))?;
-
-        return Ok(json!({
+        let result = analyzer.analyze(&prompt).await.map_err(|error| {
+            tracing::error!(%error, "UI analysis failed");
+            classify_outbound_fetch("UI analysis failed", &error.to_string())
+        })?;
+        let plan_value = extract_json_from_response(&result)
+            .and_then(|json_str| serde_json::from_str::<Value>(&json_str).ok())
+            .unwrap_or(json!({ "explanation": result }));
+        let auto_execute = params
+            .get("autoExecute")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let allow_interact = if auto_execute {
+            crate::services::agent::get_user_permissions(ctx.db, ctx.user_id)
+                .await
+                .contains("ui:interact")
+        } else {
+            false
+        };
+        let frontend_actions =
+            page_understand_frontend_actions(&plan_value, auto_execute, allow_interact);
+        let mut body = json!({
             "query": query,
-            "plan": result,
+            "plan": plan_value,
             "understood": true
-        }));
+        });
+        if let Some(first) = frontend_actions.first() {
+            body["frontendAction"] = first.clone();
+        }
+        if !frontend_actions.is_empty() {
+            body["frontendActions"] = json!(frontend_actions);
+        }
+        return Ok(body);
     }
 
     Ok(json!({
@@ -1140,20 +1225,36 @@ async fn execute_music_control(params: &HashMap<String, Value>) -> Result<Value,
     }))
 }
 
-/// 获取音乐播放器状态（状态只在浏览器；回 frontendAction 让前端探测）
-async fn execute_music_status() -> Result<Value, String> {
+/// 获取音乐播放器状态（请求里带了快照就回快照，否则只发 frontendAction）
+async fn execute_music_status(params: &HashMap<String, Value>) -> Result<Value, String> {
     let timestamp = chrono::Utc::now().timestamp_millis();
-    Ok(json!({
+    let mut body = json!({
         "frontendAction": {
             "type": "music_get_status",
             "timestamp": timestamp
         }
-    }))
+    });
+    if let Some(status) = params.get("status") {
+        if let Some(object) = status.as_object() {
+            if let Some(merged) = body.as_object_mut() {
+                for (key, value) in object {
+                    merged.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        body["available"] = json!(true);
+    } else {
+        body["available"] = json!(false);
+    }
+    Ok(body)
 }
 
 /// 加载并播放歌单
 async fn execute_music_playlist(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let playlist_id = params.get("playlistId").and_then(parse_playlist_id_param);
+    let playlist_id = params
+        .get("playlistId")
+        .or_else(|| params.get("playlist_id"))
+        .and_then(parse_playlist_id_param);
     let playlist_id = match playlist_id {
         Some(id) => id,
         None => {
@@ -1292,6 +1393,7 @@ async fn execute_page_content(
             super::data_read::execute("platform.read", &platform_params, ctx).await
         }
         "report" => super::data_read::execute("report.list", params, ctx).await,
+        "library" => super::data_read::execute("stats.overview", params, ctx).await,
         _ => Err(format!("Unable to read page content")),
     }
 }

@@ -34,11 +34,12 @@ export {
   registerTappListHandlers,
 } from './contentHandlers'
 
+export { registerModel3dHandlers } from './model3dHandlers'
+export { registerPersonaHandlers } from './personaHandlers'
+
 export {
   registerAnalyticsHandlers,
   registerPlatformHandlers,
   registerWidgetHandlers,
 } from './platformHandlers'
-
-export { registerModel3dHandlers } from './model3dHandlers'
 export { registerSchedulerHandlers } from './schedulerHandlers'

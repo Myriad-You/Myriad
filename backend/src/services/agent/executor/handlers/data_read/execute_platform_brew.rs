@@ -13,6 +13,7 @@ use sea_orm::{
 use serde_json::{json, Value};
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::io::ErrorKind;
 
 static RE_HTML_TAG: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"<[^>]+>").unwrap());
 static RE_WHITESPACE: Lazy<regex::Regex> = Lazy::new(|| regex::Regex::new(r"\s+").unwrap());
@@ -70,6 +71,30 @@ pub async fn execute(
     }
 }
 
+fn brew_query_failed(context: &'static str, error: impl std::fmt::Display) -> String {
+    tracing::error!(%error, context, "brew query failed");
+    format!("Failed to {context}")
+}
+
+fn platform_cache_read_failed(platform: &str, error: std::io::Error) -> String {
+    tracing::error!(%error, platform, "failed to read platform cache");
+    match error.kind() {
+        ErrorKind::NotFound => format!("No cached {platform} data"),
+        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => {
+            format!("Failed to read {platform} data: storage is not writable")
+        }
+        ErrorKind::StorageFull => {
+            format!("Failed to read {platform} data: not enough disk space")
+        }
+        _ => format!("Failed to read {platform} data"),
+    }
+}
+
+fn platform_cache_parse_failed(platform: &str, error: impl std::fmt::Display) -> String {
+    tracing::error!(%error, platform, "failed to parse platform cache");
+    format!("Failed to parse {platform} data")
+}
+
 // Platform 相关
 
 async fn execute_platform_read(params: &HashMap<String, Value>) -> Result<Value, String> {
@@ -83,10 +108,10 @@ async fn execute_platform_read(params: &HashMap<String, Value>) -> Result<Value,
     let cache_file = format!("cache/platforms/{}_filtered.json", platform);
     let content = tokio::fs::read_to_string(&cache_file)
         .await
-        .map_err(|e| format!("Failed to read platform data: {}", e))?;
+        .map_err(|error| platform_cache_read_failed(platform, error))?;
 
     let data: Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse platform data: {}", e))?;
+        .map_err(|error| platform_cache_parse_failed(platform, error))?;
 
     let items = extract_platform_items(&platform.to_lowercase(), &data);
     let mut filtered_items = items;
@@ -130,10 +155,10 @@ async fn execute_platform_stats(params: &HashMap<String, Value>) -> Result<Value
     let cache_file = format!("cache/platforms/{}_filtered.json", platform);
     let content = tokio::fs::read_to_string(&cache_file)
         .await
-        .map_err(|e| format!("Failed to read {}: {}", cache_file, e))?;
+        .map_err(|error| platform_cache_read_failed(platform, error))?;
 
-    let data: Value =
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+    let data: Value = serde_json::from_str(&content)
+        .map_err(|error| platform_cache_parse_failed(platform, error))?;
 
     // 根据平台类型使用专门的分析函数
     match platform.to_lowercase().as_str() {
@@ -664,7 +689,7 @@ async fn execute_brew_read(
     let sources = brew_sources::Entity::find()
         .all(ctx.db)
         .await
-        .map_err(|e| format!("Failed to fetch brew sources: {}", e))?;
+        .map_err(|error| brew_query_failed("fetch brew sources", error))?;
     let source_map: HashMap<i32, &brew_sources::Model> =
         sources.iter().map(|s| (s.id, s)).collect();
 
@@ -725,7 +750,7 @@ async fn execute_brew_read(
         .limit(filters.limit as u64)
         .all(ctx.db)
         .await
-        .map_err(|e| format!("Failed to fetch brew items: {}", e))?;
+        .map_err(|error| brew_query_failed("fetch brew items", error))?;
 
     let last_updated = items
         .first()
@@ -802,7 +827,7 @@ async fn execute_brew_sources(
         .order_by_asc(brew_sources::Column::Name)
         .all(ctx.db)
         .await
-        .map_err(|e| format!("Failed to fetch brew sources: {}", e))?;
+        .map_err(|error| brew_query_failed("fetch brew sources", error))?;
 
     let total_in_system = all_sources.len();
 
@@ -1343,7 +1368,7 @@ async fn load_article_with_source(
     let source = brew_sources::Entity::find_by_id(item.source_id)
         .one(ctx.db)
         .await
-        .map_err(|e| format!("Failed to fetch brew source: {}", e))?;
+        .map_err(|error| brew_query_failed("fetch brew source", error))?;
     Ok(brew_item_to_article_json(&item, source.as_ref()))
 }
 
@@ -1411,13 +1436,14 @@ async fn execute_brew_stats(
     let total_sources = brew_sources::Entity::find()
         .count(ctx.db)
         .await
-        .map_err(|e| format!("Failed to count brew sources: {}", e))?
+        .map_err(|error| brew_query_failed("count brew sources", error))?
         as i64;
 
     let total_items = brew_items::Entity::find()
         .count(ctx.db)
         .await
-        .map_err(|e| format!("Failed to count brew items: {}", e))? as i64;
+        .map_err(|error| brew_query_failed("count brew items", error))?
+        as i64;
 
     let user_id = ctx.user_id;
     let (unread_count, starred_count) = if user_id > 0 {
@@ -1426,7 +1452,7 @@ async fn execute_brew_stats(
             .filter(brew_user_states::Column::IsStarred.eq(true))
             .count(ctx.db)
             .await
-            .map_err(|e| format!("Failed to count starred items: {}", e))?
+            .map_err(|error| brew_query_failed("count starred items", error))?
             as i64;
 
         // Unread ≈ items without a is_read=true state for this user
@@ -1435,7 +1461,7 @@ async fn execute_brew_stats(
             .filter(brew_user_states::Column::IsRead.eq(true))
             .count(ctx.db)
             .await
-            .map_err(|e| format!("Failed to count read items: {}", e))?
+            .map_err(|error| brew_query_failed("count read items", error))?
             as i64;
 
         let unread_count = total_items.saturating_sub(read_count);
@@ -2814,10 +2840,10 @@ async fn ai_search_rss_feeds(query: &str, ctx: &HandlerContext<'_>) -> Result<Ve
         search_query
     );
 
-    let result = analyzer
-        .analyze(&prompt)
-        .await
-        .map_err(|e| format!("AI search failed: {}", e))?;
+    let result = analyzer.analyze(&prompt).await.map_err(|error| {
+        tracing::error!(%error, "AI search failed");
+        "AI search failed".to_string()
+    })?;
 
     let mut feeds = Vec::new();
 
@@ -2869,11 +2895,10 @@ async fn try_parse_feed(url: &str) -> Result<Value, String> {
     .await
     .map_err(|_e| "Invalid URL".to_string())?;
 
-    let response = client
-        .get(target)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+    let response = client.get(target).send().await.map_err(|e| {
+        tracing::warn!(error = %e, "Request failed");
+        "Request failed".to_string()
+    })?;
 
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
@@ -2881,7 +2906,10 @@ async fn try_parse_feed(url: &str) -> Result<Value, String> {
 
     let bytes = crate::services::outbound_security::read_limited_body(response, 2 * 1024 * 1024)
         .await
-        .map_err(|e| format!("Failed to read response: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, "Failed to read response");
+            "Failed to read response".to_string()
+        })?;
     let content = String::from_utf8_lossy(&bytes).to_string();
 
     // 检测 Feed 类型
@@ -3093,11 +3121,10 @@ async fn discover_rss_from_website(url: &str) -> Result<Vec<Value>, String> {
     .await
     .map_err(|_e| "Invalid URL".to_string())?;
 
-    let response = client
-        .get(target)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+    let response = client.get(target).send().await.map_err(|e| {
+        tracing::warn!(error = %e, "Request failed");
+        "Request failed".to_string()
+    })?;
 
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
@@ -3105,7 +3132,10 @@ async fn discover_rss_from_website(url: &str) -> Result<Vec<Value>, String> {
 
     let bytes = crate::services::outbound_security::read_limited_body(response, 2 * 1024 * 1024)
         .await
-        .map_err(|e| format!("Failed to read response: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(error = %e, "Failed to read response");
+            "Failed to read response".to_string()
+        })?;
     let html = String::from_utf8_lossy(&bytes).to_string();
 
     // 查找 RSS/Atom 链接
@@ -3177,7 +3207,7 @@ async fn execute_brew_page_content(
                 .order_by_desc(brew_sources::Column::UpdatedAt)
                 .all(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch sources: {}", e))?;
+                .map_err(|error| brew_query_failed("fetch brew sources", error))?;
 
             let filtered: Vec<&brew_sources::Model> = sources
                 .iter()
@@ -3262,7 +3292,7 @@ async fn execute_brew_page_content(
             let source = brew_sources::Entity::find_by_id(source_id as i32)
                 .one(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch source: {}", e))?
+                .map_err(|error| brew_query_failed("fetch brew source", error))?
                 .ok_or("Source not found")?;
 
             let items = brew_items::Entity::find()
@@ -3270,7 +3300,7 @@ async fn execute_brew_page_content(
                 .order_by_desc(brew_items::Column::PublishedAt)
                 .all(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch items: {}", e))?;
+                .map_err(|error| brew_query_failed("fetch brew items", error))?;
 
             let item_list: Vec<Value> = items
                 .iter()
@@ -3331,13 +3361,13 @@ async fn execute_brew_page_content(
                 .filter(brew_items::Column::Guid.eq(item_guid))
                 .one(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch item: {}", e))?
+                .map_err(|error| brew_query_failed("fetch brew item", error))?
                 .ok_or("Item not found")?;
 
             let source = brew_sources::Entity::find_by_id(item.source_id)
                 .one(ctx.db)
                 .await
-                .map_err(|e| format!("Failed to fetch source: {}", e))?;
+                .map_err(|error| brew_query_failed("fetch brew source", error))?;
 
             let user_id = params
                 .get("userId")
@@ -3470,9 +3500,21 @@ async fn execute_netease_playlist(params: &HashMap<String, Value>) -> Result<Val
                 _ => json!([]),
             };
 
+            let playlists = if query_type == "playlists" {
+                result.clone()
+            } else {
+                json!([])
+            };
+            let songs = if query_type == "playlists" {
+                json!([])
+            } else {
+                result.clone()
+            };
             return Ok(json!({
                 "type": query_type,
-                "data": result
+                "data": result,
+                "playlists": playlists,
+                "songs": songs
             }));
         }
     }
@@ -3540,7 +3582,10 @@ async fn execute_netease_search_playlist(
         .timeout(std::time::Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|e| format!("HTTP client error: {e}"))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "HTTP client build failed");
+            "HTTP client error".to_string()
+        })?;
 
     for category in &categories_to_try {
         let encoded_category = urlencoding::encode(category);
@@ -3879,19 +3924,17 @@ async fn ai_understand_music_intent(
                 Ok("轻音乐".to_string())
             }
         }
-        Err(e) => Err(format!("AI analysis failed: {}", e)),
+        Err(error) => {
+            tracing::error!(%error, "AI analysis failed");
+            Err("AI analysis failed".to_string())
+        }
     }
 }
 
 // 追加的数据读取能力
 
 /// 获取 B 站追番列表
-async fn execute_bilibili_bangumi(params: &HashMap<String, Value>) -> Result<Value, String> {
-    let bangumi_type = params
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("anime");
-
+async fn execute_bilibili_bangumi(_params: &HashMap<String, Value>) -> Result<Value, String> {
     let cache_file = "cache/platforms/bilibili_filtered.json";
     if let Ok(content) = tokio::fs::read_to_string(cache_file).await {
         if let Ok(data) = serde_json::from_str::<Value>(&content) {
@@ -3902,8 +3945,9 @@ async fn execute_bilibili_bangumi(params: &HashMap<String, Value>) -> Result<Val
                 .unwrap_or(json!([]));
 
             return Ok(json!({
-                "type": bangumi_type,
+                "source": "local_cache",
                 "bangumis": bangumis,
+                "items": bangumis,
                 "total": bangumis.as_array().map(|a| a.len()).unwrap_or(0)
             }));
         }
@@ -3924,7 +3968,9 @@ async fn execute_steam_wishlist(params: &HashMap<String, Value>) -> Result<Value
                 .unwrap_or(json!([]));
 
             return Ok(json!({
+                "source": "local_cache",
                 "wishlist": wishlist,
+                "items": wishlist,
                 "total": wishlist.as_array().map(|a| a.len()).unwrap_or(0)
             }));
         }
@@ -4408,7 +4454,10 @@ async fn execute_tapp_list(
         .order_by_desc(tapps::Column::UpdatedAt)
         .all(ctx.db)
         .await
-        .map_err(|e| format!("Failed to fetch Tapps: {e}"))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to fetch Tapps");
+            "Failed to fetch Tapps".to_string()
+        })?;
     let items: Vec<Value> = records
         .into_iter()
         .filter(|tapp| {
@@ -4614,10 +4663,23 @@ async fn execute_rsshub_instances(
 }
 
 /// 上下文引用能力
-async fn execute_context_reference(_params: &HashMap<String, Value>) -> Result<Value, String> {
-    // context.reference 不应被直接调用——步骤间数据传递通过 executor 的
-    // resolve_params() 自动处理 xxxFrom 引用。如果走到这里说明 recipe 配置有误。
-    Err("This step cannot be called directly".to_string())
+async fn execute_context_reference(params: &HashMap<String, Value>) -> Result<Value, String> {
+    let value = params
+        .get("value")
+        .cloned()
+        .ok_or_else(|| "Referenced step output not found".to_string())?;
+    let type_name = match &value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    };
+    Ok(json!({
+        "value": value,
+        "type": type_name
+    }))
 }
 
 // 补充能力
@@ -4861,7 +4923,10 @@ async fn execute_report_list(
             .limit(remaining)
             .all(ctx.db)
             .await
-            .map_err(|e| format!("Failed to list agent reports: {e}"))?;
+            .map_err(|e| {
+                tracing::error!(error = %e, "Failed to list agent reports");
+                "Failed to list agent reports".to_string()
+            })?;
         for row in agent_rows {
             let value = &row.value;
             reports.push(json!({
@@ -5001,11 +5066,10 @@ async fn trigger_ai_web_search_for_reading_list(
                 tracing::error!(error = %e, "Failed to read Gemini response");
                 "AI generation failed".to_string()
             })?;
-    let response_json: Value = serde_json::from_slice(&body_bytes)
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to parse Gemini response");
-            "AI generation failed".to_string()
-        })?;
+    let response_json: Value = serde_json::from_slice(&body_bytes).map_err(|e| {
+        tracing::error!(error = %e, "Failed to parse Gemini response");
+        "AI generation failed".to_string()
+    })?;
 
     // 提取 AI 回复内容
     let ai_text = response_json

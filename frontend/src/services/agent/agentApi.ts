@@ -25,6 +25,7 @@ import type {
   TaskPresetListResponse,
 } from './types'
 
+import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, apiService } from '../api'
 import { abortSseSubscriptions, executeSSERequest } from './sseTransport'
 
@@ -32,6 +33,34 @@ import { abortSseSubscriptions, executeSSERequest } from './sseTransport'
 const PERSONA_GENERATION_TIMEOUT_MS = 15 * 60 * 1000
 
 const personaGenerationInflight = new Map<string, Promise<unknown>>()
+
+export type AgentIntentionStatus =
+  | 'proposed'
+  | 'accepted'
+  | 'running'
+  | 'waiting'
+  | 'completed'
+  | 'failed'
+  | 'abandoned'
+  | 'expired'
+
+export interface AgentWorkProposal {
+  title: string
+  instruction: string
+  expected_outcome: string
+  source_event_id: string
+}
+
+export interface AgentIntention {
+  id: string
+  summary: string
+  reason_code: string
+  status: AgentIntentionStatus
+  proposal: AgentWorkProposal
+  created_at: string
+  updated_at: string
+  expires_at?: string
+}
 
 function sharePersonaGeneration<T>(
   key: string,
@@ -87,6 +116,7 @@ export interface AgentPersona {
   visualProfile?: Record<string, unknown> | null
   portraitGeneration?: Record<string, unknown> | null
   mood?: number
+  arousal?: number
   activity?: string
   doNotDisturb?: boolean
   doNotDisturbActive?: boolean
@@ -208,16 +238,76 @@ export function normalizeCapabilityActions(raw: unknown): string[] {
 class AgentService {
   private baseUrl = '/agent'
 
-  /** 当前 SSE 请求；回答问题时主流与回答流会同时存在。 */
-  private activeAbortControllers = new Set<AbortController>()
+  /**
+   * SSE subscriptions split by panel mode so interrupting Chat cannot drop
+   * an in-flight Work run, and vice versa.
+   */
+  private activeAbortControllersByMode: Record<
+    'work' | 'chat',
+    Set<AbortController>
+  > = {
+    work: new Set<AbortController>(),
+    chat: new Set<AbortController>(),
+  }
 
   /**
    * 中断当前正在进行的 SSE 请求（客户端侧，用户意图）。
    *
    * 调用后 executeSSERequest 的 Promise 将 reject，且**不会**自动 re-subscribe 同一 run。
+   * Pass a mode to abort only that lane; omit to abort both.
    */
-  abortCurrentRequest(): void {
-    abortSseSubscriptions(this.activeAbortControllers, 'user')
+  abortCurrentRequest(mode?: 'work' | 'chat'): void {
+    const lanes: Array<'work' | 'chat'> = mode ? [mode] : ['work', 'chat']
+    for (const lane of lanes) {
+      abortSseSubscriptions(this.activeAbortControllersByMode[lane], 'user')
+    }
+  }
+
+  async listIntentions(): Promise<AgentIntention[]> {
+    const response = await apiService.get<{ intentions: AgentIntention[] }>(
+      `${this.baseUrl}/intentions`,
+    )
+    return response.intentions
+  }
+
+  async acceptIntention(
+    intentionId: string,
+  ): Promise<{ intention: AgentIntention; work: { mode: 'work'; input: string } }> {
+    return apiService.post(
+      `${this.baseUrl}/intentions/${encodeURIComponent(intentionId)}/accept`,
+    )
+  }
+
+  async dismissIntention(
+    intentionId: string,
+  ): Promise<{ intention: AgentIntention }> {
+    return apiService.post(
+      `${this.baseUrl}/intentions/${encodeURIComponent(intentionId)}/dismiss`,
+    )
+  }
+
+  async getAutonomyGrant(): Promise<{
+    grant: {
+      userId: number
+      allowedPermissions: string[]
+      revoked: boolean
+    } | null
+  }> {
+    return apiService.get(`${this.baseUrl}/autonomy`)
+  }
+
+  async putAutonomyGrant(
+    allowedPermissions: string[] = [],
+  ): Promise<{
+    grant: { userId: number; allowedPermissions: string[]; revoked: boolean }
+  }> {
+    return apiService.put(`${this.baseUrl}/autonomy`, { allowedPermissions })
+  }
+
+  async revokeAutonomyGrant(): Promise<{
+    grant: { userId: number; allowedPermissions: string[]; revoked: boolean }
+  }> {
+    return apiService.delete(`${this.baseUrl}/autonomy`)
   }
 
   /**
@@ -280,12 +370,14 @@ class AgentService {
       },
     }
 
+    const lane = context?.mode === 'chat' ? 'chat' : 'work'
     return this.executeSSERequest(
       `/api${this.baseUrl}/process/stream`,
       'POST',
       request,
       onProgress,
-      false,
+      lane === 'chat',
+      lane,
     )
   }
 
@@ -379,6 +471,26 @@ class AgentService {
       message: string
       taskId: string
     }>(`${this.baseUrl}/tasks/${taskId}/cancel`)
+  }
+
+  /** Live music/window snapshot after a query frontendAction ran. */
+  async submitFrontendAck(
+    taskId: string,
+    stepId: string,
+    payload: {
+      musicStatus?: unknown
+      windowState?: unknown
+    },
+  ): Promise<void> {
+    try {
+      await apiService.post(`${this.baseUrl}/tasks/${taskId}/frontend-ack`, {
+        stepId,
+        musicStatus: payload.musicStatus ?? null,
+        windowState: payload.windowState ?? null,
+      })
+    } catch {
+      // Executor timed out the oneshot; the recipe continues on the request snapshot.
+    }
   }
 
   /**
@@ -513,7 +625,7 @@ class AgentService {
       await new Promise((resolve) => setTimeout(resolve, intervalMs))
     }
 
-    throw new Error(`Task ${taskId} timed out after ${timeoutMs}ms`)
+    throw new Error(currentCopy().errors.agentStepTimeout)
   }
 
   // 任务预设 API
@@ -609,6 +721,10 @@ class AgentService {
     response: AgentResponse
   }> {
     return apiService.post(`${this.baseUrl}/session/interrupt`, { input })
+  }
+
+  async cancelChatTurn(sessionId: string): Promise<{ success: boolean }> {
+    return apiService.post(`${this.baseUrl}/session/cancel-chat`, { sessionId })
   }
 
   /**
@@ -956,6 +1072,7 @@ class AgentService {
     dndEnd?: string | null
   }): Promise<{
     mood: number
+    arousal?: number
     activity: string
     doNotDisturb: boolean
     doNotDisturbActive?: boolean
@@ -1044,6 +1161,7 @@ class AgentService {
     body?: unknown,
     onProgress?: ProgressCallback,
     abortPrevious = true,
+    lane: 'work' | 'chat' = 'work',
   ): Promise<AgentResponse> {
     return executeSSERequest({
       url,
@@ -1051,7 +1169,7 @@ class AgentService {
       body,
       onProgress,
       abortPrevious,
-      activeControllers: this.activeAbortControllers,
+      activeControllers: this.activeAbortControllersByMode[lane],
       pollTaskUntilComplete: (taskId, options) =>
         this.pollTaskUntilComplete(taskId, options),
     })

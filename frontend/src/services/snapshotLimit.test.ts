@@ -6,7 +6,6 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   clampSnapshotLimit,
-  isValidSnapshotLimit,
   SNAPSHOT_LIMIT_DEFAULT,
   SNAPSHOT_LIMIT_MAX,
   SNAPSHOT_LIMIT_MIN,
@@ -16,7 +15,10 @@ import {
 describe('snapshot limit range 1–20', () => {
   it('presets stay inside 1–20 and include max', () => {
     for (const n of SNAPSHOT_LIMIT_PRESETS) {
-      assert.ok(isValidSnapshotLimit(n), `preset ${n}`)
+      assert.ok(
+        n >= SNAPSHOT_LIMIT_MIN && n <= SNAPSHOT_LIMIT_MAX,
+        `preset ${n}`,
+      )
     }
     assert.ok(SNAPSHOT_LIMIT_PRESETS.includes(SNAPSHOT_LIMIT_MAX as 20))
     assert.ok(SNAPSHOT_LIMIT_PRESETS.includes(SNAPSHOT_LIMIT_MIN as 1))

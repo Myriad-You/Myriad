@@ -461,7 +461,7 @@ export class TappScheduler {
       this.reportTaskComplete(
         event.executionId,
         false,
-        'No active Tapp runtime callback',
+        currentCopy().errors.noticeScheduleFailed,
       )
     }
 
@@ -562,7 +562,7 @@ export class TappScheduler {
     )
 
     if (!response.success) {
-      throw new Error(currentCopy().errors.operationFailed)
+      throw new Error(currentCopy().errors.scheduleRegisterFailed)
     }
 
     return response.task
@@ -750,7 +750,12 @@ export class TappScheduler {
           return this.apiRequest(method, endpoint, body, replacement, false)
         }
       }
-      throw new Error(error.error || httpStatusMessage(response.status))
+      throw new Error(
+        userFacingError(
+          error.error || httpStatusMessage(response.status),
+          currentCopy().errors.noticeScheduleFailed,
+        ),
+      )
     }
 
     return response.json()

@@ -454,38 +454,3 @@ export interface InfoCardConfig {
 }
 
 // 工具类型
-
-/** 根据类型获取设置项配置 */
-export type SettingConfigByType<T extends SettingType> = T extends 'switch'
-  ? SwitchSettingConfig
-  : T extends 'checkbox'
-    ? CheckboxSettingConfig
-    : T extends 'input'
-      ? InputSettingConfig
-      : T extends 'number'
-        ? NumberSettingConfig
-        : T extends 'slider'
-          ? SliderSettingConfig
-          : T extends 'select'
-            ? SelectSettingConfig
-            : T extends 'provider'
-              ? ProviderSettingConfig
-              : T extends 'button'
-                ? ButtonSettingConfig
-                : T extends 'custom'
-                  ? CustomSettingConfig
-                  : never
-
-/** 设置值类型映射 */
-export type SettingValueType<T extends SettingType> = T extends
-  'switch' | 'checkbox'
-  ? boolean
-  : T extends 'input'
-    ? string
-    : T extends 'number' | 'slider'
-      ? number
-      : T extends 'select' | 'provider'
-        ? string
-        : T extends 'button' | 'custom'
-          ? never
-          : unknown

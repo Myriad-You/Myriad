@@ -5,7 +5,10 @@
 //! [`crate::services::tapp_install`] and [`crate::services::tapp_ownership`].
 //! This module keeps Claims/DB/FS and role-config permission filtering.
 
-use super::prepared_package::{PackageStageContext, PreparedTappPackage, PreparedTappResources};
+use super::prepared_package::{
+    package_from_archive, PackageStageContext, PreparedTappPackage, PreparedTappPackageHttp,
+    PreparedTappResources,
+};
 use super::store_package::fetch_from_store;
 use super::{
     api_http_error, api_response_err, canonical_installation_owner_id, cleanup_reinstall_orphans,
@@ -578,7 +581,7 @@ pub(super) async fn install_tapp_file(
     let file_data =
         file_data.ok_or_else(|| api_http_error(StatusCode::BAD_REQUEST, "No file uploaded"))?;
 
-    let package = PreparedTappPackage::from_archive(file_data).map_err(api_response_err)?;
+    let package = package_from_archive(file_data).map_err(api_response_err)?;
     install_prepared_package(
         &db,
         &dynamic_config,

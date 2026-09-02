@@ -88,6 +88,18 @@ export function MoonshotMark() {
   )
 }
 
+export function ShengwangMark() {
+  return (
+    <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden>
+      <title>Shengwang / Agora</title>
+      <g fill="#099DFD">
+        <path d="M4.2 13.2c1.8-3.2 3.3-4.8 5.4-4.8 1.6 0 2.6 1.1 3.6 2.8 1 1.7 1.8 2.8 3.2 2.8 1.5 0 2.6-1.1 4.4-3.6-.2 1.1-.6 2.1-1.2 3-1.7 2.6-3.2 4-5.2 4-1.8 0-2.9-1.2-4-3-1-1.8-1.8-2.8-3.2-2.8-1.2 0-2.3.7-3.6 2.2.1-1.1.4-2.1 1-3.6Z" />
+        <path d="M4.8 9.2c1.5-2.4 2.8-3.6 4.5-3.6 1.4 0 2.3.9 3.3 2.4.9 1.4 1.6 2.3 2.8 2.3 1.1 0 2-.7 3.4-2.4-.5 1.4-1.3 2.5-2.4 3.2-1.3.9-2.4.9-3.6-.8-1-1.5-1.7-2.3-2.9-2.3-.9 0-1.8.5-2.9 1.8.2-1 .5-1.8 1.2-2.6Z" />
+      </g>
+    </svg>
+  )
+}
+
 export function MinimaxMark() {
   return (
     <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden>

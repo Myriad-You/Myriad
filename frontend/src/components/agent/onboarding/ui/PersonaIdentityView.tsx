@@ -1,9 +1,9 @@
 import type { StructuredPersona } from '../onboardingTypes'
 import { LuCheck, LuEdit3, LuX } from '@lib/icons'
 import { useState } from 'react'
-import '../../PersonaOnboarding.css'
 import { joinList, parseList } from '../onboardingTypes'
 import { TextArea } from './Field'
+import '../../PersonaOnboarding.css'
 
 type PersonaFieldKey = keyof StructuredPersona
 

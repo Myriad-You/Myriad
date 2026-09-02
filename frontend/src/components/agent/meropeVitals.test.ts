@@ -1,36 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-  activityKey,
-  formatVitalsLine,
-  moodBand,
-} from './meropeVitals'
+import { activityKey, moodBand } from './meropeVitals'
 
-const copy = {
-  mood: {
-    floor: '很低',
-    low: '偏低',
-    normal: '平常',
-    high: '轻松',
-  },
-  moodLine: '心情{band}',
-  activity: {
-    idle: '空闲',
-    working: '在办事',
-    thinking: '在想',
-    talking: '在聊',
-  },
-}
-
-test('moodBand matches Merope tone thresholds', () => {
+test('moodBand matches Merope circumplex thresholds', () => {
   assert.equal(moodBand(0), 'floor')
-  assert.equal(moodBand(10), 'floor')
-  assert.equal(moodBand(39.9), 'low')
-  assert.equal(moodBand(40), 'normal')
-  assert.equal(moodBand(70), 'normal')
-  assert.equal(moodBand(84.9), 'normal')
-  assert.equal(moodBand(85), 'high')
-  assert.equal(moodBand(undefined), 'normal')
+  assert.equal(moodBand(10, 48), 'floor')
+  assert.equal(moodBand(30, 40), 'sad')
+  assert.equal(moodBand(30, 70), 'tense')
+  assert.equal(moodBand(70, 48), 'calm')
+  assert.equal(moodBand(90, 48), 'calm')
+  assert.equal(moodBand(90, 70), 'excited')
+  assert.equal(moodBand(undefined), 'calm')
 })
 
 test('activityKey treats unknown and stale labels as idle', () => {
@@ -40,9 +20,4 @@ test('activityKey treats unknown and stale labels as idle', () => {
   assert.equal(activityKey('idle'), 'idle')
   assert.equal(activityKey('napping'), 'idle')
   assert.equal(activityKey(undefined), 'idle')
-})
-
-test('formatVitalsLine joins band and activity', () => {
-  assert.equal(formatVitalsLine(copy, 72, 'idle'), '心情平常 · 空闲')
-  assert.equal(formatVitalsLine(copy, 8, 'working'), '心情很低 · 在办事')
 })

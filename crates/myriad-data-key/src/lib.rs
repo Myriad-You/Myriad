@@ -331,6 +331,7 @@ pub fn is_sensitive_config_key(key: &str) -> bool {
         || key.contains("secret")
         || key.contains("password")
         || key.contains("npsso")
+        || key.contains("certificate")
 }
 
 /// 写库前封装：敏感 key 的字符串值加密，其余原样返回。
@@ -521,6 +522,8 @@ mod tests {
             "tencent_secret_id",
             "admin_password",
             "psn_npsso",
+            "agora_app_certificate",
+            "agora_customer_secret",
         ] {
             assert!(
                 is_sensitive_config_key(secret),

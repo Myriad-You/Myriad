@@ -38,4 +38,19 @@ describe('reportUserFacingError', () => {
     )
     assert.match(text, /Steam/)
   })
+
+  it('hides report persist dumps behind generate fallback', () => {
+    assert.equal(
+      reportUserFacingError(
+        'insert report for steam: relation "platform_reports" does not exist',
+        'FALLBACK',
+        copy,
+      ),
+      'FALLBACK',
+    )
+    assert.equal(
+      reportUserFacingError('Failed to save report', 'FALLBACK', copy),
+      'FALLBACK',
+    )
+  })
 })

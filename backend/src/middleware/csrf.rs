@@ -274,9 +274,20 @@ fn extract_raw_jwt(headers: &HeaderMap) -> Option<String> {
 /// Extract the stable session identifier retained for compatibility with the
 /// old unit-level helper. The stateless token itself stores only a SHA-256
 /// digest of this verified signature segment.
+/// Session id used by the CSRF unit tests: the verified JWT signature segment.
+///
+/// 生产路径走 `extract_session_context`；这一对只服务本文件的 #[cfg(test)]，
+/// 它们锁的是「未经验签的 JWT 形状永远不能当 CSRF 凭据」这条不变量。
+#[allow(dead_code)]
 fn extract_session_id(headers: &HeaderMap) -> Option<String> {
     let token = extract_raw_jwt(headers)?;
     session_id_from_verified_jwt(&token)
+}
+
+#[allow(dead_code)]
+fn session_id_from_verified_jwt(token: &str) -> Option<String> {
+    let sig = jwt_signature_segment(token)?;
+    verified_session_from_jwt(token).map(|_| sig)
 }
 
 /// Verify JWT and return the session binding plus durable epoch carried by its
@@ -284,11 +295,6 @@ fn extract_session_id(headers: &HeaderMap) -> Option<String> {
 fn extract_session_context(headers: &HeaderMap) -> Option<VerifiedSession> {
     let token = extract_raw_jwt(headers)?;
     verified_session_from_jwt(&token)
-}
-
-fn session_id_from_verified_jwt(token: &str) -> Option<String> {
-    let sig = jwt_signature_segment(token)?;
-    verified_session_from_jwt(token).map(|_| sig)
 }
 
 fn verified_session_from_jwt(token: &str) -> Option<VerifiedSession> {
@@ -812,7 +818,7 @@ mod tests {
         // Agent is NOT path-exempt (cookie sessions need CSRF).
         assert!(!is_csrf_exempt("/api/agent/process"));
         assert!(!is_csrf_exempt("/api/agent/process/stream"));
-        assert!(!is_csrf_exempt("/api/agent/confirm"));
+        assert!(!is_csrf_exempt("/api/agent/confirm/stream"));
         assert!(!is_csrf_exempt("/api/agent/presets"));
     }
 

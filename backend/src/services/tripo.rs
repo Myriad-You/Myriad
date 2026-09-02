@@ -20,6 +20,7 @@ const JSON_CHUNK_TYPE: u32 = 0x4e4f_534a;
 
 #[derive(Debug, Clone)]
 pub struct TripoRuntimeConfig {
+    #[allow(dead_code)] // 仅经 {:?} 可见：public_label() 刻意不把上游细节回给调用方。
     pub enabled: bool,
     pub api_key: String,
     pub base_url: String,
@@ -91,29 +92,43 @@ impl TripoRuntimeConfig {
 pub enum TripoError {
     Disabled,
     NotConfigured,
+    #[allow(dead_code)] // 仅经 {:?} 可见：public_label() 刻意不把上游细节回给调用方。
     InvalidConfig(String),
+    #[allow(dead_code)] // 仅经 {:?} 可见：public_label() 刻意不把上游细节回给调用方。
     InvalidRequest(String),
-    Upstream { status: u16, message: String },
+    /// message 只进服务端日志与 {:?}：public_label() 刻意不把上游文案回给调用方。
+    Upstream {
+        status: u16,
+        #[allow(dead_code)]
+        message: String,
+    },
+    #[allow(dead_code)] // 仅经 {:?} 可见：public_label() 刻意不把上游细节回给调用方。
     Transport(String),
+    #[allow(dead_code)] // 仅经 {:?} 可见：public_label() 刻意不把上游细节回给调用方。
     InvalidModel(String),
+    #[allow(dead_code)] // 仅经 {:?} 可见：public_label() 刻意不把上游细节回给调用方。
     Storage(String),
     Timeout,
 }
 
 impl std::fmt::Display for TripoError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.public_label())
+    }
+}
+
+impl TripoError {
+    pub fn public_label(&self) -> &'static str {
         match self {
-            Self::Disabled => write!(formatter, "Tripo 3D is disabled"),
-            Self::NotConfigured => write!(formatter, "Tripo API key is not configured"),
-            Self::InvalidConfig(message)
-            | Self::InvalidRequest(message)
-            | Self::Transport(message)
-            | Self::InvalidModel(message)
-            | Self::Storage(message) => formatter.write_str(message),
-            Self::Timeout => write!(formatter, "Tripo task polling timed out"),
-            Self::Upstream { status, message } => {
-                write!(formatter, "Tripo API returned HTTP {status}: {message}")
-            }
+            Self::Disabled => "Tripo 3D is disabled",
+            Self::NotConfigured => "Tripo API key is not configured",
+            Self::InvalidConfig(_) => "Invalid Tripo configuration",
+            Self::InvalidRequest(_) => "Invalid Tripo request",
+            Self::Transport(_) => "Tripo request failed",
+            Self::InvalidModel(_) => "Invalid 3D model",
+            Self::Storage(_) => "Failed to store 3D model",
+            Self::Timeout => "Tripo task polling timed out",
+            Self::Upstream { .. } => "Tripo API request failed",
         }
     }
 }
@@ -569,8 +584,8 @@ async fn persist_model_url(
     persist_once(&directory.join(format!("{asset_id}.json")), &metadata).await?;
 
     Ok(PersistedTripoAsset {
-        model_url: format!("/api/merope/3d/assets/{asset_id}"),
-        metadata_url: format!("/api/merope/3d/assets/{asset_id}/metadata"),
+        model_url: format!("/api/model3d/assets/{asset_id}"),
+        metadata_url: format!("/api/model3d/assets/{asset_id}/metadata"),
         asset_id,
         output_index,
         metrics,
@@ -623,8 +638,10 @@ pub fn analyze_glb(bytes: &[u8]) -> Result<GlbMetrics, TripoError> {
         .rposition(|byte| !matches!(byte, b' ' | 0))
         .map(|index| index + 1)
         .unwrap_or(0);
-    let document: Value = serde_json::from_slice(&json_bytes[..json_end])
-        .map_err(|error| TripoError::InvalidModel(format!("Invalid GLB JSON: {error}")))?;
+    let document: Value = serde_json::from_slice(&json_bytes[..json_end]).map_err(|error| {
+        tracing::error!(%error, "invalid GLB JSON");
+        TripoError::InvalidModel("Invalid GLB JSON".to_string())
+    })?;
 
     let len = |key: &str| {
         document
@@ -742,11 +759,13 @@ async fn decode_response<T: for<'de> Deserialize<'de>>(
         .bytes()
         .await
         .map_err(|error| TripoError::Transport(error.to_string()))?;
-    let envelope: TripoEnvelope<T> =
-        serde_json::from_slice(&bytes).map_err(|error| TripoError::Upstream {
+    let envelope: TripoEnvelope<T> = serde_json::from_slice(&bytes).map_err(|error| {
+        tracing::error!(%error, %status, "invalid Tripo JSON response");
+        TripoError::Upstream {
             status: status.as_u16(),
-            message: format!("Invalid JSON response: {error}"),
-        })?;
+            message: "Invalid JSON response".to_string(),
+        }
+    })?;
     if !status.is_success() || envelope.code != 0 {
         let mut message = envelope
             .message
@@ -757,6 +776,8 @@ async fn decode_response<T: for<'de> Deserialize<'de>>(
         if let Some(request_id) = envelope.request_id {
             message.push_str(&format!(" [request_id: {request_id}]"));
         }
+        // public_label() 只回一句笼统话，上游细节不会进响应——不落日志就彻底丢了。
+        tracing::error!(%status, %message, "Tripo upstream error");
         return Err(TripoError::Upstream {
             status: status.as_u16(),
             message,
@@ -821,8 +842,10 @@ fn model_urls_from_output(output: &Value) -> Vec<String> {
 }
 
 fn validate_base_url(value: &str) -> Result<(), TripoError> {
-    let url = url::Url::parse(value)
-        .map_err(|error| TripoError::InvalidConfig(format!("Invalid Tripo base URL: {error}")))?;
+    let url = url::Url::parse(value).map_err(|error| {
+        tracing::error!(%error, "invalid Tripo base URL");
+        TripoError::InvalidConfig("Invalid Tripo base URL".to_string())
+    })?;
     if url.scheme() != "https" && !cfg!(test) {
         return Err(TripoError::InvalidConfig(
             "Tripo base URL must use HTTPS".to_string(),
@@ -1165,7 +1188,8 @@ mod tests {
     #[test]
     fn rejects_non_glb_download() {
         let error = analyze_glb(b"<html>expired</html>").unwrap_err();
-        assert!(error.to_string().contains("not a GLB"));
+        assert!(matches!(error, TripoError::InvalidModel(_)));
+        assert_eq!(error.to_string(), "Invalid 3D model");
     }
 
     #[test]

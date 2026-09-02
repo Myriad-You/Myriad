@@ -20,6 +20,10 @@ impl StepEventEmitter {
         Self { tx }
     }
 
+    pub fn is_live(&self) -> bool {
+        self.tx.is_some()
+    }
+
     /// 发送 StepStarted 事件
     pub async fn step_started(
         &self,
@@ -50,6 +54,7 @@ impl StepEventEmitter {
         duration_ms: u64,
         output_summary: Option<String>,
         image_url: Option<String>,
+        frontend_actions: Vec<Value>,
     ) {
         if let Some(ref tx) = self.tx {
             let _ = tx
@@ -60,9 +65,29 @@ impl StepEventEmitter {
                     duration_ms,
                     output_summary,
                     image_url,
+                    frontend_actions,
                 })
                 .await;
         }
+    }
+
+    /// 成功步骤：摘要、图片 URL、frontendActions 从输出里抽。
+    pub async fn step_output_succeeded(
+        &self,
+        step_id: &str,
+        step_index: u32,
+        duration_ms: u64,
+        output: &Value,
+    ) {
+        self.step_succeeded(
+            step_id,
+            step_index,
+            duration_ms,
+            super::summarize_output(output),
+            super::extract_image_url(output),
+            crate::services::agent::collect_step_frontend_actions(std::iter::once(output)),
+        )
+        .await;
     }
 
     /// 发送 StepCompleted 事件（失败）
@@ -82,6 +107,7 @@ impl StepEventEmitter {
                     duration_ms,
                     output_summary: Some(error_msg.to_string()),
                     image_url: None,
+                    frontend_actions: Vec::new(),
                 })
                 .await;
         }
@@ -178,5 +204,46 @@ impl StepEventEmitter {
                 })
                 .await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn step_completed_serializes_frontend_actions() {
+        let event = AgentProgressEvent::StepCompleted {
+            step_id: "s1".into(),
+            step_index: 0,
+            success: true,
+            duration_ms: 12,
+            output_summary: None,
+            image_url: None,
+            frontend_actions: vec![json!({
+                "type": "navigate",
+                "path": "/brew",
+                "timestamp": 1
+            })],
+        };
+        let value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value["type"], "step_completed");
+        assert_eq!(value["frontendActions"][0]["type"], "navigate");
+    }
+
+    #[test]
+    fn step_completed_omits_empty_frontend_actions() {
+        let event = AgentProgressEvent::StepCompleted {
+            step_id: "s1".into(),
+            step_index: 0,
+            success: true,
+            duration_ms: 1,
+            output_summary: None,
+            image_url: None,
+            frontend_actions: Vec::new(),
+        };
+        let value = serde_json::to_value(&event).unwrap();
+        assert!(value.get("frontendActions").is_none());
     }
 }

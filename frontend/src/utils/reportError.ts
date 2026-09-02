@@ -28,6 +28,9 @@ export function reportUserFacingError(
   if (/empty summary|stats not found|stats missing/i.test(text)) {
     return copy.generateEmptySummary
   }
+  if (/failed to save report|serialize report|insert report|report persist/i.test(text)) {
+    return fallback
+  }
   if (/未能生成报告/.test(text) && isUselessErrorText(text.split('：').pop() || '')) {
     return fallback
   }

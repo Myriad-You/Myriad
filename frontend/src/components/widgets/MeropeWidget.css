@@ -1,0 +1,232 @@
+/* 卡片底交给 WidgetShell 的 .glass（--surface-* 令牌 / 表面模式驱动），
+   这里只做隔离和文字色，不再自己刷一层底色。 */
+.merope-widget {
+  isolation: isolate;
+  color: var(--text-primary, #202238);
+}
+
+/*
+ * 人物按「铺满卡片」排版：master portrait 是 3:4 竖画布，
+ * 按卡片宽度铺满、顶边对齐，溢出的身体从卡片底边裁掉 —— 底部因此永远平整。
+ * 4x4 是正方形格，3:4 铺满宽度后底部固定裁掉 1/4：这是「不留侧边空档」的下限，
+ * 再少就得让人物缩到比卡片窄。--merope-widget-fill > 1 可以额外吃掉立绘两侧留白，
+ * 代价是底部裁得更多（1.12 ≈ 裁 1/3），默认不吃。
+ * --merope-widget-portrait 由 rig manifest 的画布尺寸覆盖（无 rig 时回落 3:4）。
+ */
+.merope-widget__surface {
+  --merope-widget-portrait: 3 / 4;
+  --merope-widget-fill: 1;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/*
+ * 与画布同比例的取景框：播放器按 min(w, h) 等比缩放画布，
+ * 框和画布同比 ⇒ 缩放由宽度决定 ⇒ 人物横向铺满，纵向溢出到卡片外被裁掉。
+ */
+.merope-widget__rig {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: calc(50% - 50% * var(--merope-widget-fill));
+  width: calc(100% * var(--merope-widget-fill));
+  aspect-ratio: var(--merope-widget-portrait);
+  transform-origin: 50% 26%;
+  transition: filter 180ms ease;
+}
+
+.merope-widget__rig .merope-rig {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.merope-widget__rig .merope-rig img,
+.merope-widget__rig .merope-rig canvas {
+  display: block;
+  transition: opacity 120ms ease;
+}
+
+.merope-widget__rig .merope-rig img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  opacity: 1;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.merope-widget__rig .merope-rig canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.merope-widget__rig--idle:has(.merope-rig[data-rig-quality='static']) {
+  animation: merope-widget-float 4s ease-in-out infinite;
+}
+
+.merope-widget__rig--thinking:has(.merope-rig[data-rig-quality='static']) {
+  animation: merope-widget-think 1.35s ease-in-out infinite;
+}
+
+.merope-widget__rig--talking:has(.merope-rig[data-rig-quality='static']) {
+  animation: merope-widget-talk 0.58s ease-in-out infinite alternate;
+}
+
+/*
+ * 右下角铭牌：单行，名字 + 心情挤在一条基线上。
+ * 底是全站同料的玻璃（.glass-surface 供底和滤镜，边框/圆角/投影按约定留在使用处），
+ * 有了自己的地面，文字不必再跟着身下的立绘换色 —— 直接吃 --text-* 令牌。
+ * 只占一行高：信息就这么点，不值得摞成两行再包一圈内边距去盖住立绘。
+ * 圆角 6px = WidgetShell 约定里的 micro 档（外壳 12 / 嵌套 8 / 微件 6）。
+ */
+.merope-widget__identity {
+  position: absolute;
+  z-index: 3;
+  right: 9px;
+  bottom: 9px;
+  max-width: calc(100% - 18px);
+  display: inline-flex;
+  gap: 7px;
+  align-items: baseline;
+  padding: 3px 7px 4px;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  color: var(--text-primary, #202238);
+  box-shadow: 0 4px 12px rgb(18 20 40 / 12%);
+  pointer-events: none;
+}
+
+.merope-widget__identity strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: clamp(11px, 0.95vw, 14px);
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 心情：档位词 + 4 格电平，电平贴基线立在词后面。
+   格数 = 档位（很低/偏低/平常/轻松），词说清是什么，格子一眼看出高低。 */
+.merope-widget__mood {
+  flex: 0 1 auto;
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--text-secondary, #74788d);
+  font-size: clamp(9px, 0.75vw, 10.5px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.merope-widget__mood > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merope-widget__mood-level {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.merope-widget__mood-level i {
+  width: 2.5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, currentcolor 18%, transparent);
+}
+
+.merope-widget__mood-level i[data-on] {
+  background: var(--color-primary, #94a3b8);
+}
+
+.merope-widget__mood-level i:nth-child(1) {
+  height: 3.5px;
+}
+
+.merope-widget__mood-level i:nth-child(2) {
+  height: 5px;
+}
+
+.merope-widget__mood-level i:nth-child(3) {
+  height: 6.5px;
+}
+
+.merope-widget__mood-level i:nth-child(4) {
+  height: 8px;
+}
+
+.merope-widget__empty {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 16px;
+  color: var(--text-secondary, #74788d);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.merope-widget--compact .merope-widget__identity {
+  right: 6px;
+  bottom: 6px;
+  padding: 2px 6px 3px;
+}
+
+.merope-widget--compact .merope-widget__identity strong {
+  font-size: 11px;
+}
+
+.merope-widget--compact .merope-widget__empty {
+  padding: 10px;
+  font-size: 11px;
+}
+
+@keyframes merope-widget-float {
+  50% {
+    transform: translateY(-4px) rotate(0.7deg);
+  }
+}
+
+@keyframes merope-widget-think {
+  50% {
+    filter: brightness(1.035) saturate(1.05);
+    transform: translateY(-3px) rotate(-0.6deg);
+  }
+}
+
+@keyframes merope-widget-talk {
+  to {
+    transform: translateY(-2px) scale(1.006);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .merope-widget__rig {
+    animation: none !important;
+  }
+}

@@ -12,6 +12,7 @@
 //! - 每日自动创建上限 10 个
 
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -21,7 +22,27 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use super::capability;
+use super::external_pure::classify_outbound_fetch;
 use super::skill::{get_skill_registry, Skill, SkillOrigin};
+
+fn skill_io_failed(action: &str, error: std::io::Error) -> String {
+    tracing::error!(%error, action, "skill file io failed");
+    match error.kind() {
+        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => {
+            format!("{action}: storage is not writable")
+        }
+        ErrorKind::StorageFull => format!("{action}: not enough disk space"),
+        ErrorKind::NotFound => format!("{action}: path not found"),
+        ErrorKind::AlreadyExists => format!("{action}: already exists"),
+        _ => action.to_string(),
+    }
+}
+
+fn skill_ai_failed(label: &str, error: impl std::fmt::Display) -> String {
+    let detail = error.to_string();
+    tracing::error!(error = %detail, label, "skill AI failed");
+    classify_outbound_fetch(label, &detail)
+}
 
 /// 每日自动创建 Skill 上限
 const DAILY_AUTO_CREATE_LIMIT: u32 = 10;
@@ -428,14 +449,16 @@ impl SkillEvolution {
         let ai_result = analyzer
             .analyze(&prompt)
             .await
-            .map_err(|e| format!("AI abstraction failed: {}", e))?;
+            .map_err(|error| skill_ai_failed("AI abstraction failed", error))?;
 
         // 解析 AI 输出的 JSON
         let json_str = extract_json_from_response(&ai_result)
             .ok_or("AI response does not contain valid JSON")?;
 
-        let parsed: serde_json::Value = serde_json::from_str(&json_str)
-            .map_err(|e| format!("Failed to parse AI JSON: {}", e))?;
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|error| {
+            tracing::error!(%error, "Failed to parse skill AI JSON");
+            "Failed to parse skill AI JSON".to_string()
+        })?;
 
         let name = parsed["name"].as_str().unwrap_or("auto_skill").to_string();
         let description = parsed["description"].as_str().unwrap_or("").to_string();
@@ -561,7 +584,7 @@ impl SkillEvolution {
         let new_instructions = analyzer
             .analyze(&prompt)
             .await
-            .map_err(|e| format!("AI generation failed: {}", e))?;
+            .map_err(|error| skill_ai_failed("Skill AI generation failed", error))?;
 
         if new_instructions.len() < 20 {
             return Err("AI generated instructions too short".to_string());
@@ -844,13 +867,13 @@ origin: agent_generated
         if skill.file_path.exists() {
             tokio::fs::copy(&skill.file_path, &bak_path)
                 .await
-                .map_err(|e| format!("Failed to backup: {}", e))?;
+                .map_err(|error| skill_io_failed("Failed to backup skill", error))?;
         }
 
         // 读取原文件，替换 body 部分，保留 frontmatter
         let original = tokio::fs::read_to_string(&skill.file_path)
             .await
-            .map_err(|e| format!("Failed to read skill file: {}", e))?;
+            .map_err(|error| skill_io_failed("Failed to read skill file", error))?;
 
         let new_content = if let Some(idx) = original.find("\n---\n") {
             let frontmatter = &original[..idx];
@@ -877,10 +900,10 @@ origin: agent_generated
         let tmp_path = skill.file_path.with_extension("md.tmp");
         tokio::fs::write(&tmp_path, &new_content)
             .await
-            .map_err(|e| format!("Failed to write: {}", e))?;
+            .map_err(|error| skill_io_failed("Failed to write skill file", error))?;
         tokio::fs::rename(&tmp_path, &skill.file_path)
             .await
-            .map_err(|e| format!("Failed to rename: {}", e))?;
+            .map_err(|error| skill_io_failed("Failed to replace skill file", error))?;
 
         // 更新统计
         {
@@ -1058,11 +1081,6 @@ origin: agent_generated
         self.stats.lock().await.clone()
     }
 
-    /// 获取所有能力缺口（用于调试/API）
-    pub async fn get_all_gaps(&self) -> Vec<CapabilityGap> {
-        self.capability_gaps.lock().await.clone()
-    }
-
     /// 手动删除一个 Agent 生成的 Skill（不允许删除 manual Skill）
     ///
     /// 软删除：移动到 skills/_trash/，不物理抹除。
@@ -1128,7 +1146,7 @@ async fn soft_delete_skill_file(skill: &Skill) -> Result<PathBuf, String> {
     let trash_dir = parent.join("_trash");
     tokio::fs::create_dir_all(&trash_dir)
         .await
-        .map_err(|e| format!("Failed to create trash dir: {}", e))?;
+        .map_err(|error| skill_io_failed("Failed to create skill trash directory", error))?;
     let base_name = skill
         .file_path
         .file_name()
@@ -1141,7 +1159,7 @@ async fn soft_delete_skill_file(skill: &Skill) -> Result<PathBuf, String> {
     ));
     tokio::fs::rename(&skill.file_path, &dest)
         .await
-        .map_err(|e| format!("Failed to move skill to trash: {}", e))?;
+        .map_err(|error| skill_io_failed("Failed to move skill to trash", error))?;
     Ok(dest)
 }
 

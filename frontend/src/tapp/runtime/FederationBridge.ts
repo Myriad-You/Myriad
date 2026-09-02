@@ -24,10 +24,10 @@ import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError } from '../../services/api'
-import { userFacingError } from '../../utils/userFacingError'
 import { federationApi } from '../../services/federationApi'
 import { xShareApi } from '../../services/xShareApi'
 import { isKnownGuest } from '../../utils/authState'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   getFederationFeed,
   getFederationRoomsFeed,
@@ -72,10 +72,10 @@ function missingArg() {
   }
 }
 
-function opFailed() {
+function opFailed(fallback = currentCopy().errors.federationActionFailed) {
   return {
     success: false as const,
-    error: currentCopy().errors.operationFailed,
+    error: fallback,
   }
 }
 
@@ -310,7 +310,7 @@ export function registerFederationHandlers(
         )
         return { success: true, data }
       } catch (error) {
-        return federationFail(error, currentCopy().errors.operationFailed)
+        return federationFail(error, currentCopy().errors.federationKeyRotateFailed)
       }
     },
   )
@@ -472,7 +472,7 @@ export function registerFederationHandlers(
         console.error('[FederationBridge] publish returned unsuccessful', data)
         return {
           success: false,
-          error: currentCopy().errors.operationFailed,
+          error: currentCopy().errors.federationPublishFailed,
         }
       }
       return { success: true, data }
@@ -534,7 +534,7 @@ export function registerFederationHandlers(
           console.error('[FederationBridge] createNote returned unsuccessful', data)
           return {
             success: false,
-            error: currentCopy().errors.operationFailed,
+            error: currentCopy().errors.federationPublishFailed,
           }
         }
         return { success: true, data }
@@ -566,7 +566,7 @@ export function registerFederationHandlers(
         const data = await fn(objectId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
-        return federationFail(error, currentCopy().errors.operationFailed)
+        return federationFail(error, currentCopy().errors.federationActionFailed)
       }
     }
 
@@ -631,7 +631,7 @@ export function registerFederationHandlers(
       const data = await xShareApi.getStatus()
       return { success: true, data }
     } catch (error) {
-      return federationFail(error, currentCopy().errors.operationFailed)
+      return federationFail(error, currentCopy().errors.federationShareFailed)
     }
   })
 
@@ -675,12 +675,12 @@ export function registerFederationHandlers(
         if (!data?.intent_url || data.mode !== 'intent') {
           return {
             success: false,
-            error: currentCopy().errors.operationFailed,
+            error: currentCopy().errors.federationShareFailed,
           }
         }
         return { success: true, data }
       } catch (error) {
-        return federationFail(error, currentCopy().errors.operationFailed)
+        return federationFail(error, currentCopy().errors.federationShareFailed)
       }
     },
   )
@@ -852,7 +852,7 @@ export function registerFederationHandlers(
         const data = await federationApi.acceptRoomInvite(roomId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
-        return federationFail(error, currentCopy().errors.operationFailed)
+        return federationFail(error, currentCopy().errors.inviteInvalid)
       }
     },
   )
@@ -868,7 +868,7 @@ export function registerFederationHandlers(
         const data = await federationApi.rejectRoomInvite(roomId, runtimeGrant)
         return { success: true, data }
       } catch (error) {
-        return federationFail(error, currentCopy().errors.operationFailed)
+        return federationFail(error, currentCopy().errors.inviteInvalid)
       }
     },
   )
@@ -2051,7 +2051,7 @@ export function registerFederationHandlers(
         try {
           const meta = await federationApi.getTransfer(transferId, runtimeGrant)
           if (meta && meta.status && meta.status !== 'completed') {
-            return opFailed()
+            return opFailed(currentCopy().errors.transferNotReady)
           }
         } catch {
           // fall through — content endpoint will return a precise error

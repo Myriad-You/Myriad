@@ -259,14 +259,6 @@ function runProbeOnce(onDone: (result: AutoSampleResult) => void): () => void {
   }
 }
 
-/** 测试用 */
-export function __resetAutoAdaptForTest(): void {
-  activeCancel?.()
-  activeCancel = null
-  probeStarted = false
-  demoteListeners.clear()
-}
-
 export function __evaluateSampleForTest(intervals: number[]): AutoSampleResult {
   let sum = 0
   let bad = 0

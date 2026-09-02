@@ -39,10 +39,10 @@ describe('classifyMusicLoadError', () => {
     )
   })
 
-  it('keeps a useful provider detail on generic load failure', () => {
+  it('drops leftover provider dumps on generic load failure', () => {
     assert.deepEqual(
       classifyMusicLoadError(new Error('网易云API错误 (404)')),
-      { key: 'loadPlaylistFailed', detail: '网易云API错误 (404)' },
+      { key: 'loadPlaylistFailed', detail: '' },
     )
     assert.equal(
       classifyMusicLoadError(new Error('API Error: 502')).detail,

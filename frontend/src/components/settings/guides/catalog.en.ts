@@ -556,7 +556,15 @@ export const en: SettingGuidesCatalog = {
         '1) Off by default. Off means chat and tasks only — no event listening, no hidden speech, persona unused.\n2) The switch needs Pro. Chat only injects the persona as system text; it uses the planner/reply tiers.\n3) Lite selects semantic motion and writes proactive lines and mood hints. Without Lite, semantic motion stops and only local blink, breath, hair, and other ambient physics remain; there is no Standard fallback.\n4) On: write the persona on this item’s secondary page. Tags, name, and persona run through Pro.\n5) MEROPE_ENABLED can override the saved switch, but still needs Pro.\n6) Autonomic speech stays hidden; valuable events also notify if the person is not chatting.',
       frontend:
         'Chat uses this persona. Write it on this item’s secondary settings page. The first-level row shows your mood band and current activity. Guests do not see mood.',
-      notes: 'Only the site owner can write the persona. Deleting the persona also clears mood and diary. Heartbeat is never blocked by mood.',
+      notes:
+        'Only the site owner can write the persona. Deleting the persona also clears mood and diary. Heartbeat is never blocked by mood. Speaking aloud is a separate switch below, off by default.',
+    },
+    agentPersonaSpeech: {
+      what: 'Whether the persona face speaks chat replies aloud.',
+      chain:
+        '1) Off by default. Off: replies stay text; the face still mouths the line, with no voice.\n2) On, with speech configured: replies go through the speech pipeline; real audio drives the mouth; text visemes only if TTS fails.\n3) Requires Agent persona on, and a speech provider on the AI page. The switch does not count while persona is off.\n4) Push-to-listen is still manual and separate.\n5) Reader/podcast TTS uses the speech provider, not this switch.',
+      frontend: 'Settings → AI → Persona → Speak. Takes effect on the next chat turn after save.',
+      notes: 'Voice uses quota. Turning this off does not turn off the persona.',
     },
     liteEnable: {
       what: 'Whether to enable the Lite tier.',

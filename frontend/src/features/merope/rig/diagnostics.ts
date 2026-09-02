@@ -1,4 +1,8 @@
 import type { MeropeRigManifest } from './types'
+import {
+  ANIME25D_FACIAL_CAPABILITIES,
+  hasAnime25DCapability,
+} from './anime25dCapabilities'
 import { presentationAssetCoverage } from './presentation'
 import { resolveRigSemantics } from './semantics'
 
@@ -29,42 +33,23 @@ export interface RigDiagnosticReport {
   }
 }
 
-export type RigCapability = keyof RigDiagnosticReport['capabilities']
-
-const ANIME25D_ABANDONED_CAPABILITIES = new Set<RigCapability>([
-  'collisionAware',
-])
-
-export function anime25DAbandonsCapability(capability: RigCapability): boolean {
-  return ANIME25D_ABANDONED_CAPABILITIES.has(capability)
-}
-
-/** Capabilities a replacement candidate would remove from the current Rig. */
-export function rigCapabilityRegressions(
-  current: RigDiagnosticReport,
-  candidate: RigDiagnosticReport,
-): RigCapability[] {
-  return (Object.keys(current.capabilities) as RigCapability[]).filter(
-    (capability) =>
-      !(
-        candidate.profile === 'anime25d' &&
-        anime25DAbandonsCapability(capability)
-      ) &&
-      current.capabilities[capability] &&
-      !candidate.capabilities[capability],
+/** Exact facial subset of the current Anime2.5D character-asset contract. */
+export function anime25DFacialVariantsComplete(
+  parts: MeropeRigManifest['parts'],
+): boolean {
+  return ANIME25D_FACIAL_CAPABILITIES.every((capability) =>
+    hasAnime25DCapability(parts || [], capability),
   )
 }
 
-export function diagnoseRig(
-  manifest: MeropeRigManifest,
-): RigDiagnosticReport {
+export function diagnoseRig(manifest: MeropeRigManifest): RigDiagnosticReport {
   const issues: RigDiagnostic[] = []
   const semantics = resolveRigSemantics(manifest)
   const facial = Boolean(
     semantics.bones.face ||
-      semantics.bones['left-eye'] ||
-      semantics.bones['right-eye'] ||
-      semantics.bones.mouth,
+    semantics.bones['left-eye'] ||
+    semantics.bones['right-eye'] ||
+    semantics.bones.mouth,
   )
   const lipSync = Boolean(semantics.bones.mouth)
   const secondaryMotion = semantics.secondaryBoneIds.length > 0
@@ -79,9 +64,9 @@ export function diagnoseRig(
     (facialSlots.has('iris-left') && facialSlots.has('iris-right'))
   const gaze = Boolean(
     semantics.bones['left-eye'] &&
-      semantics.bones['right-eye'] &&
-      semantics.bones.head &&
-      splitEyeGaze,
+    semantics.bones['right-eye'] &&
+    semantics.bones.head &&
+    splitEyeGaze,
   )
   const mouthVariantCount = (manifest.parts || []).filter(
     (part) => part.slot === 'mouth',
@@ -90,7 +75,7 @@ export function diagnoseRig(
     (part) => part.slot === 'head-expression',
   ).length
   const facialVariants = anime25d
-    ? splitEyeGaze && mouthVariantCount >= 2
+    ? anime25DFacialVariantsComplete(manifest.parts)
     : (splitEyeGaze && mouthVariantCount >= 4) ||
       (headExpressionCount >= 4 && mouthVariantCount >= 4)
   const deformableSkinning = (manifest.parts || []).some((part) =>
@@ -100,9 +85,9 @@ export function diagnoseRig(
   )
   const outfitAware = Boolean(
     manifest.outfitProfile &&
-      ['forehead', 'chest', 'chin'].every(
-        (anchor) => manifest.semanticAnchors?.[anchor],
-      ),
+    ['forehead', 'chest', 'chin'].every(
+      (anchor) => manifest.semanticAnchors?.[anchor],
+    ),
   )
   const collisionAware = ['head', 'torso'].every((id) =>
     manifest.spatialProfile?.collisionVolumes.some(

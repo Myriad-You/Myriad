@@ -17,6 +17,8 @@ pub struct ProcessRequest {
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessContext {
+    /// 面板模式：work 走完整 Agent，chat 只走严格 Lite 人设对话。
+    pub mode: Option<crate::services::agent::AgentInteractionMode>,
     /// 当前页面路由
     pub current_route: Option<String>,
     /// 活跃的平台
@@ -27,6 +29,12 @@ pub struct ProcessContext {
     pub conversation_history: Option<Vec<ConversationMessageApi>>,
     /// 自定义数据
     pub custom_data: Option<Value>,
+    /// 用户已接受、正在进入 Work 的自主提案。
+    pub intention_id: Option<String>,
+    pub autonomy_permission_cap: Option<Vec<String>>,
+    /// Semantic live-face snapshot. Extra keys are dropped at the sanitizer.
+    #[serde(default)]
+    pub rig_state: Option<serde_json::Value>,
 }
 
 /// 对话消息（API 格式）
@@ -670,6 +678,35 @@ mod api_contract_tests {
             })),
         };
         assert!(agent_run_event_is_terminal(&event));
+    }
+
+    #[test]
+    fn parked_confirmation_keeps_the_run_open() {
+        let response = ApiResponse {
+            success: true,
+            response_type: "confirmation_required".into(),
+            message: "confirm".into(),
+            data: None,
+            data_display: None,
+            suggestions: vec![],
+            task: None,
+            confirmation: Some(ConfirmationInfo {
+                confirmation_id: "c1".into(),
+                risk_level: "high".into(),
+                expires_in_seconds: 300,
+                pending_steps: vec![],
+            }),
+            frontend_action: None,
+            performance: None,
+            session_id: None,
+        };
+        let parked = park_confirmation_run(&response, "confirmation:c1");
+        let event = AgentProgressEvent::TaskCompleted {
+            task_id: "confirmation:c1".into(),
+            success: true,
+            response: Box::new(parked),
+        };
+        assert!(!agent_run_event_is_terminal(&event));
     }
 
     #[test]

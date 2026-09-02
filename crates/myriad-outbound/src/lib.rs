@@ -201,7 +201,7 @@ pub async fn build_public_http_client(
     timeout: Duration,
     user_agent: Option<&str>,
 ) -> Result<(Url, Client), String> {
-    let parsed = Url::parse(url).map_err(|error| format!("Invalid URL: {error}"))?;
+    let parsed = Url::parse(url).map_err(|_| "Invalid URL".to_string())?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("Only HTTP and HTTPS URLs are allowed".to_string());
     }
@@ -221,7 +221,7 @@ pub async fn build_public_http_client(
     } else {
         tokio::net::lookup_host((host, port))
             .await
-            .map_err(|error| format!("DNS resolution failed: {error}"))?
+            .map_err(|_| "DNS resolution failed".to_string())?
             .collect()
     };
 
@@ -243,7 +243,7 @@ pub async fn build_public_http_client(
     }
     let client = builder
         .build()
-        .map_err(|error| format!("HTTP client error: {error}"))?;
+        .map_err(|_| "HTTP client error".to_string())?;
     store_cached_client(host, addresses, timeout, user_agent, client.clone());
     Ok((parsed, client))
 }
@@ -283,7 +283,7 @@ pub async fn build_public_http_client_via_proxy(
     user_agent: Option<&str>,
     proxy: reqwest::Proxy,
 ) -> Result<(Url, Client), String> {
-    let parsed = Url::parse(url).map_err(|error| format!("Invalid URL: {error}"))?;
+    let parsed = Url::parse(url).map_err(|_| "Invalid URL".to_string())?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("Only HTTP and HTTPS URLs are allowed".to_string());
     }
@@ -308,8 +308,25 @@ pub async fn build_public_http_client_via_proxy(
     }
     let client = builder
         .build()
-        .map_err(|error| format!("HTTP client error: {error}"))?;
+        .map_err(|_| "HTTP client error".to_string())?;
     Ok((parsed, client))
+}
+
+/// Names the failure mode without ever putting the URL, host or credential
+/// into the message — the string reaches sandboxed callers as payload.
+///
+/// One flattened string made every director drop look identical in the log
+/// while all of them were in fact the request timeout.
+fn body_read_error(error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        "Response timed out".to_string()
+    } else if error.is_connect() {
+        "Connection closed while reading response".to_string()
+    } else if error.is_decode() {
+        "Failed to decode response".to_string()
+    } else {
+        "Failed to read response".to_string()
+    }
 }
 
 /// Read an HTTP body without ever buffering more than the declared limit.
@@ -325,11 +342,7 @@ pub async fn read_limited_body(
     }
     let mut body =
         Vec::with_capacity(response.content_length().unwrap_or(0).min(max_bytes as u64) as usize);
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("Failed to read response: {error}"))?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(body_read_error)? {
         if body.len().saturating_add(chunk.len()) > max_bytes {
             return Err(format!("Response exceeds {max_bytes} bytes"));
         }
@@ -338,10 +351,16 @@ pub async fn read_limited_body(
     Ok(body)
 }
 
-/// Serialize lab-env mutations across tests (async-aware).
+/// Serialize every test that touches the lab env flag (async-aware).
 ///
-/// Always available (not `cfg(test)`) so other crates' unit tests can share the
-/// lock when mutating `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND`.
+/// `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND` is process-global while cargo runs
+/// tests in parallel threads, so **readers must hold this too, not only
+/// writers**: a test asserting that a private target is refused will otherwise
+/// observe another test's open window and see the connect attempt succeed.
+///
+/// Not `cfg(test)` because a dependency's test-only items are invisible to
+/// dependent crates. The lock is per test binary, which is the scope that
+/// shares the environment.
 pub async fn tests_lab_env_lock() -> tokio::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))

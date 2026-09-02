@@ -93,6 +93,7 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['context.getNavigation', 'public'],
     ['context.getSystem', 'public'],
     ['context.getGeo', 'public'],
+    ['persona.get', 'public'],
     ['user.getRole', 'public'],
     ['user.isAdmin', 'public'],
     ['user.isGuest', 'public'],

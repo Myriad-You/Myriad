@@ -14,10 +14,14 @@ import type {
   TaskInfo,
 } from './types'
 
-import { ApiError, parseApiErrorBody } from '../api'
 import { currentCopy } from '../../i18n/localeCopy'
 import { clearCSRFToken, getCSRFToken } from '../../utils/csrf'
 import { isUselessErrorText } from '../../utils/userFacingError'
+import { ApiError, parseApiErrorBody } from '../api'
+import {
+  acceptRunSequence,
+  STREAM_SUPERSEDED_MESSAGE,
+} from './turnIdentity'
 
 export function agentHttpFailure(status: number, text: string): ApiError {
   let parsed: unknown = text
@@ -81,6 +85,11 @@ export type StreamAbortIntent = 'user' | 'replace' | 'timeout'
 
 const controllerIntents = new WeakMap<AbortController, StreamAbortIntent>()
 
+/** Token events must paint between reads; React 18 batches a sync for-loop. */
+export function shouldYieldSsePaint(type: string): boolean {
+  return type === 'thinking_token' || type === 'summary_token'
+}
+
 export type StreamDropAction =
   | 'use_final'
   | 'resume_run'
@@ -119,6 +128,8 @@ interface ExecuteSseOptions {
   onProgress?: ProgressCallback
   abortPrevious: boolean
   activeControllers: Set<AbortController>
+  /** Survives transport resume so replayed sequences are not applied twice. */
+  seenSequences?: Map<string, number>
   pollTaskUntilComplete: (
     taskId: string,
     options: {
@@ -151,9 +162,11 @@ export async function executeSSERequest({
   onProgress,
   abortPrevious,
   activeControllers,
+  seenSequences,
   pollTaskUntilComplete,
 }: ExecuteSseOptions): Promise<AgentResponse> {
   if (abortPrevious) abortSseSubscriptions(activeControllers, 'replace')
+  const seen = seenSequences ?? new Map<string, number>()
 
   // Cookie sessions need CSRF on POST; match lib/api — refresh once on 403 CSRF.
   let csrfToken = method === 'POST' ? await getCSRFToken() : null
@@ -175,6 +188,8 @@ export async function executeSSERequest({
 
     const buildHeaders = (): Record<string, string> => {
       const headers: Record<string, string> = {
+        Accept: 'text/event-stream',
+        'Cache-Control': 'no-cache',
         'Content-Type': 'application/json',
       }
       if (csrfToken) headers['X-CSRF-Token'] = csrfToken
@@ -197,20 +212,22 @@ export async function executeSSERequest({
 
     startFetch()
       .then(async (response) => {
-        if (
-          method === 'POST' &&
-          !csrfRetried &&
-          isCsrfBody(response.status, await response.clone().text())
-        ) {
-          console.warn(
-            '[Agent SSE] CSRF rejection — refreshing token and retrying once',
-          )
-          clearCSRFToken()
-          csrfToken = await getCSRFToken(true)
-          csrfRetried = true
-          if (csrfToken) {
-            return startFetch()
+        // 必须先看 status。`clone().text()` 会把 SSE 整条流读完，
+        // 200 的进度事件就永远攒到结束才进 getReader。
+        if (method === 'POST' && !csrfRetried && response.status === 403) {
+          const text = await response.text()
+          if (isCsrfBody(response.status, text)) {
+            console.warn(
+              '[Agent SSE] CSRF rejection — refreshing token and retrying once',
+            )
+            clearCSRFToken()
+            csrfToken = await getCSRFToken(true)
+            csrfRetried = true
+            if (csrfToken) {
+              return startFetch()
+            }
           }
+          throw agentHttpFailure(response.status, text)
         }
         return response
       })
@@ -228,6 +245,7 @@ export async function executeSSERequest({
         let streamError: unknown = null
         let capturedTaskId: string | null = null
         let capturedRunId: string | null = null
+        let currentSequence: number | null = null
 
         try {
           while (true) {
@@ -237,6 +255,11 @@ export async function executeSSERequest({
             const lines = buffer.split('\n')
             buffer = done ? '' : lines.pop() || ''
             for (const line of lines) {
+              if (line.startsWith('id:')) {
+                const parsed = Number.parseInt(line.slice(3).trim(), 10)
+                currentSequence = Number.isFinite(parsed) ? parsed : currentSequence
+                continue
+              }
               if (!line.startsWith('data:')) continue
               const data = line.slice(line.startsWith('data: ') ? 6 : 5).trim()
               if (!data) continue
@@ -249,8 +272,24 @@ export async function executeSSERequest({
                 if (event.type === 'task_created' && event.taskId) {
                   capturedTaskId = event.taskId
                 }
+                if (
+                  capturedRunId &&
+                  currentSequence != null &&
+                  !acceptRunSequence(seen, capturedRunId, currentSequence)
+                ) {
+                  continue
+                }
 
                 onProgress?.(event)
+                if (shouldYieldSsePaint(event.type)) {
+                  await new Promise<void>((resolve) => {
+                    if (typeof requestAnimationFrame === 'function') {
+                      requestAnimationFrame(() => resolve())
+                    } else {
+                      setTimeout(resolve, 0)
+                    }
+                  })
+                }
                 if (event.type === 'task_completed') {
                   finalResponse = (event as TaskCompletedEvent).response
                 } else if (event.type === 'error') {
@@ -295,7 +334,7 @@ export async function executeSSERequest({
             reject(new Error('Request interrupted by user'))
             return
           case 'reject_replace':
-            reject(new Error('Request superseded by a newer request'))
+            reject(new Error(STREAM_SUPERSEDED_MESSAGE))
             return
           case 'resume_run':
             try {
@@ -306,6 +345,7 @@ export async function executeSSERequest({
                   onProgress,
                   abortPrevious: false,
                   activeControllers,
+                  seenSequences: seen,
                   pollTaskUntilComplete,
                 }),
               )
@@ -361,7 +401,7 @@ export async function executeSSERequest({
           if (intent === 'user') {
             reject(new Error('Request interrupted by user'))
           } else if (intent === 'replace') {
-            reject(new Error('Request superseded by a newer request'))
+            reject(new Error(STREAM_SUPERSEDED_MESSAGE))
           } else {
             reject(new Error('Request timed out or interrupted'))
           }
@@ -397,8 +437,7 @@ function buildPolledResponse(task: TaskDetail): AgentResponse {
           `Task ${task.status}`)
 
   return {
-    success:
-      task.status === 'completed' || task.status === 'waiting_for_input',
+    success: task.status === 'completed' || task.status === 'waiting_for_input',
     responseType:
       task.status === 'waiting_for_input'
         ? 'task_progress'

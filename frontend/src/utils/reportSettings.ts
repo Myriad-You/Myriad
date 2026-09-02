@@ -2,6 +2,7 @@
 // 存于后端 configurations 表（report_settings 键），随全局保存统一提交
 import { currentCopy } from '../i18n/localeCopy'
 import apiService from '../services/api'
+import { userFacingError } from './userFacingError'
 
 export interface ReportSettings {
   /** 是否启用报告过期（关闭时报告永不过期） */
@@ -53,7 +54,10 @@ export async function updateReportSettings(
   )
   if (!response.success) {
     throw new Error(
-      response.message || currentCopy().errors.operationFailed,
+      userFacingError(
+        response.message,
+        currentCopy().config.reportSettingsSaveFailed,
+      ),
     )
   }
   return normalizeReportSettings(response.config)

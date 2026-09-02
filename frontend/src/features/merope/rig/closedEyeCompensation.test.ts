@@ -93,7 +93,7 @@ function lineImage(degrees: number) {
 
 function placement(parts: ClosedEyeCompensationPart[]) {
   return Object.fromEntries(
-    (['L', 'R'] as const).map(side => {
+    (['L', 'R'] as const).map((side) => {
       const closed = find(parts, `eye_close_${side.toLowerCase()}`)
       return [
         side,
@@ -108,7 +108,7 @@ function placement(parts: ClosedEyeCompensationPart[]) {
 }
 
 function find(parts: ClosedEyeCompensationPart[], name: string) {
-  return parts.find(part => part.name === name)!
+  return parts.find((part) => part.name === name)!
 }
 
 function angle(part: ClosedEyeCompensationPart): number {

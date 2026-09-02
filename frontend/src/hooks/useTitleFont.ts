@@ -13,10 +13,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import { usePrimaryColor } from '../utils/colorSubscriber'
 import { deriveAdaptiveTitleColor } from '../utils/readableColor'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import { useThemeMode } from '../utils/themeSubscriber'
+import { showError } from '../utils/toastManager'
+import { userFacingError } from '../utils/userFacingError'
 
 // 类型定义
 
@@ -294,7 +297,7 @@ async function debouncedSave(
     saveTimeout = null
     if (Object.keys(payload).length === 0) return
     try {
-      await fetch(`${API_URL}/api/config/dashboard`, {
+      const res = await fetch(`${API_URL}/api/config/dashboard`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -303,8 +306,14 @@ async function debouncedSave(
         credentials: 'include',
         body: JSON.stringify(payload),
       })
+      if (!res.ok) {
+        throw new Error(`Failed to save title style: HTTP ${res.status}`)
+      }
     } catch (err) {
       console.error('保存标题样式失败:', err)
+      showError(
+        userFacingError(err, currentCopy().errors.titleStyleSaveFailed),
+      )
     }
   }, SAVE_DEBOUNCE_MS)
 }
@@ -459,23 +468,6 @@ export function useTitleFont() {
 }
 
 // 工具函数
-
-export function getTitleFontFamily(fontId?: string): string {
-  const id = fontId || globalState.font
-  return fontMap.get(id)?.family || AVAILABLE_FONTS[0].family
-}
-
-export function getCurrentTitleFontId(): string {
-  return globalState.font
-}
-
-export function getCurrentTitleFontSize(): number {
-  return globalState.fontSize
-}
-
-export function getCurrentTitleColorId(): string {
-  return globalState.color
-}
 
 /**
  * 解析标题颜色 CSS 值。

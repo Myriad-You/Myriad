@@ -4,307 +4,27 @@
 //! messaging live here so install/uninstall recovery does not own contract
 //! strings in the API layer. Handlers still perform directory IO.
 
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
-
-use serde_json::{json, Value};
-
-use crate::services::tapp_validation::{validate_resource_path, validate_tapp_id};
-
-/// Install generation marker written next to `manifest.json`.
-pub const TAPP_INSTALL_STATE_FILE: &str = ".myriad-install-state.json";
-
-/// Canonical manifest filename inside an install directory.
-pub const MANIFEST_JSON: &str = "manifest.json";
-
-/// Lifecycle artifact kind suffixes (without leading/trailing separators).
-pub const LIFECYCLE_ARTIFACT_KINDS: &[&str] =
-    &["staging", "backup", "uninstall", "recovery-discard"];
-
-/// Directory name prefixes for lifecycle artifacts of one live install name.
-///
-/// Example for `com.example.app`:
-/// - `.com.example.app.staging-`
-/// - `.com.example.app.backup-`
-/// - `.com.example.app.uninstall-`
-/// - `.com.example.app.recovery-discard-`
-pub fn lifecycle_artifact_prefixes(tapp_dir_name: &str) -> [String; 4] {
-    std::array::from_fn(|index| format!(".{tapp_dir_name}.{}-", LIFECYCLE_ARTIFACT_KINDS[index]))
-}
-
-/// Build a lifecycle artifact directory name for `tapp_dir_name` + kind + nonce.
-pub fn lifecycle_artifact_dir_name(tapp_dir_name: &str, kind: &str, nonce: &str) -> String {
-    format!(".{tapp_dir_name}.{kind}-{nonce}")
-}
-
-/// Whether `filename` is a lifecycle artifact for the live install basename.
-pub fn is_lifecycle_artifact_filename(filename: &str, tapp_dir_name: &str) -> bool {
-    lifecycle_artifact_prefixes(tapp_dir_name)
-        .iter()
-        .any(|prefix| filename.starts_with(prefix.as_str()))
-}
-
-/// Whether a lifecycle filename refers to a staging directory.
-pub fn is_staging_artifact_filename(filename: &str) -> bool {
-    filename.contains(".staging-")
-}
-
-/// Parse the Tapp id from a lifecycle artifact filename (e.g.
-/// `.com.example.app.staging-<32hex>`).
-///
-/// Returns `None` when the name is not a recognized lifecycle artifact or the
-/// extracted id fails [`validate_tapp_id`].
-pub fn lifecycle_artifact_tapp_id(filename: &str) -> Option<&str> {
-    let stem = filename.strip_prefix('.')?;
-    let (prefix, nonce) = stem.rsplit_once('-')?;
-    if nonce.len() != 32 || !nonce.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
-    }
-    [".staging", ".backup", ".uninstall", ".recovery-discard"]
-        .into_iter()
-        .find_map(|kind| prefix.strip_suffix(kind))
-        .filter(|tapp_id| validate_tapp_id(tapp_id).is_ok())
-}
-
-/// Marker files that identify a Tapp install directory.
-pub fn tapp_installation_marker_names() -> [&'static str; 2] {
-    [MANIFEST_JSON, TAPP_INSTALL_STATE_FILE]
-}
-
-/// Whether `paths` from reinstall-orphan enumeration indicate leftover state.
-pub fn has_reinstall_orphan_state(paths: &[PathBuf]) -> bool {
-    !paths.is_empty()
-}
-
-/// Skip removing a candidate when it is the active staging directory.
-///
-/// Used by reinstall orphan cleanup under the lifecycle lock so the current
-/// `TappDirStage` path is never deleted mid-install.
-pub fn should_preserve_orphan_path(candidate: &Path, preserve: Option<&Path>) -> bool {
-    preserve.is_some_and(|keep| keep == candidate)
-}
-
-/// Permission / read-only volume failures that should surface as 503.
-pub fn is_storage_unwritable_error(kind: ErrorKind) -> bool {
-    matches!(
-        kind,
-        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem
-    )
-}
-
-/// Whether install handlers should probe uid/gid when logging FS failures.
-///
-/// Same gate as unwritable storage: only permission/read-only errors gain
-/// ownership context (avoids noise on NotFound / other kinds).
-pub fn should_log_filesystem_permission_context(kind: ErrorKind) -> bool {
-    is_storage_unwritable_error(kind)
-}
-
-/// HTTP status hint for Tapp filesystem failures (503 vs 500).
-pub fn filesystem_error_status_hint(kind: ErrorKind) -> u16 {
-    if is_storage_unwritable_error(kind) {
-        503
-    } else {
-        500
-    }
-}
-
-/// Human-readable filesystem failure message preserved by the install API.
-pub fn filesystem_error_message(action: &str, kind: ErrorKind, error_display: &str) -> String {
-    if is_storage_unwritable_error(kind) {
-        format!(
-            "Tapp storage is not writable by the backend service account; repair the backend data volume ownership/permissions and retry ({action}: {error_display})"
-        )
-    } else {
-        format!("{action}: {error_display}")
-    }
-}
-
-/// JSON body for [`.myriad-install-state.json`](TAPP_INSTALL_STATE_FILE).
-pub fn install_generation_payload(updated_at_micros: i64) -> Value {
-    json!({ "updatedAtMicros": updated_at_micros })
-}
-
-/// Whether a generation marker payload matches the expected timestamp micros.
-pub fn install_generation_matches_micros(value: &Value, expected_micros: i64) -> bool {
-    value.get("updatedAtMicros").and_then(Value::as_i64) == Some(expected_micros)
-}
-
-/// Join a validated relative resource path under `tapp_dir`.
-pub fn resource_relative_path(tapp_dir: &Path, relative: &str) -> Result<PathBuf, String> {
-    validate_resource_path(relative)?;
-    Ok(tapp_dir.join(relative))
-}
-
-/// Archive entry → install path (same rules as resource paths; trailing `/` stripped).
-pub fn archive_entry_relative_path(tapp_dir: &Path, entry_name: &str) -> Result<PathBuf, String> {
-    let relative = entry_name.trim_end_matches('/');
-    resource_relative_path(tapp_dir, relative)
-}
-
-// ── Orphan scan / code-path pure rules ──────────────────────────────────────
-
-/// Parse a user-namespace directory name under `tapps/` (`"42"` → 42).
-///
-/// Rejects negatives, non-integers, and padded forms (`"042"`).
-pub fn parse_tapp_owner_dir_name(name: &str) -> Option<i32> {
-    let owner_id = name.parse::<i32>().ok()?;
-    if owner_id < 0 || owner_id.to_string() != name {
-        return None;
-    }
-    Some(owner_id)
-}
-
-/// How an entry under `tapps/{owner}/` is classified during orphan recovery.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TappDirEntryClass {
-    /// Lifecycle artifact (staging/backup/uninstall/recovery-discard) for a tapp id.
-    LifecycleArtifact { tapp_id: String },
-    /// Live install directory that looks like a Tapp package.
-    LiveInstall { tapp_id: String },
-}
-
-/// Classify a directory name under an owner namespace for orphan cleanup.
-///
-/// `looks_like_installation` is provided by the IO layer (marker file presence).
-pub fn classify_tapp_directory_entry(
-    filename: &str,
-    looks_like_installation: bool,
-) -> Option<TappDirEntryClass> {
-    if let Some(tapp_id) = lifecycle_artifact_tapp_id(filename) {
-        return Some(TappDirEntryClass::LifecycleArtifact {
-            tapp_id: tapp_id.to_string(),
-        });
-    }
-    if validate_tapp_id(filename).is_ok() && looks_like_installation {
-        return Some(TappDirEntryClass::LiveInstall {
-            tapp_id: filename.to_string(),
-        });
-    }
-    None
-}
-
-/// Tapp id associated with a classified entry (artifact or live).
-pub fn tapp_id_from_dir_entry_class(class: &TappDirEntryClass) -> &str {
-    match class {
-        TappDirEntryClass::LifecycleArtifact { tapp_id }
-        | TappDirEntryClass::LiveInstall { tapp_id } => tapp_id,
-    }
-}
-
-/// After canonicalize, ensure the resolved path is exactly `root/relative`.
-///
-/// Rejects symlink escapes where canonicalize lands outside or renames components.
-pub fn sandbox_path_matches_relative(
-    canonical_root: &Path,
-    canonical_path: &Path,
-    relative: &str,
-) -> bool {
-    canonical_path == canonical_root.join(relative)
-}
-
-// ── Interrupted lifecycle recovery decision table ───────────────────────────
-
-/// Pure recovery plan for one live install directory + sibling artifacts.
-///
-/// Callers still perform FS probes (`directory_generation_matches`) and renames.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RecoveryPlan {
-    /// Live generation already matches DB; only delete leftover artifacts.
-    DiscardArtifactsOnly,
-    /// Promote `artifacts[source_index]` to the live path, then clean others.
-    PromoteArtifact { source_index: usize },
-    /// No matching generation found; leave the filesystem alone.
-    NoOp,
-}
-
-/// Sort key so backup/uninstall quarantines sort before staging directories.
-///
-/// Lower keys come first (`sort_by_key`); staging is deprioritized as a recovery
-/// source because backup/uninstall hold the pre-transaction generation.
-pub fn recovery_artifact_sort_key(filename: &str) -> u8 {
-    u8::from(is_staging_artifact_filename(filename))
-}
-
-/// Decide recovery action given live/artifact generation match flags.
-///
-/// `artifact_matches` must already be ordered with
-/// [`recovery_artifact_sort_key`] (non-staging first). The first `true` wins.
-pub fn plan_tapp_directory_recovery(live_matches: bool, artifact_matches: &[bool]) -> RecoveryPlan {
-    if live_matches {
-        return RecoveryPlan::DiscardArtifactsOnly;
-    }
-    if let Some(source_index) = artifact_matches.iter().position(|matched| *matched) {
-        return RecoveryPlan::PromoteArtifact { source_index };
-    }
-    RecoveryPlan::NoOp
-}
-
-/// Sort sibling lifecycle artifact paths by recovery priority (non-staging first).
-pub fn sort_recovery_artifact_paths(artifacts: &mut [PathBuf]) {
-    artifacts.sort_by_key(|path| {
-        path.file_name()
-            .and_then(|value| value.to_str())
-            .map(recovery_artifact_sort_key)
-            .unwrap_or(0)
-    });
-}
-
-/// Directory name used to quarantine a live path while promoting a recovery source.
-pub fn recovery_discard_artifact_name(tapp_dir_name: &str, nonce: &str) -> String {
-    lifecycle_artifact_dir_name(tapp_dir_name, "recovery-discard", nonce)
-}
-
-/// Whether a recovery plan rewrites the live install directory.
-///
-/// `true` only for promote (caller increments recovered counters).
-pub fn recovery_plan_mutates_live(plan: RecoveryPlan) -> bool {
-    matches!(plan, RecoveryPlan::PromoteArtifact { .. })
-}
-
-/// Artifact paths to best-effort delete after a successful promote (all except source).
-pub fn recovery_artifacts_to_remove_after_promote<'a>(
-    artifacts: &'a [PathBuf],
-    recovery_source: &Path,
-) -> Vec<&'a PathBuf> {
-    artifacts
-        .iter()
-        .filter(|path| path.as_path() != recovery_source)
-        .collect()
-}
-
-/// Classify one owner-namespace directory entry as an orphan cleanup candidate.
-///
-/// Returns `(owner_id, tapp_id)` when the entry looks like a Tapp install or
-/// lifecycle artifact that is **not** covered by a live DB install row.
-pub fn orphan_tapp_key_if_unowned(
-    owner_id: i32,
-    filename: &str,
-    looks_like_installation: bool,
-    installed: &std::collections::HashSet<(i32, String)>,
-) -> Option<(i32, String)> {
-    let class = classify_tapp_directory_entry(filename, looks_like_installation)?;
-    let tapp_id = tapp_id_from_dir_entry_class(&class).to_string();
-    if installed.contains(&(owner_id, tapp_id.clone())) {
-        None
-    } else {
-        Some((owner_id, tapp_id))
-    }
-}
-
-/// Whether marker presence probes indicate a Tapp installation directory.
-///
-/// IO layer supplies `marker_exists(name)`; domain owns which names count.
-pub fn looks_like_tapp_installation_from_markers(marker_exists: impl FnMut(&str) -> bool) -> bool {
-    tapp_installation_marker_names()
-        .into_iter()
-        .any(marker_exists)
-}
+pub use myriad_tapp_rules::{
+    archive_entry_relative_path, classify_tapp_directory_entry, filesystem_error_message,
+    filesystem_error_status_hint, has_reinstall_orphan_state, install_generation_matches_micros,
+    install_generation_payload, is_lifecycle_artifact_filename, is_staging_artifact_filename,
+    is_storage_unwritable_error, lifecycle_artifact_dir_name, lifecycle_artifact_prefixes,
+    lifecycle_artifact_tapp_id, looks_like_tapp_installation_from_markers,
+    orphan_tapp_key_if_unowned, parse_tapp_owner_dir_name, plan_tapp_directory_recovery,
+    recovery_artifact_sort_key, recovery_artifacts_to_remove_after_promote,
+    recovery_discard_artifact_name, recovery_plan_mutates_live, resource_relative_path,
+    sandbox_path_matches_relative, should_log_filesystem_permission_context,
+    should_preserve_orphan_path, sort_recovery_artifact_paths, tapp_id_from_dir_entry_class,
+    tapp_installation_marker_names, RecoveryPlan, TappDirEntryClass, LIFECYCLE_ARTIFACT_KINDS,
+    MANIFEST_JSON, TAPP_INSTALL_STATE_FILE,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use serde_json::json;
+    use std::io::ErrorKind;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn lifecycle_prefixes_cover_all_kinds() {
@@ -366,7 +86,16 @@ mod tests {
         );
         assert_eq!(filesystem_error_status_hint(ErrorKind::Other), 500);
         let other = filesystem_error_message("activate", ErrorKind::Other, "boom");
-        assert_eq!(other, "activate: boom");
+        assert_eq!(other, "activate failed.");
+        assert!(!denied.contains("denied"));
+        assert!(denied.contains("create staging"));
+        let full = filesystem_error_message(
+            "create staging",
+            ErrorKind::StorageFull,
+            "No space left on device (os error 28)",
+        );
+        assert_eq!(full, "create staging: not enough disk space.");
+        assert!(!full.contains("os error"));
     }
 
     #[test]

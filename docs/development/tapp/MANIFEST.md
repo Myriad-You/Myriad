@@ -117,8 +117,9 @@ await Tapp.ui.openUrl({ id: "docs", path: "../evil" }); // reject
 宿主有打开速率限制；实现细节见 [API 参考 · openUrl](API_REFERENCE.md#打开声明链接-openurl)。
 
 Manifest 采用严格字段校验：未声明字段、拼写错误以及已经移除的字段都会让安装失败，
-不会再被静默忽略。所有运行能力都必须直接写入 `permissions`；宿主只会在真正调用时
-按权限和运行时策略决定是否授权。
+不会再被静默忽略。需要授权的运行能力都必须直接写入 `permissions`；宿主只会在真正调用时
+按权限和运行时策略决定是否授权。无需权限的公开 SDK（`Tapp.context`、`Tapp.user`、
+`Tapp.persona`）不要写进 `permissions`，也不存在 `persona:read`。
 
 ### 多语言名称与描述（locales）
 
@@ -234,7 +235,7 @@ Page、Widget 和 headless core 是运行形态，由 `page`、`widgets` 和
   "backgroundRequirements": ["scheduler", "sync"],
   "homepage": "https://example.com",
   "repository": "https://github.com/example/my-tapp",
-  "minSystemVersion": "0.2.1",
+  "minSystemVersion": "0.4.0",
   "apis": {
     "weather": {
       "type": "http",

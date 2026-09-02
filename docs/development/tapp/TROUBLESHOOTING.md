@@ -40,7 +40,9 @@ Refused to load the script/style/image '...' because it violates the following C
 
 1. **外部脚本**：不支持直接加载外部 JS 文件；把代码放进包内并用相对路径 `require`
 2. **外部样式**：使用 `styles.css` 文件或内联样式
-3. **图片**：允许 `data:`、`blob:` 和 HTTP(S)，检查 URL 与响应类型
+3. **图片**：默认只允许 `data:`、`blob:` 和宿主同源。外链图要申请 `network:fetch`。
+   `Tapp.persona.get()` 的 `portraitUrl` 已是同源路径，直接 `<img src>`，不要为此再申请
+   `network:fetch`
 4. **媒体**：CSP 默认禁止直接加载；使用宿主媒体 API
 5. **API 请求**：在 Manifest 的 `apis` 中声明，再调用 `Tapp.api(name, params)`
 

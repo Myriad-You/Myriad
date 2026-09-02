@@ -4,11 +4,24 @@
 //! 图标存储在 data/brew/icons/ 目录下（可通过 DATA_DIR 环境变量配置）。
 
 use super::data_paths::paths;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, error, info, warn};
+
+fn icon_io_failed(action: &'static str, error: std::io::Error) -> String {
+    tracing::error!(%error, action, "icon io failed");
+    match error.kind() {
+        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => {
+            format!("{action}: storage is not writable")
+        }
+        ErrorKind::StorageFull => format!("{action}: not enough disk space"),
+        ErrorKind::NotFound => format!("{action}: path not found"),
+        _ => action.to_string(),
+    }
+}
 
 /// 图标服务
 pub struct IconService {
@@ -91,7 +104,7 @@ impl IconService {
         // 确保目录存在
         self.ensure_dir()
             .await
-            .map_err(|e| format!("Failed to create icons directory: {}", e))?;
+            .map_err(|error| icon_io_failed("Failed to create icons directory", error))?;
 
         debug!("Downloading icon for source {}: {}", source_id, icon_url);
 
@@ -148,10 +161,13 @@ impl IconService {
         let extension = Self::get_extension(content_type, icon_url);
 
         // 读取内容
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read icon bytes: {}", e))?;
+        let bytes = response.bytes().await.map_err(|error| {
+            tracing::warn!(%error, "failed to read icon bytes");
+            crate::services::agent::external_pure::classify_outbound_fetch(
+                "Failed to read icon bytes",
+                &error.to_string(),
+            )
+        })?;
 
         // 检查是否为有效的图片（至少有一些字节）
         if bytes.len() < 10 {
@@ -170,11 +186,11 @@ impl IconService {
         // 写入文件
         let mut file = fs::File::create(&file_path)
             .await
-            .map_err(|e| format!("Failed to create icon file: {}", e))?;
+            .map_err(|error| icon_io_failed("Failed to create icon file", error))?;
 
         file.write_all(&bytes)
             .await
-            .map_err(|e| format!("Failed to write icon file: {}", e))?;
+            .map_err(|error| icon_io_failed("Failed to write icon file", error))?;
 
         info!(
             "Saved icon for source {} to {} ({} bytes)",
@@ -237,5 +253,27 @@ mod tests {
             IconService::get_extension(None, "https://example.com/icon"),
             "ico"
         );
+    }
+
+    #[test]
+    fn icon_io_failed_keeps_action_and_disk_cause() {
+        use std::io::Error;
+
+        let full = icon_io_failed(
+            "Failed to write icon file",
+            Error::from(ErrorKind::StorageFull),
+        );
+        assert_eq!(full, "Failed to write icon file: not enough disk space");
+        assert!(!full.contains("os error"));
+
+        let create = icon_io_failed(
+            "Failed to create icons directory",
+            Error::from(ErrorKind::PermissionDenied),
+        );
+        assert_eq!(
+            create,
+            "Failed to create icons directory: storage is not writable"
+        );
+        assert_ne!(full, create);
     }
 }

@@ -255,6 +255,10 @@ export function TappListPage() {
           setSiteTapps(mapSiteDetails(details))
         } catch (error) {
           console.error('Failed to load site Tapp catalog:', error)
+          showToastMessage(
+            userFacingError(error, t.tapp.listLoadFailed),
+            'error',
+          )
           // Keep last successful catalog; first-load failure → empty (not runtime dedupe).
           setSiteTapps((prev) => prev ?? [])
         }
@@ -263,7 +267,14 @@ export function TappListPage() {
         setSiteTapps(null)
       }
     },
-    [runtime, isAuthenticated, isAdmin, mapSiteDetails],
+    [
+      runtime,
+      isAuthenticated,
+      isAdmin,
+      mapSiteDetails,
+      showToastMessage,
+      t.tapp.listLoadFailed,
+    ],
   )
 
   /** Non-admin signed-in users can switch personal vs site-owner catalogs. */
@@ -386,7 +397,7 @@ export function TappListPage() {
       await runtime.stopTapp(tappId)
     } catch (error) {
       console.error('Failed to stop Tapp:', error)
-      showToastMessage(userFacingError(error, t.tapp.unknownError), 'error')
+      showToastMessage(userFacingError(error, t.tapp.stopAppFailed), 'error')
     }
   }
 
@@ -430,7 +441,10 @@ export function TappListPage() {
         setUninstallAnchor(null)
       } catch (error) {
         console.error('Failed to uninstall Tapp:', error)
-        showToastMessage(t.tapp.uninstallFailed || 'Uninstall failed', 'error')
+        showToastMessage(
+          userFacingError(error, t.tapp.uninstallFailed),
+          'error',
+        )
         throw error
       }
     },

@@ -78,6 +78,9 @@ Recent tables:
 |---------|-----------|--------------|
 | Site analytics (+ country) | `001` §8 | `ensure_analytics_tables` + TableDef |
 | heartbeat_claims | `004` | `ensure_heartbeat_claims_table` + TableDef |
+| agent_intentions | `004` | `ensure_agent_intentions_table` + TableDef |
+| agent_intentions.accept_source / unique source event | `004` | `ensure_agent_intentions_table` ADD + unique index |
+| agent_autonomy_grants | `004` | `ensure_agent_autonomy_grants_table` + TableDef |
 | content_filters / policy / domain_aliases / object_interactions / inbox_receipts | `005` 扩展段 | 对应 `ensure_*` + TableDef |
 | delivery lease / health streak | `005`（原 014/015） | TableDef + generic ADD / CREATE INDEX |
 

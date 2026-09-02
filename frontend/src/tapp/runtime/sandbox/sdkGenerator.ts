@@ -657,6 +657,10 @@ export function generateFullSDK(
       getGeo: () => sendRequest('context', 'getGeo', []),
     },
 
+    persona: {
+      get: () => sendRequest('persona', 'get', []),
+    },
+
     media: {
       play: () => sendRequest('media', 'control', [{ action: 'play' }]),
       pause: () => sendRequest('media', 'control', [{ action: 'pause' }]),
@@ -1060,6 +1064,7 @@ export function generateFullSDK(
   Object.freeze(Tapp.data);
   Object.freeze(Tapp.api);
   Object.freeze(Tapp.context);
+  Object.freeze(Tapp.persona);
   Object.freeze(Tapp.media);
   Object.freeze(Tapp.component);
   Object.freeze(Tapp.shortcut);
@@ -1865,6 +1870,10 @@ ${speechNs}
       getGeo: function() { return sendRequest('context', 'getGeo', []); }
     },
 
+    persona: {
+      get: function() { return sendRequest('persona', 'get', []); }
+    },
+
     user: {
       getRole: function() { return sendRequest('user', 'getRole', []); },
       isAdmin: function() { return sendRequest('user', 'isAdmin', []); },
@@ -1962,6 +1971,7 @@ ${speechNs}
   Object.freeze(Tapp.ui);
   Object.freeze(Tapp.api);
   Object.freeze(Tapp.context);
+  Object.freeze(Tapp.persona);
   Object.freeze(Tapp.user);
   Object.freeze(Tapp.dom);
   Object.freeze(Tapp.file);

@@ -130,6 +130,8 @@ impl TierRouter {
             "speech.tts" => TaskComplexity::Simple,
             // AI 图像生成（调用外部图像 API，不使用 LLM）
             "ai.image" => TaskComplexity::Simple,
+            // Tripo 3D：外部 API，能力表里 requires_ai = false
+            id if id.starts_with("model3d.") => TaskComplexity::Simple,
             // 数据库查询
             id if id.starts_with("database.") => TaskComplexity::Simple,
             // 其余只读查询
@@ -149,6 +151,7 @@ impl TierRouter {
     ///
     /// 供测试断言「注册表里的每个能力都被登记过」——这张表和能力定义是两份互不
     /// 校验的真相，漏登记不会报错，只会静默按兜底值计费。
+    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
     pub fn has_explicit_rule(capability_id: &str) -> bool {
         Self::complexity_rule(capability_id).is_some()
     }
@@ -428,6 +431,10 @@ mod tests {
             "tapp.window.open",
             "tapp.window.close",
             "tapp.window.focus",
+            "model3d.status",
+            "model3d.generate",
+            "model3d.rig",
+            "model3d.retarget",
         ] {
             assert!(
                 TierRouter::has_explicit_rule(id),

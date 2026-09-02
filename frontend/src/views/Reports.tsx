@@ -48,7 +48,6 @@ import {
   useTitleFont,
 } from '../hooks/useTitleFont'
 import { getCSRFToken } from '../utils/csrf'
-import { reportUserFacingError } from '../utils/reportError'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
 import { buildModulePageSeo } from '../utils/modulePageSeo'
 import {
@@ -58,10 +57,12 @@ import {
 import { resolvePlatformId } from '../utils/platformId'
 import { notifyRecentActivityUpdated } from '../utils/recentActivity'
 import { REPORT_PLATFORM_IDS } from '../utils/reportCardVisuals'
+import { reportUserFacingError } from '../utils/reportError'
 import { invalidateLatestReportCache } from '../utils/requestDedup'
 import { hasSessionHint } from '../utils/sessionDetection'
-import ReportsStatusBar from './reports/ReportsStatusBar'
+import { userFacingError } from '../utils/userFacingError'
 import { pickReportHook } from './reports/reportsDynamicStatus'
+import ReportsStatusBar from './reports/ReportsStatusBar'
 import {
   REPORT_CARD_FLEX_BASIS,
   REPORT_CAROUSEL_CSS_VARS,
@@ -669,7 +670,15 @@ export default function Reports() {
       })
 
       notifyHttpRateLimit(response)
-      if (!response.ok) throw new Error(t.reportsPage.generateFailed)
+      if (!response.ok) {
+        throw new Error(
+          reportUserFacingError(
+            `HTTP ${response.status}`,
+            t.reportsPage.generateFailed,
+            t.reportsPage,
+          ),
+        )
+      }
 
       // 解析生成结果，透出后端给出的跳过原因（数据未抓取/为空等）
       const genBody = await response.json().catch(() => null)
@@ -757,7 +766,7 @@ export default function Reports() {
         })
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch public config: ${response.status}`)
+          throw new Error(`Failed to fetch public config: HTTP ${response.status}`)
         }
 
         const data = await response.json()
@@ -784,6 +793,10 @@ export default function Reports() {
         console.error('获取已启用数据平台失败:', err)
 
         if (!cancelled) {
+          showToastMessage(
+            userFacingError(err, t.errors.configFileReadFailed),
+            'error',
+          )
           setEnabledPlatformIds(PLATFORMS.map((platform) => platform.id))
           setPlatformVisibilityReady(true)
         }
@@ -795,7 +808,7 @@ export default function Reports() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [showToastMessage, t.errors.configFileReadFailed])
 
   useEffect(() => {
     setIsAdmin(authIsAdmin)

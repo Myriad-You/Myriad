@@ -97,6 +97,7 @@ pub enum ConsumeOutcome {
 }
 
 impl ConsumeOutcome {
+    #[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
     pub fn stored(&self) -> &StoredState {
         match self {
             Self::Fresh { stored, .. } | Self::Replay { stored, .. } => stored,
@@ -104,6 +105,7 @@ impl ConsumeOutcome {
     }
 
     /// Browser transaction nonce from the signed payload (cookie binding value).
+    #[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
     pub fn browser_tx(&self) -> &str {
         match self {
             Self::Fresh { browser_tx, .. } | Self::Replay { browser_tx, .. } => browser_tx,
@@ -367,7 +369,10 @@ fn purpose_from_payload(p: &str, uid: Option<i32>, plat: Option<String>) -> Opti
 }
 
 fn sign_payload_b64(payload_b64: &str, secret: &[u8]) -> Result<String, String> {
-    let mut mac = HmacSha256::new_from_slice(secret).map_err(|e| format!("HMAC key error: {e}"))?;
+    let mut mac = HmacSha256::new_from_slice(secret).map_err(|error| {
+        tracing::error!(%error, "oauth HMAC key error");
+        "HMAC key error".to_string()
+    })?;
     mac.update(payload_b64.as_bytes());
     let sig = mac.finalize().into_bytes();
     Ok(URL_SAFE_NO_PAD.encode(sig))
@@ -434,7 +439,10 @@ pub async fn issue_state(stored: StoredState) -> Result<IssuedState, String> {
     let code_verifier = random_code_verifier();
     let exp = unix_now() + STATE_TTL.as_secs() as i64;
     let payload = stored_to_payload(&stored, nonce.clone(), code_verifier.clone(), exp);
-    let json = serde_json::to_vec(&payload).map_err(|e| format!("state serialize: {e}"))?;
+    let json = serde_json::to_vec(&payload).map_err(|error| {
+        tracing::error!(%error, "oauth state serialize failed");
+        "state serialize failed".to_string()
+    })?;
     let payload_b64 = URL_SAFE_NO_PAD.encode(&json);
     let sig_b64 = sign_payload_b64(&payload_b64, &secret)?;
     let token = format!("{payload_b64}.{sig_b64}");
@@ -467,6 +475,7 @@ pub struct VerifiedState {
     /// Grace TTL for the used-nonce table entry once marked.
     remaining_ttl: Duration,
     /// Snapshot of "nonce already in used map" at verify time (hint only).
+    #[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
     already_used: bool,
 }
 
@@ -490,6 +499,7 @@ impl VerifiedState {
     }
 
     /// True if the nonce was already marked used when this state was verified.
+    #[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
     pub fn already_used(&self) -> bool {
         self.already_used
     }
@@ -622,6 +632,7 @@ pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateErro
 ///
 /// After process restart the used-nonce map is empty; a still-valid signature is
 /// accepted as Fresh (provider authorization codes remain one-time).
+#[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
 pub async fn consume_state(token: &str) -> Result<ConsumeOutcome, ConsumeStateError> {
     let verified = verify_state(token).await?;
     Ok(verified.mark_used().await)

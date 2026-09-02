@@ -13,8 +13,8 @@ import type {
   ShowMessage,
 } from './types'
 import { useCallback } from 'react'
-import { userFacingError } from '../../../utils/userFacingError'
 import { API_URL } from '../../../config'
+import { notifyPersonaUpdated } from '../../../features/merope/events'
 import {
   reloadSystemConfig,
   updateConfig,
@@ -27,6 +27,7 @@ import notificationPreferencesApi, {
   cloneNotificationPreferences,
 
 } from '../../../services/notificationPreferencesApi'
+import { invalidateSpeechStatusCache } from '../../../services/speechApi'
 import { getCSRFToken } from '../../../utils/csrf'
 import { deepEqual } from '../../../utils/deepEqual'
 import { dispatchLibraryPreferencesUpdated } from '../../../utils/libraryPreferences'
@@ -56,7 +57,9 @@ import {
 import {
   clearDedupCache,
   clearLibraryDataCache,
+  invalidatePublicConfigCache,
 } from '../../../utils/requestDedup'
+import { userFacingError } from '../../../utils/userFacingError'
 import {
   areFederationPoliciesEqual,
 
@@ -75,9 +78,11 @@ import {
   configChangesNeedFooterReload,
   configChangesNeedHardReload,
   configChangesNeedMetadataReload,
+  configChangesNeedPersonaPublicNameRefresh,
   configChangesNeedPlatformsCacheInvalidation,
   configChangesNeedPwaReload,
   configChangesNeedRuntimeReload,
+  configChangesNeedSpeechPipelineReload,
   configChangesNeedWallpaperReload,
 } from '../uiBagOwnership'
 import { snapshotConfigNavScroll } from './configNavPersistence'
@@ -448,6 +453,9 @@ export function useConfigSave(args: {
       const needRuntimeReload =
         Boolean(initialConfig) &&
         configChangesNeedRuntimeReload(config, initialConfig!)
+      const needSpeechPipelineReload =
+        Boolean(initialConfig) &&
+        configChangesNeedSpeechPipelineReload(config, initialConfig!)
       const needWallpaperReload =
         Boolean(initialConfig) &&
         configChangesNeedWallpaperReload(config, initialConfig!)
@@ -467,6 +475,14 @@ export function useConfigSave(args: {
           initialConfig!,
           deepEqual,
         )
+      const needPersonaPublicNameRefresh =
+        Boolean(initialConfig) &&
+        configChangesNeedPersonaPublicNameRefresh(config, initialConfig!)
+      const refreshPersonaPublicName = () => {
+        if (!needPersonaPublicNameRefresh) return
+        invalidatePublicConfigCache()
+        notifyPersonaUpdated()
+      }
 
       // Soft side-effects (no full-page reload): wallpaper, library cache, etc.
       if (needWallpaperReload) {
@@ -501,6 +517,16 @@ export function useConfigSave(args: {
         clearLibraryDataCache()
       }
 
+      if (needSpeechPipelineReload) {
+        invalidateSpeechStatusCache()
+        void import('../../../features/merope/speech/speechPipelineHost').then(
+          (m) => {
+            m.getSpeechPipeline().cancel()
+            void m.getSpeechPipeline().probe()
+          },
+        )
+      }
+
       // Proxy / API mirrors: backend hot-reload only — no location.reload.
       if (needRuntimeReload && !needHardReload) {
         try {
@@ -509,12 +535,14 @@ export function useConfigSave(args: {
         } catch {
           // Config is already persisted; outbound clients may lag until next restart.
         }
+        refreshPersonaPublicName()
         showMessage(t.config.savedSuccessRuntimeReload, 'success', 4000)
         return
       }
 
       if (!needHardReload) {
         // AI / platforms / auto_fetch / pure UI bags: toast only (side-effects above).
+        refreshPersonaPublicName()
         showMessage(t.config.savedSuccess, 'success', 3000)
         return
       }

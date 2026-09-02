@@ -28,7 +28,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Spinner } from '../../components/Spinner'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { usePageSeo } from '../../hooks/usePageSeo'
 import { useBreakpoints } from '../../hooks/useSharedEventListener'
@@ -36,6 +35,7 @@ import {
   canAccessModuleVisibility,
   useModuleVisibilityPreferences,
 } from '../../utils/moduleVisibility'
+import { userFacingError } from '../../utils/userFacingError'
 import { TappAppShell } from '../components/TappAppShell'
 import { TappIconBadge } from '../components/TappIconBadge'
 import { TappWindowManager } from '../components/TappWindowManager'
@@ -128,8 +128,14 @@ function TappRunPageStandard({
 
   // Agent ui.open / open_window: multi-window registers via TappWindowManager;
   // single-window must still handle open_window (navigate to /tapp/run/:id).
-  const windowsRef = useRef<Array<{ windowId: string; tappId: string }>>([])
-  const activeWindowIdRef = useRef<string | null>(null)
+  // windowsRef used to stay empty, so close/focus/query_windows always missed.
+  const runWindowId = `run:${tappId}`
+  const windowsRef = useRef<Array<{ windowId: string; tappId: string }>>([
+    { windowId: runWindowId, tappId },
+  ])
+  const activeWindowIdRef = useRef<string | null>(runWindowId)
+  windowsRef.current = [{ windowId: runWindowId, tappId }]
+  activeWindowIdRef.current = runWindowId
   const openTappWindow = useCallback(
     async (id: string) => {
       navigate(tappRunPath(id))
@@ -218,7 +224,7 @@ function TappRunPageStandard({
           if (runtime.canControlLifecycle(instance)) {
             await runtime.startTapp(tappId)
           } else {
-            setError(t.tapp.stopped || 'Tapp is not running')
+            setError(t.tapp.stopped)
             setLoading(false)
             return
           }
@@ -248,6 +254,7 @@ function TappRunPageStandard({
     retryGeneration,
     t.tapp.appNotExist,
     t.tapp.loadAppFailed,
+    t.tapp.stopped,
   ])
 
   // 安装更新完成后，资源代际已由 runtime 提升；重新走完整 Page 加载并重建 iframe。
@@ -309,8 +316,9 @@ function TappRunPageStandard({
       goBack()
     } catch (err) {
       console.error('Failed to stop Tapp:', err)
+      setError(userFacingError(err, t.tapp.stopAppFailed))
     }
-  }, [runtime, tappId, goBack])
+  }, [runtime, tappId, goBack, t.tapp.stopAppFailed])
 
   // 切换全屏
   const toggleFullscreen = useCallback(() => {
@@ -609,7 +617,7 @@ function TappRunPageStandard({
                   )
                 }
                 className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
-                title={t.arael.askArael}
+                title={t.agentPanel.askArael}
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.02 }}

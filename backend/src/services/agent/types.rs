@@ -9,6 +9,27 @@ use std::collections::HashMap;
 
 // 意图分析相关类型
 
+/// 一轮输入进入哪条运行时路径。
+///
+/// Work 保留完整 Planner / Executor；Chat 只是人设对话，不得因为
+/// 内容像指令就悄悄进入工具执行。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentInteractionMode {
+    #[default]
+    Work,
+    Chat,
+}
+
+impl AgentInteractionMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Work => "work",
+            Self::Chat => "chat",
+        }
+    }
+}
+
 /// 用户原始请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserRequest {
@@ -25,9 +46,13 @@ pub struct UserRequest {
 /// 请求上下文
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RequestContext {
+    /// 面板选中的运行时路径。缺省必须是 Work，保持旧客户端行为。
+    #[serde(default)]
+    pub interaction_mode: AgentInteractionMode,
     /// 当前页面/路由
     pub current_route: Option<String>,
     /// 最近活动的平台
+    #[serde(default)]
     pub active_platforms: Vec<String>,
     /// 用户偏好
     pub preferences: Option<Value>,
@@ -43,6 +68,16 @@ pub struct RequestContext {
     /// 当前后端 run id（确认续跑时复用同一 run，避免通知身份漂移）
     #[serde(default)]
     pub run_id: Option<String>,
+    /// User-accepted consciousness proposal that originated this Work turn.
+    #[serde(default)]
+    pub source_intent_id: Option<String>,
+    /// Extra ceiling for autonomy-accepted Work. Intersected with current
+    /// granted permissions at execute time. Never a secret.
+    #[serde(default)]
+    pub autonomy_permission_cap: Option<Vec<String>>,
+    /// Semantic live-face snapshot from the client. Event-scoped, never a driver.
+    #[serde(default)]
+    pub rig_state: Option<myriad_merope::RigStateSummary>,
 }
 
 /// 对话消息
@@ -90,6 +125,7 @@ pub enum IntentAction {
 /// 意图目标类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value")]
+#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
 pub enum IntentTarget {
     /// 平台数据 (bilibili, steam, github 等)
     Platform(String),
@@ -115,6 +151,7 @@ pub enum IntentTarget {
 
 /// 意图约束条件
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
 pub struct IntentConstraints {
     /// 时间范围
     pub time_range: Option<TimeRange>,
@@ -130,6 +167,7 @@ pub struct IntentConstraints {
 
 /// 时间范围
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
 pub struct TimeRange {
     /// 开始时间
     pub start: Option<chrono::DateTime<chrono::Utc>>,
@@ -141,6 +179,7 @@ pub struct TimeRange {
 
 /// 排序规格
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
 pub struct SortSpec {
     pub field: String,
     pub order: SortOrder,
@@ -148,6 +187,7 @@ pub struct SortSpec {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
 pub enum SortOrder {
     Asc,
     Desc,
@@ -268,6 +308,8 @@ pub struct Recipe {
     /// Lane key（用于队列追踪）
     #[serde(default)]
     pub lane_key: Option<String>,
+    #[serde(default)]
+    pub autonomy_permission_cap: Option<Vec<String>>,
 }
 
 /// 执行类型
@@ -315,30 +357,7 @@ pub struct RecipeStep {
     pub generator: Option<StepGenerator>,
 }
 
-/// 失败处理策略
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum FailureStrategy {
-    /// 终止整个方案
-    Abort,
-    /// 跳过并继续
-    Skip,
-    /// 使用默认值继续
-    UseDefault(Value),
-    /// 回退到备用能力
-    Fallback(String),
-}
-
-/// 重试配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RetryConfig {
-    /// 最大重试次数
-    pub max_attempts: u32,
-    /// 重试间隔（毫秒）
-    pub delay_ms: u64,
-    /// 指数退避
-    pub exponential_backoff: bool,
-}
+pub use myriad_agent_rules::{FailureStrategy, RetryConfig};
 
 // AI Recipe 生成相关类型
 
@@ -644,25 +663,7 @@ pub struct UserAnswer {
     pub skipped: bool,
 }
 
-/// 任务状态枚举
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskStatus {
-    /// 等待执行
-    Pending,
-    /// 执行中
-    Running,
-    /// 等待用户输入
-    WaitingForInput,
-    /// 已暂停
-    Paused,
-    /// 已完成
-    Completed,
-    /// 失败
-    Failed,
-    /// 已取消
-    Cancelled,
-}
+pub use myriad_agent_rules::TaskStatus;
 
 /// 步骤执行结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -893,8 +894,8 @@ impl Default for Capability {
     }
 }
 
-#[allow(dead_code)]
 impl Recipe {
+    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
     pub fn new(name: &str, original_request: &str, execution_type: ExecutionType) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -909,20 +910,8 @@ impl Recipe {
             page_context: None,
             conversation_context: None,
             lane_key: None,
+            autonomy_permission_cap: None,
         }
-    }
-
-    pub fn add_step(&mut self, step: RecipeStep) {
-        self.steps.push(step);
-        self.recalculate_duration();
-    }
-
-    fn recalculate_duration(&mut self) {
-        self.estimated_duration_ms = self
-            .steps
-            .iter()
-            .map(|s| s.timeout_ms.unwrap_or(5000))
-            .sum();
     }
 }
 
@@ -1026,8 +1015,6 @@ pub struct ExecutionContext {
     pub original_request: String,
     /// 用户意图描述
     pub user_intent: String,
-    /// 不确定性列表（需要澄清的点）
-    pub uncertainties: Vec<Uncertainty>,
     /// 已回答的问题
     pub answered_questions: HashMap<String, String>,
     /// 执行决策历史（用于追踪 AI 的决策过程）
@@ -1042,6 +1029,9 @@ pub struct ExecutionContext {
     /// key = capability_id prefix (如 "ai"), value = 该角色的 SOUL 身份文本
     #[serde(default)]
     pub role_contexts: HashMap<String, String>,
+    /// Extra ceiling for autonomy-accepted Work. Names only.
+    #[serde(default)]
+    pub autonomy_permission_cap: Option<Vec<String>>,
     /// 全局重试预算剩余（跨 resume 保持）
     #[serde(default = "default_retry_budget")]
     pub retry_budget_remaining: u32,
@@ -1071,7 +1061,6 @@ impl Default for ExecutionContext {
             variables: HashMap::new(),
             original_request: String::new(),
             user_intent: String::new(),
-            uncertainties: Vec::new(),
             answered_questions: HashMap::new(),
             decision_history: Vec::new(),
             page_context: None,
@@ -1081,56 +1070,9 @@ impl Default for ExecutionContext {
             pending_questions: Vec::new(),
             memory_context: None,
             dynamic_step_ids: std::collections::HashSet::new(),
+            autonomy_permission_cap: None,
         }
     }
-}
-
-/// 不确定性 - 执行过程中发现的需要澄清的点
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Uncertainty {
-    /// 不确定性 ID
-    pub id: String,
-    /// 不确定性类型
-    pub uncertainty_type: UncertaintyType,
-    pub description: String,
-    /// 可能的选项
-    pub possible_values: Vec<String>,
-    /// 重要程度（影响后续执行的程度）
-    pub importance: UncertaintyImportance,
-    /// 发现时的步骤 ID
-    pub discovered_at_step: Option<String>,
-}
-
-/// 不确定性类型
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum UncertaintyType {
-    /// 目标不明确（如"那个应用"具体是哪个）
-    AmbiguousTarget,
-    /// 操作不明确（如"处理一下"具体要怎么处理）
-    AmbiguousAction,
-    /// 参数不明确（如"最近的"是多久）
-    AmbiguousParameter,
-    /// 多个匹配项（找到多个可能的目标）
-    MultipleMatches,
-    /// 缺少必要信息
-    MissingRequired,
-    /// 结果需要确认
-    NeedsConfirmation,
-    /// 意外情况（执行结果与预期不符）
-    UnexpectedResult,
-}
-
-/// 不确定性重要程度
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum UncertaintyImportance {
-    /// 关键 - 必须解决才能继续
-    Critical,
-    /// 重要 - 影响结果准确性
-    Important,
-    /// 次要 - 可以使用默认值
-    Minor,
 }
 
 /// 执行决策 - 记录 AI 在执行过程中的决策
@@ -1181,35 +1123,7 @@ pub struct InteractionTarget {
     pub params: Option<Value>,
 }
 
-#[allow(dead_code)]
 impl ExecutionContext {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// 从用户请求创建上下文
-    pub fn from_request(request: &str, intent: &str) -> Self {
-        Self {
-            original_request: request.to_string(),
-            user_intent: intent.to_string(),
-            ..Default::default()
-        }
-    }
-
-    /// 从用户请求创建上下文（带页面上下文）
-    pub fn from_request_with_page_context(
-        request: &str,
-        intent: &str,
-        page_context: Option<Value>,
-    ) -> Self {
-        Self {
-            original_request: request.to_string(),
-            user_intent: intent.to_string(),
-            page_context,
-            ..Default::default()
-        }
-    }
-
     /// 从用户请求创建完整上下文（包含对话历史和页面上下文）
     pub fn from_request_full(
         request: &str,
@@ -1231,11 +1145,6 @@ impl ExecutionContext {
         self.step_outputs.insert(step_id.to_string(), output);
     }
 
-    /// 获取步骤输出
-    pub fn get_output(&self, step_id: &str) -> Option<&Value> {
-        self.step_outputs.get(step_id)
-    }
-
     /// 获取所有步骤输出（用于向后续步骤共享已有结果）
     pub fn get_all_outputs(&self) -> &HashMap<String, Value> {
         &self.step_outputs
@@ -1244,11 +1153,6 @@ impl ExecutionContext {
     /// 设置变量
     pub fn set_var(&mut self, key: &str, value: Value) {
         self.variables.insert(key.to_string(), value);
-    }
-
-    /// 获取变量
-    pub fn get_var(&self, key: &str) -> Option<&Value> {
-        self.variables.get(key)
     }
 
     /// 添加待执行的动态步骤（硬上限 15 个，含 ID 去重和自依赖检测）
@@ -1305,23 +1209,6 @@ impl ExecutionContext {
         self.pending_dynamic_steps.extend(accepted);
     }
 
-    /// 在队列前端插入步骤（优先执行，受硬上限约束）
-    pub fn prepend_dynamic_steps(&mut self, steps: Vec<RecipeStep>) {
-        const MAX_DYNAMIC_QUEUE: usize = 15;
-        let remaining = MAX_DYNAMIC_QUEUE.saturating_sub(self.dynamic_steps_generated);
-        if remaining == 0 {
-            return;
-        }
-        let accepted: Vec<RecipeStep> = steps.into_iter().take(remaining).collect();
-        self.dynamic_steps_generated += accepted.len();
-        for step in &accepted {
-            self.dynamic_step_ids.insert(step.id.clone());
-        }
-        let mut new_steps = accepted;
-        new_steps.append(&mut self.pending_dynamic_steps);
-        self.pending_dynamic_steps = new_steps;
-    }
-
     /// 判断某步骤是否为动态生成（未经 Planner 层敏感操作确认）
     pub fn is_dynamic_step(&self, step_id: &str) -> bool {
         self.dynamic_step_ids.contains(step_id)
@@ -1339,27 +1226,6 @@ impl ExecutionContext {
     /// 检查是否有待执行的动态步骤
     pub fn has_pending_steps(&self) -> bool {
         !self.pending_dynamic_steps.is_empty()
-    }
-
-    /// 添加不确定性
-    pub fn add_uncertainty(&mut self, uncertainty: Uncertainty) {
-        self.uncertainties.push(uncertainty);
-    }
-
-    /// 检查是否有关键不确定性需要解决
-    pub fn has_critical_uncertainty(&self) -> bool {
-        self.uncertainties
-            .iter()
-            .any(|u| u.importance == UncertaintyImportance::Critical)
-    }
-
-    /// 获取所有未解决的关键不确定性
-    pub fn get_critical_uncertainties(&self) -> Vec<&Uncertainty> {
-        self.uncertainties
-            .iter()
-            .filter(|u| u.importance == UncertaintyImportance::Critical)
-            .filter(|u| !self.answered_questions.contains_key(&u.id))
-            .collect()
     }
 
     /// 记录用户回答
@@ -1383,19 +1249,6 @@ impl ExecutionContext {
             reasoning: reasoning.to_string(),
             related_step: step_id.map(|s| s.to_string()),
         });
-    }
-
-    /// 生成上下文摘要（用于 AI 分析）
-    pub fn generate_summary(&self) -> Value {
-        serde_json::json!({
-            "original_request": self.original_request,
-            "user_intent": self.user_intent,
-            "completed_steps": self.step_outputs.keys().collect::<Vec<_>>(),
-            "pending_steps": self.pending_dynamic_steps.len(),
-            "uncertainties": self.uncertainties.iter().map(|u| &u.description).collect::<Vec<_>>(),
-            "answered_questions": self.answered_questions,
-            "variables": self.variables,
-        })
     }
 }
 
@@ -1594,6 +1447,9 @@ pub enum AgentProgressEvent {
         /// 图片生成结果 URL（ai.image 能力输出）
         #[serde(rename = "imageUrl", skip_serializing_if = "Option::is_none")]
         image_url: Option<String>,
+        /// 本步要立刻执行的前端动作（不要等整份 recipe 结束）
+        #[serde(rename = "frontendActions", skip_serializing_if = "Vec::is_empty")]
+        frontend_actions: Vec<Value>,
     },
     /// 进度更新
     Progress {
@@ -1661,6 +1517,10 @@ pub enum AgentProgressEvent {
         /// 是否为最后一个 token
         done: bool,
     },
+    /// 模型思考链流式 token（reasoning_content / thought parts）
+    ///
+    /// 和 SummaryToken 分开：思考过程进气泡的过程区，不能写进正文。
+    ThinkingToken { token: String, done: bool },
     /// A low-latency semantic motion plan. It may precede the final response.
     PerformancePlan {
         performance: super::merope::PerformanceDirective,
@@ -1734,4 +1594,23 @@ pub struct QuestionOptionCompact {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+#[cfg(test)]
+mod interaction_mode_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_request_context_defaults_to_work() {
+        let context: RequestContext = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(context.interaction_mode, AgentInteractionMode::Work);
+    }
+
+    #[test]
+    fn chat_mode_round_trips_as_snake_case() {
+        let encoded = serde_json::to_value(AgentInteractionMode::Chat).unwrap();
+        assert_eq!(encoded, serde_json::json!("chat"));
+        let decoded: AgentInteractionMode = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, AgentInteractionMode::Chat);
+    }
 }

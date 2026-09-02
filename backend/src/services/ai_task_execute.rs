@@ -102,6 +102,7 @@ fn configured_shutdown_timeout() -> Duration {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)] // 仅测试调用：事件投影与指标快照，生产直接落库。
 pub struct AiTaskEventMetricsSnapshot {
     /// Number of data events currently retained by all task mailboxes.
     pub queue_depth: usize,
@@ -135,25 +136,6 @@ static AI_TASK_EVENT_METRICS: once_cell::sync::Lazy<Arc<AiTaskEventMetricsInner>
     once_cell::sync::Lazy::new(|| Arc::new(AiTaskEventMetricsInner::default()));
 static AI_TASK_EVENT_BUDGET: once_cell::sync::Lazy<Arc<Semaphore>> =
     once_cell::sync::Lazy::new(|| Arc::new(Semaphore::new(configured_buffer_budget())));
-
-/// Process-wide queue/coalescing counters. These counters are intentionally
-/// independent from task state so operators can observe pressure even after a
-/// task has reached a terminal status.
-pub fn ai_task_event_metrics() -> AiTaskEventMetricsSnapshot {
-    AiTaskEventMetricsSnapshot {
-        queue_depth: AI_TASK_EVENT_METRICS.queue_depth.load(Ordering::Acquire),
-        queue_capacity: configured_queue_capacity(),
-        coalesced: AI_TASK_EVENT_METRICS.coalesced.load(Ordering::Relaxed),
-        dropped: AI_TASK_EVENT_METRICS.dropped.load(Ordering::Relaxed),
-        persisted: AI_TASK_EVENT_METRICS.persisted.load(Ordering::Relaxed),
-        persist_failures: AI_TASK_EVENT_METRICS
-            .persist_failures
-            .load(Ordering::Relaxed),
-        shutdown_timeouts: AI_TASK_EVENT_METRICS
-            .shutdown_timeouts
-            .load(Ordering::Relaxed),
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,6 +225,7 @@ impl BufferedTaskBroadcast {
         }
     }
 
+    #[allow(dead_code)] // 仅测试调用：事件投影与指标快照，生产直接落库。
     fn into_event(mut self) -> TaskBroadcast {
         let event = self
             .event
@@ -448,6 +431,7 @@ impl TaskEventSink {
         }
     }
 
+    #[allow(dead_code)] // 仅测试调用：事件投影与指标快照，生产直接落库。
     fn take_pending(&self) -> Vec<BufferedTaskBroadcast> {
         self.pending
             .lock()
@@ -468,6 +452,7 @@ enum MailboxControl {
     /// A bounded, awaited control path for events that must not be dropped.
     /// The runtime currently uses `finish_task` for terminal state persistence;
     /// this command is retained for mailbox-local control events and tests.
+    #[allow(dead_code)] // 仅测试调用：事件投影与指标快照，生产直接落库。
     Persist {
         event: TaskBroadcast,
         ack: oneshot::Sender<bool>,

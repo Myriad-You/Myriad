@@ -58,6 +58,7 @@ fn insert_platform_field(
 
 /// Whether a platform field should be written to `.env`.
 /// Mask keeps the existing env value; empty clears it.
+#[allow(dead_code)] // 仅测试调用：配置构建的分支判定，生产走整表写入。
 fn should_write_platform_env_field(value: &str) -> bool {
     !is_masked_secret_value(value)
 }
@@ -2249,6 +2250,17 @@ pub(crate) async fn build_config(
                     placeholder: "false".to_string(),
                     required: false,
                 },
+                ConfigField {
+                    key: "merope_speech_enabled".to_string(),
+                    label: "Agent 人设说话".to_string(),
+                    field_type: "checkbox".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.merope_speech_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
                 // 网络代理配置
                 ConfigField {
                     key: "proxy_enabled".to_string(),
@@ -2427,6 +2439,7 @@ pub(crate) struct SettingDescriptor {
 /// `github_client_*` / `github_redirect_url` 不在表里——旧备份里这些键会进 ignored。
 pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "merope_enabled",
+    "merope_speech_enabled",
     "agent_rig_asset_id",
     "ai_image_model",
     "ai_image_openai_api_key",
@@ -2442,6 +2455,12 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "lite_ai_source",
     "pro_ai_source",
     "speech_source",
+    "agora_api_base",
+    "agora_app_certificate",
+    "agora_app_id",
+    "agora_convo_enabled",
+    "agora_customer_id",
+    "agora_customer_secret",
     "allow_local_registration",
     "analytics_enabled",
     "tapp_private_install_cleanup",
@@ -3410,6 +3429,41 @@ mod settings_backup_tests {
     }
 
     #[test]
+    fn saves_agora_realtime_talk_fields() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("agora_convo_enabled", "true"),
+            ui_field("agora_app_id", "970ca35de60c44645bbae8a215061b33"),
+            ui_field("agora_api_base", "https://api.agora.io/cn"),
+        ];
+        let updates = collect_database_updates(&config);
+        assert_eq!(updates.get("agora_convo_enabled"), Some(&json!(true)));
+        assert_eq!(
+            updates.get("agora_app_id"),
+            Some(&json!("970ca35de60c44645bbae8a215061b33"))
+        );
+        assert_eq!(
+            updates.get("agora_api_base"),
+            Some(&json!("https://api.agora.io/cn"))
+        );
+    }
+
+    #[test]
+    fn saving_vendors_without_agora_clears_legacy_realtime_talk() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![ui_field(
+            "ai_vendor_sources",
+            r#"[{"slug":"openai","kind":"openai","display_name":"OpenAI","enabled":true}]"#,
+        )];
+        let updates = collect_database_updates(&config);
+        assert_eq!(updates.get("agora_convo_enabled"), Some(&json!(false)));
+        assert_eq!(updates.get("agora_app_id"), Some(&json!("")));
+        assert_eq!(updates.get("agora_app_certificate"), Some(&json!("")));
+        assert_eq!(updates.get("agora_customer_id"), Some(&json!("")));
+        assert_eq!(updates.get("agora_customer_secret"), Some(&json!("")));
+    }
+
+    #[test]
     fn tripo_config_is_independent_clamped_and_keeps_masked_key() {
         let mut config = empty_config();
         config.tripo_config.config_fields = vec![
@@ -3476,6 +3530,18 @@ mod settings_backup_tests {
         config.ui_config.config_fields = vec![ui_field("merope_enabled", "false")];
         let off = collect_database_updates(&config);
         assert_eq!(off.get("merope_enabled"), Some(&json!(false)));
+    }
+
+    #[test]
+    fn ui_merope_speech_flag_persists_bool() {
+        let mut config = empty_config();
+        config.ui_config.config_fields = vec![ui_field("merope_speech_enabled", "true")];
+        let on = collect_database_updates(&config);
+        assert_eq!(on.get("merope_speech_enabled"), Some(&json!(true)));
+
+        config.ui_config.config_fields = vec![ui_field("merope_speech_enabled", "false")];
+        let off = collect_database_updates(&config);
+        assert_eq!(off.get("merope_speech_enabled"), Some(&json!(false)));
     }
 
     #[test]
@@ -4042,6 +4108,26 @@ async fn save_to_database(
     Ok(())
 }
 
+fn vendor_json_is_agora(value: &serde_json::Value) -> bool {
+    let kind = value
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let preset = value
+        .get("preset")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let slug = value
+        .get("slug")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    kind.eq_ignore_ascii_case("agora")
+        || preset.eq_ignore_ascii_case("agora")
+        || slug == "agora"
+        || slug.starts_with("agora-")
+}
+
 fn merge_vendor_source_secrets(incoming: serde_json::Value) -> serde_json::Value {
     let Ok(mut sources) =
         serde_json::from_value::<Vec<crate::config::AiVendorSource>>(incoming.clone())
@@ -4369,6 +4455,21 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
             "pro_ai_source" => ("pro_ai_source", JsonValue::String(field.value.clone())),
             "ai_image_source" => ("ai_image_source", JsonValue::String(field.value.clone())),
             "speech_source" => ("speech_source", JsonValue::String(field.value.clone())),
+            "agora_convo_enabled" => (
+                "agora_convo_enabled",
+                JsonValue::Bool(field.value == "true"),
+            ),
+            "agora_app_id" => ("agora_app_id", JsonValue::String(field.value.clone())),
+            "agora_app_certificate" => (
+                "agora_app_certificate",
+                JsonValue::String(field.value.clone()),
+            ),
+            "agora_customer_id" => ("agora_customer_id", JsonValue::String(field.value.clone())),
+            "agora_customer_secret" => (
+                "agora_customer_secret",
+                JsonValue::String(field.value.clone()),
+            ),
+            "agora_api_base" => ("agora_api_base", JsonValue::String(field.value.clone())),
             "ai_vendor_sources" => {
                 let parsed = serde_json::from_str::<JsonValue>(&field.value)
                     .unwrap_or_else(|_| JsonValue::Array(Vec::new()));
@@ -4392,9 +4493,36 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
                 | "ai_image_source"
                 | "speech_source"
                 | "ai_vendor_sources"
+                | "agora_convo_enabled"
+                | "agora_app_id"
+                | "agora_customer_id"
+                | "agora_api_base"
         );
         if (allow_empty_speech || !field.value.is_empty()) && !is_masked(&field.value) {
             updates.insert(key.to_string(), json_value);
+        }
+    }
+
+    if updates.contains_key("ai_vendor_sources") {
+        let has_agora = updates
+            .get("ai_vendor_sources")
+            .and_then(JsonValue::as_array)
+            .is_some_and(|sources| sources.iter().any(vendor_json_is_agora));
+        if !has_agora {
+            updates.insert("agora_convo_enabled".to_string(), JsonValue::Bool(false));
+            updates.insert("agora_app_id".to_string(), JsonValue::String(String::new()));
+            updates.insert(
+                "agora_app_certificate".to_string(),
+                JsonValue::String(String::new()),
+            );
+            updates.insert(
+                "agora_customer_id".to_string(),
+                JsonValue::String(String::new()),
+            );
+            updates.insert(
+                "agora_customer_secret".to_string(),
+                JsonValue::String(String::new()),
+            );
         }
     }
 
@@ -4650,6 +4778,10 @@ fn collect_database_updates(config: &ConfigResponse) -> std::collections::HashMa
             "merope_enabled" => {
                 let enabled = field.value == "true";
                 ("merope_enabled", JsonValue::Bool(enabled))
+            }
+            "merope_speech_enabled" => {
+                let enabled = field.value == "true";
+                ("merope_speech_enabled", JsonValue::Bool(enabled))
             }
             _ => continue,
         };
@@ -5631,6 +5763,7 @@ impl ModuleVisibilityPreferences {
     }
 
     /// Agent 模块页面可见级别
+    #[allow(dead_code)] // 仅测试调用：配置构建的分支判定，生产走整表写入。
     pub fn agent_visibility(&self) -> &str {
         self.modules
             .get("agent")
@@ -5641,6 +5774,7 @@ impl ModuleVisibilityPreferences {
 
 /// 供 HTTP/config 层读取模块可见性。
 /// Agent 服务请用 `services::module_visibility::agent_module_visibility`。
+#[allow(dead_code)] // 仅测试调用：配置构建的分支判定，生产走整表写入。
 pub async fn load_module_visibility_preferences_for_agent(
     db: &DatabaseConnection,
 ) -> ModuleVisibilityPreferences {
@@ -5745,6 +5879,7 @@ pub const HITOKOTO_SOURCE_IDS: [&str; 5] = [
 
 /// Builtin quote API hosts (no port) matching FE `BUILTIN_HITOKOTO_SOURCES` URLs.
 /// Proxy SSRF policy is still `outbound_security`; this list is catalog alignment.
+#[allow(dead_code)] // 仅测试调用：配置构建的分支判定，生产走整表写入。
 pub const HITOKOTO_BUILTIN_HOSTS: [&str; 3] =
     ["v1.hitokoto.cn", "api.quotable.io", "meigen.doodlenote.net"];
 

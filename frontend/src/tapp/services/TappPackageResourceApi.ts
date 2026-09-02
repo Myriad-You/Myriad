@@ -106,7 +106,7 @@ export async function exportTapp(tappId: string): Promise<void> {
   )
   if (!response.ok) {
     throw new Error(
-      `${currentCopy().tapp.unknownError} (${response.status})`,
+      `${currentCopy().tapp.exportFailed} (${response.status})`,
     )
   }
 

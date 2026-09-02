@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-  createOutfitProfile,
-  inferOutfitProfileFromPartIds,
-  OUTFIT_TOPOLOGIES,
-} from './outfit'
+import { createOutfitProfile, inferOutfitProfileFromPartIds } from './outfit'
+import { RIG_OUTFIT_TOPOLOGIES } from './types'
 
 test('owns a stable canonical topology order', () => {
-  assert.deepEqual(OUTFIT_TOPOLOGIES, [
+  assert.deepEqual(RIG_OUTFIT_TOPOLOGIES, [
     'fitted',
     'short-skirt',
     'long-skirt',
@@ -19,12 +16,15 @@ test('owns a stable canonical topology order', () => {
 })
 
 test('composes mixed topology safety for torso and secondary layers', () => {
-  assert.deepEqual(createOutfitProfile(['armor', 'long-skirt', 'wide-sleeve']), {
-    topologies: ['long-skirt', 'wide-sleeve', 'armor'],
-    secondaryPartIds: [],
-    torsoTwistScale: 0.62,
-    secondaryMotionScale: 0.45,
-  })
+  assert.deepEqual(
+    createOutfitProfile(['armor', 'long-skirt', 'wide-sleeve']),
+    {
+      topologies: ['long-skirt', 'wide-sleeve', 'armor'],
+      secondaryPartIds: [],
+      torsoTwistScale: 0.62,
+      secondaryMotionScale: 0.45,
+    },
+  )
 })
 
 test('infers topology and secondary motion parts from semantic ids', () => {

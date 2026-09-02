@@ -1,0 +1,3756 @@
+/* ==========================================
+   Agent Panel
+   ==========================================
+
+   颜色一律走站点表面令牌（--surface-* / --text-*），不自带底色：
+   站长切 solid / flat / liquid 时这块要跟着变，不能是全站唯一不变的地方。
+   底色与边框由同元素上的 .glass 提供。
+   ========================================== */
+
+@keyframes agent-panel-blink {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-attach,
+  .agent-panel-attach-orb {
+    animation: none !important;
+  }
+
+  .agent-panel-attach-bar,
+  .agent-panel-attach-orb {
+    transition: none !important;
+  }
+}
+
+/* ==========================================
+   Quick Overlay
+   ==========================================
+
+   贴底、不铺满、不遮死当前页面 —— 助手不抢当前工作。
+   入场从底下长上来，退场原路沉回去：同一段位移、缩放和时长，错开顺序倒过来。
+   ========================================== */
+
+.agent-panel-overlay-anchor {
+  position: fixed;
+  inset: auto auto 1rem 50%;
+  z-index: 61;
+
+  /* 卡片在上，那一行独立控件在下 —— 它们并排，不是包含。
+     外壳不裁切：阴影要完整，玻璃还要采到壁纸。每行整张进整张出。
+     进出同一条贝塞尔：出场是入场的镜像。
+     空输入态开合动外壳；对话/历史每张卡自己从输入行来回。 */
+  --agent-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --agent-ease-exit: cubic-bezier(1, 0, 0.68, 0.28);
+  --agent-move: 480ms;
+  --agent-swap: 320ms;
+  --agent-stagger-step: 72ms;
+  --agent-stagger-wave: 9;
+  --agent-row-exit: 320ms;
+  --agent-shell-max: calc(100dvh * 2 / 3);
+
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 12px;
+  width: min(92vw, 560px);
+  min-height: 0;
+  max-height: var(--agent-shell-max);
+  overflow: visible;
+  transform-origin: center bottom;
+  opacity: 1;
+  translate: -50% 0;
+  scale: 1;
+  transition:
+    opacity var(--agent-move) var(--agent-ease),
+    translate var(--agent-move) var(--agent-ease),
+    scale var(--agent-move) var(--agent-ease);
+}
+
+.agent-panel-overlay-anchor[data-capped='true'] {
+  height: var(--agent-shell-max);
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .agent-panel-overlay-anchor {
+    bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+.agent-panel-overlay-anchor[data-phase='opening'],
+.agent-panel-overlay-anchor[data-phase='closing'] {
+  pointer-events: none;
+}
+
+.agent-panel-overlay-anchor[data-phase='opening']:not([data-stage='full']),
+.agent-panel-overlay-anchor[data-phase='closing']:not([data-stage='full']) {
+  will-change: opacity, translate, scale;
+}
+
+.agent-panel-overlay-anchor[data-phase='opening'] {
+  opacity: 0;
+  translate: -50% 22px;
+  scale: 0.96;
+  transition-duration: 0.01ms;
+  transition-delay: 0ms;
+}
+
+.agent-panel-overlay-anchor[data-phase='closing'] {
+  opacity: 0;
+  translate: -50% 22px;
+  scale: 0.96;
+  transition-timing-function: var(--agent-ease-exit);
+  transition-delay: 0ms;
+}
+
+/* 对话 / 历史展开：外壳不再整块位移，每张卡自己从输入行来回。 */
+.agent-panel-overlay-anchor[data-stage='full'][data-phase='opening'],
+.agent-panel-overlay-anchor[data-stage='full'][data-phase='closing'] {
+  opacity: 1;
+  translate: -50% 0;
+  scale: 1;
+}
+
+.agent-panel-overlay-anchor[data-stage='full'][data-phase='closing']
+  .agent-panel-composer {
+  opacity: 0;
+  translate: 0 16px;
+  scale: 0.96;
+  transition-duration: var(--agent-row-exit);
+
+  /* 输入行比画面里最远那张再晚一步，卡片还有地方可回。 */
+  transition-delay: calc(
+    (var(--agent-stagger-wave) + 1) * var(--agent-stagger-step)
+  );
+  transition-timing-function: var(--agent-ease-exit);
+}
+
+.agent-panel-overlay-anchor[data-stage='full'][data-phase='closing']
+  .agent-panel-presence[data-kind='row'],
+.agent-panel-messages-slot[data-exiting='true']
+  .agent-panel-presence[data-kind='row'] {
+  pointer-events: none;
+  transition-duration: var(--agent-row-exit);
+  transition-delay: calc(
+    var(--agent-exit-stagger, var(--agent-stagger, 0)) *
+      var(--agent-stagger-step)
+  );
+  transition-timing-function: var(--agent-ease-exit);
+}
+
+.agent-panel-overlay-anchor[data-stage='full'][data-phase='closing']
+  .agent-panel-presence[data-kind='row'][data-from='composer'],
+.agent-panel-messages-slot[data-exiting='true']
+  .agent-panel-presence[data-kind='row'][data-from='composer'] {
+  opacity: 0;
+  translate: 0 16px;
+  scale: 0.96;
+}
+
+/* 2/3 窗口外那张半截卡：就地淡掉，不往输入行滑 —— 滑会把那截拉进画面。
+   延迟仍走 --agent-exit-stagger：它在最上面，最后才收。 */
+.agent-panel-overlay-anchor[data-stage='full'][data-phase='closing']
+  .agent-panel-presence[data-kind='row'][data-from='composer']:has(
+    [data-leaving='true']
+  ),
+.agent-panel-messages-slot[data-exiting='true']
+  .agent-panel-presence[data-kind='row'][data-from='composer']:has(
+    [data-leaving='true']
+  ) {
+  translate: 0 0;
+  scale: 1;
+}
+
+.agent-panel-overlay {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+  padding: 20px;
+  border-radius: 32px;
+  color: var(--text-primary, #111827);
+  transform-origin: bottom center;
+}
+
+.agent-panel-presence {
+  overflow: visible;
+  min-width: 0;
+  opacity: 1;
+  translate: 0 0;
+  scale: 1;
+  transition:
+    opacity var(--agent-move, 480ms) var(--agent-ease),
+    translate var(--agent-move, 480ms) var(--agent-ease),
+    scale var(--agent-move, 480ms) var(--agent-ease),
+    margin var(--agent-move, 480ms) var(--agent-ease),
+    grid-template-columns var(--agent-move, 480ms) var(--agent-ease);
+}
+
+.agent-panel-presence[data-from='composer'] {
+  transform-origin: 50% 100%;
+}
+
+.agent-panel-presence[data-from='attach'] {
+  transform-origin: 0 50%;
+}
+
+.agent-panel-presence[data-from='context'] {
+  transform-origin: 0 50%;
+}
+
+.agent-panel-presence[data-from='self'] {
+  transform-origin: 50% 50%;
+}
+
+.agent-panel-presence[data-kind='row'][data-from='self'] {
+  transform-origin: 50% 0;
+}
+
+.agent-panel-presence[data-kind='row'] {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-bottom: 10px;
+
+  /* 入场错开：初次展开从输入行往上叠。新气泡 stagger=0，马上进。 */
+  transition-delay: calc(
+    var(--agent-stagger, 0) * var(--agent-stagger-step, 72ms)
+  );
+}
+
+.agent-panel-presence[data-kind='row']:last-child {
+  margin-bottom: 0;
+}
+
+.agent-panel-presence[data-kind='chip'] {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  min-width: 0;
+}
+
+.agent-panel-composer-tags > .agent-panel-presence[data-kind='chip'],
+.agent-panel-tag-mid > .agent-panel-presence[data-kind='chip'],
+.agent-panel-work-chrome > .agent-panel-presence[data-kind='chip'] {
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+
+.agent-panel-presence[data-kind='swap'] {
+  display: grid;
+}
+
+.agent-panel-presence[data-kind='chip'] > * {
+  min-width: 0;
+  overflow: visible;
+}
+
+/* 入场用 @starting-style，不再用 JS 的 enter。
+   曾经卡在 data-presence=enter（opacity 0）上，双 rAF 被取消就永远不出现。
+   退场仍是 data-presence=out，值和入场同一组 —— 从哪来回哪去。
+   开合只动锚点。子元素入场靠 data-appear=skip 跳过整表首屏，避免和整块叠两层。 */
+@starting-style {
+  .agent-panel-overlay-anchor {
+    opacity: 0;
+    translate: -50% 22px;
+    scale: 0.96;
+  }
+
+  /* 默认就是藏着的。先画亮再收到 0，plus-lighter 会闪一帧。 */
+  .agent-panel-aurora,
+  .agent-panel-aurora[data-phase='settled'],
+  .agent-panel-aurora[data-stage='full']:not([data-phase='closing']) {
+    opacity: 0;
+    translate: 0 var(--agent-aurora-rise, 40px);
+  }
+
+  .agent-panel-overlay-anchor[data-stage='full'] {
+    opacity: 1;
+    translate: -50% 0;
+    scale: 1;
+  }
+
+  .agent-panel-overlay-anchor[data-stage='full'] .agent-panel-composer {
+    opacity: 0;
+    translate: 0 16px;
+    scale: 0.96;
+  }
+
+  .agent-panel-presence[data-from='composer'] {
+    opacity: 0;
+    translate: 0 16px;
+    scale: 0.96;
+  }
+
+  .agent-panel-presence[data-from='attach'] {
+    opacity: 0;
+    translate: -12px 0;
+    scale: 0.88;
+  }
+
+  .agent-panel-presence[data-from='context'] {
+    opacity: 0;
+    translate: -10px 0;
+    scale: 0.9;
+  }
+
+  .agent-panel-presence[data-from='self'] {
+    opacity: 0;
+    scale: 0.72;
+  }
+
+  .agent-panel-presence[data-kind='row'][data-from='self'] {
+    translate: 0 -6px;
+    scale: 1;
+  }
+
+  .agent-panel-composer-tags > .agent-panel-presence[data-kind='chip'],
+  .agent-panel-tag-mid > .agent-panel-presence[data-kind='chip'],
+  .agent-panel-work-chrome > .agent-panel-presence[data-kind='chip'],
+  .agent-panel-tag-actions > .agent-panel-presence[data-kind='chip'] {
+    grid-template-columns: 0fr;
+    overflow: hidden;
+  }
+
+  .agent-panel-composer-tags > .agent-panel-presence[data-kind='chip'],
+  .agent-panel-tag-mid > .agent-panel-presence[data-kind='chip'],
+  .agent-panel-work-chrome > .agent-panel-presence[data-kind='chip'] {
+    margin-right: 0;
+  }
+
+  .agent-panel-tag-actions > .agent-panel-presence[data-kind='chip'] {
+    margin-left: -6px;
+  }
+
+  .agent-panel-presence[data-appear='skip'] {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+}
+
+.agent-panel-presence[data-presence='out'] {
+  opacity: 0;
+  pointer-events: none;
+  transition-timing-function: var(--agent-ease-exit);
+}
+
+.agent-panel-presence[data-presence='out'][data-from='composer'] {
+  translate: 0 16px;
+  scale: 0.96;
+}
+
+.agent-panel-presence[data-presence='out'][data-from='attach'] {
+  translate: -12px 0;
+  scale: 0.88;
+}
+
+.agent-panel-presence[data-presence='out'][data-from='context'] {
+  translate: -10px 0;
+  scale: 0.9;
+}
+
+.agent-panel-presence[data-presence='out'][data-from='self'] {
+  scale: 0.72;
+}
+
+.agent-panel-presence[data-presence='out'][data-kind='row'][data-from='self'] {
+  translate: 0 -6px;
+  scale: 1;
+}
+
+.agent-panel-composer-tags
+  > .agent-panel-presence[data-kind='chip'][data-presence='out'],
+.agent-panel-tag-mid
+  > .agent-panel-presence[data-kind='chip'][data-presence='out'],
+.agent-panel-work-chrome
+  > .agent-panel-presence[data-kind='chip'][data-presence='out'],
+.agent-panel-tag-actions
+  > .agent-panel-presence[data-kind='chip'][data-presence='out'] {
+  overflow: hidden;
+  grid-template-columns: 0fr;
+}
+
+.agent-panel-composer-tags
+  > .agent-panel-presence[data-kind='chip'][data-presence='out'],
+.agent-panel-tag-mid
+  > .agent-panel-presence[data-kind='chip'][data-presence='out'],
+.agent-panel-work-chrome
+  > .agent-panel-presence[data-kind='chip'][data-presence='out'] {
+  margin-right: 0;
+}
+
+.agent-panel-tag-actions
+  > .agent-panel-presence[data-kind='chip'][data-presence='out'] {
+  margin-left: -6px;
+}
+
+.agent-panel-swap {
+  position: relative;
+  display: grid;
+  grid-template-areas: 'stack';
+  place-items: center;
+  min-width: 0;
+  interpolate-size: allow-keywords;
+  width: auto;
+  height: auto;
+  opacity: 1;
+  translate: 0 0;
+  scale: 1;
+  transform-origin: center bottom;
+  transition:
+    opacity var(--agent-move, 480ms) var(--agent-ease),
+    translate var(--agent-move, 480ms) var(--agent-ease),
+    scale var(--agent-move, 480ms) var(--agent-ease),
+    height var(--agent-move, 480ms) var(--agent-ease),
+    width var(--agent-move, 480ms) var(--agent-ease);
+}
+
+.agent-panel-composer-tags > .agent-panel-swap {
+  margin-right: 6px;
+}
+
+.agent-panel-swap > .agent-panel-presence {
+  grid-area: stack;
+}
+
+.agent-panel-overlay-anchor[data-phase='opening']
+  .agent-panel-presence:not([data-kind='row']),
+.agent-panel-overlay-anchor[data-phase='closing']
+  .agent-panel-presence:not([data-kind='row']),
+.agent-panel-overlay-anchor[data-phase='opening'] .agent-panel-swap,
+.agent-panel-overlay-anchor[data-phase='closing'] .agent-panel-swap {
+  opacity: 1;
+  translate: 0 0;
+  scale: 1;
+  grid-template-columns: 1fr;
+  transition-duration: 0.01ms;
+}
+
+.agent-panel-overlay-anchor[data-phase='opening']
+  .agent-panel-presence[data-kind='row'],
+.agent-panel-overlay-anchor[data-phase='closing']
+  .agent-panel-presence[data-kind='row'] {
+  margin-bottom: 10px;
+}
+
+.agent-panel-overlay-anchor[data-phase='opening']
+  .agent-panel-presence[data-kind='row']:last-child,
+.agent-panel-overlay-anchor[data-phase='closing']
+  .agent-panel-presence[data-kind='row']:last-child {
+  margin-bottom: 0;
+}
+
+.agent-panel-overlay-anchor[data-phase='opening']
+  .agent-panel-composer-tags
+  > .agent-panel-presence[data-kind='chip'],
+.agent-panel-overlay-anchor[data-phase='closing']
+  .agent-panel-composer-tags
+  > .agent-panel-presence[data-kind='chip'],
+.agent-panel-overlay-anchor[data-phase='opening']
+  .agent-panel-tag-mid
+  > .agent-panel-presence[data-kind='chip'],
+.agent-panel-overlay-anchor[data-phase='closing']
+  .agent-panel-tag-mid
+  > .agent-panel-presence[data-kind='chip'],
+.agent-panel-overlay-anchor[data-phase='opening']
+  .agent-panel-work-chrome
+  > .agent-panel-presence[data-kind='chip'],
+.agent-panel-overlay-anchor[data-phase='closing']
+  .agent-panel-work-chrome
+  > .agent-panel-presence[data-kind='chip'] {
+  margin-right: 6px;
+}
+
+.agent-panel-overlay-anchor[data-phase='opening']
+  .agent-panel-tag-actions
+  > .agent-panel-presence[data-kind='chip'],
+.agent-panel-overlay-anchor[data-phase='closing']
+  .agent-panel-tag-actions
+  > .agent-panel-presence[data-kind='chip'] {
+  margin-left: 0;
+}
+
+/* ── 一切说明性的短句都是贴 ──────────────────────
+
+   看得到什么、刚做了什么、为什么这里是空的、人设改到哪儿去了 —— 这些以前是六处
+   裸文本，各自一套字号和留白，读起来像六个人写的。现在只有一种东西：贴。可点的
+   （开关、撤销、图标键）多一层悬停和回弹，不可点的就是同一张贴的静态版。
+
+   能点的、只是说明的，都是同一颗胶囊，同一行、同一高度。贴里的字分主次：
+   类别淡、内容重。底是同一套表面令牌。
+
+   输入框上面那一排贴直接铺在页面上，所以自己吃表面令牌 —— 不再套进卡片里。
+   ================================================ */
+
+.agent-panel-tag-rail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-panel-tag-rail .agent-panel-tag,
+.agent-panel-composer-tags .agent-panel-tag {
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  backdrop-filter: var(--surface-filter);
+  box-shadow: var(--surface-shadow);
+}
+
+.agent-panel-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  interpolate-size: allow-keywords;
+  border: 1px solid var(--surface-border, rgb(0 0 0 / 8%));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted, #9ca3af) 9%, transparent);
+  color: var(--text-secondary, #6b7280);
+  font-size: 12.5px;
+  line-height: 1;
+  text-align: left;
+}
+
+.agent-panel-tag-kicker {
+  flex-shrink: 0;
+  color: var(--text-muted, #9ca3af);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.agent-panel-tag-text {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text-primary, #111827);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel-tag[data-tone='primary'] .agent-panel-tag-kicker,
+.agent-panel-tag[data-tone='alert'] .agent-panel-tag-kicker {
+  color: inherit;
+  opacity: 0.62;
+}
+
+.agent-panel-tag[data-tone='primary'] .agent-panel-tag-text,
+.agent-panel-tag[data-tone='alert'] .agent-panel-tag-text {
+  color: inherit;
+}
+
+/* 只装一个图标的贴：同样是胶囊，不要收成正圆 */
+.agent-panel-tag[data-icon='true'] {
+  justify-content: center;
+  flex-shrink: 0;
+  width: auto;
+  min-width: 44px;
+  padding: 0 12px;
+}
+
+.agent-panel-tag[data-icon='true'] svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 独占一行的贴：空态、加载失败这类整段话，高度跟着字走 */
+.agent-panel-tag[data-block='true'] {
+  align-self: center;
+  height: auto;
+  margin: 14px 0;
+  padding: 10px 16px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.agent-panel-tag[data-block='true'] .agent-panel-tag-text {
+  overflow: visible;
+  white-space: inherit;
+  text-overflow: unset;
+}
+
+.agent-panel-tag[data-active='true'] {
+  border-color: var(--color-primary, #10b981);
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 16%,
+    transparent
+  );
+  color: var(--color-primary, #10b981);
+}
+
+/* 语气。中性是默认；primary 是「这跟你刚做的事有关」；alert 是「有东西被关掉了」 */
+.agent-panel-tag[data-tone='primary'] {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 38%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 12%,
+    transparent
+  );
+  color: var(--color-primary, #10b981);
+}
+
+.agent-panel-tag[data-tone='alert'] {
+  border-color: color-mix(
+    in srgb,
+    var(--color-error, #ef4444) 34%,
+    transparent
+  );
+  background: color-mix(in srgb, var(--color-error, #ef4444) 10%, transparent);
+  color: var(--color-error, #ef4444);
+}
+
+/* 「就等你点」的那种贴要更实一点 */
+.agent-panel-tag-strong {
+  font-weight: 600;
+}
+
+.agent-panel-tag-strong[data-tone='primary'] {
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 22%,
+    transparent
+  );
+}
+
+.agent-panel-tag-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.agent-panel-composer-tags > .agent-panel-tag-actions {
+  margin-left: 0;
+  min-width: max-content;
+}
+
+.agent-panel-work-tags,
+.agent-panel-tag-cluster {
+  display: flex;
+  align-items: center;
+}
+
+.agent-panel-work-tags {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  gap: 6px;
+  width: max-content;
+}
+
+.agent-panel-tag-cluster {
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 可点的那一半：回弹曲线跟站内其他流体控件同一条 */
+button.agent-panel-tag {
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    width 400ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+button.agent-panel-tag[data-icon='true'] {
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 切档只淡，不要让胶囊自己的 width 过渡再跟一刀。 */
+.agent-panel-composer-tags button.agent-panel-tag {
+  transition-property: background, border-color, color, transform;
+}
+
+button.agent-panel-tag:not(:disabled):hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 40%,
+    transparent
+  );
+  color: var(--color-primary, #10b981);
+}
+
+/* 关掉的那道闸悬停时不该变成主色 —— 它说的是「有东西没在读」 */
+button.agent-panel-tag[data-tone='alert']:not(:disabled):hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-error, #ef4444) 55%,
+    transparent
+  );
+  color: var(--color-error, #ef4444);
+}
+
+button.agent-panel-tag:not(:disabled):active {
+  transform: scale(0.94);
+  transition-duration: 90ms;
+}
+
+button.agent-panel-tag:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+/* 收藏的常用问法：和上下文动作同一排语言，但标题可能很长，收窄一点。
+   按字宽收而不是按百分比 —— 窄屏上 40% 只剩四个字，连意思都读不出来 */
+.agent-panel-tag-saved {
+  max-width: 12em;
+}
+
+.agent-panel-saved-open {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-panel-composer-tags .agent-panel-tag-saved:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 40%,
+    transparent
+  );
+}
+
+.agent-panel-composer-tags .agent-panel-tag-saved:hover .agent-panel-tag-text {
+  color: var(--color-primary, #10b981);
+}
+
+/* ── 输入那一行：输入框 + 一枚动作 ────────────────
+
+   输入框和右侧那一枚动作各自是一块独立的玻璃，摆在卡片外面。**搬出来是有技术
+   必要的**：套在 `.glass` 里的子层采不到卡片背后的画面，再滤一次只会糊成乳白带，
+   只有并排才吃得到真正的流体质感。
+
+   那一枚动作按框里有没有字、现在忙不忙换身份：空着且语音可用是语音，有字是发送，
+   正在跑是终止；语音没配置时空着不画。底、边框、阴影、滤镜全部由同元素上的
+   `.glass` 从表面令牌取，这里只管
+   形状、尺寸和手感 —— 和 Tapp 商店那几枚流体控件同一条路子。**但不像它那样钉死
+   `.glass-liquid`**：站主选了 solid，卡片会变成不透明白底，强制流体的胶囊浮在
+   底下会明显脱节；而且 solid/flat 是真正的性能档，钉死等于替他把 backdrop-filter
+   加回来。跟着令牌走，站主切到 liquid 时它们自然拿到吸色底、磨砂噪点和边缘弯光环。
+
+   刻意不叠写死的顶部高光：流体表面自带随环境走的光学，静态高光压上去只会跟它
+   打架（theme.css 里写过这条）。
+   ================================================ */
+
+.agent-panel-composer {
+  --agent-composer-gap: 12px;
+  --agent-face-width: calc(128px * 2.5);
+  --agent-face-visible-height: calc(var(--agent-face-width) * 4 / 3 * 4 / 5);
+  --agent-face-fade: 40px;
+  --agent-face-lift: 10px;
+  --agent-mode-lag: 40ms;
+
+  /* 人头伸出贴行的那截。人仍绝对定位贴着输入框，对话靠这段 padding 让位。 */
+  --agent-face-reserve: calc(
+    var(--agent-face-visible-height) - var(--agent-face-fade) - 32px -
+      var(--agent-composer-gap)
+  );
+
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex-shrink: 0;
+  gap: var(--agent-composer-gap);
+  width: 100%;
+  padding-top: 0;
+  opacity: 1;
+  translate: 0 0;
+  scale: 1;
+  transform-origin: center bottom;
+  transition:
+    opacity var(--agent-move) var(--agent-ease),
+    translate var(--agent-move) var(--agent-ease),
+    scale var(--agent-move) var(--agent-ease),
+    padding-top var(--agent-move) var(--agent-ease-exit);
+}
+
+.agent-panel-intention {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border-radius: 22px;
+  color: var(--text-primary, #111827);
+}
+
+.agent-panel-intention-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.agent-panel-intention-copy > span {
+  color: var(--color-primary, #10b981);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-panel-intention-copy > strong,
+.agent-panel-intention-copy > p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-panel-intention-copy > strong {
+  white-space: nowrap;
+}
+
+.agent-panel-intention-copy > p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.agent-panel-intention-copy > p,
+.agent-panel-intention-copy > small {
+  margin: 0;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.78rem;
+}
+
+.agent-panel-intention-copy > small[data-tone='danger'] {
+  color: var(--color-danger, #ef4444);
+}
+
+.agent-panel-intention-actions {
+  display: flex;
+  gap: 7px;
+}
+
+.agent-panel-intention-actions > button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-solid, #fff) 72%, transparent);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.agent-panel-intention-actions > button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.agent-panel-intention-actions > .agent-panel-intention-accept {
+  background: var(--color-primary, #10b981);
+  color: white;
+}
+
+@media (width <= 520px) {
+  .agent-panel-intention {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-panel-intention-actions {
+    justify-content: flex-end;
+  }
+}
+
+.agent-panel-composer[data-mode='chat'] {
+  padding-top: var(--agent-face-reserve);
+  transition:
+    opacity var(--agent-move) var(--agent-ease),
+    translate var(--agent-move) var(--agent-ease),
+    scale var(--agent-move) var(--agent-ease),
+    padding-top var(--agent-move) var(--agent-ease);
+}
+
+.agent-panel-composer-row {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  width: 100%;
+}
+
+.agent-panel-composer-tags,
+.agent-panel-field-shell,
+.agent-panel-composer-row > :not(.agent-panel-face-slot) {
+  position: relative;
+  z-index: 3;
+}
+
+.agent-panel-composer-tags {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 6px;
+  min-width: 0;
+  contain: layout;
+}
+
+.agent-panel-tag-mid {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.agent-panel-mode {
+  flex-shrink: 0;
+  min-width: max-content;
+  max-width: none;
+  interpolate-size: numeric-only;
+}
+
+/* 办事 / 聊天叠在同一格。只改透明度，visibility 会让隐藏那一层退出占位，胶囊跟着收。 */
+.agent-panel-mode-labels {
+  display: grid;
+  flex: 0 0 auto;
+  width: max-content;
+  justify-items: start;
+}
+
+.agent-panel-mode-labels > span {
+  grid-area: 1 / 1;
+  color: var(--text-primary, #111827);
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--agent-move) linear;
+}
+
+.agent-panel-mode-labels > span[data-on='true'] {
+  opacity: 1;
+}
+
+.agent-panel-field-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.agent-panel-face-slot {
+  position: absolute;
+  z-index: 0;
+  left: 50%;
+  bottom: calc(100% - var(--agent-face-fade));
+  width: var(--agent-face-width);
+  height: var(--agent-face-visible-height);
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  translate: -50% var(--agent-face-lift);
+  transition:
+    opacity var(--agent-move) var(--agent-ease-exit),
+    translate var(--agent-move) var(--agent-ease-exit);
+}
+
+.agent-panel-composer[data-mode='chat'] .agent-panel-face-slot {
+  opacity: 1;
+  pointer-events: auto;
+  translate: -50% 0;
+  transition:
+    opacity var(--agent-move) var(--agent-ease) var(--agent-mode-lag),
+    translate var(--agent-move) var(--agent-ease) var(--agent-mode-lag);
+}
+
+/* 中间列吃掉弹性空位。办事贴只淡，占位不撤，左右贴才不会在淡出结束时被拽动。
+   进聊天：贴先让，人晚一拍托出来。回办事：人先收，贴再亮。
+   常用问法一行横滑，新对话 / 历史钉在右列，不被挤走。 */
+.agent-panel-work-chrome {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 6px;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  scroll-padding-inline: 10px;
+  scroll-snap-type: x proximity;
+  touch-action: pan-x;
+  opacity: 1;
+  transition: opacity var(--agent-move) var(--agent-ease) var(--agent-mode-lag);
+}
+
+.agent-panel-work-chrome::-webkit-scrollbar {
+  display: none;
+}
+
+.agent-panel-work-chrome[data-overflow='end'] {
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(100% - 18px),
+    transparent
+  );
+}
+
+.agent-panel-work-chrome[data-overflow='start'] {
+  mask-image: linear-gradient(to right, transparent, #000 18px, #000 100%);
+}
+
+.agent-panel-work-chrome[data-overflow='both'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 18px,
+    #000 calc(100% - 18px),
+    transparent
+  );
+}
+
+.agent-panel-composer[data-mode='chat'] .agent-panel-work-chrome {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--agent-move) var(--agent-ease-exit);
+}
+
+.agent-panel-work-chrome > .agent-panel-work-tags {
+  width: max-content;
+  flex-wrap: nowrap;
+}
+
+.agent-panel-work-chrome > .agent-panel-presence[data-kind='chip'],
+.agent-panel-work-tags > .agent-panel-presence[data-kind='chip'] {
+  flex-shrink: 0;
+  scroll-snap-align: start;
+}
+
+.agent-panel-end-slot {
+  display: grid;
+  width: max-content;
+  min-width: max-content;
+  place-items: center end;
+  justify-self: end;
+}
+
+.agent-panel-end-layer {
+  grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: max-content;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--agent-move) linear;
+}
+
+.agent-panel-end-layer[data-on='true'] {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity var(--agent-move) linear var(--agent-mode-lag);
+}
+
+/* 聊天档：输入框上面的人设。3:4 画布放大 2.5，裁掉底下 1/5，底边模糊收掉。
+   不是玻璃 —— 输入框已经是 .glass，套进去会糊。 */
+.agent-panel-face {
+  --agent-face-portrait: 3 / 4;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.agent-panel-face:has(.agent-panel-face-rig) {
+  position: relative;
+  isolation: isolate;
+  width: var(--agent-face-width);
+  height: var(--agent-face-visible-height);
+  margin-inline: auto;
+  overflow: hidden;
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--agent-face-fade)),
+    transparent 100%
+  );
+}
+
+.agent-panel-face:has(.agent-panel-face-rig)::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--agent-face-fade);
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+  mask-image: linear-gradient(to bottom, transparent, #000 75%);
+}
+
+.agent-panel-face-rig {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  width: 100%;
+  aspect-ratio: var(--agent-face-portrait);
+}
+
+.agent-panel-face-rig .merope-rig {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.agent-panel-face-rig .merope-rig img,
+.agent-panel-face-rig .merope-rig canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.agent-panel-face-rig .merope-rig img {
+  object-fit: contain;
+  object-position: center top;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.agent-panel-face-rig .merope-rig canvas {
+  pointer-events: auto;
+}
+
+.agent-panel-face .agent-panel-tag[data-block='true'] {
+  margin: 0;
+  max-width: calc(100% - 24px);
+}
+
+.agent-panel-composer-tags .agent-panel-tag img {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.agent-panel-tag-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-right: -4px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.agent-panel-tag-dismiss svg {
+  width: 11px;
+  height: 11px;
+}
+
+.agent-panel-control {
+  --agent-voice-hold: 500ms;
+  --agent-voice-hold-lead: 80ms;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 96px;
+  height: 56px;
+  padding: 0 28px;
+  border-radius: 999px;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color 180ms ease,
+    background 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 180ms ease-out;
+}
+
+.agent-panel-control svg {
+  position: relative;
+
+  /* 流体的弯光环走 ::before，图标得压在它上面 */
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+}
+
+@media (hover: hover) {
+  .agent-panel-control:not(:disabled):hover {
+    color: var(--color-primary, #10b981);
+    transform: translateY(-1px) scale(1.045);
+    filter: brightness(1.04);
+  }
+}
+
+.agent-panel-control:not(:disabled):active {
+  transform: translateY(0) scale(0.94);
+  filter: brightness(1.08);
+  transition-duration: 90ms;
+}
+
+.agent-panel-control:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.agent-panel-control:focus-visible {
+  outline: 2px solid
+    color-mix(in srgb, var(--color-primary, #10b981) 68%, white);
+  outline-offset: 2px;
+}
+
+/* 在听的时候一直亮着 —— 录音这种事必须一眼看得出还开着。
+   压过 .glass 的令牌底，所以要两层类名 */
+.agent-panel-composer .agent-panel-mic[data-on='true'] {
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--color-error, #ef4444) 26%, transparent),
+      color-mix(in srgb, var(--color-error, #ef4444) 18%, transparent)
+    ),
+    var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  color: var(--color-error, #ef4444);
+}
+
+.agent-panel-mic {
+  position: relative;
+  overflow: visible;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.agent-panel-composer .agent-panel-mic:not(:disabled):active,
+.agent-panel-composer .agent-panel-mic[data-holding='true']:not(:disabled),
+.agent-panel-composer
+  .agent-panel-mic[data-holding='true']:not(:disabled):hover,
+.agent-panel-composer
+  .agent-panel-mic[data-holding='true']:not(:disabled):active {
+  transform: scale(1.03);
+  filter: none;
+}
+
+.agent-panel-mic-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: inherit;
+}
+
+.agent-panel-control .agent-panel-mic-fx svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  z-index: 0;
+}
+
+.agent-panel-mic-hold {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 140ms var(--agent-ease-exit, ease);
+}
+
+.agent-panel-mic[data-holding='true']:not([data-conversation='true'])
+  .agent-panel-mic-hold {
+  opacity: 1;
+  transition-duration: 90ms;
+  transition-delay: var(--agent-voice-hold-lead);
+  transition-timing-function: var(--agent-ease, ease);
+}
+
+.agent-panel-mic[data-conversation='true'] .agent-panel-mic-hold {
+  opacity: 1;
+  transition-delay: 0ms;
+  transition-duration: 180ms;
+}
+
+.agent-panel-mic-hold-track,
+.agent-panel-mic-hold-ring {
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.agent-panel-mic-hold-track {
+  stroke: color-mix(in srgb, var(--color-primary, #10b981) 20%, transparent);
+}
+
+.agent-panel-mic-hold-ring {
+  stroke: var(--color-primary, #10b981);
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--color-primary, #10b981) 40%, transparent)
+  );
+}
+
+.agent-panel-mic[data-holding='true']:not([data-conversation='true'])
+  .agent-panel-mic-hold-ring {
+  animation: agent-panel-mic-hold-draw
+    calc(var(--agent-voice-hold) - var(--agent-voice-hold-lead))
+    cubic-bezier(0.22, 0.61, 0.36, 1) var(--agent-voice-hold-lead) forwards;
+}
+
+@keyframes agent-panel-mic-hold-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.agent-panel-composer .agent-panel-mic[data-conversation='true'] {
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--color-primary, #10b981) 26%, transparent),
+      color-mix(in srgb, var(--color-primary, #10b981) 18%, transparent)
+    ),
+    var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  color: var(--color-primary, #10b981);
+}
+
+.agent-panel-mic[data-conversation='true'] .agent-panel-mic-hold-ring {
+  stroke-dashoffset: 0;
+  animation: agent-panel-mic-live 2.2s ease-in-out infinite;
+}
+
+.agent-panel-composer .agent-panel-mic[data-speaking='true'] {
+  filter: brightness(1.06);
+}
+
+.agent-panel-mic[data-speaking='true'] .agent-panel-mic-hold-ring {
+  animation-duration: 720ms;
+}
+
+@keyframes agent-panel-mic-live {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 发送才叠主色。空着（没语音可用、也没字）保持普通玻璃，不要一枚褪色的绿点。
+   主色压在流体底上 —— 换掉整块底会把噪点/高光/吸色那几层一起丢掉，所以是叠一层，
+   不是替一层 */
+.agent-panel-composer .agent-panel-send:not(:disabled) {
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--color-primary, #10b981) 92%, transparent),
+      color-mix(in srgb, var(--color-primary, #10b981) 78%, transparent)
+    ),
+    var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  color: #fff;
+}
+
+@media (hover: hover) {
+  .agent-panel-composer .agent-panel-send:not(:disabled):hover {
+    color: #fff;
+  }
+}
+
+/* 停止键：不透明淡红。叠在玻璃令牌上只会透出壁纸，看起来像没上色。 */
+.agent-panel-composer .agent-panel-stop {
+  background: color-mix(in srgb, var(--color-error, #ef4444) 42%, white);
+  color: #fff;
+  backdrop-filter: none;
+}
+
+@media (hover: hover) {
+  .agent-panel-composer .agent-panel-stop:not(:disabled):hover {
+    background: color-mix(in srgb, var(--color-error, #ef4444) 52%, white);
+    color: #fff;
+  }
+}
+
+.agent-panel-field-shell {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 56px;
+  padding: 14px 20px 14px 18px;
+  border-radius: 28px;
+  gap: 10px;
+  transition: border-color 180ms ease;
+}
+
+.agent-panel-field-shell[data-drop='true'] {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 55%,
+    transparent
+  ) !important;
+}
+
+/* 状态灯和添加附件是同一枚：待命是 14px 圆角加号。亮起来时两臂胀成同一
+   颗圆；圆里是三团 OKLCH 色晕，频率错开，颜色自己在游。 */
+.agent-panel-attach {
+  --orb: var(--color-primary, #10b981);
+
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 280ms ease;
+}
+
+.agent-panel-attach[data-status='listening'],
+.agent-panel-attach[data-status='thinking'],
+.agent-panel-attach[data-status='working'],
+.agent-panel-attach[data-status='done'] {
+  --orb: var(--color-primary, #10b981);
+
+  color: var(--orb);
+}
+
+.agent-panel-attach[data-status='needsInput'] {
+  --orb: var(--color-accent, #f59e0b);
+
+  color: var(--orb);
+}
+
+.agent-panel-attach[data-status='error'] {
+  --orb: var(--color-error, #ef4444);
+
+  color: var(--orb);
+}
+
+.agent-panel-attach-plus {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.agent-panel-attach-bar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 999px;
+  background: currentcolor;
+  transform: translate(-50%, -50%);
+  transition:
+    width 400ms cubic-bezier(0.22, 1, 0.36, 1) 80ms,
+    height 400ms cubic-bezier(0.22, 1, 0.36, 1) 80ms;
+}
+
+.agent-panel-attach-bar[data-axis='x'] {
+  width: 14px;
+  height: 3px;
+}
+
+.agent-panel-attach-bar[data-axis='y'] {
+  width: 3px;
+  height: 14px;
+}
+
+.agent-panel-attach-orb {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 50%;
+  pointer-events: none;
+  isolation: isolate;
+  background: var(--orb);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 200ms ease;
+}
+
+.agent-panel-attach-orb [data-orb-blob] {
+  position: absolute;
+  inset: -55%;
+  border-radius: 50%;
+  filter: blur(2.5px);
+}
+
+.agent-panel-attach[data-status]:not([data-status='idle'])
+  .agent-panel-attach-orb
+  [data-orb-blob] {
+  will-change: transform;
+}
+
+.agent-panel-attach-orb [data-orb-blob='0'] {
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--orb) 38%, white) 0%,
+    transparent 70%
+  );
+  transform: translate(-18%, -14%);
+}
+
+.agent-panel-attach-orb [data-orb-blob='1'] {
+  background: radial-gradient(
+    circle,
+    oklch(from var(--orb) l c calc(h + 26)) 0%,
+    transparent 66%
+  );
+  transform: translate(20%, 10%);
+}
+
+.agent-panel-attach-orb [data-orb-blob='2'] {
+  background: radial-gradient(
+    circle,
+    oklch(from var(--orb) calc(l + 0.08) calc(c + 0.03) calc(h - 20)) 0%,
+    transparent 62%
+  );
+  transform: translate(-8%, 22%);
+}
+
+@supports not (background: oklch(from red l c h)) {
+  .agent-panel-attach-orb [data-orb-blob='1'] {
+    background: radial-gradient(
+      circle,
+      color-mix(in oklch, var(--orb) 55%, white) 0%,
+      transparent 66%
+    );
+  }
+
+  .agent-panel-attach-orb [data-orb-blob='2'] {
+    background: radial-gradient(
+      circle,
+      color-mix(in oklch, var(--orb) 70%, white) 0%,
+      transparent 62%
+    );
+  }
+}
+
+.agent-panel-attach[data-status]:not([data-status='idle'])
+  .agent-panel-attach-bar {
+  width: 14px;
+  height: 14px;
+  transition:
+    width 400ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 400ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.agent-panel-attach[data-status]:not([data-status='idle'])
+  .agent-panel-attach-orb {
+  opacity: 1;
+  transition: opacity 240ms ease 160ms;
+}
+
+@media (hover: hover) {
+  .agent-panel-attach:hover {
+    color: var(--text-primary, #111827);
+  }
+
+  .agent-panel-attach[data-status]:not([data-status='idle']):hover {
+    color: var(--orb);
+  }
+}
+
+.agent-panel-attach:focus-visible {
+  outline: 2px solid
+    color-mix(in srgb, var(--color-primary, #10b981) 68%, white);
+  outline-offset: 2px;
+}
+
+.agent-panel-attach-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-panel-field,
+.agent-panel-field:focus {
+  position: relative;
+
+  /* 同上：别被弯光环盖住 */
+  z-index: 1;
+  display: block;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  max-height: 168px;
+  margin: 0;
+  padding: 2px 0 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--text-primary, #111827);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  outline: none;
+  appearance: none;
+  resize: none;
+  overflow: hidden auto;
+}
+
+.agent-panel-field::placeholder {
+  color: var(--text-muted, #9ca3af);
+}
+
+.agent-panel-field-shell:focus-within {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 55%,
+    transparent
+  ) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-overlay-anchor,
+  .agent-panel-aurora,
+  .agent-panel-aurora::before,
+  .agent-panel-aurora::after,
+  .agent-panel-aurora-flow,
+  .agent-panel-aurora-flow::before,
+  .agent-panel-aurora-flow::after,
+  .agent-panel-aurora-prism,
+  .agent-panel-aurora-blob,
+  .agent-panel-aurora-alert,
+  .agent-panel-aurora-alert::before,
+  .agent-panel-aurora-alert::after,
+  .agent-panel-overlay,
+  .agent-panel-tag-rail,
+  .agent-panel-composer,
+  .agent-panel-messages-slot,
+  .agent-panel-message,
+  .agent-panel-session,
+  .agent-panel-tag,
+  .agent-panel-control,
+  .agent-panel-field-shell,
+  .agent-panel-face,
+  .agent-panel-face-rig,
+  .agent-panel-face-slot,
+  .agent-panel-work-chrome,
+  .agent-panel-tag-mid,
+  .agent-panel-mode-labels > span,
+  .agent-panel-end-layer,
+  .agent-panel-end-slot,
+  .agent-panel-attach-bar,
+  .agent-panel-attach-orb,
+  .agent-panel-presence,
+  .agent-panel-swap,
+  .agent-panel-longpress,
+  .agent-panel-lp-dot,
+  .agent-panel-lp-pulse,
+  .agent-panel-lp-svg,
+  .agent-panel-mic-hold,
+  .agent-panel-mic-hold-ring,
+  .agent-panel-mic[data-conversation='true'] {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    animation: none !important;
+  }
+
+  .agent-panel-overlay-anchor[data-phase='opening'],
+  .agent-panel-overlay-anchor[data-phase='closing'],
+  .agent-panel-overlay-anchor[data-stage='full'][data-phase='opening'],
+  .agent-panel-overlay-anchor[data-stage='full'][data-phase='closing'] {
+    translate: -50% 0;
+    scale: 1;
+  }
+
+  .agent-panel-aurora[data-phase='opening'],
+  .agent-panel-aurora[data-phase='closing'] {
+    opacity: 1;
+    translate: 0 0;
+  }
+
+  .agent-panel-presence[data-presence='out'] {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+
+  @starting-style {
+    .agent-panel-overlay-anchor,
+    .agent-panel-overlay-anchor[data-stage='full'] {
+      opacity: 1;
+      translate: -50% 0;
+      scale: 1;
+    }
+
+    .agent-panel-aurora {
+      opacity: 1;
+      translate: 0 0;
+    }
+
+    .agent-panel-overlay-anchor[data-stage='full'] .agent-panel-composer,
+    .agent-panel-presence {
+      opacity: 1;
+      translate: 0 0;
+      scale: 1;
+    }
+  }
+
+  .agent-panel-control:hover,
+  .agent-panel-control:active {
+    transform: none;
+  }
+
+  .agent-panel-message[data-leaving='true'],
+  .agent-panel-session[data-leaving='true'] {
+    filter: none;
+    transform: none;
+  }
+}
+
+/* ==========================================
+   Full 层
+   ==========================================
+
+   最大的那一档，仍然贴底。对话每条独立成胶囊，不再铺一块统一底。
+   列表不设 overflow、不裁容器、不切遮罩：轨道位移，越界的卡片整张化开。
+   ========================================== */
+
+.agent-panel-full {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.agent-panel-messages-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.agent-panel-messages-slot[data-exiting='true'] {
+  pointer-events: none;
+}
+
+.agent-panel-overlay-anchor[data-capped='true'] .agent-panel-messages-slot {
+  flex: 1 1 0;
+}
+
+.agent-panel-messages {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 0;
+  overflow: visible;
+  touch-action: none;
+}
+
+.agent-panel-overlay-anchor[data-capped='true'] .agent-panel-messages {
+  position: absolute;
+  inset: 0;
+}
+
+.agent-panel-messages-track {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.agent-panel-messages-track .agent-panel-tag[data-block='true'] {
+  align-self: stretch;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  backdrop-filter: var(--surface-filter);
+  box-shadow: var(--surface-shadow);
+}
+
+.agent-panel-message {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  max-width: 100%;
+}
+
+/* 滚动退场走 transform / filter:opacity，不碰 opacity / translate / scale ——
+   那三条是面板开合和卡片入场在用。不加 blur：高斯糊会把越界的卡片拖成一片脏雾。 */
+.agent-panel-message[data-leaving='true'],
+.agent-panel-session[data-leaving='true'] {
+  transform-origin: center center;
+  transform: translateY(calc(var(--exit, 0) * var(--exit-y, 0px)))
+    scale(calc(1 - var(--exit, 0) * 0.045));
+  filter: opacity(calc(1 - var(--exit, 0) * 0.86));
+}
+
+html[data-perf-mode='exlight'] .agent-panel-presence,
+html[data-perf-mode='exlight'] .agent-panel-message-body {
+  filter: none;
+  transition-duration: 0.01ms;
+}
+
+.agent-panel-message[data-role='user'] .agent-panel-message-body {
+  align-self: flex-end;
+}
+
+.agent-panel-message[data-role='assistant'] .agent-panel-message-body {
+  align-self: flex-start;
+}
+
+.agent-panel-message-body {
+  box-sizing: border-box;
+  max-width: 86%;
+  min-width: 0;
+  color: var(--text-primary, #111827);
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  height: auto;
+}
+
+.agent-panel-message-body.glass {
+  padding: 12px 16px;
+  border-radius: 22px;
+}
+
+/* 正文在文档流里撑开气泡。思考收掉时改绝对定位叠在上面，
+   高度从上一帧收到正文，多出来的是思考被裁掉，不是一块空垫。
+   grow 必须是内容高，不能跟着外框一起长，否则跟随会把目标越写越大。 */
+.agent-panel-message-grow {
+  position: relative;
+  width: 100%;
+  height: max-content;
+}
+
+.agent-panel-thinking-slot {
+  opacity: 1;
+  transition: opacity 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.agent-panel-thinking-slot[data-open='false'] {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-panel-message-answer {
+  min-width: 0;
+}
+
+/* 气泡和历史卡贴在壁纸上。backdrop-filter 会把立绘采进胶囊里糊成雾；
+   底、边、阴影仍走 .glass 令牌。去掉磨砂后默认 74% 会透穿，略抬不透明。
+   输入行那两块玻璃还要磨砂，不动。solid 已经不透明，不要往回减。 */
+html .agent-panel-message-body.glass,
+html .agent-panel-session.glass {
+  backdrop-filter: none;
+}
+
+html:not([data-surface='solid']) .agent-panel-message-body.glass,
+html:not([data-surface='solid']) .agent-panel-session.glass {
+  --surface-alpha: 84%;
+
+  background:
+    var(--surface-sheen), rgb(var(--surface-rgb) / var(--surface-alpha));
+}
+
+.agent-panel-message[data-role='system'] .agent-panel-message-body {
+  align-self: center;
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+}
+
+.agent-panel-message[data-state='error'] .agent-panel-message-body {
+  color: var(--color-error, #ef4444);
+}
+
+/* 还在说的时候，句尾跟一个光标。
+   挂在正文最后一个块的末尾。思考、提问、图不是「还在说」。 */
+.agent-panel-message[data-state='streaming']
+  .agent-panel-message-answer
+  > :last-child:not(
+    .agent-panel-question,
+    .agent-panel-question-options,
+    .agent-panel-message-images
+  )::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  border-radius: 1px;
+  background: currentcolor;
+  vertical-align: text-bottom;
+  animation: agent-panel-caret 1s steps(2) infinite;
+}
+
+@keyframes agent-panel-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.agent-panel-message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.agent-panel-message-images:first-child {
+  margin-top: 0;
+}
+
+.agent-panel-message-images img {
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+.agent-panel-message-attach {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.agent-panel-message-attach .agent-panel-image-open img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+/* 气泡里的贴不加磨砂，给一层实底。 */
+.agent-panel-message-body .agent-panel-tag {
+  max-width: 100%;
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  box-shadow: var(--surface-shadow);
+}
+
+/* ── 它的设置 ───────────────────────────────────── */
+
+.agent-panel-manage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.agent-panel-manage .agent-panel-tag {
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  box-shadow: var(--surface-shadow);
+}
+
+.agent-panel-manage .agent-panel-tag[data-block='true'] {
+  align-self: stretch;
+  margin: 0;
+}
+
+.agent-panel-manage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.agent-panel-manage-row .agent-panel-tag-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel-manage-toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted, #9ca3af) 35%, transparent);
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.agent-panel-manage-toggle[data-on='true'] {
+  background: var(--color-primary, #10b981);
+}
+
+.agent-panel-manage-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  transition: translate 0.18s ease;
+}
+
+.agent-panel-manage-toggle[data-on='true'] .agent-panel-manage-knob {
+  translate: 13px 0;
+}
+
+.agent-panel-manage-trace {
+  align-items: flex-start;
+}
+
+.agent-panel-manage-trace-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-panel-manage-trace-meta {
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.agent-panel-manage-export {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agent-panel-manage-export:hover,
+.agent-panel-manage-export:focus-visible {
+  color: var(--text-primary, #111827);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-manage-toggle,
+  .agent-panel-manage-knob {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── 思考过程 ─────────────────────────────────────
+   在答案胶囊里面。正文一出来就卸掉，所以不必做成另一颗气泡。 */
+
+.agent-panel-thinking {
+  margin: 0 0 6px;
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+}
+
+.agent-panel-thinking:last-child {
+  margin-bottom: 0;
+}
+
+.agent-panel-thinking[data-live='true'] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 18px;
+  color: var(--text-secondary, #6b7280);
+  font-size: 13px;
+}
+
+.agent-panel-thinking-thought {
+  margin: 0;
+  min-width: 0;
+  color: var(--text-muted, #9ca3af);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-panel-thinking-thought:not([data-live='true']) {
+  max-height: 16em;
+  overflow: hidden auto;
+}
+
+.agent-panel-thinking-thought[data-live='true'] {
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* 扫在字形上。clip 要配透明填充，所以渐变必须始终盖住整段字 ——
+   扫到 -100% 会把底滑出盒子，字就跟着没了。200% + 0%/100% 两端都盖住。 */
+.agent-panel-thinking-sweep {
+  color: var(--text-muted, #9ca3af);
+}
+
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .agent-panel-thinking-sweep {
+    background-image: linear-gradient(
+      90deg,
+      var(--text-muted, #9ca3af) 0%,
+      var(--text-muted, #9ca3af) 40%,
+      color-mix(
+          in srgb,
+          var(--color-primary, #10b981) 55%,
+          var(--text-muted, #9ca3af)
+        )
+        48%,
+      var(--color-primary, #10b981) 50%,
+      color-mix(
+          in srgb,
+          var(--color-primary, #10b981) 55%,
+          var(--text-muted, #9ca3af)
+        )
+        52%,
+      var(--text-muted, #9ca3af) 60%,
+      var(--text-muted, #9ca3af) 100%
+    );
+    background-repeat: no-repeat;
+    background-size: 200% 100%;
+    background-position: 100% 0;
+    background-clip: text;
+    color: transparent;
+    /* stylelint-disable property-no-vendor-prefix -- clip to glyphs; clone so wraps do not share one slab */
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    -webkit-box-decoration-break: clone;
+    /* stylelint-enable property-no-vendor-prefix */
+    box-decoration-break: clone;
+    animation: agent-panel-thought-sweep 2.2s linear infinite;
+  }
+}
+
+@keyframes agent-panel-thought-sweep {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: 0% 0;
+  }
+}
+
+.agent-panel-thinking-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-panel-thinking-headline {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel-thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 5px;
+  min-height: 18px;
+}
+
+.agent-panel-thinking-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentcolor;
+  opacity: 0.45;
+  animation: agent-panel-thinking-dot 1.2s ease-in-out infinite;
+}
+
+.agent-panel-thinking-dots span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.agent-panel-thinking-dots span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes agent-panel-thinking-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+}
+
+.agent-panel-thinking-headline .agent-panel-swap {
+  width: 100%;
+  justify-items: start;
+}
+
+.agent-panel-control .agent-panel-swap {
+  position: relative;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+}
+
+.agent-panel-thinking[data-failed='true'] .agent-panel-thinking-headline {
+  color: var(--color-error, #ef4444);
+}
+
+.agent-panel-thinking-elapsed {
+  flex-shrink: 0;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-panel-thinking-arrow {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  margin-left: auto;
+  transition: rotate 0.15s ease;
+}
+
+.agent-panel-thinking-arrow[data-open='true'] {
+  rotate: 90deg;
+}
+
+.agent-panel-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary, #6b7280);
+  font-size: 12px;
+}
+
+.agent-panel-tools li {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 8px;
+  min-width: 0;
+}
+
+.agent-panel-tool-status {
+  width: 7px;
+  height: 7px;
+  margin-top: 0.42em;
+  border-radius: 50%;
+  background: currentcolor;
+  opacity: 0.32;
+}
+
+.agent-panel-tools li[data-status='running'] .agent-panel-tool-status {
+  background: var(--color-primary, #10b981);
+  opacity: 1;
+  animation: agent-panel-blink 1.2s ease-in-out infinite;
+}
+
+.agent-panel-tools li[data-status='done'] .agent-panel-tool-status {
+  background: var(--color-primary, #10b981);
+  opacity: 0.72;
+}
+
+.agent-panel-tools li[data-status='error'] .agent-panel-tool-status {
+  background: var(--color-error, #ef4444);
+  opacity: 1;
+}
+
+.agent-panel-tools li[data-status='pending'] {
+  color: var(--text-muted, #9ca3af);
+}
+
+.agent-panel-tools li[data-status='running'] .agent-panel-tool-name {
+  color: var(--text-primary, #111827);
+  font-weight: 600;
+}
+
+.agent-panel-tools li[data-status='error'] .agent-panel-tool-name {
+  color: var(--color-error, #ef4444);
+}
+
+.agent-panel-tool-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-panel-tool-name {
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.agent-panel-tool-note {
+  color: var(--text-muted, #9ca3af);
+  font-size: 11.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.agent-panel-tool-elapsed {
+  flex-shrink: 0;
+  margin-top: 0.15em;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-thinking-arrow,
+  .agent-panel-thinking-dots span,
+  .agent-panel-thinking-sweep,
+  .agent-panel-tools li[data-status='running'] .agent-panel-tool-status {
+    animation: none;
+    transition-duration: 0.01ms !important;
+  }
+
+  .agent-panel-thinking-dots span {
+    opacity: 0.55;
+  }
+
+  .agent-panel-thinking-sweep {
+    background-image: none;
+    background-clip: border-box;
+    color: var(--text-muted, #9ca3af);
+    /* stylelint-disable-next-line property-no-vendor-prefix -- restore fill after clip */
+    -webkit-text-fill-color: var(--text-muted, #9ca3af);
+  }
+}
+
+html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
+  animation: none;
+  background-image: none;
+  background-clip: border-box;
+  color: var(--text-muted, #9ca3af);
+  /* stylelint-disable-next-line property-no-vendor-prefix -- restore fill after clip */
+  -webkit-text-fill-color: var(--text-muted, #9ca3af);
+}
+
+/* ── 之前聊过的 ─────────────────────────────────── */
+
+.agent-panel-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  padding: 12px 16px;
+  border-radius: 22px;
+  color: var(--text-primary, #111827);
+}
+
+.agent-panel-session-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-panel-session-open:focus-visible {
+  outline: none;
+}
+
+.agent-panel-session:focus-within {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 40%,
+    transparent
+  );
+}
+
+.agent-panel-session-title {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel-session-time {
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-panel-session .agent-panel-tag-dismiss {
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  color: var(--text-muted, #9ca3af);
+  transition:
+    opacity 150ms ease,
+    color 150ms ease,
+    background 150ms ease;
+}
+
+@media (hover: hover) {
+  .agent-panel-session .agent-panel-tag-dismiss {
+    opacity: 0;
+  }
+
+  .agent-panel-session:hover .agent-panel-tag-dismiss,
+  .agent-panel-session:focus-within .agent-panel-tag-dismiss {
+    opacity: 1;
+  }
+}
+
+.agent-panel-session .agent-panel-tag-dismiss:hover,
+.agent-panel-session .agent-panel-tag-dismiss:focus-visible {
+  background: color-mix(in srgb, var(--color-error, #ef4444) 12%, transparent);
+  color: var(--color-error, #ef4444);
+}
+
+.agent-panel-session .agent-panel-tag-dismiss svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ── 它反过来问你的话 ─────────────────────────────
+   问句就是气泡正文，不再套一层色块。选项跟输入行那排贴同一套。 */
+
+.agent-panel-question {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.agent-panel-message-body > .agent-panel-question:not(:first-child),
+.agent-panel-message-body > .agent-panel-question-options:not(:first-child) {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--surface-border, rgb(0 0 0 / 8%));
+}
+
+.agent-panel-question-text {
+  margin: 0;
+  color: var(--text-primary, #111827);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.agent-panel-question-context {
+  margin: 0;
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.agent-panel-question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+
+/* 答过之后按钮冻结，但仍然看得见当时选了哪个 */
+.agent-panel-question-options .agent-panel-tag[data-active='true'] {
+  border-color: var(--color-primary, #10b981);
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 16%,
+    transparent
+  );
+  color: var(--color-primary, #10b981);
+}
+
+.agent-panel-question-options .agent-panel-tag:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.agent-panel-question-options
+  .agent-panel-tag:disabled:not([data-active='true']) {
+  opacity: 0.35;
+}
+
+.agent-panel-session[data-active='true'] {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary, #10b981) 38%,
+    transparent
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-session .agent-panel-tag-dismiss {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── 消息脚注：时间、复制、重试 ───────────────────
+   贴在气泡下面、跟气泡同一侧。对话卡已经不套进 overlay 玻璃，
+   脚注贴直接铺在壁纸上，所以自己吃表面令牌。 */
+
+.agent-panel-message-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 86%;
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+}
+
+.agent-panel-message[data-role='user'] .agent-panel-message-footer {
+  place-self: end;
+}
+
+.agent-panel-message[data-role='assistant'] .agent-panel-message-footer,
+.agent-panel-message[data-role='system'] .agent-panel-message-footer {
+  place-self: start;
+}
+
+.agent-panel-message-footer .agent-panel-tag {
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  backdrop-filter: var(--surface-filter);
+  box-shadow: var(--surface-shadow);
+}
+
+@media (hover: hover) {
+  .agent-panel-message-footer {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .agent-panel-message:hover .agent-panel-message-footer,
+  .agent-panel-message:focus-within .agent-panel-message-footer {
+    opacity: 1;
+  }
+}
+
+.agent-panel-message-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 看大图 ─────────────────────────────────────── */
+
+.agent-panel-image-open {
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  line-height: 0;
+  cursor: zoom-in;
+}
+
+.agent-panel-image-open img {
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+.agent-panel-lightbox {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  border: none;
+  border-radius: 22px;
+  background: rgb(0 0 0 / 78%);
+  cursor: zoom-out;
+}
+
+.agent-panel-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 12px;
+  object-fit: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-message-footer {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── 助手回复里那点 Markdown ─────────────────────── */
+
+.agent-md-p {
+  margin: 0 0 6px;
+}
+
+.agent-md-p:last-child,
+.agent-md-list:last-child,
+.agent-md-pre:last-child,
+.agent-md-quote:last-child,
+.agent-md-hr:last-child,
+.agent-md-table-scroll:last-child {
+  margin-bottom: 0;
+}
+
+.agent-md-pre:first-child,
+.agent-md-quote:first-child,
+.agent-md-list:first-child,
+.agent-md-table-scroll:first-child {
+  margin-top: 0;
+}
+
+.agent-md-heading {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.agent-md-heading:first-child {
+  margin-top: 0;
+}
+
+.agent-md-list {
+  margin: 0 0 6px;
+  padding-left: 1.2em;
+}
+
+.agent-md-code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-muted, #9ca3af) 18%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.agent-md-pre {
+  overflow-x: auto;
+  margin: 6px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text-muted, #9ca3af) 14%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-md-quote {
+  margin: 6px 0;
+  padding-left: 10px;
+  border-left: 2px solid
+    color-mix(in srgb, var(--text-muted, #9ca3af) 40%, transparent);
+  color: var(--text-secondary, #6b7280);
+}
+
+.agent-md-hr {
+  margin: 10px 0;
+  border: none;
+  border-top: 1px solid var(--surface-border, rgb(0 0 0 / 8%));
+}
+
+.agent-md-img {
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+.agent-md-link {
+  color: var(--color-primary, #10b981);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 宽表自己横向滚，不把气泡撑破 */
+.agent-md-table-scroll {
+  overflow-x: auto;
+  margin: 6px 0;
+}
+
+.agent-md-table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.agent-md-table th,
+.agent-md-table td {
+  padding: 5px 9px;
+  border: 1px solid var(--surface-border, rgb(0 0 0 / 8%));
+  text-align: left;
+  white-space: nowrap;
+}
+
+.agent-md-table th {
+  background: color-mix(in srgb, var(--text-muted, #9ca3af) 12%, transparent);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-message[data-state='streaming']
+    .agent-panel-message-answer
+    > :last-child:not(
+      .agent-panel-question,
+      .agent-panel-question-options,
+      .agent-panel-message-images
+    )::after {
+    animation: none;
+  }
+
+  .agent-panel-thinking-slot {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================
+   Action Card
+   ==========================================
+
+   要动真格之前问的那一下。按操作本身排：风险和时限在最上，接着是它准备做什么、
+   会影响什么，最后才是两个键。三档只差摊开多少。
+   ========================================== */
+
+.agent-panel-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.agent-panel-action-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.agent-panel-action .agent-panel-tag {
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  box-shadow: var(--surface-shadow);
+}
+
+.agent-panel-action-ttl {
+  flex-shrink: 0;
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-panel-action-ttl[data-expired='true'] {
+  color: var(--color-error, #ef4444);
+}
+
+.agent-panel-action-prompt {
+  margin: 0;
+  color: var(--text-primary, #111827);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.agent-panel-action-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.agent-panel-action-label {
+  color: var(--text-muted, #9ca3af);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-panel-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary, #6b7280);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-panel-action-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-panel-action-step-name {
+  color: var(--text-primary, #111827);
+  font-weight: 600;
+}
+
+.agent-panel-action-step-note {
+  color: var(--text-muted, #9ca3af);
+  overflow-wrap: anywhere;
+}
+
+.agent-panel-action-impact .agent-panel-action-label,
+.agent-panel-action-impact .agent-panel-action-list {
+  color: var(--color-error, #ef4444);
+}
+
+.agent-panel-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+/* ==========================================
+   底部流光
+
+   面板开着时贴在屏幕底边，参考 Apple Intelligence 的虹彩边缘。
+   色从壁纸主色衍生。画面里只走主色两侧约 120°，来回是回文，
+   邻档 40°；整圈彩虹铺满底边会脏。色带拉长，一屏只看到两三色。
+   光在面板下面（z 60 / 61），从玻璃后面渗出来。
+   色带画两段相同的谱，位移 50% 接上；光斑只平移不缩放。
+   底下一层匀速铺色，上面一层反向走更紧的色团，两边光斑错开，
+   才看得出颜色在底边滑，而不是一团光在原地变色。
+   思考不用平移色带。五团色块铺满底边，高度贴空闲 88px 色带。
+   进出按车道错开；换谱同一位置旧团先收、新团再进。失败叠淡红。
+   默认藏着，落定才亮，避免 plus-lighter 先闪一帧。入场比外壳晚、从底下托上来。
+   ========================================== */
+
+@property --agent-aurora-0 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #94a3b8;
+}
+
+@property --agent-aurora-1 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #94a3b8;
+}
+
+@property --agent-aurora-2 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #cbd5e1;
+}
+
+@property --agent-aurora-3 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #cbd5e1;
+}
+
+@property --agent-aurora-4 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #cbd5e1;
+}
+
+@property --agent-aurora-5 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #94a3b8;
+}
+
+@property --agent-aurora-6 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #94a3b8;
+}
+
+@property --agent-aurora-west {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #94a3b8;
+}
+
+.agent-panel-aurora {
+  --agent-aurora-c-min: 0.1;
+  --agent-aurora-c-max: 0.17;
+  --agent-aurora-l-min: 0.62;
+  --agent-aurora-l-max: 0.78;
+  --agent-aurora-0: var(--color-primary);
+  --agent-aurora-1: color-mix(in oklab, var(--color-primary) 80%, white);
+  --agent-aurora-2: var(--color-accent);
+  --agent-aurora-3: color-mix(in oklab, var(--color-accent) 80%, white);
+  --agent-aurora-4: var(--color-accent);
+  --agent-aurora-5: color-mix(in oklab, var(--color-primary) 80%, white);
+  --agent-aurora-6: var(--color-primary);
+  --agent-aurora-west: color-mix(in oklab, var(--color-secondary) 74%, white);
+  --agent-aurora-stops:
+    var(--agent-aurora-0), var(--agent-aurora-1), var(--agent-aurora-2),
+    var(--agent-aurora-3), var(--agent-aurora-4), var(--agent-aurora-5),
+    var(--agent-aurora-6);
+  --agent-aurora-ribbon-ms: 8s;
+  --agent-aurora-core-ms: 5s;
+  --agent-aurora-drift-ms: 7s;
+  --agent-aurora-cross-ms: 9s;
+  --agent-aurora-width: 400%;
+  --agent-aurora-shift: 640ms;
+  --agent-aurora-band-height: 88px;
+  --agent-aurora-band-bottom: -28px;
+  --agent-aurora-band-blur: 28px;
+  --agent-aurora-core-height: 52px;
+  --agent-aurora-core-bottom: -18px;
+  --agent-aurora-rise: 40px;
+  --agent-aurora-enter-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 60;
+  height: min(36vh, 280px);
+  pointer-events: none;
+  overflow: hidden;
+  contain: layout paint;
+  opacity: 0;
+  translate: 0 var(--agent-aurora-rise);
+  mask-image: radial-gradient(140% 92% at 50% 118%, #000 10%, transparent 70%);
+  transition:
+    opacity var(--agent-aurora-shift) var(--agent-aurora-enter-ease) 90ms,
+    translate 560ms var(--agent-aurora-enter-ease) 40ms,
+    --agent-aurora-0 var(--agent-aurora-shift)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    --agent-aurora-1 var(--agent-aurora-shift)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    --agent-aurora-2 var(--agent-aurora-shift)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    --agent-aurora-3 var(--agent-aurora-shift)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    --agent-aurora-4 var(--agent-aurora-shift)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    --agent-aurora-5 var(--agent-aurora-shift)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    --agent-aurora-6 var(--agent-aurora-shift)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    --agent-aurora-west var(--agent-aurora-shift)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+html.dark .agent-panel-aurora {
+  --agent-aurora-c-min: 0.14;
+  --agent-aurora-c-max: 0.22;
+  --agent-aurora-l-min: 0.58;
+  --agent-aurora-l-max: 0.72;
+
+  mix-blend-mode: plus-lighter;
+}
+
+@supports (color: oklch(from red l c calc(h + 1deg))) {
+  .agent-panel-aurora {
+    --agent-aurora-0: oklch(
+      from var(--color-primary)
+        clamp(var(--agent-aurora-l-min), l, var(--agent-aurora-l-max))
+        clamp(var(--agent-aurora-c-min), c, var(--agent-aurora-c-max)) h
+    );
+    --agent-aurora-1: oklch(
+      from var(--color-primary)
+        clamp(var(--agent-aurora-l-min), l, var(--agent-aurora-l-max))
+        clamp(var(--agent-aurora-c-min), c, var(--agent-aurora-c-max))
+        calc(h + 40deg)
+    );
+    --agent-aurora-2: oklch(
+      from var(--color-primary)
+        clamp(var(--agent-aurora-l-min), l, var(--agent-aurora-l-max))
+        clamp(var(--agent-aurora-c-min), c, var(--agent-aurora-c-max))
+        calc(h + 80deg)
+    );
+    --agent-aurora-3: oklch(
+      from var(--color-primary)
+        clamp(var(--agent-aurora-l-min), l, var(--agent-aurora-l-max))
+        clamp(var(--agent-aurora-c-min), c, var(--agent-aurora-c-max))
+        calc(h + 120deg)
+    );
+    --agent-aurora-4: oklch(
+      from var(--color-primary)
+        clamp(var(--agent-aurora-l-min), l, var(--agent-aurora-l-max))
+        clamp(var(--agent-aurora-c-min), c, var(--agent-aurora-c-max))
+        calc(h + 80deg)
+    );
+    --agent-aurora-5: oklch(
+      from var(--color-primary)
+        clamp(var(--agent-aurora-l-min), l, var(--agent-aurora-l-max))
+        clamp(var(--agent-aurora-c-min), c, var(--agent-aurora-c-max))
+        calc(h + 40deg)
+    );
+    --agent-aurora-6: oklch(
+      from var(--color-primary)
+        clamp(var(--agent-aurora-l-min), l, var(--agent-aurora-l-max))
+        clamp(var(--agent-aurora-c-min), c, var(--agent-aurora-c-max)) h
+    );
+    --agent-aurora-west: oklch(
+      from var(--color-primary)
+        clamp(var(--agent-aurora-l-min), l, var(--agent-aurora-l-max))
+        clamp(var(--agent-aurora-c-min), c, var(--agent-aurora-c-max))
+        calc(h - 80deg)
+    );
+  }
+}
+
+/* 默认藏着。落定才亮。先画成不透明再 0.01ms 灭掉会闪一帧。
+   快捷态→对话时光线已经在，full 且不是 closing 保持亮。 */
+.agent-panel-aurora[data-phase='settled'],
+.agent-panel-aurora[data-stage='full']:not([data-phase='closing']) {
+  opacity: 1;
+  translate: 0 0;
+}
+
+.agent-panel-aurora[data-phase='closing'] {
+  opacity: 0;
+  translate: 0 var(--agent-aurora-rise);
+  transition-duration: var(--agent-move, 480ms);
+  transition-delay: 0ms;
+  transition-timing-function: var(
+    --agent-ease-exit,
+    cubic-bezier(1, 0, 0.68, 0.28)
+  );
+}
+
+.agent-panel-aurora::before {
+  content: '';
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  bottom: -36%;
+  height: 180%;
+  background:
+    radial-gradient(
+      ellipse 46% 62% at 18% 78%,
+      color-mix(in oklab, var(--agent-aurora-2) 54%, transparent),
+      transparent 68%
+    ),
+    radial-gradient(
+      ellipse 42% 58% at 82% 78%,
+      color-mix(in oklab, var(--agent-aurora-west) 52%, transparent),
+      transparent 68%
+    ),
+    radial-gradient(
+      ellipse 48% 54% at 50% 96%,
+      color-mix(in oklab, var(--agent-aurora-0) 50%, transparent),
+      transparent 66%
+    ),
+    radial-gradient(
+      ellipse 30% 42% at 36% 84%,
+      color-mix(in oklab, var(--agent-aurora-1) 40%, transparent),
+      transparent 64%
+    ),
+    radial-gradient(
+      ellipse 28% 40% at 64% 84%,
+      color-mix(in oklab, var(--agent-aurora-5) 40%, transparent),
+      transparent 64%
+    );
+  z-index: 0;
+  opacity: 0.72;
+  animation: agent-panel-aurora-drift var(--agent-aurora-drift-ms) ease-in-out
+    infinite;
+  transition: opacity var(--agent-aurora-shift, 640ms)
+    var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.agent-panel-aurora::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: var(--agent-aurora-width, 400%);
+  bottom: var(--agent-aurora-band-bottom, -28px);
+  height: var(--agent-aurora-band-height, 88px);
+  background: linear-gradient(
+    90deg in oklch,
+    var(--agent-aurora-stops),
+    var(--agent-aurora-stops)
+  );
+  z-index: 1;
+  opacity: 0.34;
+  filter: blur(var(--agent-aurora-band-blur, 28px));
+  animation: agent-panel-aurora-ribbon var(--agent-aurora-ribbon-ms) linear
+    infinite;
+  transition:
+    opacity var(--agent-aurora-shift, 640ms)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    filter var(--agent-aurora-shift, 640ms)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    width var(--agent-aurora-shift, 640ms)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.agent-panel-aurora-flow {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 640ms var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.agent-panel-aurora-flow::before {
+  content: '';
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  bottom: -36%;
+  height: 180%;
+  background:
+    radial-gradient(
+      ellipse 38% 54% at 8% 82%,
+      color-mix(in oklab, var(--agent-aurora-3) 48%, transparent),
+      transparent 66%
+    ),
+    radial-gradient(
+      ellipse 36% 50% at 92% 80%,
+      color-mix(in oklab, var(--agent-aurora-2) 46%, transparent),
+      transparent 66%
+    ),
+    radial-gradient(
+      ellipse 32% 44% at 32% 90%,
+      color-mix(in oklab, var(--agent-aurora-west) 42%, transparent),
+      transparent 64%
+    ),
+    radial-gradient(
+      ellipse 30% 42% at 68% 88%,
+      color-mix(in oklab, var(--agent-aurora-1) 40%, transparent),
+      transparent 64%
+    );
+  opacity: 0.55;
+  animation: agent-panel-aurora-drift-cross var(--agent-aurora-cross-ms)
+    ease-in-out infinite;
+  transition: opacity var(--agent-aurora-shift, 640ms)
+    var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.agent-panel-aurora-flow::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: var(--agent-aurora-width, 400%);
+  bottom: var(--agent-aurora-core-bottom, -18px);
+  height: var(--agent-aurora-core-height, 52px);
+  background: linear-gradient(
+    90deg in oklch,
+    var(--agent-aurora-0) 0%,
+    var(--agent-aurora-0) 8%,
+    var(--agent-aurora-1) 12%,
+    var(--agent-aurora-2) 18%,
+    var(--agent-aurora-3) 25%,
+    var(--agent-aurora-2) 32%,
+    var(--agent-aurora-1) 38%,
+    var(--agent-aurora-0) 42%,
+    var(--agent-aurora-0) 50%,
+    var(--agent-aurora-0) 58%,
+    var(--agent-aurora-1) 62%,
+    var(--agent-aurora-2) 68%,
+    var(--agent-aurora-3) 75%,
+    var(--agent-aurora-2) 82%,
+    var(--agent-aurora-1) 88%,
+    var(--agent-aurora-0) 92%,
+    var(--agent-aurora-0) 100%
+  );
+  opacity: 0.42;
+  filter: blur(12px);
+  animation: agent-panel-aurora-ribbon var(--agent-aurora-core-ms) linear
+    infinite reverse;
+  transition:
+    opacity var(--agent-aurora-shift, 640ms)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    filter var(--agent-aurora-shift, 640ms)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1)),
+    width var(--agent-aurora-shift, 640ms)
+      var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+html.dark .agent-panel-aurora::before {
+  opacity: 0.82;
+}
+
+html.dark .agent-panel-aurora::after {
+  opacity: 0.42;
+}
+
+html.dark .agent-panel-aurora-flow::before {
+  opacity: 0.7;
+}
+
+html.dark .agent-panel-aurora-flow::after {
+  opacity: 0.55;
+}
+
+.agent-panel-aurora[data-status='thinking']::before,
+.agent-panel-aurora[data-status='working']::before {
+  opacity: 0.1;
+  transition-duration: 480ms;
+}
+
+.agent-panel-aurora[data-status='thinking']::after,
+.agent-panel-aurora[data-status='working']::after {
+  opacity: 0.08;
+  transition-duration: 480ms;
+}
+
+.agent-panel-aurora[data-status='thinking'] .agent-panel-aurora-flow,
+.agent-panel-aurora[data-status='working'] .agent-panel-aurora-flow {
+  opacity: 0.08;
+  transition-duration: 480ms;
+}
+
+.agent-panel-aurora[data-status='error']::before {
+  opacity: 0.1;
+  transition-duration: 480ms;
+}
+
+.agent-panel-aurora[data-status='error']::after {
+  opacity: 0.08;
+  transition-duration: 480ms;
+}
+
+.agent-panel-aurora[data-status='error'] .agent-panel-aurora-flow {
+  opacity: 0.08;
+  transition-duration: 480ms;
+}
+
+.agent-panel-aurora[data-status='thinking']::before,
+.agent-panel-aurora[data-status='thinking']::after,
+.agent-panel-aurora[data-status='thinking'] .agent-panel-aurora-flow::before,
+.agent-panel-aurora[data-status='thinking'] .agent-panel-aurora-flow::after,
+.agent-panel-aurora[data-status='working']::before,
+.agent-panel-aurora[data-status='working']::after,
+.agent-panel-aurora[data-status='working'] .agent-panel-aurora-flow::before,
+.agent-panel-aurora[data-status='working'] .agent-panel-aurora-flow::after,
+.agent-panel-aurora[data-status='error']::before,
+.agent-panel-aurora[data-status='error']::after,
+.agent-panel-aurora[data-status='error'] .agent-panel-aurora-flow::before,
+.agent-panel-aurora[data-status='error'] .agent-panel-aurora-flow::after {
+  animation-play-state: paused;
+}
+
+.agent-panel-aurora[data-paused='true'],
+.agent-panel-aurora[data-paused='true']::before,
+.agent-panel-aurora[data-paused='true']::after,
+.agent-panel-aurora[data-paused='true'] *,
+.agent-panel-aurora[data-paused='true'] *::before,
+.agent-panel-aurora[data-paused='true'] *::after {
+  animation-play-state: paused;
+}
+
+html.dark .agent-panel-aurora[data-status='thinking']::after,
+html.dark .agent-panel-aurora[data-status='working']::after {
+  opacity: 0.1;
+}
+
+html.dark .agent-panel-aurora[data-status='error']::after {
+  opacity: 0.14;
+}
+
+.agent-panel-aurora-prism,
+.agent-panel-aurora-alert {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.agent-panel-aurora-prism {
+  z-index: 3;
+  overflow: hidden;
+  opacity: 1;
+}
+
+.agent-panel-aurora-blob {
+  position: absolute;
+  left: var(--blob-x, 0%);
+  bottom: var(--blob-y, var(--agent-aurora-band-bottom, -28px));
+  width: var(--blob-w, 36%);
+  height: var(--blob-h, var(--agent-aurora-band-height, 88px));
+  border-radius: 50%;
+  pointer-events: none;
+  transform-origin: 50% 100%;
+  background: radial-gradient(
+    ellipse at 50% 70%,
+    var(--blob-color, var(--color-primary)),
+    transparent 72%
+  );
+  opacity: 0;
+  filter: blur(var(--blob-blur, 18px));
+  animation: var(--blob-path, agent-panel-aurora-blob-a) var(--blob-ms, 8s)
+    var(--blob-delay, 0s) ease-in-out infinite var(--blob-dir, normal);
+  transition: opacity 400ms
+    var(--agent-ease-exit, cubic-bezier(1, 0, 0.68, 0.28));
+  transition-delay: calc(var(--blob-stagger, 0) * 64ms);
+}
+
+.agent-panel-aurora[data-status='thinking']
+  .agent-panel-aurora-prism[data-active='true']
+  .agent-panel-aurora-blob,
+.agent-panel-aurora[data-status='working']
+  .agent-panel-aurora-prism[data-active='true']
+  .agent-panel-aurora-blob {
+  opacity: var(--blob-opacity, 0.75);
+  transition-duration: 520ms;
+  transition-timing-function: var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1));
+  transition-delay: calc(var(--blob-stagger, 0) * 64ms);
+}
+
+.agent-panel-aurora-prism:not([data-active='true']) .agent-panel-aurora-blob {
+  animation-play-state: paused;
+}
+
+.agent-panel-aurora-alert {
+  --a0: color-mix(in oklab, var(--color-error, #ef4444) 38%, white);
+  --a1: color-mix(in oklab, var(--color-error, #ef4444) 22%, white);
+  --a2: color-mix(in oklab, var(--color-error, #ef4444) 44%, white);
+  --a3: color-mix(in oklab, var(--color-error, #ef4444) 18%, white);
+  --a-west: color-mix(in oklab, var(--color-error, #ef4444) 28%, white);
+
+  z-index: 4;
+  transition: opacity 560ms
+    var(--agent-ease-exit, cubic-bezier(1, 0, 0.68, 0.28));
+}
+
+.agent-panel-aurora[data-status='error'] .agent-panel-aurora-alert {
+  opacity: 1;
+  transition-duration: 680ms;
+  transition-delay: 220ms;
+  transition-timing-function: var(--agent-ease, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.agent-panel-aurora-alert::before {
+  content: '';
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  bottom: var(--agent-aurora-band-bottom, -28px);
+  height: var(--agent-aurora-band-height, 88px);
+  background:
+    radial-gradient(
+      ellipse 48% 80% at 22% 80%,
+      color-mix(in oklab, var(--a2) 50%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 42% 76% at 78% 78%,
+      color-mix(in oklab, var(--a0) 46%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 30% 70% at 52% 92%,
+      color-mix(in oklab, var(--a-west) 40%, transparent),
+      transparent 68%
+    );
+  opacity: 0.8;
+}
+
+.agent-panel-aurora-alert::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: 400%;
+  bottom: var(--agent-aurora-band-bottom, -28px);
+  height: var(--agent-aurora-band-height, 88px);
+  background: linear-gradient(
+    90deg in oklch,
+    var(--a0),
+    var(--a1),
+    var(--a2),
+    var(--a3),
+    var(--a2),
+    var(--a1),
+    var(--a0),
+    var(--a1),
+    var(--a2),
+    var(--a3),
+    var(--a2),
+    var(--a1),
+    var(--a0)
+  );
+  opacity: 0.62;
+  filter: blur(var(--agent-aurora-band-blur, 28px));
+}
+
+.agent-panel-aurora[data-status='error'] .agent-panel-aurora-alert::before {
+  animation: agent-panel-aurora-drift 3.1s ease-in-out infinite;
+}
+
+.agent-panel-aurora[data-status='error'] .agent-panel-aurora-alert::after {
+  animation: agent-panel-aurora-ribbon 3.2s linear infinite;
+}
+
+@keyframes agent-panel-aurora-drift {
+  0%,
+  100% {
+    transform: translate3d(-22%, 3%, 0);
+  }
+
+  25% {
+    transform: translate3d(14%, -4%, 0);
+  }
+
+  50% {
+    transform: translate3d(22%, 2%, 0);
+  }
+
+  75% {
+    transform: translate3d(-12%, -3%, 0);
+  }
+}
+
+@keyframes agent-panel-aurora-drift-cross {
+  0%,
+  100% {
+    transform: translate3d(20%, -2%, 0);
+  }
+
+  25% {
+    transform: translate3d(-16%, 3%, 0);
+  }
+
+  50% {
+    transform: translate3d(-22%, -2%, 0);
+  }
+
+  75% {
+    transform: translate3d(12%, 4%, 0);
+  }
+}
+
+@keyframes agent-panel-aurora-blob-a {
+  0%,
+  100% {
+    transform: translate3d(-10%, 4%, 0) scale(0.95);
+  }
+
+  22% {
+    transform: translate3d(4%, -5%, 0) scale(1.06);
+  }
+
+  48% {
+    transform: translate3d(9%, 2%, 0) scale(1.02);
+  }
+
+  73% {
+    transform: translate3d(-3%, 5%, 0) scale(1.08);
+  }
+}
+
+@keyframes agent-panel-aurora-blob-b {
+  0%,
+  100% {
+    transform: translate3d(8%, -3%, 0) scale(1.04);
+  }
+
+  18% {
+    transform: translate3d(-6%, 5%, 0) scale(0.96);
+  }
+
+  44% {
+    transform: translate3d(3%, -4%, 0) scale(1.07);
+  }
+
+  69% {
+    transform: translate3d(-9%, 2%, 0) scale(1.01);
+  }
+}
+
+@keyframes agent-panel-aurora-blob-c {
+  0%,
+  100% {
+    transform: translate3d(-7%, -4%, 0) scale(0.97);
+  }
+
+  26% {
+    transform: translate3d(10%, 3%, 0) scale(1.08);
+  }
+
+  51% {
+    transform: translate3d(-4%, 5%, 0) scale(1.03);
+  }
+
+  77% {
+    transform: translate3d(6%, -2%, 0) scale(0.94);
+  }
+}
+
+@keyframes agent-panel-aurora-blob-d {
+  0%,
+  100% {
+    transform: translate3d(9%, 3%, 0) scale(1.05);
+  }
+
+  24% {
+    transform: translate3d(-2%, -5%, 0) scale(0.95);
+  }
+
+  53% {
+    transform: translate3d(-10%, 4%, 0) scale(1.07);
+  }
+
+  81% {
+    transform: translate3d(5%, -3%, 0) scale(1.02);
+  }
+}
+
+@keyframes agent-panel-aurora-ribbon {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* ==========================================
+   长按指示环
+   ==========================================
+
+   唤起 Agent 的手势反馈：按下即冒点，到时长成一圈。跟着指针走，永不吃事件。
+   ========================================== */
+
+.agent-panel-longpress {
+  position: fixed;
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  z-index: 999999;
+  transform: translate(-50%, -50%);
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 0.1s ease-out,
+    visibility 0s linear 0.1s;
+}
+
+.agent-panel-longpress.active {
+  visibility: visible;
+  opacity: 1;
+  transition:
+    opacity 0.1s ease-out,
+    visibility 0s linear 0s;
+}
+
+.agent-panel-lp-dot {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  border-radius: 50%;
+  background: var(--color-primary, #10b981);
+  box-shadow: 0 0 6px
+    color-mix(in srgb, var(--color-primary, #10b981) 40%, transparent);
+}
+
+.agent-panel-longpress.active .agent-panel-lp-dot {
+  animation: agent-panel-lp-dot-morph 220ms cubic-bezier(0.22, 0.61, 0.36, 1)
+    forwards;
+}
+
+@keyframes agent-panel-lp-dot-morph {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    background: var(--color-primary, #10b981);
+    opacity: 1;
+  }
+
+  35% {
+    transform: translate(-50%, -50%) scale(0.25);
+    background: var(--color-primary, #10b981);
+    opacity: 1;
+  }
+
+  70% {
+    transform: translate(-50%, -50%) scale(0.88);
+    background: transparent;
+    box-shadow: inset 0 0 0 2.5px var(--color-primary, #10b981);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    background: transparent;
+    box-shadow: inset 0 0 0 2.5px var(--color-primary, #10b981);
+    opacity: 0;
+  }
+}
+
+.agent-panel-lp-pulse {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-primary, #10b981) 20%, transparent) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  transform: scale(0.3);
+}
+
+.agent-panel-longpress.active .agent-panel-lp-pulse {
+  animation: agent-panel-lp-pulse 350ms ease-out 120ms forwards;
+}
+
+@keyframes agent-panel-lp-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+
+  30% {
+    opacity: 0.9;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+.agent-panel-lp-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: scale(0);
+  opacity: 0;
+}
+
+.agent-panel-longpress.active .agent-panel-lp-svg {
+  animation:
+    agent-panel-lp-svg-expand 160ms cubic-bezier(0.22, 0.61, 0.36, 1) 140ms
+      forwards,
+    agent-panel-lp-breathe 400ms ease-in-out 300ms infinite alternate;
+}
+
+@keyframes agent-panel-lp-svg-expand {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes agent-panel-lp-breathe {
+  from {
+    transform: scale(0.92);
+    opacity: 0.7;
+  }
+
+  to {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+.agent-panel-lp-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-primary, #10b981) 10%, transparent);
+  stroke-width: 2.5;
+}
+
+.agent-panel-lp-ring {
+  fill: none;
+  stroke: var(--color-primary, #10b981);
+  stroke-width: 2.5;
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--color-primary, #10b981) 45%, transparent)
+  );
+}

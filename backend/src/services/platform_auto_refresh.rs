@@ -106,7 +106,10 @@ pub async fn reconcile_platform_auto_refresh(
         .filter(tapp_scheduled_tasks::Column::TappId.eq(CORE_PLATFORM_SYNC_TAPP_ID))
         .all(db)
         .await
-        .map_err(|error| format!("Failed to load core platform tasks: {error}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to load core platform tasks");
+            "Failed to load core platform tasks".to_string()
+        })?;
 
     let mut current_user_tasks = HashMap::new();
     for task in existing_tasks {
@@ -123,10 +126,10 @@ pub async fn reconcile_platform_auto_refresh(
             active.enabled = Set(false);
             active.next_run_at = Set(None);
             active.updated_at = Set(now.into());
-            active
-                .update(db)
-                .await
-                .map_err(|error| format!("Failed to disable stale core task: {error}"))?;
+            active.update(db).await.map_err(|error| {
+                tracing::error!(%error, "Failed to disable stale core task");
+                "Failed to disable stale core task".to_string()
+            })?;
         }
     }
 
@@ -156,10 +159,10 @@ pub async fn reconcile_platform_auto_refresh(
                 active.next_run_at = Set(Some(next_run_at.into()));
             }
             active.updated_at = Set(now.into());
-            active
-                .update(db)
-                .await
-                .map_err(|error| format!("Failed to update {platform} core task: {error}"))?;
+            active.update(db).await.map_err(|error| {
+                tracing::error!(%error, platform, "Failed to update core platform task");
+                format!("Failed to update {platform} core task")
+            })?;
         } else {
             let task = tapp_scheduled_tasks::ActiveModel {
                 task_id: Set(task_id(platform)),
@@ -189,9 +192,10 @@ pub async fn reconcile_platform_auto_refresh(
                 updated_at: Set(now.into()),
                 ..Default::default()
             };
-            task.insert(db)
-                .await
-                .map_err(|error| format!("Failed to create {platform} core task: {error}"))?;
+            task.insert(db).await.map_err(|error| {
+                tracing::error!(%error, platform, "Failed to create core platform task");
+                format!("Failed to create {platform} core task")
+            })?;
         }
         enabled_tasks += 1;
     }
@@ -205,10 +209,10 @@ pub async fn reconcile_platform_auto_refresh(
         active.enabled = Set(false);
         active.next_run_at = Set(None);
         active.updated_at = Set(now.into());
-        active
-            .update(db)
-            .await
-            .map_err(|error| format!("Failed to disable {platform} core task: {error}"))?;
+        active.update(db).await.map_err(|error| {
+            tracing::error!(%error, platform, "Failed to disable core platform task");
+            format!("Failed to disable {platform} core task")
+        })?;
         disabled_tasks += 1;
     }
 

@@ -5,6 +5,7 @@ import type { TappListItem } from './TappLifecycleApi'
 import type { TappPlaygroundCode } from './TappPlaygroundService'
 import { API_URL } from '../../config'
 import { currentCopy } from '../../i18n/localeCopy'
+import { parseApiErrorBody } from '../../services/api'
 import { getCSRFToken } from '../../utils/csrf'
 import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
 import { tappLayerEntries } from '../utils/manifestLayers'
@@ -288,10 +289,11 @@ export async function installTappFile(
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}))
-    throw new Error(
-      errorData.message ||
-        errorData.error ||
-        `${currentCopy().tapp.installFailed} (${response.status})`,
+    const parsed = parseApiErrorBody(errorData, response.status)
+    throw new TappHttpError(
+      parsed.message || currentCopy().tapp.installFailed,
+      response.status,
+      { body: errorData, code: parsed.code },
     )
   }
 

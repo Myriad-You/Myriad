@@ -1,7 +1,5 @@
-import type {
-  MeropeRigImportSource,
-  MeropeRigManifest,
-} from './rig/types'
+import type { MeropeRigImportSource, MeropeRigManifest } from './rig/types'
+import { currentCopy } from '../../i18n/localeCopy'
 import api from '../../lib/api'
 import { httpStatusMessage } from '../../utils/userFacingError'
 import { isLiveMeropeManifest, isRigManifest } from './rig/types'
@@ -21,10 +19,6 @@ export class MeropeApiError extends Error {
     super(message)
     this.name = 'MeropeApiError'
   }
-}
-
-export function isMeropeNotFound(error: unknown): boolean {
-  return error instanceof MeropeApiError && error.status === 404
 }
 
 export interface SiteFace {
@@ -112,7 +106,7 @@ export async function getSiteFace(): Promise<SiteFace> {
       assetId: null,
     }
   }
-  assertSuccess(response.status, response.data, 'Could not load site face')
+  assertSuccess(response.status, response.data, currentCopy().merope.loadFailed)
   const manifest = isLiveMeropeManifest(response.data.manifest)
     ? response.data.manifest
     : null
@@ -129,10 +123,6 @@ export async function getSiteFace(): Promise<SiteFace> {
   }
 }
 
-export async function getMeropeRig(): Promise<MeropeRigManifest | null> {
-  return (await getSiteFace()).manifest
-}
-
 export async function getSeeThroughStatus(): Promise<SeeThroughStatus> {
   const response = await api.get<Partial<SeeThroughStatus>>(
     `${PREFIX}/see-through/status`,
@@ -140,7 +130,7 @@ export async function getSeeThroughStatus(): Promise<SeeThroughStatus> {
   assertSuccess(
     response.status,
     response.data,
-    'Could not load See-through status',
+    currentCopy().merope.seeThroughStatusFailed,
   )
   return {
     provider:
@@ -166,7 +156,7 @@ export async function updateSeeThroughToken(
   assertSuccess(
     response.status,
     response.data,
-    'Could not save Hugging Face token',
+    currentCopy().merope.motionSeeThroughTokenFailed,
   )
   return {
     provider:
@@ -228,11 +218,14 @@ export async function decomposeSitePortraitWithSeeThrough(input: {
       throw await binaryApiError(
         response.status,
         response.data,
-        'See-through decomposition failed',
+        currentCopy().merope.motionSeeThroughUpstream,
       )
     }
     if (!(response.data instanceof Blob) || response.data.size === 0) {
-      throw new MeropeApiError('See-through returned an empty PSD', 502)
+      throw new MeropeApiError(
+        currentCopy().merope.motionSeeThroughUpstream,
+        502,
+      )
     }
     return new File([response.data], 'see-through.psd', {
       type: 'image/vnd.adobe.photoshop',
@@ -246,10 +239,10 @@ export async function decomposeSitePortraitWithSeeThrough(input: {
       throw await binaryApiError(
         response.status,
         response.data,
-        'See-through decomposition failed',
+        currentCopy().merope.motionSeeThroughUpstream,
       )
     }
-    throw meropeError(reason, 'See-through decomposition failed')
+    throw meropeError(reason, currentCopy().merope.motionSeeThroughUpstream)
   }
 }
 
@@ -296,15 +289,22 @@ async function submitMeropeRigImport(
       timeout: RIG_MUTATION_TIMEOUT_MS,
     })
   } catch (reason) {
-    throw meropeError(reason, `Could not ${action} persona rig`)
+    throw meropeError(
+      reason,
+      action === 'commit'
+        ? currentCopy().merope.rigCommitFailed
+        : currentCopy().merope.rigImportFailed,
+    )
   }
   assertSuccess(
     response.status,
     response.data,
-    `Could not ${action} persona rig`,
+    action === 'commit'
+      ? currentCopy().merope.rigCommitFailed
+      : currentCopy().merope.rigImportFailed,
   )
   if (!isRigManifest(response.data.manifest)) {
-    throw new Error(`Persona rig ${action} manifest is invalid`)
+    throw new Error(currentCopy().merope.rigCompileFailed)
   }
   return response.data.manifest
 }
@@ -327,15 +327,19 @@ export async function uploadSitePortrait(image: Blob): Promise<{
         timeout: RIG_MUTATION_TIMEOUT_MS,
       },
     )
-    assertSuccess(response.status, response.data, 'Could not upload portrait')
+    assertSuccess(
+      response.status,
+      response.data,
+      currentCopy().merope.portraitUploadFailed,
+    )
     const portraitUrl = readPortraitUrl(response.data)
     if (!portraitUrl) {
-      throw new MeropeApiError('Portrait upload did not return a URL', 502)
+      throw new MeropeApiError(currentCopy().merope.portraitUploadFailed, 502)
     }
     return { portraitUrl }
   } catch (reason) {
     if (reason instanceof MeropeApiError) throw reason
-    throw meropeError(reason, 'Could not upload portrait')
+    throw meropeError(reason, currentCopy().merope.portraitUploadFailed)
   }
 }
 
@@ -354,11 +358,11 @@ export async function generateSitePortrait(
     assertSuccess(
       response.status,
       response.data,
-      'Could not generate site portrait',
+      currentCopy().merope.visualFailed,
     )
     return { portraitUrl: readPortraitUrl(response.data) }
   } catch (reason) {
     if (reason instanceof MeropeApiError) throw reason
-    throw meropeError(reason, 'Could not generate site portrait')
+    throw meropeError(reason, currentCopy().merope.visualFailed)
   }
 }

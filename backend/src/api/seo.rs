@@ -208,7 +208,7 @@ async fn load_site_branding(db: &DatabaseConnection) -> SiteBranding {
         .unwrap_or_default();
     let policy =
         crate::api::seo_policy::normalize_visibility_policy(&policy_raw, noindex_flag).to_string();
-    let noindex = noindex_flag || policy == crate::api::seo_policy::VISIBILITY_PRIVATE;
+    let noindex = noindex_flag || !crate::api::seo_policy::policy_is_indexable(&policy);
 
     SiteBranding {
         title: branding(

@@ -1,6 +1,6 @@
 import type { AppNotification } from '../services/notificationApi'
 import { currentCopy } from '../i18n/localeCopy'
-import { userFacingError } from './userFacingError'
+import { isUselessErrorText, userFacingError } from './userFacingError'
 
 function fill(template: string, params: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, key) => params[key] ?? `{${key}}`)
@@ -145,7 +145,20 @@ export function notificationFacingTitle(notification: AppNotification): string {
       name: metaString(notification, 'skill_id') || name,
     })
   }
-  return raw
+  if (/feed failed repeatedly/i.test(raw)) {
+    return fill(t.noticeBrewSourceFailed, { name: name || 'RSS' })
+  }
+  if (/auto-refresh failed/i.test(raw)) {
+    return fill(t.noticePlatformSyncFailed, { name: name || 'Steam' })
+  }
+  if (/scheduled task failed|a scheduled task failed/i.test(raw)) {
+    return t.noticeScheduleFailed
+  }
+  if (/system update failed/i.test(raw)) return t.noticeUpdaterFailed
+  if (/system update needs/i.test(raw)) return t.noticeUpdaterNeedsManual
+  if (!raw || isUselessErrorText(raw)) return t.noticeTapp
+  const mapped = userFacingError(raw, t.noticeTapp)
+  return mapped === raw ? raw : mapped
 }
 
 /** Localized, diagnosable body — strips leftover dumps. */

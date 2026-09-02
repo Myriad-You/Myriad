@@ -35,7 +35,7 @@ import { AppLayout } from './layouts/AppLayout'
 import { recordNavigation } from './router/navigationHistory'
 import { TappDataExchangeConsentHost } from './tapp/components/TappDataExchangeConsentHost'
 import { resolvePageRouteAnimation } from './tapp/routing/tappRouteMeta'
-import { tappRunPath } from './tapp/utils/tappPaths'
+import { TAPP_LIST_PATH, tappRunPath } from './tapp/utils/tappPaths'
 import { preloadCriticalRoutes } from './utils/codeSplitting'
 import {
   canAccessModuleVisibility,
@@ -79,8 +79,10 @@ const TappPlayground = lazy(
   () => import('./tapp/pages/TappPlaygroundPage.tsx'),
 )
 
-// Agent 浮动面板（项目名 Arael）
-const AraelPanel = lazy(() => import('./components/agent/AraelPanel'))
+// Agent 新 UI —— 岛 / Quick Overlay / Full 的外壳
+const AgentPanel = lazy(() => import('./components/agent-panel/AgentPanel'))
+// 执行引擎 —— 不画任何东西，只跑任务
+const AgentEngine = lazy(() => import('./components/agent-panel/AgentEngine'))
 
 /**
  * 路由守卫：复用全局 AuthContext 认证状态
@@ -178,6 +180,7 @@ function ModuleVisibilityGuard({
  */
 function GlobalAgentWindowHandler() {
   const navigate = useNavigate()
+  const location = useLocation()
   useEffect(() => {
     let cancelled = false
     let unregister: (() => void) | undefined
@@ -189,6 +192,48 @@ function GlobalAgentWindowHandler() {
           tappId?: string
           data?: Record<string, unknown>
         }) => {
+          if (action.type === 'query_windows') {
+            return {
+              available: false,
+              windows: [],
+              activeWindowId: null,
+              windowCount: 0,
+            }
+          }
+          if (action.type === 'close_window') {
+            const target = (
+              action as {
+                target?: { tappId?: string }
+              }
+            ).target
+            const data = (action as { data?: Record<string, unknown> }).data
+            const id =
+              (action as { tappId?: string }).tappId ||
+              target?.tappId ||
+              (typeof data?.tappId === 'string' ? data.tappId : undefined)
+            if (id || location.pathname.startsWith('/tapp/run')) {
+              navigate(TAPP_LIST_PATH)
+              return true
+            }
+            return false
+          }
+          if (action.type === 'focus_window') {
+            const target = (
+              action as {
+                target?: { tappId?: string }
+                tappId?: string
+                data?: Record<string, unknown>
+              }
+            ).target
+            const data = (action as { data?: Record<string, unknown> }).data
+            const id =
+              (action as { tappId?: string }).tappId ||
+              target?.tappId ||
+              (typeof data?.tappId === 'string' ? data.tappId : undefined)
+            if (!id) return false
+            navigate(tappRunPath(id))
+            return true
+          }
           if (
             action.type !== 'open_window' &&
             action.type !== 'agent_interaction'
@@ -212,7 +257,7 @@ function GlobalAgentWindowHandler() {
       cancelled = true
       unregister?.()
     }
-  }, [navigate])
+  }, [navigate, location.pathname])
   return null
 }
 
@@ -686,7 +731,8 @@ export function App() {
                     {/* Agent 浮动面板 - 长按触发 */}
                     <AgentAccessGate>
                       <Suspense fallback={null}>
-                        <AraelPanel />
+                        <AgentEngine />
+                        <AgentPanel />
                       </Suspense>
                     </AgentAccessGate>
                     <RouteLoader />

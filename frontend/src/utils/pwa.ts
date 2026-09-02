@@ -500,48 +500,6 @@ function renderLogoToPngDataUrl(
   return canvasToPngDataUrl(canvas)
 }
 
-/**
- * Compose one square PWA PNG: solid background + contained site logo.
- * Returns a data:image/png URL safe for web app manifest installability.
- */
-export async function composePwaIconPng(options: {
-  sourceUrl: string
-  size: number
-  /** 0.35–1; default DEFAULT_PWA_LOGO_SCALE */
-  logoScale?: number
-  /** CSS color; default white for transparent logos */
-  background?: string
-  origin?: string
-  apiBase?: string
-}): Promise<string> {
-  const origin =
-    options.origin ||
-    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
-  const fetchUrl = resolvePwaIconSourceUrl(
-    options.sourceUrl,
-    origin,
-    options.apiBase ?? API_URL ?? '',
-  )
-  if (!pwaIconIsCanvasReadable(fetchUrl, origin)) {
-    throw new Error(
-      '[PWA] icon source is cross-origin without CORS; cannot compose',
-    )
-  }
-  const img = await loadImageForCanvas(fetchUrl)
-  try {
-    return renderLogoToPngDataUrl(
-      img,
-      options.size,
-      options.logoScale ?? DEFAULT_PWA_LOGO_SCALE,
-      options.background?.trim() || PWA_ICON_BACKGROUND,
-    )
-  } finally {
-    if (typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap) {
-      img.close()
-    }
-  }
-}
-
 async function composeBrandedIconSet(options: {
   iconUrl: string
   logoScale: number

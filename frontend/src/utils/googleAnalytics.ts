@@ -142,11 +142,6 @@ export function configureGoogleAnalytics(
   }
 }
 
-/** Current active measurement id, or null if disabled. */
-export function getActiveGaMeasurementId(): string | null {
-  return activeId
-}
-
 /**
  * Send a GA4 page_view for SPA navigations.
  * No-op when GA is not configured, opted out, staff, or path is skipped.

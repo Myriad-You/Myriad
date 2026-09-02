@@ -5,6 +5,16 @@ specifically its `README.md`, `lib/rigger.js`, and the WebGL runtime in
 `index.html`. Myriad keeps its own Merope shell and asset transaction flow;
 only the layered rig behavior is adopted.
 
+The later [`izumix77/Anime2.5DRig`](https://github.com/izumix77/Anime2.5DRig)
+fork is used selectively at revision
+`1644759cd451ab82065e2bf57b21fe806e2be334`: Myriad adopts the ellipsoid
+head/hair shell, authored side-profile curve, separate front/back hair depth,
+feathered hairline pin, and the delayed vertical-cylinder projection for
+`topwear` / `bottomwear`. Its chest curve and near/far response inform one
+garment-aware field derived from Myriad's existing chest profile. The fork's
+manual breast/nipple/sternum editors, demo UI, local-storage model, camera, and
+recording flow remain outside Myriad.
+
 The upstream project is MIT licensed (Copyright © 2026 hakoniwa); this isolated
 profile retains that attribution while integrating with Myriad's existing
 compiler, renderer, motion clocks, and Merope UI.
@@ -20,10 +30,10 @@ compiler, renderer, motion clocks, and Merope UI.
 | Detects face, eye, iris, mouth, and neck anchors from pixels                                                                                                                                                          | Uses rectangular part centers and humanoid pivots                                                                               | Derive layered-portrait anchors and bind each feature to the correct local pivot                                                            |
 | Crossfades open/closed eyelash and mouth drawings while deforming the opening                                                                                                                                         | Presentation slots can crossfade, but the importer discards the separate open-eye stack and requires authored fallback variants | Map `eyelash/eye_close` and `mouth_open/mouth_close` directly to stable slots; synthesize missing close drawings only as a bounded fallback |
 | Keeps irises inside eyewhites with stencil clipping                                                                                                                                                                   | Draws all parts with one ordinary alpha pass                                                                                    | Add per-eye stencil masks for `eyewhite` then clip `irides` during the same sorted draw                                                     |
-| Uses a depth table plus head-relative parallax/shear for pseudo-3D turns                                                                                                                                              | Rotates/translates a head bone with no layer-depth separation                                                                   | Apply name-based head depth offsets without changing the Merope UI into the upstream demo                                                     |
+| Uses a depth table plus head-relative parallax/shear for pseudo-3D turns                                                                                                                                              | Rotates/translates a head bone with no layer-depth separation                                                                   | Apply name-based head depth offsets without changing the Merope UI into the upstream demo                                                   |
 | Detects up to six hair strands per hair layer and applies a stiff-root/soft-tip double spring                                                                                                                         | Uses one generic secondary spring per imported hair part                                                                        | Build independent root/tip strand chains from each numbered front/back hair layer and feed the existing bounded spring solver               |
 | Breath raises/scales `topwear`, the head follows with phase lag, and the chest has a damped bounce                                                                                                                    | Breath is primarily a torso transform and does not know the see-through clothing roles                                          | Add layered topwear/chest weighting and preserve the existing speech/rest damping envelopes                                                 |
-| `handwear` may contain separate left/right sleeve, partial-forearm, and hand drawings                                                                                                                                 | Import and regression expect upper-arm/forearm/hand chains and optional relaxed/open-palm/salute/point drawings                 | Attach rigid left/right drawings below one semantic `handwear` parent, clamp final rotation to ±15°, and add no shoulder/elbow/wrist chain |
+| `handwear` may contain separate left/right sleeve, partial-forearm, and hand drawings                                                                                                                                 | Import and regression expect upper-arm/forearm/hand chains and optional relaxed/open-palm/salute/point drawings                 | Attach rigid left/right drawings below one semantic `handwear` parent, clamp final rotation to ±15°, and add no shoulder/elbow/wrist chain  |
 | Idle combines small head turns, gaze, breath, blink, mouth motion, and secondary hair                                                                                                                                 | Idle exists, but its visible result depends on the humanoid mapping                                                             | Make the layered portrait path consume the same bounded clocks directly                                                                     |
 
 ## Acceptance order
@@ -42,18 +52,69 @@ contact, wrist rotation, locomotion, or gesture constraints.
 
 ## Implemented path
 
-- `anime25dImporter.ts` owns detection, normalization, connected-component eye
-  splitting, synthetic close fallbacks, atlas packing, anchors, semantic depth,
-  explicit interior grids, root/tip hair chains, chest weighting, and optional
-  rigid left/right `handwear` fragments below one semantic parent.
+- `anime25dImporter.ts` owns import sequencing and normalization. Dedicated
+  expression, collar, atlas, skeleton, raster, and validation modules own their
+  respective compile stages, so image segmentation no longer shares a module
+  boundary with GPU-facing mesh construction.
 - `../anime25drig` owns live playback: bind, deform, blink/mouth crossfade,
-  depth parallax, hair springs, chest follow, and ±15° handwear composition.
+  depth parallax, hair springs, clothing-aware base/response chest motion, and
+  ±15° handwear composition.
 - `diagnostics.ts` identifies the profile from `a25d-*` parts and excludes the
   explicitly abandoned articulated gates while retaining all layered-portrait
   quality gates.
+
+### Shell and chest-profile migration
+
+The playback contract is v7 and persists both versioned profiles during import.
+Neutral yaw/pitch remains an exact identity, and activation is ramped on player
+startup, so enabling the shell does not rewrite or visibly snap the frontal
+asset. Preview-to-commit copies the profiles as part of the manifest
+transaction, keeping reviewed and activated geometry identical. The torso
+cylinder reuses the existing face width and neck pivot, follows head/body yaw
+through a low-pass response, and applies fully to `topwear` / `bottomwear`.
+A split high collar reuses its alpha contour only to place the front mesh and
+neck stencil. Front collar, rear collar, and stencil then share one row-coherent
+vertical field: the upper edge follows the neck/head, the lower edge follows
+the body, and torso-shell weight is the exact inverse of neck-follow. No
+left/right attachment split or MLS fit remains, so narrow lace, trim, and bow
+artwork cannot shear or invert while both seams stay on the same motion field.
+The alpha-derived neck stencil closes at the first opaque center row. That same
+stencil mesh carries the neck UVs and inverse torso-shell offset, so the
+aperture and its fill cannot diverge during yaw.
+
+Authored shell profiles retain the fork's per-model rectangular hairline pin.
+Anchor-derived profiles do not inherit its demo rectangle: they build a smooth
+attachment field from the imported strand roots, with a release spanning at
+least two hair-mesh rows. This keeps the crown attached to the head shell
+without clamping a horizontal band of bangs or introducing a one-cell spring
+discontinuity. Hair-layer bounds gently calibrate the scalp ellipsoid; crown
+wrap remains zero unless at least four sufficiently distributed strand roots
+confirm that the upper layer is scalp hair rather than an ornament.
+
+The v2 chest profile remains the only persisted chest contract. Dynamic
+topwear response and yaw-projected volume sample one asymmetric upper/peak/lower
+field, including the same geometry weights. Existing `supportScale` and
+`garmentMotionScale` derive the central bridge, near/far depth, silhouette,
+damping, and bounded breathing transmission. No nipple positions or manual
+curve points are added, so existing v7 assets require no migration.
 
 The importer regression fixture proves that See-through-style layers compile
 blink, mouth, gaze, chest, hair-strand, depth-turn, and rigid side-handwear paths
 without creating shoulder, elbow, wrist, leg, foot, contact, or hand-pose chains. Real PSD
 acceptance still requires a generated-material preflight and rendered motion
 review; the synthetic fixture is only an architectural gate.
+
+Merope additionally compiles `dizzy`, `squeeze`, and `cry` per-eye presentation
+variants. These are Myriad extensions rather than upstream Anime2.5DRig
+features: authored `eye_dizzy` / `eye_squeeze` / `eye_cry` layers win,
+otherwise the importer generates independent character-tinted spiral,
+inward-chevron, or asymmetric chevron-and-tear artwork at the detected
+left/right eye anchors. Contract v13 also preserves a plain See-through `mouth`
+as the closed portrait drawing and generates separate flat `mouth_open`,
+`mouth_wide`, `mouth_round`, `mouth_narrow`, and `mouth_cry` variants from its
+bounds and dark-line palette. Runtime speech morphs every ordinary mouth mesh
+through one continuous width/open/roundness envelope. A hysteretic state
+machine keeps exactly one ordinary mouth texture visible and switches it only
+after the next shape is decisively dominant. Crying replaces the ordinary
+mouth stack. These
+variants have no old-rig runtime fallback; reimport is required.

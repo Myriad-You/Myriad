@@ -267,20 +267,3 @@ export function clearCSRFToken(): void {
 export function getCSRFHeaderName(): string {
   return CSRF_TOKEN_HEADER
 }
-
-/**
- * 为请求添加 CSRF Token
- * ✅ 安全修复 P0: 使用异步版本
- */
-export async function addCSRFToken(
-  headers: Record<string, string> = {},
-): Promise<Record<string, string>> {
-  const token = await getCSRFToken()
-  if (token) {
-    return {
-      ...headers,
-      [CSRF_TOKEN_HEADER]: token,
-    }
-  }
-  return headers
-}

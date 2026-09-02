@@ -75,6 +75,29 @@ test('releases an active random pose smoothly when automation is disabled', () =
   assert.ok(magnitude(motion.sample(3.7, false)) < 1e-8)
 })
 
+test('re-enabling after speech does not snap into a new glance', () => {
+  const motion = new AmbientMotionController(() => 0.5)
+  motion.sample(0, true)
+  motion.sample(1.81, true)
+  const active = { ...motion.sample(2.8, true) }
+  motion.sample(2.8, false)
+  const resumed = { ...motion.sample(3.5, true) }
+  assert.ok(magnitude(resumed) < magnitude(active))
+  let previous = resumed
+  let largestHeadStep = 0
+  for (let frame = 1; frame <= 90; frame += 1) {
+    const current = { ...motion.sample(3.5 + frame / 60, true) }
+    largestHeadStep = Math.max(
+      largestHeadStep,
+      Math.abs(current.angleX - previous.angleX),
+      Math.abs(current.angleY - previous.angleY),
+      Math.abs(current.angleZ - previous.angleZ),
+    )
+    previous = current
+  }
+  assert.ok(largestHeadStep < 0.02)
+})
+
 test('keeps time-based transitions consistent at 30 and 60 fps', () => {
   const at30 = new AmbientMotionController(() => 0.5)
   const at60 = new AmbientMotionController(() => 0.5)

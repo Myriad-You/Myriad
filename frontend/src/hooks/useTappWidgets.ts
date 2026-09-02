@@ -15,7 +15,6 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -302,21 +301,6 @@ export function useTappWidgets(): {
     error,
     refreshWidgets: loadWidgetsAsync,
   }
-}
-
-/**
- * 合并系统 Widgets 和 Tapp Widgets
- */
-export function useCombinedWidgets(systemWidgets: WidgetType[]): WidgetType[] {
-  const { tappWidgets } = useTappWidgets()
-
-  return useMemo(() => {
-    // 过滤掉重复的（基于 ID）
-    const systemIds = new Set(systemWidgets.map((w) => w.id))
-    const uniqueTappWidgets = tappWidgets.filter((w) => !systemIds.has(w.id))
-
-    return [...systemWidgets, ...uniqueTappWidgets]
-  }, [systemWidgets, tappWidgets])
 }
 
 export default useTappWidgets

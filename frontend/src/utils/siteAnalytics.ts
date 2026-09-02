@@ -116,6 +116,12 @@ export function isAnalyticsOptedOut(): boolean {
   }
 }
 
+/**
+ * 访客自己的退出开关。
+ *
+ * 上面的 `isAnalyticsOptedOut` 一直在读这把钥匙 —— 没有写入口的话，这条隐私开关
+ * 就只剩下让人去 devtools 里手改 localStorage 一条路了。设置界面还没接上它。
+ */
 export function setAnalyticsOptOut(optOut: boolean) {
   try {
     if (optOut) localStorage.setItem(OPT_OUT_KEY, '1')
@@ -123,28 +129,6 @@ export function setAnalyticsOptOut(optOut: boolean) {
   } catch {
     /* ignore */
   }
-}
-
-/**
- * Site-owner master switch (from /api/config/ui).
- * When false, stop enqueueing; historical data remains on the server.
- */
-export function setSiteAnalyticsCollectionEnabled(enabled: boolean) {
-  siteCollectionEnabled = enabled
-  if (!enabled) {
-    queue = []
-    flushAgainAfter = false
-    if (flushTimer) {
-      clearTimeout(flushTimer)
-      flushTimer = null
-    }
-    clearEngagementTimers()
-  }
-}
-
-export function isSiteAnalyticsCollectionEnabled(): boolean {
-  // Unknown → allow (server still rejects when disabled)
-  return siteCollectionEnabled !== false
 }
 
 function ensureSiteCollectionFlag(): void {
@@ -212,10 +196,6 @@ export function setAnalyticsStaffSession(opts: {
 /** @deprecated use setAnalyticsStaffSession */
 export function setAnalyticsAdminSession(isAdmin: boolean) {
   setAnalyticsStaffSession({ isAdmin })
-}
-
-export function isAnalyticsStaffExcluded(): boolean {
-  return excludeStaffSelf
 }
 
 function baseAllowed(): boolean {
@@ -598,9 +578,4 @@ export function trackEvent(
   if (opts?.flush) {
     scheduleFlush(true)
   }
-}
-
-export function flushAnalyticsNow() {
-  flushEngagement(true)
-  scheduleFlush(true)
 }

@@ -33,6 +33,8 @@ import { ensureMotionReady } from '../lib/lazyMotion'
 import { buildHomePageSeo } from '../utils/modulePageSeo'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import { hasSessionHint } from '../utils/sessionDetection'
+import { showError } from '../utils/toastManager'
+import { userFacingError } from '../utils/userFacingError'
 
 export default function Home() {
   // 🆕 初始化首页调度器（Visibility + Resize + RAF + Idle）
@@ -86,13 +88,19 @@ export default function Home() {
         size: '2x2',
         position: { x: 6, y: 0 },
       },
+      {
+        id: 'default-agent-persona',
+        type: 'agent-persona',
+        size: '4x4',
+        position: { x: 8, y: 0 },
+      },
     ],
     [],
   )
 
   // Shared built-in catalog (same source as Control Panel)
   const AVAILABLE_WIDGETS: WidgetType[] = useMemo(
-    () => getBuiltinWidgets(t.widgets),
+    () => getBuiltinWidgets(t.widgets, 'home'),
     [t.widgets],
   )
 
@@ -245,7 +253,7 @@ export default function Home() {
       const { getCSRFToken } = await import('../utils/csrf')
       const token = (await getCSRFToken(true)) || csrfToken
       if (!token) {
-        console.error('保存小组件配置失败: missing CSRF token')
+        showError(t.errors.csrfUnavailable)
         return
       }
       if (token !== csrfToken) setCsrfToken(token)
@@ -261,10 +269,11 @@ export default function Home() {
         }),
       })
       if (!res.ok) {
-        console.error('保存小组件配置失败:', res.status)
+        throw new Error(`Failed to save dashboard layout: HTTP ${res.status}`)
       }
     } catch (err) {
       console.error('保存小组件配置失败:', err)
+      showError(userFacingError(err, t.errors.dashboardLayoutSaveFailed))
     }
   }
 
@@ -279,7 +288,7 @@ export default function Home() {
       const { getCSRFToken } = await import('../utils/csrf')
       const token = (await getCSRFToken(true)) || csrfToken
       if (!token) {
-        console.error('保存标题失败: missing CSRF token')
+        showError(t.errors.csrfUnavailable)
         return
       }
       if (token !== csrfToken) setCsrfToken(token)
@@ -295,10 +304,11 @@ export default function Home() {
         }),
       })
       if (!res.ok) {
-        console.error('保存标题失败:', res.status)
+        throw new Error(`Failed to save dashboard title: HTTP ${res.status}`)
       }
     } catch (err) {
       console.error('保存标题失败:', err)
+      showError(userFacingError(err, t.errors.dashboardTitleSaveFailed))
     }
   }
 
@@ -318,7 +328,7 @@ export default function Home() {
         const { clearDedupCache } = await import('../utils/requestDedup')
         const token = (await getCSRFToken(true)) || csrfToken
         if (!token) {
-          console.error('保存自定义平台失败: missing CSRF token')
+          showError(t.errors.csrfUnavailable)
           return
         }
         const response = await fetch(`${API_URL}/api/config/dashboard`, {
@@ -333,16 +343,14 @@ export default function Home() {
           }),
         })
         if (!response.ok) {
-          console.error(
-            '保存自定义平台失败:',
-            response.status,
-            await response.text().catch(() => ''),
+          throw new Error(
+            `Failed to save custom platforms: HTTP ${response.status}`,
           )
-          return
         }
         clearDedupCache(`${API_URL}/api/config/ui`)
       } catch (err) {
         console.error('保存自定义平台失败:', err)
+        showError(userFacingError(err, t.errors.customPlatformsSaveFailed))
       }
     }
 
@@ -356,7 +364,7 @@ export default function Home() {
         handleCustomPlatformsUpdate,
       )
     }
-  }, [isAdmin, csrfToken])
+  }, [isAdmin, csrfToken, t])
 
   return (
     <AnimatedView

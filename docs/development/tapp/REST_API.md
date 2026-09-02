@@ -388,6 +388,9 @@ Widget 注册 body 除 `id`、`name`、`default_size`、`sizes` 等元数据外�
 这些端点主要由 Bridge handler 经 `TappApiService` 调用。除了路由中间件，handler 还应
 校验 Tapp ID、owner、安装批准集与当前动态有效权限。
 
+人设名片走 SDK `Tapp.persona.get`，由宿主合成公开配置、心情带和同源立绘路径；
+没有 `/api/tapp/persona`。沙箱不要自己打 `/api/agent/persona` 或立绘 URL。
+
 ### 平台、AI 与数据
 
 | 方法   | 路径                                                     | 身份 | SDK 能力                        |

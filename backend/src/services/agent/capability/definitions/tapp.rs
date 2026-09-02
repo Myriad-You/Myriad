@@ -25,9 +25,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "code": { "type": "string" },
-                "manifest": { "type": "object" },
-                "preview": { "type": "string" }
+                "success": { "type": "boolean" },
+                "tappId": { "type": "string" },
+                "name": { "type": "string" },
+                "tapp": { "type": "object" },
+                "frontendAction": { "type": "object" }
             }
         }),
         required_permissions: vec!["ai:generate".to_string()],
@@ -348,7 +350,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "userId": { "type": "integer", "description": "用户 ID" },
                 "userIntent": {
                     "type": "string",
-                    "description": "用户想要执行的操作描述，如'添加一条新任务'、'搜索天气'等"
+                    "description": "用户想要执行的操作描述，如'添加一条新任务'、'搜索天气'等（也可用 query）"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "userIntent 的别名"
                 },
                 "uiAnalysis": {
                     "type": "object",
@@ -361,7 +367,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "autoExecute": {
                     "type": "boolean",
                     "default": false,
-                    "description": "是否自动执行生成的操作序列"
+                    "description": "忽略。Tapp 分析不发出 DOM 指令，执行请用 tapp.interact"
                 }
             },
             "required": ["tappId", "userIntent"]
@@ -473,7 +479,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "tapp.windows".to_string(),
         name: "窗口状态查询".to_string(),
-        description: "查询当前打开的 Tapp 窗口状态，包括窗口位置、活跃窗口、各窗口中运行的应用等".to_string(),
+        description: "查询当前打开的 Tapp 窗口。不在 /tapp/run 时 available=false，不是空窗口列表".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -519,6 +525,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                         }
                     }
                 },
+                "available": { "type": "boolean", "description": "窗口管理器是否挂载；false 时 windows 不能当成空桌面" },
                 "activeWindowId": { "type": "string", "description": "当前活跃窗口 ID" },
                 "windowCount": { "type": "integer" },
                 "maxWindows": { "type": "integer", "description": "最大可打开窗口数" }

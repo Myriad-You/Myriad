@@ -58,6 +58,8 @@ import type {
   UploadChunkRequest,
 } from '../types/federation'
 import type { ApiRequestOptions } from './api'
+import { currentCopy } from '../i18n/localeCopy'
+import { userFacingError } from '../utils/userFacingError'
 import { apiService } from './api'
 
 const PREFIX = '/federation'
@@ -315,9 +317,12 @@ export const federationApi = {
     if (!response.ok) {
       const errBody = await response.json().catch(() => ({}))
       throw new Error(
-        (errBody as { error?: string; message?: string }).error ||
-          (errBody as { message?: string }).message ||
-          `Media upload failed: ${response.status}`,
+        userFacingError(
+          (errBody as { error?: string; message?: string }).error ||
+            (errBody as { message?: string }).message ||
+            `Media upload failed: ${response.status}`,
+          currentCopy().errors.federationMediaUploadFailed,
+        ),
       )
     }
     return (await response.json()) as MediaUploadResponse

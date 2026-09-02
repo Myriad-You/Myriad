@@ -14,6 +14,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -46,6 +47,21 @@ export interface SecondaryNavConfig {
   expandHint?: string
 }
 
+/**
+ * 增删一条隐藏 chrome 的理由，返回此刻是否该隐藏。
+ *
+ * 就地改传入的集合 —— 调用方持有的是一个 ref，不需要每次换新对象。
+ */
+export function toggleImmersiveReason(
+  reasons: Set<string>,
+  reason: string,
+  active: boolean,
+): boolean {
+  if (active) reasons.add(reason)
+  else reasons.delete(reason)
+  return reasons.size > 0
+}
+
 // 导航上下文值
 interface NavigationContextValue {
   /** 当前注册的二级导航配置 */
@@ -64,10 +80,13 @@ interface NavigationContextValue {
   setIsAnimating: (value: boolean) => void
   /** 渲染模式引用（用于动画期间锁定渲染） */
   renderModeRef: React.RefObject<'normal' | 'secondary'>
-  /** 沉浸模式（隐藏导航岛和控制面板） */
+  /** 沉浸模式（隐藏导航岛和控制面板）：任一理由成立即为 true */
   immersiveMode: boolean
-  /** 设置沉浸模式 */
-  setImmersiveMode: (value: boolean) => void
+  /**
+   * 按理由开关沉浸模式，所有理由都撤销后 chrome 才回来。
+   * 一般不直接调用 —— 用 `useImmersiveChrome`。
+   */
+  setImmersiveReason: (reason: string, active: boolean) => void
 }
 
 const NavigationContext = createContext<NavigationContextValue | null>(null)
@@ -79,6 +98,18 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const [isAnimating, setIsAnimating] = useState(false)
   const [immersiveMode, setImmersiveMode] = useState(false)
   const renderModeRef = useRef<'normal' | 'secondary'>('normal')
+
+  /**
+   * 要求隐藏 chrome 的理由集合。
+   *
+   * 这里曾经是个布尔量，于是先退出的一方会替还在沉浸中的另一方把导航岛放出来
+   * （Tapp 全屏里开合一次 Agent 岛就会这样）。改成计数后，最后一个理由撤销才恢复。
+   */
+  const immersiveReasons = useRef<Set<string>>(new Set())
+
+  const setImmersiveReason = useCallback((reason: string, active: boolean) => {
+    setImmersiveMode(toggleImmersiveReason(immersiveReasons.current, reason, active))
+  }, [])
 
   // 注册二级导航
   const registerSecondaryNav = useCallback((config: SecondaryNavConfig) => {
@@ -120,7 +151,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       setIsAnimating,
       renderModeRef,
       immersiveMode,
-      setImmersiveMode,
+      setImmersiveReason,
     }),
     [
       secondaryNav,
@@ -129,6 +160,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       updateSecondaryNav,
       isAnimating,
       immersiveMode,
+      setImmersiveReason,
     ],
   )
 
@@ -146,6 +178,23 @@ export function useNavigation() {
     throw new Error('useNavigation must be used within NavigationProvider')
   }
   return context
+}
+
+/**
+ * 声明「我在场时隐藏站点 chrome（导航岛等）」。
+ *
+ * `reason` 只是给调试看的标签；每个组件实例自带唯一后缀，所以同一个 hook 在多处
+ * 挂载不会互相顶掉。卸载或 `active` 转 false 时自动撤销。
+ */
+export function useImmersiveChrome(reason: string, active: boolean): void {
+  const { setImmersiveReason } = useNavigation()
+  const instanceId = useId()
+  const key = `${reason}#${instanceId}`
+
+  useEffect(() => {
+    setImmersiveReason(key, active)
+    return () => setImmersiveReason(key, false)
+  }, [key, active, setImmersiveReason])
 }
 
 // Hook：页面声明二级导航

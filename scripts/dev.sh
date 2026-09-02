@@ -139,10 +139,12 @@ expand_process_tree() {
         seen="$seen $pid "
     done <<< "$seeds"
 
-    local i=0
+    local i=0 children
     while [[ $i -lt ${#queue[@]} ]]; do
         pid="${queue[$i]}"
         i=$((i + 1))
+        # bash 3.2 leaks an FD on every `<(...)`; capture instead.
+        children="$(list_child_pids "$pid")"
         while IFS= read -r child; do
             [[ -n "$child" ]] || continue
             case "$seen" in
@@ -151,7 +153,7 @@ expand_process_tree() {
             seen="$seen $child "
             queue+=("$child")
             all+=("$child")
-        done < <(list_child_pids "$pid")
+        done <<< "$children"
     done
 
     printf '%s\n' "${all[@]}" | normalize_pids
@@ -257,8 +259,10 @@ in_project_tree() {
 # rust-analyzer `cargo check` is not a match.
 list_backend_pids() {
     local -a found=()
-    local pid cmd
+    local pid cmd ps_out listen_out
 
+    # bash 3.2 leaks an FD on every `<(...)`. The TUI idle loop calls this.
+    ps_out="$(ps -axo pid=,command= 2>/dev/null || true)"
     while IFS= read -r line; do
         # pid is first field; remainder is command (may contain spaces)
         pid="${line%% *}"
@@ -276,11 +280,12 @@ list_backend_pids() {
             fi
         fi
         [[ $match -eq 1 ]] && found+=("$pid")
-    done < <(ps -axo pid=,command= 2>/dev/null || true)
+    done <<< "$ps_out"
 
+    listen_out="$(list_listen_pids "$BACKEND_PORT")"
     while IFS= read -r pid; do
         [[ -n "$pid" ]] && found+=("$pid")
-    done < <(list_listen_pids "$BACKEND_PORT")
+    done <<< "$listen_out"
 
     if [[ ${#found[@]} -eq 0 ]]; then
         return 0
@@ -291,8 +296,9 @@ list_backend_pids() {
 # Match frontend via `pnpm run dev` / astro / vite in this tree, plus FRONTEND_PORT.
 list_frontend_pids() {
     local -a found=()
-    local pid cmd
+    local pid cmd ps_out listen_out
 
+    ps_out="$(ps -axo pid=,command= 2>/dev/null || true)"
     while IFS= read -r line; do
         pid="${line%% *}"
         cmd="${line#${pid}}"
@@ -307,11 +313,12 @@ list_frontend_pids() {
             in_project_tree "$pid" "$cmd" && match=1
         fi
         [[ $match -eq 1 ]] && found+=("$pid")
-    done < <(ps -axo pid=,command= 2>/dev/null || true)
+    done <<< "$ps_out"
 
+    listen_out="$(list_listen_pids "$FRONTEND_PORT")"
     while IFS= read -r pid; do
         [[ -n "$pid" ]] && found+=("$pid")
-    done < <(list_listen_pids "$FRONTEND_PORT")
+    done <<< "$listen_out"
 
     if [[ ${#found[@]} -eq 0 ]]; then
         return 0
@@ -590,6 +597,8 @@ native_pg_brew_formula() {
         fi
     done
 
+    local brew_svcs
+    brew_svcs="$(brew services list 2>/dev/null || true)"
     while IFS= read -r line; do
         formula="${line%% *}"
         case "$formula" in
@@ -599,7 +608,7 @@ native_pg_brew_formula() {
                 return 0
                 ;;
         esac
-    done < <(brew services list 2>/dev/null)
+    done <<< "$brew_svcs"
 
     formula="$(brew list --formula 2>/dev/null | grep -E '^postgresql(@[0-9]+)?$' | tail -n 1 || true)"
     if [[ -n "$formula" ]]; then
@@ -1077,12 +1086,13 @@ backend_port_in_use() {
 
 # Compiled server process (not `cargo run` still compiling).
 backend_binary_up() {
-    local p cmd
+    local p cmd pids
+    pids="$(list_backend_pids)"
     while IFS= read -r p; do
         [[ "$p" =~ ^[0-9]+$ ]] || continue
         cmd="$(ps -p "$p" -o command= 2>/dev/null)"
         [[ "$cmd" == *myriad-backend* ]] && return 0
-    done < <(list_backend_pids)
+    done <<< "$pids"
     return 1
 }
 
@@ -1621,6 +1631,24 @@ stop_frontend() {
     print_success "Frontend stopped"
 }
 
+# Vite's optimize-deps cache. Stale entries show up as "504 Outdated Optimize Dep"
+# after a restart; wipe it only when the dev server is already down.
+clear_vite_cache() {
+    local vite="$PROJECT_ROOT/frontend/node_modules/.vite"
+    local vite_temp="$PROJECT_ROOT/frontend/node_modules/.vite-temp"
+    if [[ ! -e "$vite" && ! -e "$vite_temp" ]]; then
+        return 0
+    fi
+    print_info "Clearing Vite cache…"
+    rm -rf "$vite" "$vite_temp" 2>/dev/null || true
+}
+
+restart_frontend() {
+    stop_frontend || true
+    clear_vite_cache
+    start_frontend
+}
+
 # ==================== Foreground supervisor (--fg / up) ====================
 # Prefixes interleaved logs and takes both services down on a single Ctrl-C.
 # Portable: macOS /bin/bash 3.2 has no `wait -n`, so we poll.
@@ -1869,7 +1897,18 @@ stop_all() {
 }
 
 restart_all() {
-    stop_all
+    # Bounce app processes only. A running postgres already has the schema;
+    # stop+start just adds downtime and races the backend.
+    echo ""
+    echo -e "${BRIGHT_CYAN}${BOLD}${ICON_REFRESH} Restarting Services${NC}"
+    echo ""
+    stop_frontend || true
+    stop_backend || true
+    stop_updater || true
+    clear_vite_cache
+    if get_service_status database; then
+        print_info "Database is already running — leaving it up"
+    fi
     start_all
 }
 
@@ -1925,7 +1964,9 @@ END \$\$;" > /dev/null 2>&1 || true
     sleep 0.3
     
     ((current++)); progress_bar $current $total 40 "Cleaning"
-    rm -rf "$PROJECT_ROOT/frontend/dist" "$PROJECT_ROOT/frontend/.astro" 2>/dev/null || true
+    rm -rf "$PROJECT_ROOT/frontend/dist" "$PROJECT_ROOT/frontend/.astro" \
+        "$PROJECT_ROOT/frontend/node_modules/.vite" \
+        "$PROJECT_ROOT/frontend/node_modules/.vite-temp" 2>/dev/null || true
     sleep 0.3
     
     ((current++)); progress_bar $current $total 40 "Cleaning"
@@ -2104,7 +2145,7 @@ main() {
                     ;;
                 database|db) stop_database; sleep 1; start_database ;;
                 backend) stop_backend; sleep 1; start_backend ;;
-                frontend) stop_frontend; sleep 1; start_frontend ;;
+                frontend) restart_frontend ;;
                 updater) USE_NATIVE=0; stop_updater; sleep 1; start_updater ;;
                 *) print_error "Unknown service: $service"; exit 1 ;;
             esac ;;

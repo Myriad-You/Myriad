@@ -60,6 +60,7 @@ import {
   canAccessModuleVisibility,
   useModuleVisibilityPreferences,
 } from '../utils/moduleVisibility'
+import { userFacingError } from '../utils/userFacingError'
 
 // 导航图标
 const NavIcons = {
@@ -355,7 +356,10 @@ export default function Brew() {
         }
       } catch (err) {
         console.error('[Brew] Failed to open deep-linked item:', err)
-        if (!cancelled) navigate('/brew', { replace: true })
+        if (!cancelled) {
+          setError(userFacingError(err, t.brew.loadArticlesFailed))
+          navigate('/brew', { replace: true })
+        }
       }
     })()
 
@@ -601,6 +605,7 @@ export default function Brew() {
           )
         } catch (err) {
           console.error('[Brew] Failed to load article for agent:', err)
+          setError(userFacingError(err, t.brew.loadArticlesFailed))
         }
       }
 
@@ -626,6 +631,7 @@ export default function Brew() {
             }
           } catch (err) {
             console.error('[Brew] Failed to load items for agent:', err)
+            setError(userFacingError(err, t.brew.loadArticlesFailed))
           } finally {
             setItemsLoading(false)
           }
@@ -822,7 +828,7 @@ export default function Brew() {
       setSources(data)
     } catch (err) {
       console.error('Failed to load sources:', err)
-      setError(t.brew.loadSourcesFailed)
+      setError(userFacingError(err, t.brew.loadSourcesFailed))
     }
   }, [t.brew.loadSourcesFailed])
 
@@ -897,7 +903,7 @@ export default function Brew() {
           return
         }
         console.error('Failed to load items:', err)
-        setError(t.brew.loadArticlesFailed)
+        setError(userFacingError(err, t.brew.loadArticlesFailed))
       } finally {
         // 只有最新请求才更新 loading 状态
         if (requestId === loadRequestIdRef.current) {
@@ -1137,8 +1143,8 @@ export default function Brew() {
         )
       } catch (err) {
         console.error('Failed to mark as read:', err)
-        // API 失败时恢复状态
         setSelectedItem(item)
+        setError(userFacingError(err, t.errors.readingStateFailed))
       }
     } else {
       setSelectedItem(item)
@@ -1203,6 +1209,7 @@ export default function Brew() {
           targetItem = await brewApi.getItem(articleId)
         } catch (err) {
           console.error('Failed to fetch article:', err)
+          setError(userFacingError(err, t.brew.loadArticlesFailed))
           return
         }
       }
@@ -1211,7 +1218,7 @@ export default function Brew() {
         handleItemSelect(targetItem)
       }
     },
-    [items, handleItemSelect, readingList],
+    [items, handleItemSelect, readingList, t.brew.loadArticlesFailed],
   )
 
   // 处理收藏切换
@@ -1262,6 +1269,7 @@ export default function Brew() {
       })
     } catch (err) {
       console.error('Failed to toggle star:', err)
+      setError(userFacingError(err, t.brew.starFailed))
     }
   }
 
@@ -1307,6 +1315,7 @@ export default function Brew() {
       }
     } catch (err) {
       console.error('Failed to refresh source:', err)
+      setError(userFacingError(err, t.errors.brewRefreshFailed))
     } finally {
       setSourceRefreshing(false)
     }
@@ -1353,6 +1362,7 @@ export default function Brew() {
       }
     } catch (err) {
       console.error('Failed to mark all read:', err)
+      setError(userFacingError(err, t.errors.readingStateFailed))
     }
   }
 
@@ -1404,10 +1414,11 @@ export default function Brew() {
       handleStarredExitEditMode()
     } catch (err) {
       console.error('Failed to batch unstar:', err)
+      setError(userFacingError(err, t.brew.starFailed))
     } finally {
       setStarredProcessing(false)
     }
-  }, [starredSelectedIds, handleStarredExitEditMode])
+  }, [starredSelectedIds, handleStarredExitEditMode, t.brew.starFailed])
 
   const handleStarredBack = useCallback(() => {
     setViewMode('sources')
@@ -1497,6 +1508,7 @@ export default function Brew() {
       )
     } catch (err) {
       console.error('Failed to toggle read:', err)
+      setError(userFacingError(err, t.errors.readingStateFailed))
     }
   }
 

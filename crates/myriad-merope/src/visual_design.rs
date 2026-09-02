@@ -148,12 +148,6 @@ pub fn character_module(value: &Value) -> Option<Value> {
         .cloned()
 }
 
-pub fn outfit_module(value: &Value) -> Option<Value> {
-    sanitize_upper_body_visual_identity(value)?
-        .get("outfit")
-        .cloned()
-}
-
 pub fn clothing_style_of(value: &Value) -> Option<&'static str> {
     let root = value.get("visualIdentity").unwrap_or(value);
     [
@@ -400,7 +394,7 @@ mod tests {
         stamp_clothing_style(&mut swapped, "urban");
         assert_eq!(character_module(&swapped).unwrap(), character);
         assert_ne!(
-            outfit_module(&swapped).unwrap()["outfitConstruction"],
+            sanitize_upper_body_visual_identity(&swapped).unwrap()["outfit"]["outfitConstruction"],
             first["outfit"]["outfitConstruction"]
         );
         assert_eq!(clothing_style_of(&swapped), Some("urban"));

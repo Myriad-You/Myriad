@@ -1,7 +1,21 @@
 //! MFP 类型定义
 //!
 //! ActivityPub 兼容 + Myriad 扩展的联邦协议类型
-
+//!
+//! ## 关于本文件的 allow(dead_code)
+//!
+//! 本文件里约十来个结构/枚举没有构造点：入站 handler 从 `serde_json::Value`
+//! 里逐个字符串挖字段，出站用 `json!` 直接拼——两边都不经过这些类型。
+//!
+//! **不要机械地把它们接到 handler 上**：抽查发现它们与真实线上格式已经对不上，
+//! 例如 `ChannelOpenObject` 缺了出站实际会发的 `id`（buffer_types_crud.rs 的
+//! ChannelOpen 构造点），而已删掉的 `SyncDataRequest` 带着一个从没发过的
+//! `origin_peer`、却少了 handler 真正要读的 `ring` / `ringType`。按现状接上去
+//! 会丢字段或拒收当前能收的消息。
+//!
+//! 已经接上的：`ChannelType` / `ChannelTransport` 的 serde 表示就是频道创建
+//! 校验的取值表（见本文件测试 `channel_enums_serialize_to_the_mfp_wire_values`）。
+//! 其余每一个都需要先按各自的线上站点核对字段，再决定是补齐还是当废稿删掉。
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
@@ -1473,5 +1487,34 @@ mod tests {
             "https://a.example/users/u/following"
         );
         assert_eq!(inbox_url(base, "u"), "https://a.example/users/u/inbox");
+    }
+
+    /// 频道创建校验现在直接反序列化这两个枚举（buffer_types_crud.rs），
+    /// 所以它们的 serde 表示就是 MFP 的线上取值表——钉死，改名即改协议。
+    #[test]
+    fn channel_enums_serialize_to_the_mfp_wire_values() {
+        use serde_json::json;
+        for (value, ok) in [
+            ("text", true),
+            ("file-transfer", true),
+            ("rpc", true),
+            ("data-exchange", true),
+            ("stream", true),
+            ("file_transfer", false),
+            ("Text", false),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<ChannelType>(json!(value)).is_ok(),
+                ok,
+                "channelType {value}"
+            );
+        }
+        for (value, ok) in [("http", true), ("websocket", true), ("Http", false)] {
+            assert_eq!(
+                serde_json::from_value::<ChannelTransport>(json!(value)).is_ok(),
+                ok,
+                "transport {value}"
+            );
+        }
     }
 }

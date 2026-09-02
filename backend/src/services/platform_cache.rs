@@ -6,6 +6,7 @@
 use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
@@ -174,6 +175,20 @@ pub async fn update_cached_platform_data(platform: &str, data: Value) -> Result<
     Ok(())
 }
 
+fn platform_cache_read_failed(platform: &str, error: std::io::Error) -> String {
+    tracing::error!(%error, platform, "failed to read platform cache");
+    match error.kind() {
+        ErrorKind::NotFound => format!("No cached {platform} data"),
+        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => {
+            format!("Failed to read {platform} data: storage is not writable")
+        }
+        ErrorKind::StorageFull => {
+            format!("Failed to read {platform} data: not enough disk space")
+        }
+        _ => format!("Failed to read {platform} data"),
+    }
+}
+
 /// Read platform filtered JSON with process TTL cache.
 pub async fn get_cached_platform_data(platform: &str) -> Result<Value, String> {
     validate_platform_name(platform)?;
@@ -198,10 +213,12 @@ pub async fn get_cached_platform_data(platform: &str) -> Result<Value, String> {
     let cache_file = format!("cache/platforms/{}_filtered.json", key);
     let content = tokio::fs::read_to_string(&cache_file)
         .await
-        .map_err(|e| format!("Failed to read cache: {}", e))?;
+        .map_err(|error| platform_cache_read_failed(&key, error))?;
 
-    let data: Value = serde_json::from_str(&content)
-        .map_err(|error| format!("Failed to parse cache: {}", error))?;
+    let data: Value = serde_json::from_str(&content).map_err(|error| {
+        tracing::error!(%error, platform = %key, "failed to parse platform cache");
+        format!("Failed to parse {key} data")
+    })?;
 
     {
         let mut cache = PLATFORM_CACHE.write().await;
@@ -390,9 +407,26 @@ pub fn build_tapp_written_item(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_tapp_written_item, filtered_cache_path, platform_filtered_cache_path,
-        validate_platform_name, PlatformCacheError,
+        build_tapp_written_item, filtered_cache_path, platform_cache_read_failed,
+        platform_filtered_cache_path, validate_platform_name, PlatformCacheError,
     };
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn platform_cache_read_failed_names_platform_without_os_dump() {
+        assert_eq!(
+            platform_cache_read_failed("steam", Error::from(ErrorKind::NotFound)),
+            "No cached steam data"
+        );
+        assert_eq!(
+            platform_cache_read_failed("bilibili", Error::from(ErrorKind::PermissionDenied)),
+            "Failed to read bilibili data: storage is not writable"
+        );
+        assert!(
+            !platform_cache_read_failed("steam", Error::from(ErrorKind::Other))
+                .contains("os error")
+        );
+    }
     use serde_json::json;
 
     #[test]

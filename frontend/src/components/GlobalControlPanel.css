@@ -620,21 +620,6 @@ html.dark .info-card-title {
   color: rgb(255 255 255 / 60%);
 }
 
-/* 天气卡片 */
-
-/* 名言卡片 */
-
-/* ==========================================
-   6. 卡片导航�?
-   ========================================== */
-
-.card-nav-dots {
-  display: flex;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-}
-
 /* ==========================================
    7. 控制项网�?
    ========================================== */
@@ -1270,11 +1255,6 @@ html.dark .control-panel-overlay {
   .control-action-btn svg {
     width: 1rem;
     height: 1rem;
-  }
-
-  .card-nav-dots {
-    gap: 0.375rem;
-    margin-top: 0.5rem;
   }
 
   /* 用户信息按钮移动端适配 */

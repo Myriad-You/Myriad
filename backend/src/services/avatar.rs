@@ -418,7 +418,10 @@ async fn load_user_avatar_row<C: ConnectionTrait>(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|e| format!("Failed to load avatar row: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "failed to load avatar row");
+            "Failed to load avatar sources".to_string()
+        })?;
 
     Ok(row.map(|row| UserAvatarRow {
         kind: AvatarSourceKind::parse(
@@ -601,7 +604,10 @@ pub async fn refresh_avatar_snapshot_on<C: ConnectionTrait>(
             vec![value, SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|e| format!("Failed to write avatar snapshot: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "failed to write avatar snapshot");
+            "Failed to save avatar source".to_string()
+        })?;
 
     Ok(proxied_avatar(resolved.url))
 }
@@ -812,7 +818,10 @@ pub async fn list_avatar_sources(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|e| format!("Failed to list identities: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "failed to list avatar identities");
+            "Failed to load avatar sources".to_string()
+        })?;
 
     let mut identities = Vec::new();
     for identity in identity_rows {
@@ -941,10 +950,10 @@ async fn set_avatar_source_txn(
         }
     };
 
-    let txn = db
-        .begin()
-        .await
-        .map_err(|e| format!("Failed to begin avatar source transaction: {e}"))?;
+    let txn = db.begin().await.map_err(|error| {
+        tracing::error!(%error, "failed to begin avatar source transaction");
+        "Failed to save avatar source".to_string()
+    })?;
 
     if let Some(github_id) = linked_github_id {
         txn.execute_raw(Statement::from_sql_and_values(
@@ -957,7 +966,10 @@ async fn set_avatar_source_txn(
             ],
         ))
         .await
-        .map_err(|e| format!("Failed to backfill linked_github_id: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "failed to backfill linked_github_id");
+            "Failed to save avatar source".to_string()
+        })?;
     }
 
     txn.execute_raw(Statement::from_sql_and_values(
@@ -974,7 +986,10 @@ async fn set_avatar_source_txn(
         ],
     ))
     .await
-    .map_err(|e| format!("Failed to save avatar source: {e}"))?;
+    .map_err(|error| {
+        tracing::error!(%error, "failed to save avatar source");
+        "Failed to save avatar source".to_string()
+    })?;
 
     // identity 源同步 is_primary，保持与既有 /identities/{id}/primary 语义一致
     if kind == AvatarSourceKind::Identity {
@@ -988,7 +1003,10 @@ async fn set_avatar_source_txn(
                 ],
             ))
             .await
-            .map_err(|e| format!("Failed to set primary identity: {e}"))?;
+            .map_err(|error| {
+                tracing::error!(%error, "failed to set primary identity");
+                "Failed to save avatar source".to_string()
+            })?;
         }
     }
 
@@ -997,9 +1015,10 @@ async fn set_avatar_source_txn(
     // Platform metadata is unchanged here — resolve it via the pool connection.
     let avatar_url = refresh_avatar_snapshot_on(&txn, db, user_id).await?;
 
-    txn.commit()
-        .await
-        .map_err(|e| format!("Failed to commit avatar source transaction: {e}"))?;
+    txn.commit().await.map_err(|error| {
+        tracing::error!(%error, "failed to commit avatar source transaction");
+        "Failed to save avatar source".to_string()
+    })?;
 
     Ok(avatar_url)
 }

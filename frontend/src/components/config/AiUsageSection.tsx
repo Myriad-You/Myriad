@@ -23,6 +23,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { fetchJson } from '../../utils/apiHelper'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   SettingGroup,
   SettingTitleSelect,
@@ -171,7 +172,7 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
         if (signal?.aborted) return
         if (e instanceof DOMException && e.name === 'AbortError') return
         console.error('ai usage summary failed', e)
-        setError(a.aiUsageLoadFailed)
+        setError(userFacingError(e, a.aiUsageLoadFailed))
         setData(null)
       } finally {
         if (!signal?.aborted) setLoading(false)

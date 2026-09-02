@@ -1,6 +1,8 @@
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import api from '../lib/api'
 import { getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
+import { userFacingError } from '../utils/userFacingError'
 
 export type TripoOperation =
   'image_to_model' | 'multiview_to_model' | 'rig_check' | 'rig' | 'retarget'
@@ -88,15 +90,15 @@ function assertTripoHttpSuccess(
       : typeof body.message === 'string'
         ? body.message
         : fallback
-  throw new Error(message)
+  throw new Error(userFacingError(message, currentCopy().errors.model3dFailed))
 }
 
 export async function getTripoStatus(): Promise<TripoStatus> {
-  const response = await api.get<TripoStatus>('/api/merope/3d/status')
+  const response = await api.get<TripoStatus>('/api/model3d/status')
   assertTripoHttpSuccess(
     response.status,
     response.data,
-    'Could not load Tripo status',
+    currentCopy().errors.model3dFailed,
   )
   return response.data
 }
@@ -110,7 +112,7 @@ export async function uploadTripoFile(file: File): Promise<string> {
 
   // Do not use the shared Axios instance here: its JSON default would prevent
   // the browser from generating the multipart boundary.
-  const response = await fetch(`${API_URL}/api/merope/3d/files`, {
+  const response = await fetch(`${API_URL}/api/model3d/files`, {
     method: 'POST',
     headers,
     body: form,
@@ -123,7 +125,10 @@ export async function uploadTripoFile(file: File): Promise<string> {
   }
   if (!response.ok || !data.file_token) {
     throw new Error(
-      data.error || data.message || `Tripo upload failed: ${response.status}`,
+      userFacingError(
+        data.error || data.message || `Tripo upload failed: ${response.status}`,
+        currentCopy().errors.model3dFailed,
+      ),
     )
   }
   return data.file_token
@@ -134,16 +139,16 @@ export async function createTripoTask(
   payload: Record<string, unknown>,
 ): Promise<string> {
   const response = await api.post<{ task_id: string }>(
-    '/api/merope/3d/tasks',
+    '/api/model3d/tasks',
     { operation, payload },
   )
   assertTripoHttpSuccess(
     response.status,
     response.data,
-    'Could not create Tripo task',
+    currentCopy().errors.model3dFailed,
   )
   if (!response.data.task_id)
-    throw new Error('Tripo task response did not include task_id')
+    throw new Error(currentCopy().errors.model3dFailed)
   return response.data.task_id
 }
 
@@ -156,14 +161,14 @@ export async function getTripoTask(
   signal?: AbortSignal,
 ): Promise<TripoTask> {
   const response = await api.get<TripoTask>(
-    `/api/merope/3d/tasks/${encodeURIComponent(taskId)}`,
+    `/api/model3d/tasks/${encodeURIComponent(taskId)}`,
     // A successful query also downloads and validates provider model outputs.
     { timeout: 15 * 60_000, signal },
   )
   assertTripoHttpSuccess(
     response.status,
     response.data,
-    'Could not query Tripo task',
+    currentCopy().errors.model3dFailed,
   )
   return response.data
 }
@@ -217,7 +222,7 @@ export async function pollTripoTask(
       options.signal,
     )
   }
-  throw new Error(`Tripo task ${taskId} timed out after ${timeoutMs}ms`)
+  throw new Error(currentCopy().errors.timeout)
 }
 
 /** Browser-safe polling; avoids one HTTP request being held for up to an hour. */
@@ -229,5 +234,5 @@ export async function awaitTripoTask(
 }
 
 export function tripoAssetUrl(assetId: string): string {
-  return `/api/merope/3d/assets/${encodeURIComponent(assetId)}`
+  return `/api/model3d/assets/${encodeURIComponent(assetId)}`
 }

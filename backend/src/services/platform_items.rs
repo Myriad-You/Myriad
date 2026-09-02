@@ -1300,6 +1300,7 @@ fn promote_entry_fields(item: &mut Value, entry: &Map<String, Value>) {
 ///
 /// Prefers legacy raw top-level arrays (`games`, `videos`, …) when present, then
 /// falls back to [`extract_platform_items`] for filtered-cache shapes.
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub fn extract_platform_items_for_random(platform: &str, data: &Value) -> Vec<Value> {
     let platform = platform.to_ascii_lowercase();
     match platform.as_str() {

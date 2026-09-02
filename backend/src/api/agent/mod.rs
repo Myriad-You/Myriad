@@ -108,7 +108,11 @@ fn wait_loop_channel_dropped_event(task_id: &str) -> AgentProgressEvent {
 
 /// Ensure session-message metadata always carries top-level run/task ids for reattach.
 /// Merges into an existing JSON object (e.g. ApiResponse value) without dropping fields.
-fn session_metadata_with_run_identity(base: Option<Value>, run_id: &str, task_id: &str) -> Value {
+pub(crate) fn session_metadata_with_run_identity(
+    base: Option<Value>,
+    run_id: &str,
+    task_id: &str,
+) -> Value {
     let mut meta = match base {
         Some(Value::Object(map)) => Value::Object(map),
         Some(other) => json!({ "data": other }),
@@ -218,21 +222,27 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
     }
 }
 
+mod autonomy_dispatch;
 mod boot;
 mod heartbeat_mcp;
 mod helpers;
+mod intentions;
 mod notifications;
 mod persona;
+mod presence;
 mod presets;
 mod process;
 mod routes;
 mod sessions;
 mod types;
 
+pub use autonomy_dispatch::*;
 pub use boot::*;
 pub use heartbeat_mcp::*;
 pub use helpers::*;
+pub use intentions::*;
 pub use notifications::*;
+pub use presence::*;
 pub use presets::*;
 pub use process::*;
 pub use routes::*;

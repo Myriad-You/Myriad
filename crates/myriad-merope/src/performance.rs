@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+use crate::rig_contract::{
+    PERFORMANCE_BASELINE_EXPRESSIONS, PERFORMANCE_CUE_INTENTS, PERFORMANCE_INTERRUPT_MODES,
+    PERFORMANCE_POSTURES,
+};
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatPerformancePlan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -28,20 +33,6 @@ pub struct ChatPerformanceCue {
     pub fade_in_ms: u32,
     pub fade_out_ms: u32,
     pub interrupt: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ParsedChatPerformance {
-    pub reply: String,
-    pub plan: Option<ChatPerformancePlan>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawEnvelope {
-    reply: String,
-    #[serde(default, rename = "performance")]
-    _performance: Option<RawPlan>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,34 +72,8 @@ struct RawCue {
     interrupt: String,
 }
 
-pub fn parse_chat_performance(raw: &str) -> ParsedChatPerformance {
-    let trimmed = raw.trim();
-    let json = strip_json_fence(trimmed);
-    let Ok(envelope) = serde_json::from_str::<RawEnvelope>(json) else {
-        return ParsedChatPerformance {
-            reply: trimmed.chars().take(2_000).collect(),
-            plan: None,
-        };
-    };
-    let reply = envelope
-        .reply
-        .trim()
-        .chars()
-        .take(2_000)
-        .collect::<String>();
-    if reply.is_empty() {
-        return ParsedChatPerformance {
-            reply: trimmed.chars().take(2_000).collect(),
-            plan: None,
-        };
-    }
-    // Semantic acting is exclusively selected by the strict-Lite motion
-    // director. A reply model's embedded performance payload is ignored.
-    ParsedChatPerformance { reply, plan: None }
-}
-
-/// Parses the Lite motion director's plan. This is deliberately separate from
-/// `parse_chat_performance`: the motion model never gets to author the reply.
+/// Parses the Lite motion director's plan. Semantic acting is selected here and
+/// nowhere else: a reply model never gets to author its own performance.
 pub fn parse_performance_plan(raw: &str) -> Option<ChatPerformancePlan> {
     serde_json::from_str::<RawPlan>(strip_json_fence(raw.trim()))
         .ok()
@@ -132,14 +97,15 @@ fn sanitize_plan(plan: RawPlan) -> Option<ChatPerformancePlan> {
         .take(3)
         .filter_map(sanitize_cue)
         .collect::<Vec<_>>();
-    (baseline.is_some() || !cues.is_empty()).then_some(ChatPerformancePlan { baseline, cues })
+    if baseline.is_none() && cues.is_empty() {
+        return None;
+    }
+    Some(ChatPerformancePlan { baseline, cues })
 }
 
 fn sanitize_baseline(baseline: RawBaseline) -> Option<ChatPerformanceBaseline> {
-    const EXPRESSIONS: &[&str] = &["withdrawn", "subdued", "steady", "warm"];
-    const POSTURES: &[&str] = &["closed", "neutral", "open"];
-    if !EXPRESSIONS.contains(&baseline.expression.as_str())
-        || !POSTURES.contains(&baseline.posture.as_str())
+    if !PERFORMANCE_BASELINE_EXPRESSIONS.contains(&baseline.expression.as_str())
+        || !PERFORMANCE_POSTURES.contains(&baseline.posture.as_str())
         || !baseline.motion_energy.is_finite()
         || !baseline.attention.is_finite()
     {
@@ -154,17 +120,7 @@ fn sanitize_baseline(baseline: RawBaseline) -> Option<ChatPerformanceBaseline> {
 }
 
 fn sanitize_cue(cue: RawCue) -> Option<ChatPerformanceCue> {
-    const INTENTS: &[&str] = &[
-        "greet",
-        "respond",
-        "question",
-        "delight",
-        "emphasize",
-        "listen",
-        "notify",
-    ];
-    const INTERRUPTS: &[&str] = &["replace", "queue", "if-lower"];
-    if !INTENTS.contains(&cue.intent.as_str())
+    if !PERFORMANCE_CUE_INTENTS.contains(&cue.intent.as_str())
         || !cue.intensity.is_finite()
         || !cue.tempo.is_finite()
     {
@@ -177,7 +133,7 @@ fn sanitize_cue(cue: RawCue) -> Option<ChatPerformanceCue> {
         tempo: cue.tempo.clamp(0.5, 1.6),
         fade_in_ms: cue.fade_in_ms.clamp(40, 600),
         fade_out_ms: cue.fade_out_ms.clamp(60, 800),
-        interrupt: if INTERRUPTS.contains(&cue.interrupt.as_str()) {
+        interrupt: if PERFORMANCE_INTERRUPT_MODES.contains(&cue.interrupt.as_str()) {
             cue.interrupt
         } else {
             default_interrupt()
@@ -218,13 +174,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chat_parser_ignores_non_lite_performance() {
-        let parsed = parse_chat_performance(
-            r#"{"reply":"Hello!","performance":{"cues":[{"intent":"delight","atMs":9000,"intensity":9,"tempo":0.1,"interrupt":"unsafe"}]}}"#,
-        );
-        assert_eq!(parsed.reply, "Hello!");
-        assert!(parsed.plan.is_none());
-
+    fn lite_plan_parser_bounds_out_of_range_cues() {
         let plan = parse_performance_plan(
             r#"{"cues":[{"intent":"delight","atMs":9000,"intensity":9,"tempo":0.1,"interrupt":"unsafe"}]}"#,
         )
@@ -251,16 +201,58 @@ mod tests {
     }
 
     #[test]
-    fn preserves_plain_replies_and_discards_invalid_cues() {
-        assert_eq!(parse_chat_performance("plain reply").reply, "plain reply");
-        assert!(parse_chat_performance("plain reply").plan.is_none());
-        let invalid = parse_chat_performance(
-            r#"{"reply":"Hi","performance":{"cues":[{"intent":"execute-code"}]}}"#,
-        );
-        assert!(invalid.plan.is_none());
+    fn accepts_think_dizzy_and_cry_as_bounded_semantic_cues() {
+        let plan = parse_performance_plan(
+            r#"{"cues":[{"intent":"think","atMs":0,"intensity":0.9,"tempo":0.8,"fadeInMs":160,"fadeOutMs":320,"interrupt":"queue"},{"intent":"dizzy","atMs":120,"intensity":1.2,"tempo":0.8,"fadeInMs":180,"fadeOutMs":420,"interrupt":"if-lower"},{"intent":"cry","atMs":180,"intensity":1.4,"tempo":0.7,"fadeInMs":260,"fadeOutMs":500,"interrupt":"replace"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(plan.cues.len(), 3);
+        assert_eq!(plan.cues[0].intent, "think");
+        assert_eq!(plan.cues[1].intent, "dizzy");
+        assert_eq!(plan.cues[1].at_ms, 120);
+        assert_eq!(plan.cues[2].intent, "cry");
+        assert_eq!(plan.cues[2].fade_out_ms, 500);
+    }
+
+    #[test]
+    fn accepts_stylized_semantic_cues() {
+        let plan = parse_performance_plan(
+            r#"{"cues":[{"intent":"angry","intensity":1.1},{"intent":"speechless","intensity":0.8},{"intent":"silly","intensity":1.0}]}"#,
+        )
+        .unwrap();
+        assert_eq!(plan.cues.len(), 3);
+        assert_eq!(plan.cues[0].intent, "angry");
+        assert_eq!(plan.cues[1].intent, "speechless");
+        assert_eq!(plan.cues[2].intent, "silly");
+    }
+
+    #[test]
+    fn accepts_lovestruck_as_a_semantic_cue() {
+        let plan = parse_performance_plan(r#"{"cues":[{"intent":"lovestruck"}]}"#).unwrap();
+        assert_eq!(plan.cues[0].intent, "lovestruck");
+    }
+
+    #[test]
+    fn discards_plans_whose_baseline_is_out_of_vocabulary() {
         assert!(parse_performance_plan(
-            r#"{"baseline":{"expression":"angry","posture":"attack"},"cues":[]}"#
+            r#"{"baseline":{"expression":"angry","posture":"attack"},"cues":[]}"#,
         )
         .is_none());
+    }
+
+    #[test]
+    fn empty_object_is_not_a_plan() {
+        assert!(parse_performance_plan("{}").is_none());
+        assert!(parse_performance_plan(r#"{"cues":[]}"#).is_none());
+    }
+
+    #[test]
+    fn continue_is_not_a_public_plan() {
+        assert!(parse_performance_plan(r#"{"continue":true}"#).is_none());
+    }
+
+    #[test]
+    fn mouth_open_is_not_a_cue_intent() {
+        assert!(parse_performance_plan(r#"{"cues":[{"intent":"mouth-open"}]}"#).is_none());
     }
 }

@@ -1,5 +1,9 @@
 //! Distill personality tags from platform reports.
 //!
+//! The tag-distillation rules live here, not in `myriad-merope`: a copy once
+//! did, gained no consumer, and silently drifted apart on six behaviors before
+//! it was deleted. The shared onboarding sanitizer comes from the crate.
+//!
 //! Latest report per platform; evidence is summary / insights / notes /
 //! structured labels. Pro writes spoken temperament tags via
 //! `onboarding_prompts::TAGS_SYSTEM_PROMPT`. Visual assets stay out.
@@ -10,6 +14,9 @@ use std::time::Duration;
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde::Serialize;
 use serde_json::{json, Value};
+
+pub use myriad_merope::sanitize_onboarding_tags;
+use myriad_merope::{MAX_ONBOARDING_TAGS, MAX_ONBOARDING_TAG_CHARS};
 
 use crate::config::ModelTier;
 use crate::models::entities::platform_reports;
@@ -22,8 +29,6 @@ const MAX_REPORT_DNA_REPORTS: usize = 12;
 const MAX_REPORT_SUMMARY_CHARS: usize = 800;
 const MAX_REPORT_INSIGHT_CHARS: usize = 1_600;
 const MAX_REPORT_NOTE_CHARS: usize = 800;
-const MAX_ONBOARDING_TAGS: usize = 28;
-const MAX_ONBOARDING_TAG_CHARS: usize = 24;
 /// Keep in sync with `PERSONA_GENERATION_TIMEOUT_MS` / `MEROPE_PROXY_TIMEOUT_MS`.
 const REPORT_DNA_AI_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
@@ -635,27 +640,6 @@ pub(crate) fn tag_matches_ui_language(label: &str, language: &str) -> bool {
         "ja-JP" => has_han || has_kana,
         _ => has_han && !has_latin && !has_kana,
     }
-}
-
-pub fn sanitize_onboarding_tags(tags: &[String]) -> Vec<String> {
-    let mut sanitized = Vec::new();
-    for tag in tags {
-        let candidate = tag.trim();
-        if candidate.is_empty()
-            || candidate.chars().count() > MAX_ONBOARDING_TAG_CHARS
-            || candidate.chars().any(char::is_control)
-            || sanitized
-                .iter()
-                .any(|existing: &String| existing.eq_ignore_ascii_case(candidate))
-        {
-            continue;
-        }
-        sanitized.push(candidate.to_string());
-        if sanitized.len() == MAX_ONBOARDING_TAGS {
-            break;
-        }
-    }
-    sanitized
 }
 
 fn build_report_dna_bundle(sources: &[ReportDnaSource]) -> ReportDnaBundle {

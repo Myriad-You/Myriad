@@ -12,7 +12,7 @@ pub use utils::*;
 use super::types::*;
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -94,20 +94,7 @@ pub async fn capability_requires_confirmation_async(
         .map(|(msg, risk)| (msg.to_string(), *risk))
 }
 
-/// 获取能力摘要（用于 AI 提示 + GET /api/agent/capabilities）
-///
-/// 契约（FE agentApi.getCapabilities 依赖）：
-/// - `capabilities[]`：扁平列表（id/name/description/category/actions/requiresAi）
-/// - `total` / `totalCount`：数量
-/// - `byCategory` / `quickReference`：AI 提示用紧凑视图（保留兼容）
-///
-/// When `include_admin` is false, capabilities that require `system:admin`
-/// (e.g. system.metrics) are omitted from discovery — execute-time still gates.
-pub async fn get_capability_summary() -> Value {
-    get_capability_summary_filtered(true).await
-}
-
-pub async fn get_capability_summary_filtered(include_admin: bool) -> Value {
+pub async fn get_capability_summary_filtered(granted: Option<&HashSet<String>>) -> Value {
     let registry = get_registry().await;
     let all = registry.get_all();
 
@@ -116,7 +103,7 @@ pub async fn get_capability_summary_filtered(include_admin: bool) -> Value {
     let mut capabilities: Vec<Value> = Vec::with_capacity(all.len());
 
     for cap in all {
-        if !include_admin && cap.required_permissions.iter().any(|p| p == "system:admin") {
+        if !capability_covered_by_grants(cap, granted) {
             continue;
         }
         let usage_hint = resolve_capability_hint(cap);
@@ -178,10 +165,21 @@ pub async fn get_capability_summary_filtered(include_admin: bool) -> Value {
     })
 }
 
-/// 获取能力紧凑索引（用于 AI 提示的渐进式披露）
+/// Whether every `required_permissions` entry is in the grant set.
+/// Empty required list is callable. `granted = None` means unfiltered (tests / admin index).
+pub fn capability_covered_by_grants(cap: &Capability, granted: Option<&HashSet<String>>) -> bool {
+    let Some(granted) = granted else {
+        return true;
+    };
+    cap.required_permissions
+        .iter()
+        .all(|permission| granted.contains(permission))
+}
+
+/// Compact index limited to capabilities the user is actually granted.
 ///
-/// 返回仅包含 ID + 一句话 hint 的轻量列表，大幅减少 prompt token 用量。
-/// AI 根据此索引选出 `suggested_capabilities`，后续再按需加载完整 schema。
+/// Planner used to see the full 117 plus MCP, then fail at execute for
+/// non-admin. Filtering here is the grant layer, not declared/approved.
 ///
 /// 每个条目的字段：`id` / `h` 用途 / `p` 必需入参 / `o` 声明的输出字段。
 /// `o` 让 Planner 能写出 `"dataFrom": "search.results"` 这类精确引用，
@@ -189,13 +187,16 @@ pub async fn get_capability_summary_filtered(include_admin: bool) -> Value {
 ///
 /// Note: AI 能力（含 ai.webSearch）始终保持注册与可规划；缺失 API Key 时由执行层
 /// 返回非重试错误，而不是在索引中降级/隐藏能力。
-pub async fn get_compact_index() -> Value {
+pub async fn get_compact_index_for_grants(granted: Option<&HashSet<String>>) -> Value {
     let registry = get_registry().await;
 
     let mut by_category: std::collections::HashMap<String, Vec<Value>> =
         std::collections::HashMap::new();
 
     for cap in registry.get_all() {
+        if !capability_covered_by_grants(cap, granted) {
+            continue;
+        }
         let hint = resolve_capability_hint(cap);
         let category = get_capability_category_name(&cap.category);
 
@@ -221,42 +222,54 @@ pub async fn get_compact_index() -> Value {
 
         by_category.entry(category).or_default().push(entry);
     }
+    drop(registry);
 
-    // 合并动态 Skills 到索引
-    let mut total = registry.get_all().len();
+    // 合并动态 Skills 到索引（gating 能力必须已被授予，否则规划会选到执行必拒的技能）
+    let mut total: usize = by_category.values().map(Vec::len).sum();
     if let Some(skill_registry) = super::skill::get_skill_registry() {
         let skill_index = skill_registry.get_compact_index().await;
-        if !skill_index.is_empty() {
-            total += skill_index.len();
+        let mut kept = Vec::with_capacity(skill_index.len());
+        for entry in skill_index {
+            let allowed = match entry
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|id| id.strip_prefix("skill:"))
+            {
+                Some(skill_id) => match skill_registry.get(skill_id).await {
+                    Some(skill) => super::skill::skill_covered_by_grants(&skill, granted).await,
+                    None => false,
+                },
+                None => false,
+            };
+            if allowed {
+                kept.push(entry);
+            }
+        }
+        if !kept.is_empty() {
+            total += kept.len();
             by_category
                 .entry("动态技能".to_string())
                 .or_default()
-                .extend(skill_index);
+                .extend(kept);
         }
     }
 
     // 合并 MCP 工具到索引
-    if let Some(mcp_manager) = super::mcp::get_mcp_manager() {
-        let mcp_tools = mcp_manager.list_tools().await;
-        if !mcp_tools.is_empty() {
-            total += mcp_tools.len();
-            let mcp_entries: Vec<Value> = mcp_tools
-                .iter()
-                .map(|(server_id, tool)| {
-                    json!({
-                        "id": format!("mcp.{}.{}", server_id, tool.name),
-                        "h": if tool.description.is_empty() {
-                            format!("MCP tool from {}", server_id)
-                        } else {
-                            tool.description.chars().take(80).collect::<String>()
-                        }
-                    })
-                })
-                .collect();
-            by_category
-                .entry("MCP 工具".to_string())
-                .or_default()
-                .extend(mcp_entries);
+    let mcp_allowed = granted.is_none_or(|set| set.contains("mcp:execute"));
+    if mcp_allowed {
+        if let Some(mcp_manager) = super::mcp::get_mcp_manager() {
+            let mcp_tools = mcp_manager.list_tools().await;
+            if !mcp_tools.is_empty() {
+                total += mcp_tools.len();
+                let mcp_entries: Vec<Value> = mcp_tools
+                    .iter()
+                    .map(|(server_id, tool)| mcp_compact_entry(server_id, tool))
+                    .collect();
+                by_category
+                    .entry("MCP 工具".to_string())
+                    .or_default()
+                    .extend(mcp_entries);
+            }
         }
     }
 
@@ -337,6 +350,29 @@ fn mcp_tool_risk(
     (RiskLevel::High, true)
 }
 
+/// Compact-index row for an MCP tool. Planner rules key off `p` (required
+/// params); omitting it is how MCP calls used to ship with empty arguments.
+fn mcp_compact_entry(server_id: &str, tool: &super::mcp::protocol::McpToolDef) -> Value {
+    let mut entry = json!({
+        "id": format!("mcp.{}.{}", server_id, tool.name),
+        "h": if tool.description.is_empty() {
+            format!("MCP tool from {}", server_id)
+        } else {
+            tool.description.chars().take(80).collect::<String>()
+        }
+    });
+    if let Some(required) = tool.input_schema.get("required").and_then(|v| v.as_array()) {
+        let param_names: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
+        if !param_names.is_empty() {
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("p".to_string(), json!(param_names));
+        }
+    }
+    entry
+}
+
 fn mcp_capability(
     server_id: &str,
     tool: &super::mcp::protocol::McpToolDef,
@@ -379,6 +415,7 @@ fn get_capability_category_name(category: &CapabilityCategory) -> String {
 mod tests {
     use super::super::mcp::protocol::{McpToolAnnotations, McpToolDef};
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn test_registry_initialization() {
@@ -401,7 +438,7 @@ mod tests {
 
     #[tokio::test]
     async fn compact_index_exposes_declared_output_fields() {
-        let index = get_compact_index().await;
+        let index = get_compact_index_for_grants(None).await;
         let caps = index
             .get("caps")
             .and_then(Value::as_object)
@@ -432,7 +469,7 @@ mod tests {
         // An entry with an empty `h` reaches the planner as a bare ID, which
         // makes the capability effectively unselectable. 20 capabilities were in
         // that state before `resolve_capability_hint` fell back to description.
-        let index = get_compact_index().await;
+        let index = get_compact_index_for_grants(None).await;
         let blank: Vec<String> = index
             .get("caps")
             .and_then(Value::as_object)
@@ -475,10 +512,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn compact_index_hides_ungranted_capabilities() {
+        let granted = HashSet::from(["ai:chat".to_string(), "brew:read".to_string()]);
+        let index = get_compact_index_for_grants(Some(&granted)).await;
+        let ids: Vec<&str> = index
+            .get("caps")
+            .and_then(Value::as_object)
+            .expect("caps")
+            .values()
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter_map(|entry| entry.get("id").and_then(Value::as_str))
+            .collect();
+        assert!(ids.contains(&"ai.chat"), "{ids:?}");
+        assert!(
+            ids.contains(&"brew.read") || ids.iter().any(|id| id.starts_with("brew.")),
+            "{ids:?}"
+        );
+        assert!(
+            !ids.contains(&"speech.tts"),
+            "speech.tts requires speech:tts: {ids:?}"
+        );
+        assert!(
+            !ids.iter().any(|id| id.starts_with("mcp.")),
+            "mcp tools require mcp:execute: {ids:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn compact_index_omits_o_when_nothing_is_declared() {
         // `Capability::default()` leaves output_schema empty; such entries must
         // not emit an empty `o` list that the planner would read as "no output".
-        let index = get_compact_index().await;
+        let index = get_compact_index_for_grants(None).await;
         let entries: Vec<&Value> = index
             .get("caps")
             .and_then(Value::as_object)
@@ -512,6 +577,23 @@ mod tests {
             read_only_hint: Some(true),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn mcp_compact_index_exposes_required_params() {
+        let tool = McpToolDef {
+            name: "lookup".to_string(),
+            description: "Look up external data".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": { "query": { "type": "string" } },
+                "required": ["query"]
+            }),
+            annotations: None,
+        };
+        let entry = mcp_compact_entry("docs", &tool);
+        assert_eq!(entry["id"], "mcp.docs.lookup");
+        assert_eq!(entry["p"], json!(["query"]));
     }
 
     #[test]

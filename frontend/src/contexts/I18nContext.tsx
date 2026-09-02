@@ -20,6 +20,7 @@ import {
   getCachedLocale,
   loadLocale,
 } from '../i18n/loadLocale'
+import { currentCopy } from '../i18n/localeCopy'
 
 // Context 类型
 interface I18nContextType {
@@ -63,8 +64,10 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({
       })
       .catch((err) => {
         console.error('[I18n] Failed to load locale:', locale, err)
-        // 回退英文，避免首屏永久空白
         if (locale !== 'en-US') {
+          void import('../utils/toastManager').then(({ showError }) => {
+            showError(currentCopy().errors.localeLoadFailed)
+          })
           loadLocale('en-US').then((t) => {
             if (cancelled) return
             setLocaleState('en-US')

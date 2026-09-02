@@ -41,7 +41,7 @@ impl TappCredentialError {
             Self::Missing => "TAPP_CREDENTIAL_MISSING",
             Self::ReauthorizationRequired => "TAPP_CREDENTIAL_REAUTH_REQUIRED",
             Self::Encryption => "TAPP_CREDENTIAL_ENCRYPTION_FAILED",
-            Self::Database => "DATABASE_ERROR",
+            Self::Database => "TAPP_CREDENTIAL_LOAD_FAILED",
         }
     }
 
@@ -56,7 +56,7 @@ impl TappCredentialError {
                 "Tapp credential binding changed and must be re-authorized".into()
             }
             Self::Encryption => "Credential encryption is unavailable".into(),
-            Self::Database => "Database error".into(),
+            Self::Database => "Failed to load Tapp credentials".into(),
         }
     }
 }

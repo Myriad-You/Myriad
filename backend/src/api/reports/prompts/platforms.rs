@@ -241,6 +241,11 @@ guild_takes 按 guilds_preview 有几个写几个，最多 8，禁止编服：{\
     }
 }
 
+/// 报告 prompt 覆盖的平台清单。
+///
+/// 生产路径不读它；prompts/mod.rs 的 #[cfg(test)] 用它逐平台断言 prompt 完整性，
+/// 加平台时漏改 prompt 会在那里失败。跨文件测试引用，非测试 target 看不到。
+#[allow(dead_code)]
 pub const KNOWN_PLATFORMS: &[&str] = &[
     "bilibili", "steam", "github", "youtube", "netease", "bangumi", "mal", "x", "xbox", "psn",
     "discord",

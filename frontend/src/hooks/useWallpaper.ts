@@ -7,19 +7,20 @@
  * @module useWallpaper
  */
 
+import type { WallpaperErrorCopy } from '../utils/wallpaperError'
 import { useCallback, useEffect, useState } from 'react'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
-import {
-  wallpaperUnknownMessage,
-  type WallpaperErrorCopy,
-} from '../utils/wallpaperError'
 import { fetchJsonWithRetry } from '../utils/apiRetry'
 import { cssBackgroundImage } from '../utils/cssUrl'
 import { loadImagePooled } from '../utils/objectPool'
 import { proxyImageUrl } from '../utils/proxyImageUrl'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import { getCacheInfo } from '../utils/wallpaperColorCache'
+import {
+
+  wallpaperUnknownMessage,
+} from '../utils/wallpaperError'
 import {
   areUrlsEquivalent,
   effectiveWallpaperBlur,

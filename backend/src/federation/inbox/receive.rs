@@ -13,7 +13,9 @@ use crate::federation::actor::{
     fetch_remote_actor, fetch_remote_actor_for_verify, persist_verified_remote_actor,
     RemoteActorInfo, ResolvedRemoteActor,
 };
-use crate::federation::errors::{is_permanent_federation_error, map_inbox_handler_error};
+use crate::federation::errors::{
+    is_permanent_federation_error, map_inbox_handler_error, public_inbox_error,
+};
 use crate::federation::limits::{
     buffer_inbox_body, try_acquire_inbox_parse, validate_inbox_json_budget,
 };
@@ -26,6 +28,14 @@ use crate::federation::types::*;
 use super::receipt::{
     claim_receipt, finish_receipt, receipt_key, ReceiptClaim, ReceiptKey, ReceiptOutcome,
 };
+
+fn inbox_auth_reject(
+    public: &'static str,
+    error: impl std::fmt::Display,
+) -> (StatusCode, Json<serde_json::Value>) {
+    tracing::warn!(%error, public, "inbox signature rejected");
+    (StatusCode::UNAUTHORIZED, Json(json!({"error": public})))
+}
 
 /// Map handler errors to HTTP status; permanent peer-state mismatches → 4xx.
 fn inbox_err(context: &str, e: String) -> (StatusCode, Json<serde_json::Value>) {
@@ -63,10 +73,15 @@ fn receipt_conflict(
 
 fn receipt_rejected(status: u16, message: Option<&str>) -> (StatusCode, Json<serde_json::Value>) {
     let status = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST);
+    let public = message
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+        .map(public_inbox_error)
+        .unwrap_or("Activity was permanently rejected");
     (
         status,
         Json(json!({
-            "error": message.unwrap_or("Activity was permanently rejected"),
+            "error": public,
         })),
     )
 }
@@ -273,7 +288,7 @@ pub async fn post_inbox(
         );
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Rejected by trust policy", "reason": reason})),
+            Json(json!({"error": "Rejected by trust policy"})),
         ));
     }
 
@@ -516,7 +531,7 @@ pub async fn post_shared_inbox(
         );
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Rejected by trust policy", "reason": reason})),
+            Json(json!({"error": "Rejected by trust policy"})),
         ));
     }
 
@@ -545,11 +560,10 @@ pub async fn post_shared_inbox(
                 &activity["object"],
             )
             .map_err(|e| {
+                tracing::warn!(error = %e, "Shared inbox Create rejected by ownership check");
                 (
                     StatusCode::FORBIDDEN,
-                    Json(
-                        json!({"error": "Object ownership check failed", "reason": e.to_string()}),
-                    ),
+                    Json(json!({"error": "Object ownership check failed"})),
                 )
             })?;
         }
@@ -844,26 +858,30 @@ async fn handle_move(
         (StatusCode::BAD_REQUEST, Json(json!({"error": e})))
     })?;
 
-    let old_doc = fetch_actor_document(db, &old_actor).await.map_err(|e| {
-        tracing::warn!("Move rejected (old actor fetch): {}", e);
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Cannot fetch old actor for Move verify: {}", e)})),
-        )
-    })?;
+    let old_doc = fetch_actor_document(db, &old_actor)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "Move rejected (old actor fetch)");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Cannot fetch old actor for Move verify"})),
+            )
+        })?;
 
     verify_old_actor_moved_to(&old_doc, &old_actor, &new_actor).map_err(|e| {
         tracing::warn!("Move rejected (movedTo): {}", e);
         (StatusCode::BAD_REQUEST, Json(json!({"error": e})))
     })?;
 
-    let new_doc = fetch_actor_document(db, &new_actor).await.map_err(|e| {
-        tracing::warn!("Move rejected (new actor fetch): {}", e);
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Cannot fetch new actor for Move verify: {}", e)})),
-        )
-    })?;
+    let new_doc = fetch_actor_document(db, &new_actor)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "Move rejected (new actor fetch)");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "Cannot fetch new actor for Move verify"})),
+            )
+        })?;
 
     verify_new_actor_also_known_as(&new_doc, &new_actor, &old_actor).map_err(|e| {
         tracing::warn!("Move rejected (alsoKnownAs): {}", e);
@@ -1676,7 +1694,7 @@ async fn handle_content_activity(
         );
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Object ownership check failed", "reason": e.to_string()})),
+            Json(json!({"error": "Object ownership check failed"})),
         ));
     }
 
@@ -1940,14 +1958,14 @@ fn unique_header<'a>(
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(json!({
-                "error": format!("Ambiguous request: header `{name}` appears more than once"),
+                "error": "Ambiguous request: a signed header appears more than once",
             })),
         ));
     }
     first.to_str().map(Some).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Invalid `{name}` header encoding")})),
+            Json(json!({"error": "Invalid request header encoding"})),
         )
     })
 }
@@ -1997,18 +2015,10 @@ fn verify_preparse_gate(
         )
     })?;
 
-    let parsed = parse_signature_header(sig_header).map_err(|e| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("Invalid Signature header: {}", e)})),
-        )
-    })?;
-    require_covered_headers(&parsed, !body.is_empty()).map_err(|e| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("Invalid signed-header set: {}", e)})),
-        )
-    })?;
+    let parsed = parse_signature_header(sig_header)
+        .map_err(|error| inbox_auth_reject("Invalid Signature header", error))?;
+    require_covered_headers(&parsed, !body.is_empty())
+        .map_err(|error| inbox_auth_reject("Invalid signed-header set", error))?;
 
     let date = unique_header(headers, "date")?.ok_or_else(|| {
         (
@@ -2016,12 +2026,8 @@ fn verify_preparse_gate(
             Json(json!({"error": "Missing Date header"})),
         )
     })?;
-    verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW).map_err(|error| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("Invalid request date: {}", error)})),
-        )
-    })?;
+    verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW)
+        .map_err(|error| inbox_auth_reject("Invalid request date", error))?;
 
     if !body.is_empty() {
         let digest_str = unique_header(headers, "digest")?.ok_or_else(|| {
@@ -2065,18 +2071,10 @@ async fn verify_request_signature(
         )
     })?;
 
-    let parsed = parse_signature_header(sig_header).map_err(|e| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("Invalid Signature header: {}", e)})),
-        )
-    })?;
-    require_covered_headers(&parsed, !body.is_empty()).map_err(|e| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("Invalid signed-header set: {}", e)})),
-        )
-    })?;
+    let parsed = parse_signature_header(sig_header)
+        .map_err(|error| inbox_auth_reject("Invalid Signature header", error))?;
+    require_covered_headers(&parsed, !body.is_empty())
+        .map_err(|error| inbox_auth_reject("Invalid signed-header set", error))?;
 
     let date = unique_header(headers, "date")?.ok_or_else(|| {
         (
@@ -2084,12 +2082,8 @@ async fn verify_request_signature(
             Json(json!({"error": "Missing Date header"})),
         )
     })?;
-    verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW).map_err(|error| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("Invalid request date: {}", error)})),
-        )
-    })?;
+    verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW)
+        .map_err(|error| inbox_auth_reject("Invalid request date", error))?;
 
     // Digest 验证（非空 body 必须携带 Digest header）
     if !body.is_empty() {
@@ -2110,12 +2104,7 @@ async fn verify_request_signature(
     // MYR-022: trusted cache or ephemeral remote fetch — never poison DB on 401.
     let mut resolved: ResolvedRemoteActor = fetch_remote_actor_for_verify(db, actor_url_str, false)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": format!("Cannot verify actor: {}", e)})),
-            )
-        })?;
+        .map_err(|error| inbox_auth_reject("Cannot verify actor", error))?;
 
     // If we stored a public_key_id for this actor, Signature keyId must match
     // (normalized). On mismatch, force ephemeral re-fetch once — stale cache
@@ -2151,8 +2140,6 @@ async fn verify_request_signature(
                             StatusCode::UNAUTHORIZED,
                             Json(json!({
                                 "error": "Signature keyId does not match actor public key id",
-                                "stored_key_id": fresh_kid,
-                                "request_key_id": parsed.key_id,
                             })),
                         ));
                     }
@@ -2180,13 +2167,8 @@ async fn verify_request_signature(
     // 只取签名覆盖的 header，且每个都必须唯一（见 unique_header）。
     let header_map = signing_header_map(headers, &parsed.headers)?;
 
-    let valid =
-        verify_signature(public_key_pem, &parsed, method, path, &header_map).map_err(|e| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": format!("Signature verification failed: {}", e)})),
-            )
-        })?;
+    let valid = verify_signature(public_key_pem, &parsed, method, path, &header_map)
+        .map_err(|error| inbox_auth_reject("Signature verification failed", error))?;
 
     if !valid {
         // Ephemeral document is dropped here — never written to DB (MYR-022).
@@ -3664,9 +3646,33 @@ mod tests {
 
         let err = unique_header(&headers, "date").unwrap_err();
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            err.1 .0.get("error").and_then(|v| v.as_str()),
+            Some("Ambiguous request: a signed header appears more than once")
+        );
 
         let covered = vec!["(request-target)".to_string(), "date".to_string()];
         assert!(signing_header_map(&headers, &covered).is_err());
+    }
+
+    #[test]
+    fn receipt_replay_does_not_echo_sql() {
+        let err = receipt_rejected(
+            403,
+            Some(
+                "claim inbound receipt insert: relation \"federation_inbox_receipts\" does not exist",
+            ),
+        );
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+        assert_eq!(
+            err.1 .0.get("error").and_then(|v| v.as_str()),
+            Some("Inbox processing failed")
+        );
+        let ownership = receipt_rejected(403, Some("Object ownership check failed"));
+        assert_eq!(
+            ownership.1 .0.get("error").and_then(|v| v.as_str()),
+            Some("Access denied")
+        );
     }
 
     #[test]

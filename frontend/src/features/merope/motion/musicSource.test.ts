@@ -1,0 +1,329 @@
+import type {
+  MusicMotionAudio,
+  MusicMotionClock,
+  MusicMotionVisibility,
+} from './musicSource'
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { RigMotionCoordinator } from './coordinator'
+import {
+  MUSIC_LEASE_TTL_MS,
+  MusicMotionSource,
+  TRACK_SWITCH_HOLD_MS,
+} from './musicSource'
+
+function fakeClock(): MusicMotionClock & {
+  time: number
+  frames: Array<(t: number) => void>
+} {
+  const frames: Array<(t: number) => void> = []
+  return {
+    time: 0,
+    frames,
+    now: () => 0,
+    raf: (callback) => {
+      frames.push(callback)
+      return frames.length
+    },
+    caf: () => {
+      frames.length = 0
+    },
+  }
+}
+
+function silentAudio(paused = false): MusicMotionAudio {
+  return {
+    getCurrentAudio: () => ({ paused, currentTime: 1.2 }),
+    getSpectrumBands: () => [0.4, 0.5, 0.3, 0.1, 0, 0, 0, 0],
+    connectAudioToAnalyser: () => true,
+  }
+}
+
+const visible: MusicMotionVisibility = {
+  isPageVisible: () => true,
+  onVisibility: () => () => {},
+}
+
+test('one sampler fans out to every mounted rig', () => {
+  const coordinator = new RigMotionCoordinator()
+  const source = new MusicMotionSource(
+    coordinator,
+    fakeClock(),
+    silentAudio(),
+    visible,
+  )
+  source.setPlayback(true, false)
+  const seen: number[] = []
+  const first = source.subscribe(() => {
+    seen.push(1)
+  })
+  const second = source.subscribe(() => {
+    seen.push(2)
+  })
+  assert.equal(source.listenerCount(), 2)
+  source.sampleNow(80)
+  assert.ok(seen.includes(1))
+  assert.ok(seen.includes(2))
+  first()
+  second()
+  assert.equal(source.listenerCount(), 0)
+})
+
+test('frames carry the media identity across a fast track switch', () => {
+  const source = new MusicMotionSource(
+    new RigMotionCoordinator(),
+    fakeClock(),
+    silentAudio(),
+    visible,
+  )
+  source.setPlayback(true, false)
+  source.setTrack({ trackId: 'netease:song-a' })
+  assert.equal(source.sampleNow(10).trackId, 'netease:song-a')
+
+  source.setTrack({ trackId: 'qq:song-b' })
+  assert.equal(source.sampleNow(20).trackId, 'qq:song-b')
+})
+
+test('duplicate face bindings compile one semantic lyric timeline', async () => {
+  let compileCount = 0
+  const source = new MusicMotionSource(
+    new RigMotionCoordinator(),
+    fakeClock(),
+    silentAudio(),
+    visible,
+    async () => {
+      compileCount += 1
+      return []
+    },
+  )
+
+  source.setTrack({
+    trackId: 'netease:song-a',
+    duration: 120,
+    lines: [{ time: 0, text: 'first line' }],
+  })
+  source.setTrack({
+    trackId: 'netease:song-a',
+    duration: 120,
+    lines: [{ time: 0, text: 'first line', translation: 'ignored' }],
+  })
+  await Promise.resolve()
+  assert.equal(compileCount, 1)
+
+  source.setTrack({
+    trackId: 'netease:song-a',
+    duration: 120,
+    lines: [{ time: 0, text: 'changed line' }],
+  })
+  await Promise.resolve()
+  assert.equal(compileCount, 2)
+})
+
+test('a duplicate face binding cannot cancel an active track-switch hold', () => {
+  const source = new MusicMotionSource(
+    new RigMotionCoordinator(),
+    fakeClock(),
+    silentAudio(),
+    visible,
+  )
+  source.setPlayback(false, false)
+  source.markSwitching()
+
+  // A second mounted face repeats the same external playback snapshot. It
+  // must not overwrite the source's newer, internal switching state.
+  source.setPlayback(false, false)
+  const frame = source.sampleNow(10)
+  assert.equal(frame.apply.release, false)
+  assert.equal(frame.apply.writeGroove, true)
+})
+
+test('playing music claims mouth and body until speech takes the mouth', () => {
+  const coordinator = new RigMotionCoordinator()
+  const source = new MusicMotionSource(
+    coordinator,
+    fakeClock(),
+    silentAudio(),
+    visible,
+  )
+  source.setPlayback(true, false)
+  const frame = source.sampleNow(80)
+  assert.equal(coordinator.owner('mouth', 80), 'music')
+  assert.equal(coordinator.owner('headBody', 80), 'music')
+  assert.equal(coordinator.owner('gaze', 80), 'idle')
+  assert.equal(coordinator.owner('expression', 80), 'idle')
+  assert.equal(frame.behaviorPlan?.behaviors[0]?.function, 'entrain')
+  assert.equal(frame.behaviorPlan?.behaviors[0]?.kind, 'rhythmic')
+  assert.equal(frame.apply.writeMouth, true)
+  assert.equal(frame.apply.writeGroove, true)
+
+  coordinator.claim('speech', ['mouth'], { nowMs: 90 })
+  const yielded = source.sampleNow(90)
+  assert.equal(yielded.apply.writeMouth, false)
+  assert.equal(yielded.apply.writeGroove, true)
+  assert.equal(coordinator.owner('headBody', 90), 'music')
+})
+
+test('stopping music withdraws its candidate plan for global recovery', () => {
+  const coordinator = new RigMotionCoordinator()
+  const source = new MusicMotionSource(
+    coordinator,
+    fakeClock(),
+    silentAudio(),
+    visible,
+  )
+  source.setPlayback(true, false)
+  source.sampleNow(100)
+  source.setPlayback(false, false)
+  const stopped = source.sampleNow(200)
+  assert.equal(stopped.behaviorPlan, null)
+})
+
+test('pause rests the mouth without dropping the music lease', () => {
+  const coordinator = new RigMotionCoordinator()
+  const source = new MusicMotionSource(
+    coordinator,
+    fakeClock(),
+    silentAudio(true),
+    visible,
+  )
+  source.setPlayback(true, false)
+  const frame = source.sampleNow(80)
+  assert.equal(frame.apply.restMouth, true)
+  assert.equal(frame.apply.writeGroove, true)
+  assert.equal(frame.apply.release, false)
+  assert.equal(coordinator.owner('headBody', 80), 'music')
+})
+
+test('hiding the page releases music so a later sample can reclaim it', () => {
+  const coordinator = new RigMotionCoordinator()
+  let pageVisible = true
+  const listeners = new Set<(visible: boolean) => void>()
+  const source = new MusicMotionSource(
+    coordinator,
+    fakeClock(),
+    silentAudio(),
+    {
+      isPageVisible: () => pageVisible,
+      onVisibility: (callback) => {
+        listeners.add(callback)
+        return () => listeners.delete(callback)
+      },
+    },
+  )
+  source.setPlayback(true, false)
+  source.subscribe(() => {})
+  source.sampleNow(80)
+  assert.equal(coordinator.owner('headBody', 80), 'music')
+  pageVisible = false
+  for (const listener of listeners) listener(false)
+  assert.equal(coordinator.owner('headBody', 80), 'idle')
+})
+
+test('a track-switch hold then expires and drops the music lease', () => {
+  const coordinator = new RigMotionCoordinator()
+  const source = new MusicMotionSource(
+    coordinator,
+    fakeClock(),
+    silentAudio(),
+    visible,
+  )
+  source.setPlayback(true, false)
+  source.sampleNow(80)
+  assert.equal(coordinator.owner('headBody', 80), 'music')
+  source.setPlayback(false, true)
+  const held = source.sampleNow(90)
+  assert.equal(held.apply.release, false)
+  assert.equal(held.apply.writeGroove, true)
+  const expired = source.sampleNow(90 + TRACK_SWITCH_HOLD_MS)
+  assert.equal(expired.apply.release, true)
+  assert.equal(coordinator.owner('headBody', 90 + TRACK_SWITCH_HOLD_MS), 'idle')
+})
+
+test('music renews one lease instead of stacking a new claim every sample', () => {
+  const coordinator = new RigMotionCoordinator()
+  const source = new MusicMotionSource(
+    coordinator,
+    fakeClock(),
+    silentAudio(),
+    visible,
+  )
+  source.setPlayback(true, false)
+  source.sampleNow(80)
+  source.sampleNow(80 + MUSIC_LEASE_TTL_MS - 10)
+  const leases = coordinator
+    .snapshot(80 + MUSIC_LEASE_TTL_MS - 10)
+    .leases.filter((lease) => lease.source === 'music')
+  assert.equal(leases.length, 1)
+})
+
+test('reconnects the analyser when the player swaps its audio element', () => {
+  const connected: object[] = []
+  let current: { paused: boolean; currentTime: number } = {
+    paused: false,
+    currentTime: 1.2,
+  }
+  const audio: MusicMotionAudio = {
+    getCurrentAudio: () => current,
+    getSpectrumBands: () => [0.4, 0.5, 0.3, 0.1, 0, 0, 0, 0],
+    connectAudioToAnalyser: (element) => {
+      connected.push(element)
+      return true
+    },
+  }
+  const source = new MusicMotionSource(
+    new RigMotionCoordinator(),
+    fakeClock(),
+    audio,
+    visible,
+  )
+  source.setPlayback(true, false)
+  source.sampleNow(10)
+  source.sampleNow(20)
+  assert.equal(connected.length, 1)
+
+  // The player rebuilt its element; the analyser must follow it there.
+  current = { paused: false, currentTime: 0 }
+  source.sampleNow(30)
+  assert.equal(connected.length, 2)
+  assert.equal(connected[1], current)
+})
+
+test('publishes the next audio-clock beat as a mutable anticipator peg', () => {
+  let currentTime = 0
+  let bass = 0.05
+  const audio: MusicMotionAudio = {
+    getCurrentAudio: () => ({ paused: false, currentTime }),
+    getSpectrumBands: () => [bass, 0.1, 0.2, 0.1, 0, 0, 0, 0],
+    connectAudioToAnalyser: () => true,
+  }
+  const source = new MusicMotionSource(
+    new RigMotionCoordinator(),
+    fakeClock(),
+    audio,
+    visible,
+  )
+  source.setTrack({ trackId: 'steady-120bpm' })
+  source.setPlayback(true, false)
+  let latest = source.sampleNow(0)
+  for (let beat = 0; beat < 6; beat += 1) {
+    currentTime = beat * 0.5
+    bass = 0.95
+    latest = source.sampleNow(currentTime * 1_000)
+    currentTime += 0.05
+    bass = 0.05
+    latest = source.sampleNow(currentTime * 1_000)
+  }
+  const entrainment = latest.behaviorPlan?.behaviors.find(
+    (behavior) => behavior.function === 'entrain',
+  )
+  const anticipation = latest.behaviorPlan?.pegs.find(
+    (peg) => peg.id === entrainment?.anticipation,
+  )
+  assert.ok((anticipation?.confidence ?? 0) > 0.8)
+  assert.ok((anticipation?.atMs ?? 0) > currentTime * 1_000)
+  assert.ok(
+    (anticipation?.atMs ?? Number.POSITIVE_INFINITY) <=
+      currentTime * 1_000 + 500,
+  )
+  assert.equal(latest.spectrum?.sampleTimeSeconds, currentTime)
+})

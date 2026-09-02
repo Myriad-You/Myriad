@@ -3,8 +3,27 @@ https://github.com/852wa/Anime2.5DRig
 MIT License
 Copyright (c) 2026 hakoniwa
 
-rigger.js and genericparts.js are copies of the upstream sources.
-The UMD boot line in rigger.js is adjusted so it loads under ESM; the rigger itself is unchanged.
-The base bind, deform, and fade math follows index.html. Myriad supplies its own
-bounded ambient and text-free preview speech timing.
+Myriad's TypeScript implementation follows upstream revision
+d48825867acd081de22b0e7b5585bb562288796d. The original JavaScript and HTML
+were used only to calibrate the migration and are not retained or executed by
+the product or its tests. Standalone module tests now cover public behavior,
+edge cases, and fixed multi-frame regression fingerprints.
+
+The generic close-diff RGBA data and decoder are ported in
+../upstream/genericParts.ts; tests pin the decoded pixels by SHA-256. The base
+bind, deform, and fade math follows the upstream runtime. Myriad supplies its
+own bounded ambient and text-free preview speech timing.
+
 The surrounding Myriad page, overlay, and settings chrome are not from that project.
+
+Ellipsoid head/scalp projection, side-profile shaping, feathered hairline-pin,
+delayed topwear/bottomwear cylinder projection, and bounded chest-volume yaw
+and silhouette response were adapted from the MIT-licensed research fork at
+https://github.com/izumix77/Anime2.5DRig, revision
+1644759cd451ab82065e2bf57b21fe806e2be334. Myriad reimplements those behaviors
+inside its versioned asset contract and bounded motion runtime; the fork's demo
+UI, breast-curve editor and manual silhouette tuning, localStorage tuning,
+camera input, and recording paths are not included. The chest curve, near/far
+response, and breathing behavior are represented as a single bounded field
+derived from Myriad's existing garment-support profile rather than copied as
+manual per-model controls.

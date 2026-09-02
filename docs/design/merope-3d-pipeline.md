@@ -34,7 +34,7 @@ Character design / reference views
        shared WebGL scene/runtime
 ```
 
-Tripo credentials never leave the host outbound client. `/api/merope/3d`
+Tripo credentials never leave the host outbound client. `/api/model3d`
 task creation and uploads stay admin-only. TAPPs and the Agent call the same
 Tripo service through `/api/tapp/3d` and `model3d.*` capabilities, gated by the
 elevated `3d:generate` permission (not delegated by default). Persisted model
@@ -68,7 +68,7 @@ preserved and the persisted GLB report shows when it leaves the Web budget.
 
 ## Supported API flow
 
-All management routes are under `/api/merope/3d`:
+All management routes are under `/api/model3d`:
 
 1. `POST /files` uploads one PNG/JPEG image or supported model and returns a
    Tripo `file_token`.

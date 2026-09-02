@@ -83,10 +83,13 @@ impl UpdaterClientError {
                 AppError::service_unavailable("updater not configured (set MYRIAD_UPDATER_URL)")
             }
             Self::Upstream(status, body) => {
+                tracing::error!(%status, body = %redact_secrets(&body), "updater upstream failed");
                 AppError::from_status_u16(status.as_u16(), format!("updater upstream {status}"))
-                    .with_message(body)
             }
-            Self::Transport(e) => AppError::bad_gateway("updater transport error").with_message(e),
+            Self::Transport(error) => {
+                tracing::error!(%error, "updater transport failed");
+                AppError::bad_gateway("updater transport error")
+            }
         }
     }
 }
@@ -256,8 +259,9 @@ impl UpdaterClient {
         if bytes.is_empty() {
             return Ok(serde_json::Value::Null);
         }
-        serde_json::from_slice(&bytes).map_err(|e| {
-            UpdaterClientError::Transport(redact_secrets(&format!("decode json: {e}")))
+        serde_json::from_slice(&bytes).map_err(|error| {
+            tracing::error!(%error, "updater JSON decode failed");
+            UpdaterClientError::Transport("decode json failed".to_string())
         })
     }
 
@@ -316,16 +320,15 @@ mod tests {
         assert_eq!(e.status_u16(), 502);
         let json = e.to_json().to_string();
         assert!(!json.contains("supersecrettoken99"), "leaked: {json}");
-        assert!(
-            json.contains("[REDACTED]") || json.contains("transport"),
-            "{json}"
-        );
+        assert!(json.contains("transport"), "{json}");
     }
 
     #[test]
     fn into_app_error_upstream_preserves_status() {
         let e = UpdaterClientError::Upstream(StatusCode::CONFLICT, "busy".into()).into_app_error();
         assert_eq!(e.status_u16(), 409);
-        assert_eq!(e.to_json()["message"], "busy");
+        let json = e.to_json();
+        assert_eq!(json["error"], "updater upstream 409 Conflict");
+        assert!(json.get("message").is_none());
     }
 }

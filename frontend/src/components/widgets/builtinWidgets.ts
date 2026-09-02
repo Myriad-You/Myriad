@@ -55,6 +55,7 @@ const MusicPlayerWidget = lazyWidget(
   () => import('./MusicPlayerWidget'),
   'MusicPlayerWidget',
 )
+const MeropeWidget = lazyWidget(() => import('./MeropeWidget'), 'MeropeWidget')
 const QuickStatsWidget = lazyWidget(
   () => import('./QuickStatsWidget'),
   'QuickStatsWidget',
@@ -93,6 +94,12 @@ export const BUILTIN_WIDGET_BASE_CONFIG = {
     defaultSize: '4x2' as WidgetSize,
     component: WelcomeWidget,
     supportedSizes: ['2x2', '4x2'] as WidgetSize[],
+  },
+  'agent-persona': {
+    defaultSize: '2x2' as WidgetSize,
+    component: MeropeWidget,
+    supportedSizes: ['2x2', '4x4'] as WidgetSize[],
+    hosts: ['home'] as const,
   },
   'quick-stats': {
     defaultSize: '4x2' as WidgetSize,
@@ -223,6 +230,7 @@ export type BuiltinWidgetId = keyof typeof BUILTIN_WIDGET_BASE_CONFIG
 /** Stable catalog order (library UI) */
 const BUILTIN_WIDGET_ORDER: BuiltinWidgetId[] = [
   'welcome',
+  'agent-persona',
   'quick-stats',
   'recent-activity',
   'friend-links',
@@ -252,6 +260,7 @@ const BUILTIN_WIDGET_ORDER: BuiltinWidgetId[] = [
 /** Map widget id → t.widgets key */
 const WIDGET_NAME_KEY: Record<BuiltinWidgetId, keyof WidgetsI18n> = {
   welcome: 'welcome',
+  'agent-persona': 'agentPersona',
   'quick-stats': 'quickStats',
   'recent-activity': 'recentActivity',
   'friend-links': 'friendLinks',
@@ -316,8 +325,20 @@ export function preloadBuiltinWidgets(types: Iterable<string>): Promise<void> {
  * Built-in WidgetType[] with localized names.
  * Used by Home and ControlPanelWidgets (plus Tapp widgets merged by callers).
  */
-export function getBuiltinWidgets(widgetsI18n: WidgetsI18n): WidgetType[] {
-  return BUILTIN_WIDGET_ORDER.map((id) => {
+export type BuiltinWidgetHost = 'home' | 'control-panel'
+
+export function getBuiltinWidgets(
+  widgetsI18n: WidgetsI18n,
+  host: BuiltinWidgetHost,
+): WidgetType[] {
+  return BUILTIN_WIDGET_ORDER.filter((id) => {
+    const base = BUILTIN_WIDGET_BASE_CONFIG[
+      id
+    ] as (typeof BUILTIN_WIDGET_BASE_CONFIG)[BuiltinWidgetId] & {
+      hosts?: readonly BuiltinWidgetHost[]
+    }
+    return !base.hosts || base.hosts.includes(host)
+  }).map((id) => {
     const base = BUILTIN_WIDGET_BASE_CONFIG[id]
     return {
       id,

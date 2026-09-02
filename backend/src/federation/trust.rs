@@ -6,8 +6,6 @@
 //! 3. allowlist / min_trust（`federation_policy_settings`，空 allowlist = 不限制）
 //! 4. 内容过滤（`federation_content_filters`）
 
-#![allow(dead_code)]
-
 use axum::http::StatusCode;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
@@ -45,16 +43,6 @@ impl Default for InstancePolicy {
             rate_limit: RateLimitPolicy::default(),
         }
     }
-}
-
-/// 速率限制条目
-#[derive(Debug, Clone)]
-pub struct RateLimitEntry {
-    pub domain: String,
-    /// 时间窗口内的请求计数
-    pub request_count: i64,
-    /// 窗口开始时间
-    pub window_start: chrono::DateTime<chrono::Utc>,
 }
 
 /// 速率限制策略

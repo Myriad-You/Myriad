@@ -254,14 +254,18 @@ pub async fn create_channel(
     let channel_type = req.channel_type.as_deref().unwrap_or("text");
     let transport = req.transport.as_deref().unwrap_or("websocket");
 
-    // 验证 channel_type 和 transport
-    if !["text", "file-transfer", "rpc", "data-exchange", "stream"].contains(&channel_type) {
+    // 验证 channel_type 和 transport：取值表由 MFP 协议枚举自己拥有，
+    // 手抄一份字符串白名单只会和 ChannelType/ChannelTransport 各自漂移。
+    if serde_json::from_value::<crate::federation::types::ChannelType>(json!(channel_type)).is_err()
+    {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid channel_type"})),
         ));
     }
-    if !["http", "websocket"].contains(&transport) {
+    if serde_json::from_value::<crate::federation::types::ChannelTransport>(json!(transport))
+        .is_err()
+    {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "Invalid transport"})),
@@ -1606,8 +1610,10 @@ pub async fn handle_key_exchange(
         .and_then(|v| v.as_str())
         .unwrap_or(crate::federation::e2e::E2E_ALGORITHM);
 
-    crate::federation::e2e::validate_public_key_b64(public_key)
-        .map_err(|e| format!("Invalid remote E2E public key: {e}"))?;
+    crate::federation::e2e::validate_public_key_b64(public_key).map_err(|error| {
+        tracing::error!(%error, "invalid remote E2E public key");
+        "Invalid remote E2E public key".to_string()
+    })?;
 
     // 验证发送方是该 Channel 的远程方，并读取 properties
     let ch_row = db

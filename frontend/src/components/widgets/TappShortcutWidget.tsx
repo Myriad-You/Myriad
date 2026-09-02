@@ -41,16 +41,13 @@ import {
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
 import { getTappIconStyle } from '../../tapp/utils/tappColors'
 import { tappRunPath } from '../../tapp/utils/tappPaths'
+import { userFacingError } from '../../utils/userFacingError'
 import { Spinner } from '../Spinner'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
 import { WidgetShell } from './shared/WidgetShell'
 
 // Types
-
-export interface TappShortcutWidgetConfig {
-  tappId?: string
-}
 
 interface ResolvedTapp {
   id: string
@@ -275,7 +272,7 @@ const GlobalSettingsModal = memo(() => {
   const modalRef = useRef<HTMLDivElement>(null)
   const [tapps, setTapps] = useState<TappListItem[]>([])
   const [loading, setLoading] = useState(false)
-  const [loadError, setLoadError] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => subscribeToModalState(() => forceUpdate({})), [])
 
@@ -286,7 +283,7 @@ const GlobalSettingsModal = memo(() => {
     if (!isOpen) return
     let cancelled = false
     setLoading(true)
-    setLoadError(false)
+    setLoadError(null)
     ;(async () => {
       try {
         const [list, recent] = await Promise.all([
@@ -295,10 +292,10 @@ const GlobalSettingsModal = memo(() => {
         ])
         if (cancelled) return
         setTapps(sortTappsByRecent(list, recent))
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           setTapps([])
-          setLoadError(true)
+          setLoadError(userFacingError(error, tw.loadFailed))
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -307,7 +304,7 @@ const GlobalSettingsModal = memo(() => {
     return () => {
       cancelled = true
     }
-  }, [isOpen])
+  }, [isOpen, tw.loadFailed])
 
   const position = useMemo(() => {
     if (!anchorRect) return { top: 0, left: 0 }
@@ -403,7 +400,7 @@ const GlobalSettingsModal = memo(() => {
             </div>
           ) : loadError ? (
             <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-              {tw.loadFailed}
+              {loadError}
             </div>
           ) : tapps.length === 0 ? (
             <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">

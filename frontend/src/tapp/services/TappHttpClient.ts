@@ -1,13 +1,14 @@
-import { parseApiErrorBody } from '../../services/api'
 import { API_URL } from '../../config'
 import { getDefaultLocale } from '../../i18n'
 import { currentCopy } from '../../i18n/localeCopy'
+import { parseApiErrorBody } from '../../services/api'
 import { getCSRFToken } from '../../utils/csrf'
 import {
   notifyHttpRateLimit,
   parseRetryAfterSeconds,
   retryAfterSecondsFromBody,
 } from '../../utils/httpRateLimitToast'
+import { userFacingError } from '../../utils/userFacingError'
 
 export interface ApiRequestOptions extends RequestInit {
   /** Host-only runtime identity; never exposed to sandbox code. */
@@ -133,7 +134,10 @@ export async function apiRequest<T>(
   const result = await response.json()
   if (typeof result === 'object' && result !== null && 'success' in result) {
     if (!result.success) {
-      throw new Error(result.error || currentCopy().errors.unknown)
+      throw new Error(
+        (typeof result.error === 'string' && result.error.trim()) ||
+          currentCopy().errors.requestFailed,
+      )
     }
     if ('data' in result) return result.data as T
     return result as T
@@ -180,15 +184,18 @@ export async function streamRuntimeEvents(
     }
     const parsed = parseApiErrorBody(error, response.status)
     throw new TappHttpError(
-      parsed.message === `API Error: ${response.status}`
-        ? `Runtime event stream failed (${response.status})`
-        : parsed.message,
+      userFacingError(
+        parsed.message === `API Error: ${response.status}`
+          ? `HTTP ${response.status}`
+          : parsed.message,
+        currentCopy().errors.streamUnreadable,
+      ),
       response.status,
       { body: error, code: parsed.code },
     )
   }
   if (!response.body)
-    throw new Error('Runtime event stream has no response body')
+    throw new Error(currentCopy().errors.streamUnreadable)
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()

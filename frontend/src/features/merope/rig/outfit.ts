@@ -2,15 +2,12 @@ import type { RigOutfitProfile, RigOutfitTopology } from './types'
 import { RIG_OUTFIT_SAFETY, RIG_SECONDARY_PART_PATTERNS } from './contract'
 import { RIG_OUTFIT_TOPOLOGIES } from './types'
 
-export const OUTFIT_TOPOLOGIES: readonly RigOutfitTopology[] =
-  RIG_OUTFIT_TOPOLOGIES
-
 interface OutfitSafetyRule {
   torsoTwistScale: number
   secondaryMotionScale: number
 }
 
-export const OUTFIT_SAFETY_RULES = RIG_OUTFIT_SAFETY satisfies Readonly<
+const OUTFIT_SAFETY_RULES = RIG_OUTFIT_SAFETY satisfies Readonly<
   Record<RigOutfitTopology, OutfitSafetyRule>
 >
 
@@ -55,7 +52,7 @@ export function inferOutfitProfileFromPartIds(
   )
 }
 
-export function isSecondaryMotionPartId(partId: string): boolean {
+function isSecondaryMotionPartId(partId: string): boolean {
   const normalized = partId.toLowerCase()
   return RIG_SECONDARY_PART_PATTERNS.some((pattern) =>
     normalized.includes(pattern),

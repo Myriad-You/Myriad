@@ -357,9 +357,10 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "filteredData": { "type": "object" },
-                "categories": { "type": "array" },
-                "unknownContent": { "type": "array" }
+                "platform": { "type": "string" },
+                "status": { "type": "string" },
+                "data": { "type": "object" },
+                "analysis": { "type": "string" }
             }
         }),
         required_permissions: vec!["filter:read".to_string()],
@@ -387,9 +388,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "changes": { "type": "array" },
-                "summary": { "type": "string" },
-                "statistics": { "type": "object" }
+                "platform": { "type": "string" },
+                "period": { "type": "object" },
+                "analysis": { "type": "string" }
             }
         }),
         required_permissions: vec!["compare:read".to_string()],

@@ -100,6 +100,16 @@ export function hasActionHandler(type: FrontendActionType | string): boolean {
   return typedActionHandlers.has(type) || globalActionHandlers.size > 0
 }
 
+/** Stable key so step_completed and the final response do not run the same action twice. */
+export function frontendActionDedupeKey(
+  action: Pick<FrontendAction, 'type' | 'timestamp'> & Record<string, unknown>,
+): string {
+  if (typeof action.timestamp === 'number') {
+    return `${action.type}:${action.timestamp}`
+  }
+  return JSON.stringify(action)
+}
+
 /**
  * 获取所有已注册的处理器类型
  */

@@ -97,14 +97,8 @@ fn fallback_summary(name: &str, language: &str, tags: &[String]) -> String {
         };
     }
     match language {
-        "ja-JP" => format!(
-            "{name}は、{}という気質を持っています。",
-            traits.join("、")
-        ),
-        "en-US" => format!(
-            "{name} has a {} temperament.",
-            traits.join(", ")
-        ),
+        "ja-JP" => format!("{name}は、{}という気質を持っています。", traits.join("、")),
+        "en-US" => format!("{name} has a {} temperament.", traits.join(", ")),
         _ => format!("{name}带有{}气质。", traits.join("、")),
     }
 }

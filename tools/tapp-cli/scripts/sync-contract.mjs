@@ -48,7 +48,11 @@ const { stdout } = await execFileAsync(
 )
 const backendContract = JSON.parse(stdout)
 const permissionSource = await readFile(permissionSourcePath, 'utf8')
-const { permissionLevels, actions } = parsePermissionSource(permissionSource)
+const { actions } = parsePermissionSource(permissionSource)
+const permissionLevels = backendContract.permissionLevels
+if (!permissionLevels || Object.keys(permissionLevels).length < 30) {
+  throw new Error('tapp-contract export did not include permissionLevels')
+}
 const capabilitySource = await readFile(capabilitySourcePath, 'utf8')
 const capabilities = parseCapabilitySource(capabilitySource)
 
@@ -56,6 +60,7 @@ const contract = {
   generatedFrom: [
     'crates/tapp-contract/src/manifest.rs',
     'crates/tapp-contract/src/contract_rules.rs',
+    'crates/tapp-contract/src/permission.rs',
     'frontend/src/tapp/runtime/permissionConfig.ts',
     'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
   ],

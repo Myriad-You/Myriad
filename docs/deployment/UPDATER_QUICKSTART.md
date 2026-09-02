@@ -195,7 +195,7 @@ curl -s -b "$COOKIE_JAR" http://localhost/api/admin/updater/status | jq
 curl -s -b "$COOKIE_JAR" -X POST http://localhost/api/admin/updater/update \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: update-$(date +%s)" \
-  -d '{"target_version":"v0.2.0"}'
+  -d '{"target_version":"v0.4.0"}'
 ```
 
 无需 `X-Update-Token` —— 由 backend 注入。
@@ -216,7 +216,7 @@ curl -s -X POST http://localhost/_updater/update \
   -H "Content-Type: application/json" \
   -H "X-Update-Token: $UPDATE_TOKEN" \
   -H "Idempotency-Key: update-$(date +%s)" \
-  -d '{"target_version":"v0.2.0"}'
+  -d '{"target_version":"v0.4.0"}'
 
 # 3. 跟踪 job
 JID=...
@@ -315,8 +315,8 @@ docker cp myriad-updater:/myriad-diagnostics.tar.gz .
 打 tag 触发 `release.yml`：
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 流程：
@@ -339,9 +339,9 @@ tag 命名约定：
 
 | 形态 | channel |
 |---|---|
-| `v0.2.0` | stable |
-| `v0.2.0-beta.1` | beta |
-| `v0.2.0-nightly.20260516` | nightly |
+| `v0.4.0` | stable |
+| `v0.4.0-beta.1` | beta |
+| `v0.4.0-nightly.20260516` | nightly |
 
 每个 release 必填 `min_from_version`（避免跨版本直升）和 `min_updater_version`（强制先升 updater）。如需覆盖默认值，在 `release/overrides/<version>.json` 留一份补丁，CI 会 deep-merge 进 `release.json`。
 

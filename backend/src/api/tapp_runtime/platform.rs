@@ -47,10 +47,15 @@ pub async fn get_platform_data(
 
     let data = match get_cached_platform_data(&platform).await {
         Ok(d) => d,
-        Err(_) => {
+        Err(error) => {
+            let status = if error.starts_with("No cached ") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
             return Err(HttpError::from((
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": "Platform data not found", "platform": platform })),
+                status,
+                Json(json!({ "error": error, "platform": platform })),
             )));
         }
     };

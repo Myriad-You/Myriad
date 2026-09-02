@@ -20,6 +20,8 @@ members = [
     "crates/myriad-prompt-security",
     "crates/myriad-psn-auth",
     "crates/myriad-tapp-registry",
+    "crates/myriad-agent-rules",
+    "crates/myriad-tapp-rules",
     "crates/tapp-contract",
     "tools/tapp-contract-export",
 ]

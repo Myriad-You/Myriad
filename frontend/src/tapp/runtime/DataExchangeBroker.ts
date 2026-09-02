@@ -1,13 +1,13 @@
 import type { OneShotDataAccessGrant } from '../services/TappApiService'
 import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   authorizeDataExchange,
   cancelDataExchange,
   consumeDataExchange,
   prepareDataExchange,
 } from '../services/TappApiService'
-import { userFacingError } from '../../utils/userFacingError'
 import { requestDataExchangeConsent } from './DataExchangeConsent'
 
 const PROVIDER_TIMEOUT_MS = 30_000

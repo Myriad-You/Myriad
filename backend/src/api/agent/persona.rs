@@ -12,6 +12,14 @@ use crate::services::site_owner::site_owner_user_id;
 use crate::services::{agent::merope, merope_rig};
 use axum::http::StatusCode;
 
+fn persona_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {
+    tracing::error!(%error, context, "persona store failed");
+    HttpError::from((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": format!("Failed to {context}") })),
+    ))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PutPersonaRequest {
@@ -150,13 +158,7 @@ async fn require_merope_enabled() -> Result<(), HttpError> {
 async fn report_platform_count(db: &DatabaseConnection, user_id: i32) -> Result<usize, HttpError> {
     merope::report_dna::count_report_platforms(db, user_id)
         .await
-        .map_err(|error| {
-            tracing::error!(%error, "[Agent persona] report count failed");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
-        })
+        .map_err(|error| persona_store_http("count persona reports", error))
 }
 
 async fn require_persona_reports(
@@ -208,29 +210,26 @@ pub async fn get_persona(
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     let owner = site_owner_user_id(&db).await.ok();
     let is_owner = owner == Some(user_id);
-    let persona = merope::get_persona(&db).await.map_err(|error| {
-        tracing::error!(%error, "[Agent persona] load failed");
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error", "code": "database_error" })),
-        ))
-    })?;
+    let persona = merope::get_persona(&db)
+        .await
+        .map_err(|error| persona_store_http("load persona", error))?;
 
-    let (mood, activity, do_not_disturb, dnd_start, dnd_end, dnd_active) =
+    let (mood, arousal, activity, do_not_disturb, dnd_start, dnd_end, dnd_active) =
         if merope::is_logged_in_addressee(user_id) {
             match merope::get_or_create_state(&db, user_id).await {
                 Ok(state) => (
                     state.mood,
+                    state.arousal,
                     merope::current_activity(&state).to_string(),
                     state.do_not_disturb,
                     state.dnd_start_minute.and_then(merope::format_clock_minute),
                     state.dnd_end_minute.and_then(merope::format_clock_minute),
                     merope::effective_do_not_disturb(&state),
                 ),
-                Err(_) => (70.0, "idle".to_string(), false, None, None, false),
+                Err(_) => (70.0, 48.0, "idle".to_string(), false, None, None, false),
             }
         } else {
-            (70.0, "idle".to_string(), false, None, None, false)
+            (70.0, 48.0, "idle".to_string(), false, None, None, false)
         };
 
     let report_count = report_platform_count(&db, user_id).await.unwrap_or(0);
@@ -241,6 +240,7 @@ pub async fn get_persona(
             "portraitAssetId": null,
             "hasCustomPersona": false,
             "mood": mood,
+            "arousal": arousal,
             "activity": activity,
             "doNotDisturb": do_not_disturb,
             "doNotDisturbActive": dnd_active,
@@ -265,6 +265,7 @@ pub async fn get_persona(
         "portraitAssetId": persona.portrait_asset_id,
         "hasCustomPersona": merope::has_custom_persona(&persona),
         "mood": mood,
+        "arousal": arousal,
         "activity": activity,
         "doNotDisturb": do_not_disturb,
         "doNotDisturbActive": dnd_active,
@@ -290,20 +291,13 @@ pub async fn put_persona(
 ) -> Result<Json<Value>, HttpError> {
     require_merope_enabled().await?;
     let user_id = require_site_owner(&claims, &db).await?;
-    let transaction = db.begin().await.map_err(|error| {
-        tracing::error!(%error, "[Agent persona] begin save transaction failed");
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error", "code": "database_error" })),
-        ))
-    })?;
-    let previous = merope::get_persona_on(&transaction).await.map_err(|error| {
-        tracing::error!(%error, "[Agent persona] load before save failed");
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error", "code": "database_error" })),
-        ))
-    })?;
+    let transaction = db
+        .begin()
+        .await
+        .map_err(|error| persona_store_http("begin persona save", error))?;
+    let previous = merope::get_persona_on(&transaction)
+        .await
+        .map_err(|error| persona_store_http("load persona", error))?;
     let previous_portrait = previous
         .as_ref()
         .and_then(|persona| persona.portrait_asset_id.clone());
@@ -358,6 +352,15 @@ pub async fn put_persona(
         visual_profile,
         ..merope::PersonaContractUpdate::default()
     };
+    let (normalized_name, _) = merope::normalize_persona_fields(&body.name, &body.personality);
+    let generation_changed = previous.as_ref().is_some_and(|prev| {
+        merope::generation_inputs_changed(
+            &prev.name,
+            prev.visual_profile.as_ref(),
+            &normalized_name,
+            &contract.visual_profile,
+        )
+    });
     let saved = merope::upsert_persona_on(
         &transaction,
         body.name,
@@ -367,36 +370,21 @@ pub async fn put_persona(
         user_id,
     )
     .await
-    .map_err(|error| {
-        tracing::error!(%error, "[Agent persona] save failed");
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error", "code": "database_error" })),
-        ))
-    })?;
+    .map_err(|error| persona_store_http("save persona", error))?;
     let portrait_changed = previous_portrait != saved.portrait_asset_id;
-    let cleared_asset = if portrait_changed {
+    let cleared_asset = if generation_changed || portrait_changed {
         Some(
             merope_rig::persist_active_asset(&transaction, None)
                 .await
-                .map_err(|error| {
-                    tracing::error!(%error, "[Agent persona] stale rig invalidation failed");
-                    HttpError::from((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "error": "Database error", "code": "database_error" })),
-                    ))
-                })?,
+                .map_err(|error| persona_store_http("update persona portrait", error))?,
         )
     } else {
         None
     };
-    transaction.commit().await.map_err(|error| {
-        tracing::error!(%error, "[Agent persona] commit failed");
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error", "code": "database_error" })),
-        ))
-    })?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| persona_store_http("commit persona save", error))?;
     if let Some(asset_id) = cleared_asset {
         merope_rig::mirror_active_asset(asset_id).await;
     }
@@ -418,38 +406,20 @@ pub async fn delete_persona(
 ) -> Result<Json<Value>, HttpError> {
     require_merope_enabled().await?;
     let _user_id = require_site_owner(&claims, &db).await?;
-    let transaction = db.begin().await.map_err(|error| {
-        tracing::error!(%error, "[Agent persona] begin delete transaction failed");
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error", "code": "database_error" })),
-        ))
-    })?;
+    let transaction = db
+        .begin()
+        .await
+        .map_err(|error| persona_store_http("begin persona delete", error))?;
     merope::clear_persona_on(&transaction)
         .await
-        .map_err(|error| {
-            tracing::error!(%error, "[Agent persona] clear failed");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
-        })?;
+        .map_err(|error| persona_store_http("delete persona", error))?;
     let cleared_asset = merope_rig::persist_active_asset(&transaction, None)
         .await
-        .map_err(|error| {
-            tracing::error!(%error, "[Agent persona] stale rig invalidation failed");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
-        })?;
-    transaction.commit().await.map_err(|error| {
-        tracing::error!(%error, "[Agent persona] delete commit failed");
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database error", "code": "database_error" })),
-        ))
-    })?;
+        .map_err(|error| persona_store_http("clear persona portrait", error))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| persona_store_http("commit persona delete", error))?;
     merope_rig::mirror_active_asset(cleared_asset).await;
     Ok(Json(json!({ "ok": true })))
 }
@@ -521,38 +491,21 @@ pub async fn put_addressee(
     let mut state = if let Some(do_not_disturb) = body.do_not_disturb {
         merope::set_do_not_disturb(&db, user_id, do_not_disturb)
             .await
-            .map_err(|error| {
-                tracing::error!(%error, "[Agent addressee] save failed");
-                HttpError::from((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "Database error", "code": "database_error" })),
-                ))
-            })?
+            .map_err(|error| persona_store_http("save addressee", error))?
     } else {
         merope::get_or_create_state(&db, user_id)
             .await
-            .map_err(|error| {
-                tracing::error!(%error, "[Agent addressee] load failed");
-                HttpError::from((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "Database error", "code": "database_error" })),
-                ))
-            })?
+            .map_err(|error| persona_store_http("load addressee", error))?
     };
     if body.dnd_start.is_some() || body.dnd_end.is_some() {
         let (start, end) = parse_schedule(body.dnd_start.as_deref(), body.dnd_end.as_deref())?;
         state = merope::set_dnd_schedule(&db, user_id, start, end)
             .await
-            .map_err(|error| {
-                tracing::error!(%error, "[Agent addressee] schedule save failed");
-                HttpError::from((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "Database error", "code": "database_error" })),
-                ))
-            })?;
+            .map_err(|error| persona_store_http("save quiet-hours", error))?;
     }
     Ok(Json(json!({
         "mood": state.mood,
+        "arousal": state.arousal,
         "activity": merope::current_activity(&state),
         "doNotDisturb": state.do_not_disturb,
         "doNotDisturbActive": merope::effective_do_not_disturb(&state),
@@ -595,11 +548,7 @@ pub async fn report_signals(
 fn distill_error(error: merope::report_dna::DistillReportDnaError) -> HttpError {
     match error {
         merope::report_dna::DistillReportDnaError::Db(error) => {
-            tracing::error!(%error, "[Agent persona] report DNA load failed");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
+            persona_store_http("load persona reports", error)
         }
         merope::report_dna::DistillReportDnaError::AnalyzerUnavailable => HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -745,13 +694,7 @@ pub async fn suggest_visual_design(
     let _user_id = require_site_owner(&claims, &db).await?;
     let persona = merope::get_persona(&db)
         .await
-        .map_err(|error| {
-            tracing::error!(%error, "[Agent persona] visual design load failed");
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
-        })?
+        .map_err(|error| persona_store_http("load persona", error))?
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::CONFLICT,
@@ -801,8 +744,8 @@ pub async fn suggest_visual_design(
         &sanitize_visual_text(&body.visual_requirements, 500)?,
         gender,
     );
-    let clothing_style = myriad_merope::normalize_clothing_style(&body.clothing_style)
-        .ok_or_else(|| {
+    let clothing_style =
+        myriad_merope::normalize_clothing_style(&body.clothing_style).ok_or_else(|| {
             HttpError::from((
                 StatusCode::BAD_REQUEST,
                 Json(json!({
@@ -813,8 +756,8 @@ pub async fn suggest_visual_design(
         })?;
     let explicit_existing = match body.existing_visual_identity.as_ref() {
         Some(value) => {
-            let sanitized = myriad_merope::sanitize_upper_body_visual_identity(value)
-                .ok_or_else(|| {
+            let sanitized =
+                myriad_merope::sanitize_upper_body_visual_identity(value).ok_or_else(|| {
                     HttpError::from((
                         StatusCode::BAD_REQUEST,
                         Json(json!({
@@ -1043,8 +986,8 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
         profile.insert("gender".into(), json!(gender));
     }
     if let Some(clothing_style) = source.get("clothingStyle").and_then(Value::as_str) {
-        let clothing_style = myriad_merope::normalize_clothing_style(clothing_style)
-            .ok_or_else(|| {
+        let clothing_style =
+            myriad_merope::normalize_clothing_style(clothing_style).ok_or_else(|| {
                 HttpError::from((
                     StatusCode::BAD_REQUEST,
                     Json(json!({
@@ -1152,6 +1095,40 @@ fn visual_profile_error() -> HttpError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn put_persona_clears_rig_when_generation_inputs_change() {
+        let source = include_str!("persona.rs");
+        let put = source
+            .split("/// PUT /api/agent/persona")
+            .nth(1)
+            .expect("PUT persona")
+            .split("/// DELETE /api/agent/persona")
+            .next()
+            .expect("PUT body");
+        assert!(
+            put.contains("generation_inputs_changed"),
+            "PUT must use the same generation-input check as the persona store"
+        );
+        assert!(
+            put.contains("generation_changed || portrait_changed"),
+            "PUT must clear Rig when name or visual inputs change, not only when portrait id changes"
+        );
+        assert!(put.contains("persist_active_asset"));
+    }
+
+    #[test]
+    fn get_persona_returns_arousal_on_both_bodies() {
+        let get = include_str!("persona.rs")
+            .split("/// PUT /api/agent/persona")
+            .next()
+            .expect("GET persona");
+        assert_eq!(
+            get.matches("\"arousal\": arousal").count(),
+            2,
+            "empty fallback and saved persona GET must both return arousal"
+        );
+    }
 
     #[test]
     fn visual_design_requires_an_explicit_valid_gender() {
@@ -1377,8 +1354,7 @@ mod tests {
             "japanese"
         );
         assert_eq!(
-            myriad_merope::character_module(&profile["visualIdentity"]).unwrap()
-                ["faceDesign"],
+            myriad_merope::character_module(&profile["visualIdentity"]).unwrap()["faceDesign"],
             "成熟的鹅蛋脸与自然眉形"
         );
     }

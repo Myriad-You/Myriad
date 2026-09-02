@@ -75,10 +75,10 @@ expect_recovery "rollback mid" true restore_snapshot running restore_snapshot ne
 echo
 echo "== Case 1: duplicate keys in .env"
 cat > "$TMPROOT/.env.dup" <<'E'
-MYRIAD_TAG=v0.1.0
-PROXY_TAG=v0.1.0
-UPDATER_TAG=v0.1.0
-MYRIAD_TAG=v0.2.0
+MYRIAD_TAG=v0.3.37
+PROXY_TAG=v0.3.37
+UPDATER_TAG=v0.3.37
+MYRIAD_TAG=v0.4.0
 E
 # We don't have the binary built; emulate the parser logic here for CI.
 if awk -F= '/^[A-Z_][A-Z0-9_]*=/ {print $1}' "$TMPROOT/.env.dup" | sort | uniq -d | grep -q .; then

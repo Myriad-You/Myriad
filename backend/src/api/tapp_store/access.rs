@@ -27,7 +27,11 @@ pub(super) async fn ensure_tapp_install_allowed(
             [user_id.into()],
         ))
         .await
-        .map_err(|_| HttpError(AppError::internal("Database error")))?;
+        .map_err(|_| {
+            HttpError(AppError::internal(
+                "Failed to check Tapp install permission",
+            ))
+        })?;
     let disabled = row
         .and_then(|row| row.try_get::<bool>("", "tapp_install_disabled").ok())
         .unwrap_or(false);
@@ -56,11 +60,11 @@ pub(super) async fn find_visible_tapp(
     tapp_ownership::find_visible_tapp(db, user_id, tapp_id)
         .await
         .map_err(|err| match err {
-            TappAccessError::Database => HttpError(AppError::internal("Database error")),
+            TappAccessError::Database => HttpError(AppError::internal("Failed to find Tapp")),
             TappAccessError::NoAdmin
             | TappAccessError::AccessDenied { .. }
             | TappAccessError::PermissionNotGranted { .. } => {
-                HttpError(AppError::internal("Database error"))
+                HttpError(AppError::internal("Failed to find Tapp"))
             }
         })
 }

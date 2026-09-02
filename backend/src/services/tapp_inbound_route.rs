@@ -16,12 +16,17 @@ pub const ROUTE_NONCE_NAMESPACE: &str = "route_nonce";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InboundRouteError {
+    /// 目前不构造：inbound_route 把「路由不存在」折叠成 VerifyInvalid，
+    /// 避免向调用方泄露路由是否存在。分类与 code() 保留。
+    #[allow(dead_code)]
     RouteNotFound,
     MethodNotAllowed,
     VerifyInvalid,
     VerifyExpired,
     VerifyReplay,
-    Blocked { retry_after: u64 },
+    Blocked {
+        retry_after: u64,
+    },
     Paused,
     BodyTooLarge,
     InvalidParams,

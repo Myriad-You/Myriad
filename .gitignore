@@ -120,3 +120,4 @@ docker/volumes/
 backend/data/.bootstrap-claimed
 /backend/data
 .brew-shots/
+/frontend/public/merope-demo

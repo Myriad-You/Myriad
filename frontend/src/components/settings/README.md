@@ -163,12 +163,12 @@ import { InfoActionCard } from '../settings'
   …
 </SettingGroup>
 
-{/* 设置项 */}
+{ /* 设置项 */ }
 <SwitchItem
   label="启用代理"
   detail="较长帮助文案…"
   description="短说明仍可常显在标签下"
-  …
+  /* ...其余属性 */
 />
 ```
 
@@ -203,10 +203,10 @@ import { InfoActionCard } from '../settings'
 ### 多子分类网格（嵌套）
 
 ```tsx
-{/* 默认 stretch：同一行两张卡外框同高、底边齐 */}
+{ /* 默认 stretch：同一行两张卡外框同高、底边齐 */ }
 <SettingGroupGrid columns={2} variant="card" minColumnWidth="18rem">
-  <SettingGroup title="Agent 任务" switch={{…}}>…</SettingGroup>
-  <SettingGroup title="Heartbeat" switch={{…}}>…</SettingGroup>
+  <SettingGroup title="Agent 任务" switch={{ /* ... */ }}>…</SettingGroup>
+  <SettingGroup title="Heartbeat" switch={{ /* ... */ }}>…</SettingGroup>
 </SettingGroupGrid>
 ```
 
@@ -217,20 +217,20 @@ import { InfoActionCard } from '../settings'
 - `align="start"`：高度随内容
 
 ```tsx
-{/* 单选 · 等分 4 列 */}
+{ /* 单选 · 等分 4 列 */ }
 <SegmentedControl
   size="md"
   columns={4}
   value={freq}
-  options={[…]}
+  options={[/* ... */]}
   onChange={setFreq}
 />
 
-{/* 多选 · 自动换行 */}
+{ /* 多选 · 自动换行 */ }
 <SegmentedControl
   mode="multi"
   value={sources}
-  options={[…]}
+  options={[/* ... */]}
   onChange={setSources}
 />
 ```
@@ -240,7 +240,7 @@ import { InfoActionCard } from '../settings'
 ```tsx
 import { SettingsButton } from '../settings'
 
-<SettingsButton variant="primary" size="sm" loading={busy} onClick={…}>
+<SettingsButton variant="primary" size="sm" loading={busy} onClick={onSave}>
   保存
 </SettingsButton>
 ```
@@ -256,10 +256,10 @@ import { SettingsButton } from '../settings'
 | `lg` | Hero / 浮动主操作 | 更高、更大字号 |
 
 ```tsx
-{/* 列表 / 密集区 */}
+{ /* 列表 / 密集区 */ }
 <SettingsButton size="sm" variant="danger">封禁</SettingsButton>
 
-{/* 常规设置操作 */}
+{ /* 常规设置操作 */ }
 <SettingsButton variant="primary">保存</SettingsButton>
 ```
 
@@ -270,7 +270,7 @@ import { SettingsButton } from '../settings'
 **行展开**：`item.expandContent` + `expanded` + `onToggleExpand`；主区域可点，详情区可嵌 `InfoActionCard` 等。
 
 ```tsx
-{/* 列表 + 内嵌添加表单（默认折叠，点按钮展开） */}
+{ /* 列表 + 内嵌添加表单（默认折叠，点按钮展开） */ }
 <ManagedList
   stats={[{ key: 'total', label: '全部', value: n }]}
   items={rows}
@@ -282,8 +282,8 @@ import { SettingsButton } from '../settings'
   onFormOpenChange={setOpen}
   form={
     <>
-      <InputItem … />
-      <SelectItem … />
+      <InputItem /* ... */ />
+      <SelectItem /* ... */ />
       <div className="managed-list-form-actions">
         <SettingsButton variant="primary" size="sm" onClick={add}>
           添加
@@ -371,7 +371,7 @@ import {
   </SettingGroup>
 </SettingSection>
 
-{/* 紧凑开关（平台卡 / OAuth 头） */}
+{ /* 紧凑开关（平台卡 / OAuth 头） */ }
 <ToggleSwitch
   checked={on}
   onChange={setOn}

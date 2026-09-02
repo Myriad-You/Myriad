@@ -150,9 +150,6 @@ pub fn max_in_flight_chunk_bytes() -> usize {
     crate::services::memory_profile::max_in_flight_chunk_bytes()
 }
 
-/// Note 内联图片附件的字节上限（**default**）。
-pub const NOTE_IMAGE_LIMIT: usize = 32 * 1024 * 1024;
-
 /// Live note image cap.
 #[inline]
 pub fn note_image_limit() -> usize {
@@ -160,6 +157,7 @@ pub fn note_image_limit() -> usize {
 }
 
 /// Note 内联视频附件的字节上限（**default**）。
+#[allow(dead_code)] // 仅测试调用：运行时上限由 memory_profile 的 *_limit() 供给。
 pub const NOTE_VIDEO_LIMIT: usize = 256 * 1024 * 1024;
 
 /// Live note video cap.
@@ -220,6 +218,7 @@ pub struct InboxInflightPermit {
 
 impl InboxInflightPermit {
     /// Bytes this permit holds against [`INBOX_INFLIGHT_RAW_BUDGET`].
+    #[allow(dead_code)] // 仅测试调用：运行时上限由 memory_profile 的 *_limit() 供给。
     pub fn bytes(&self) -> usize {
         self.bytes
     }
@@ -245,6 +244,7 @@ impl Drop for InboxParsePermit {
 }
 
 /// Current complete inbox JSON trees retained by handlers.
+#[allow(dead_code)] // 仅测试调用：运行时上限由 memory_profile 的 *_limit() 供给。
 pub fn inbox_active_parses() -> usize {
     INBOX_ACTIVE_PARSES.load(Ordering::Acquire)
 }
@@ -421,10 +421,11 @@ pub async fn buffer_inbox_body(
 
     let body = axum::body::to_bytes(request.into_body(), body_cap)
         .await
-        .map_err(|e| {
+        .map_err(|error| {
+            tracing::warn!(%error, "failed to read federation inbox body");
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": format!("Failed to read body: {e}")})),
+                Json(json!({"error": "Failed to read body"})),
             )
         })?;
 

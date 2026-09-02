@@ -4,20 +4,16 @@
  */
 
 import { useEffect } from 'react'
-import { useNavigation } from '../../contexts/NavigationContext'
+import { useImmersiveChrome } from '../../contexts/NavigationContext'
 
 export function useTappFullscreenChrome(
   isFullscreen: boolean,
   setIsFullscreen: (value: boolean | ((prev: boolean) => boolean)) => void,
   options?: { enableEscape?: boolean },
 ): void {
-  const { setImmersiveMode } = useNavigation()
   const enableEscape = options?.enableEscape ?? false
 
-  useEffect(() => {
-    setImmersiveMode(isFullscreen)
-    return () => setImmersiveMode(false)
-  }, [isFullscreen, setImmersiveMode])
+  useImmersiveChrome('tapp-fullscreen', isFullscreen)
 
   useEffect(() => {
     if (!enableEscape || !isFullscreen) return

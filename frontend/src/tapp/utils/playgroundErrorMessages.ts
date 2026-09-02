@@ -22,6 +22,7 @@ export interface PlaygroundErrorCopy {
   playgroundBadRequestHint: string
   playgroundErrorDetail: string
   playgroundRuntimeError: string
+  playgroundUnknownError?: string
 }
 
 export interface MapPlaygroundErrorOpts {
@@ -264,6 +265,13 @@ export function mapPlaygroundGenerateError(
     return copy.playgroundNetworkHint
   }
 
+  if (
+    /invalid agent plan/i.test(raw) ||
+    /invalid json project/i.test(raw)
+  ) {
+    return copy.playgroundValidationFailedHint
+  }
+
   // Bad request with concrete server message
   if (
     /\bHTTP\s*400\b/i.test(raw) ||
@@ -328,10 +336,19 @@ export function mapPlaygroundGenerateError(
 /** Prefix sandbox / widget runtime messages for the floating warning card. */
 export function mapPlaygroundRuntimeError(
   message: string,
-  copy: Pick<PlaygroundErrorCopy, 'playgroundRuntimeError'>,
+  copy: Pick<
+    PlaygroundErrorCopy,
+    'playgroundRuntimeError' | 'playgroundUnknownError'
+  >,
   format: (template: string, params: Record<string, string | number>) => string = defaultFormat,
 ): string {
-  const raw = (message || '').trim() || 'Unknown runtime error'
+  const raw =
+    (message || '').trim() || copy.playgroundUnknownError || ''
+  if (!raw) {
+    return copy.playgroundRuntimeError.includes('{message}')
+      ? format(copy.playgroundRuntimeError, { message: '?' })
+      : copy.playgroundRuntimeError
+  }
   if (copy.playgroundRuntimeError.includes('{message}')) {
     return format(copy.playgroundRuntimeError, {
       message: truncateDetail(raw, 480),

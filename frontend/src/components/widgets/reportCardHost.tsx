@@ -55,15 +55,6 @@ export function preloadReportCardsForTypes(
   ]).then(() => undefined)
 }
 
-/** @deprecated 名称保留；现在只保证壳，face 请用 preloadReportCardsForTypes */
-export function ensureReportCardLoaded(): Promise<void> {
-  return ensureReportCardShell()
-}
-
-export function isReportCardLoaded(): boolean {
-  return shell !== null
-}
-
 function ReportCardHost(props: WidgetComponentProps) {
   const [, rerender] = useReducer((n: number) => n + 1, 0)
 

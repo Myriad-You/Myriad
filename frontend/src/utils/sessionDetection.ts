@@ -48,23 +48,3 @@ export function clearSessionHint(): void {
     // 忽略错误
   }
 }
-
-/**
- * 清除所有会话相关的存储
- * 包括旧版本可能存储的用户信息
- */
-export function clearAllSessionData(): void {
-  try {
-    // 清除会话提示
-    clearSessionHint()
-
-    // 清除旧版本可能存储的用户信息（兼容性处理）
-    localStorage.removeItem('user_info')
-
-    // 清除认证相关的缓存
-    localStorage.removeItem('myriad_profile_display_cache')
-    localStorage.removeItem('myriad_profile_display_cache_time')
-  } catch {
-    // 忽略错误
-  }
-}

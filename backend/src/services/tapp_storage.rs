@@ -9,17 +9,13 @@ use sea_orm::{
 };
 use serde_json::Value;
 
+pub use myriad_tapp_contract::storage::{
+    is_host_storage_key, is_reserved_storage_route_key, validate_sandbox_storage_key,
+    validate_storage_key, HOST_STORAGE_KEY_PREFIXES,
+};
+
 /// Per-install soft quota for sandbox + host-managed keys combined.
 pub const TAPP_STORAGE_QUOTA_BYTES: i64 = 8 * 1024 * 1024;
-
-const HOST_STORAGE_KEY_PREFIXES: [&str; 6] = [
-    "_settings.",
-    "_credentials.",
-    "_shared.",
-    "_component:",
-    "_shortcut:",
-    "_report:",
-];
 
 /// Domain errors for storage validation and IO.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +29,7 @@ impl TappStorageError {
     pub fn message(&self) -> String {
         match self {
             Self::InvalidKey(reason) => (*reason).to_string(),
-            Self::Database => "Database error".to_string(),
+            Self::Database => "Failed to update Tapp storage".to_string(),
             Self::TooLarge => "Storage value or quota exceeded".to_string(),
         }
     }
@@ -88,6 +84,7 @@ impl TappStorageAccessError {
         }
     }
 
+    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
     pub fn status_hint(&self) -> u16 {
         match self {
             Self::Unauthenticated => 401,
@@ -153,56 +150,6 @@ impl TappStorageAccess {
 /// Installation settings may be written by the install owner or a current admin.
 pub fn can_write_installation_settings(access: TappStorageAccess, is_admin: bool) -> bool {
     is_admin || access.can_manage_installation()
-}
-
-pub fn validate_storage_key(key: &str) -> Result<(), &'static str> {
-    if key.is_empty() {
-        return Err("Key cannot be empty");
-    }
-    if key.len() > 256 {
-        return Err("Key too long (max 256 characters)");
-    }
-    if key.starts_with('.') || key.ends_with('.') {
-        return Err("Key cannot start or end with a dot");
-    }
-    if key.contains("..") {
-        return Err("Key cannot contain consecutive dots");
-    }
-    if !key
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
-    {
-        return Err(
-            "Key contains invalid characters (only alphanumeric, underscore, hyphen, dot, colon allowed)",
-        );
-    }
-    Ok(())
-}
-
-pub fn is_host_storage_key(key: &str) -> bool {
-    key == "_settings"
-        || HOST_STORAGE_KEY_PREFIXES
-            .iter()
-            .any(|prefix| key.starts_with(prefix))
-}
-
-/// Path segments that collide with fixed `/storage/{segment}` routes.
-/// Sandbox keys must not equal these exact strings.
-const RESERVED_STORAGE_ROUTE_KEYS: &[&str] = &["entries", "usage"];
-
-pub fn is_reserved_storage_route_key(key: &str) -> bool {
-    RESERVED_STORAGE_ROUTE_KEYS.contains(&key)
-}
-
-pub fn validate_sandbox_storage_key(key: &str) -> Result<(), &'static str> {
-    validate_storage_key(key)?;
-    if is_host_storage_key(key) {
-        return Err("Key prefix is reserved for host-managed Tapp data");
-    }
-    if is_reserved_storage_route_key(key) {
-        return Err("Key is reserved for storage API routes (entries, usage); choose another name");
-    }
-    Ok(())
 }
 
 pub fn validate_storage_value_size(value: &Value) -> Result<(), TappStorageError> {

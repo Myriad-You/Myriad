@@ -1,17 +1,17 @@
 import type { SpeechArticulation, SpeechViseme } from './rig/articulation'
+import type { SpeechProsodyPlan } from './speech/prosody'
 
-export const MEROPE_SPEECH_EVENT = 'arael-merope-speech'
+export const MEROPE_SPEECH_EVENT = 'merope-speech'
 
 export type MeropeSpeechSource =
-  | 'reply'
-  | 'proactive'
-  | 'interaction'
-  | 'preview'
+  'reply' | 'proactive' | 'interaction' | 'preview'
 
 interface SpeechEventBase {
   messageId: string
   source: MeropeSpeechSource
   utteranceId: string
+  locale?: string
+  generation?: number
 }
 
 export type MeropeSpeechEventDetail =
@@ -22,16 +22,22 @@ export type MeropeSpeechEventDetail =
       phase: 'articulation'
       articulation: SpeechArticulation
     })
+  | (SpeechEventBase & {
+      phase: 'prosody'
+      prosody: SpeechProsodyPlan
+    })
   | (Omit<SpeechEventBase, 'utteranceId'> & {
       phase: 'cancel'
       utteranceId?: string
     })
 
-interface SpeechUtteranceInput {
+export interface SpeechUtteranceInput {
   messageId: string
   source: MeropeSpeechSource
   text: string
   utteranceId: string
+  locale?: string
+  generation?: number
 }
 
 const SOURCES: readonly MeropeSpeechSource[] = [
@@ -69,6 +75,10 @@ export function dispatchMeropeSpeechUtterance(
     messageId: utterance.messageId,
     source: utterance.source,
     utteranceId: utterance.utteranceId,
+    ...(utterance.locale ? { locale: utterance.locale } : {}),
+    ...(utterance.generation && utterance.generation > 0
+      ? { generation: utterance.generation }
+      : {}),
   }
   dispatchMeropeSpeech({ ...base, phase: 'start' })
   dispatchMeropeSpeech({ ...base, phase: 'chunk', text })
@@ -86,17 +96,27 @@ export function meropeSpeechEventDetail(
     ? (value.source as MeropeSpeechSource)
     : 'reply'
   const utteranceId = boundedId(value.utteranceId)
+  const locale = boundedLocale(value.locale)
+  const generation = boundedGeneration(value.generation)
 
   if (phase === 'cancel') {
     return {
       phase,
       messageId,
       source,
+      ...(locale ? { locale } : {}),
       ...(utteranceId ? { utteranceId } : {}),
+      ...(generation ? { generation } : {}),
     }
   }
   if (!utteranceId) return null
-  const base = { messageId, source, utteranceId }
+  const base = {
+    messageId,
+    source,
+    utteranceId,
+    ...(locale ? { locale } : {}),
+    ...(generation ? { generation } : {}),
+  }
   if (phase === 'start' || phase === 'end') return { ...base, phase }
   if (phase === 'chunk') {
     const text = boundedChunk(value.text)
@@ -111,7 +131,52 @@ export function meropeSpeechEventDetail(
     const articulation = sanitizeArticulation(value.articulation)
     return articulation ? { ...base, phase, articulation } : null
   }
+  if (phase === 'prosody') {
+    const prosody = sanitizeProsody(value.prosody, utteranceId)
+    return prosody ? { ...base, phase, prosody } : null
+  }
   return null
+}
+
+function sanitizeProsody(
+  value: unknown,
+  utteranceId: string,
+): SpeechProsodyPlan | null {
+  if (!isRecord(value)) return null
+  if (
+    typeof value.startedAtMs !== 'number' ||
+    !Number.isFinite(value.startedAtMs) ||
+    typeof value.durationMs !== 'number' ||
+    !Number.isFinite(value.durationMs)
+  ) {
+    return null
+  }
+  const rawAccents = Array.isArray(value.accents) ? value.accents : []
+  const accents = rawAccents
+    .filter(isRecord)
+    .flatMap((accent) => {
+      if (
+        typeof accent.offsetMs !== 'number' ||
+        !Number.isFinite(accent.offsetMs) ||
+        typeof accent.intensity !== 'number' ||
+        !Number.isFinite(accent.intensity)
+      ) {
+        return []
+      }
+      return [
+        {
+          offsetMs: clamp(accent.offsetMs, 0, 30_000),
+          intensity: clamp(accent.intensity, 0, 1),
+        },
+      ]
+    })
+    .slice(0, 12)
+  return {
+    utteranceId,
+    startedAtMs: Math.max(0, value.startedAtMs),
+    durationMs: clamp(value.durationMs, 0, 30_000),
+    accents,
+  }
 }
 
 function sanitizeArticulation(value: unknown): SpeechArticulation | null {
@@ -147,6 +212,19 @@ function boundedChunk(value: unknown): string {
 
 function boundedId(value: unknown): string {
   return typeof value === 'string' ? value.trim().slice(0, 160) : ''
+}
+
+function boundedGeneration(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.min(1_000_000_000, Math.trunc(value))
+    : 0
+}
+
+function boundedLocale(value: unknown): string {
+  return typeof value === 'string' &&
+    /^[A-Z]{2,3}(?:-[A-Z0-9]{2,8})?$/i.test(value)
+    ? value.slice(0, 24)
+    : ''
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

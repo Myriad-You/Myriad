@@ -22,6 +22,19 @@ use super::helpers::{
     get_user_id_from_headers,
 };
 
+fn rsshub_mutate_error(error: String) -> HttpError {
+    if error.starts_with("Failed to ") {
+        return brew_http_err(StatusCode::INTERNAL_SERVER_ERROR, error);
+    }
+    if error == "Instance not found" {
+        return brew_http_err(StatusCode::NOT_FOUND, error);
+    }
+    if error == "Permission denied" || error.starts_with("Only admins ") {
+        return brew_http_err(StatusCode::FORBIDDEN, error);
+    }
+    brew_http_err(StatusCode::BAD_REQUEST, error)
+}
+
 // 用户评论（批注）
 
 /// 获取文章的用户评论列表
@@ -118,11 +131,11 @@ pub(crate) async fn list_comments(
                 json!({ "success": true, "comments": responses, "has_comments": has_comments }),
             ))
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
+        Err(error) => {
+            tracing::error!(%error, "Failed to load comments");
             Err(brew_http_err(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
+                "Failed to load comments",
             ))
         }
     }
@@ -249,11 +262,11 @@ pub(crate) async fn create_comment(
 
             Ok(Json(json!({ "success": true, "comment": response })))
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
+        Err(error) => {
+            tracing::error!(%error, "Failed to save comment");
             Err(brew_http_err(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
+                "Failed to save comment",
             ))
         }
     }
@@ -325,11 +338,11 @@ pub(crate) async fn update_comment(
 
                     Ok(Json(json!({ "success": true, "comment": response })))
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, "Database error");
+                Err(error) => {
+                    tracing::error!(%error, "Failed to update comment");
                     Err(brew_http_err(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        "Database error",
+                        "Failed to update comment",
                     ))
                 }
             }
@@ -338,11 +351,11 @@ pub(crate) async fn update_comment(
             StatusCode::NOT_FOUND,
             Json(json!({ "success": false, "error": "Comment not found" })),
         ))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
+        Err(error) => {
+            tracing::error!(%error, "Failed to find comment");
             Err(brew_http_err(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
+                "Failed to find comment",
             ))
         }
     }
@@ -372,10 +385,10 @@ pub(crate) async fn delete_comment(
                 .exec(&db)
                 .await
             {
-                tracing::error!(error = %e, "Failed to delete nested brew replies");
+                tracing::error!(%e, "Failed to delete comment replies");
                 return Err(brew_http_err(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Database error",
+                    "Failed to delete comment replies",
                 ));
             }
             match brew_comments::Entity::delete_by_id(comment_id)
@@ -383,11 +396,11 @@ pub(crate) async fn delete_comment(
                 .await
             {
                 Ok(_) => Ok(Json(json!({ "success": true }))),
-                Err(e) => {
-                    tracing::error!(error = %e, "Database error");
+                Err(error) => {
+                    tracing::error!(%error, "Failed to delete comment");
                     Err(brew_http_err(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        "Database error",
+                        "Failed to delete comment",
                     ))
                 }
             }
@@ -396,11 +409,11 @@ pub(crate) async fn delete_comment(
             StatusCode::NOT_FOUND,
             Json(json!({ "success": false, "error": "Comment not found" })),
         ))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
+        Err(error) => {
+            tracing::error!(%error, "Failed to find comment");
             Err(brew_http_err(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
+                "Failed to find comment",
             ))
         }
     }
@@ -473,11 +486,11 @@ pub(crate) async fn list_comment_replies(
 
             Ok(Json(json!({ "success": true, "replies": responses })))
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
+        Err(error) => {
+            tracing::error!(%error, "Failed to load comment replies");
             Err(brew_http_err(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
+                "Failed to load comment replies",
             ))
         }
     }
@@ -507,12 +520,9 @@ pub(crate) async fn list_rsshub_instances(
 
             Ok(Json(json!({ "success": true, "instances": responses })))
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
+        Err(error) => {
+            tracing::error!(%error, "Failed to fetch RSSHub instances");
+            Err(brew_http_err(StatusCode::INTERNAL_SERVER_ERROR, error))
         }
     }
 }
@@ -552,10 +562,7 @@ pub(crate) async fn add_rsshub_instance(
             let response: rsshub_instances::InstanceResponse = instance.into();
             Ok(Json(json!({ "success": true, "instance": response })))
         }
-        Err(e) => Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": e })),
-        ))),
+        Err(error) => Err(rsshub_mutate_error(error)),
     }
 }
 
@@ -598,10 +605,7 @@ pub(crate) async fn update_rsshub_instance(
             let response: rsshub_instances::InstanceResponse = instance.into();
             Ok(Json(json!({ "success": true, "instance": response })))
         }
-        Err(e) => Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": e })),
-        ))),
+        Err(error) => Err(rsshub_mutate_error(error)),
     }
 }
 
@@ -622,10 +626,7 @@ pub(crate) async fn delete_rsshub_instance(
         .await
     {
         Ok(()) => Ok(Json(json!({ "success": true }))),
-        Err(e) => Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": e })),
-        ))),
+        Err(error) => Err(rsshub_mutate_error(error)),
     }
 }
 
@@ -649,11 +650,11 @@ pub(crate) async fn health_check_rsshub_instance(
                 Json(json!({ "success": false, "error": "Instance not found" })),
             )))
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
+        Err(error) => {
+            tracing::error!(%error, "Failed to find RSSHub instance");
             return Err(brew_http_err(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
+                "Failed to find RSSHub instance",
             ));
         }
     };
@@ -697,10 +698,7 @@ pub(crate) async fn reset_rsshub_instance(
         .await
     {
         Ok(()) => Ok(Json(json!({ "success": true }))),
-        Err(e) => Err(HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": e })),
-        ))),
+        Err(error) => Err(rsshub_mutate_error(error)),
     }
 }
 
@@ -718,12 +716,9 @@ pub(crate) async fn health_check_all_rsshub_instances(
         Ok(()) => Ok(Json(
             json!({ "success": true, "message": "Health check completed" }),
         )),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
+        Err(error) => {
+            tracing::error!(%error, "Failed to check RSSHub instances");
+            Err(brew_http_err(StatusCode::INTERNAL_SERVER_ERROR, error))
         }
     }
 }

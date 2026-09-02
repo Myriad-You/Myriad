@@ -17,6 +17,7 @@ import {
   useMemo,
   useState,
 } from 'react'
+import { setCurrentPageContent } from './currentPage'
 
 /** 页面内容类型 */
 export type PageContentType =
@@ -97,10 +98,12 @@ export function PageContentProvider({ children }: { children: ReactNode }) {
       }
     }
     setPageContentState(content)
+    setCurrentPageContent(content)
   }, [])
 
   const clearPageContent = useCallback(() => {
     setPageContentState(null)
+    setCurrentPageContent(null)
   }, [])
 
   const hasContent = pageContent !== null

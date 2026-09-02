@@ -201,10 +201,6 @@ export function configureUmami(
   }
 }
 
-export function getActiveUmamiWebsiteId(): string | null {
-  return activeWebsiteId
-}
-
 /**
  * Manual page view for SPA navigations.
  */

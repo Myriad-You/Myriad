@@ -170,30 +170,12 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* 按钮样式 */
-.btn-primary-large {
-  background-color: var(--color-primary);
-  box-shadow: 0 4px 14px
-    color-mix(in srgb, var(--color-primary) 40%, transparent);
-}
-
-.btn-secondary-large {
-  background-color: var(--color-secondary);
-  box-shadow: 0 4px 14px
-    color-mix(in srgb, var(--color-secondary) 40%, transparent);
-}
-
 .btn-primary {
   background-color: var(--color-primary);
 }
 
 .btn-secondary {
   background-color: var(--color-secondary);
-}
-
-.via-primary {
-  --tw-gradient-stops:
-    var(--tw-gradient-from), var(--color-primary), var(--tw-gradient-to);
 }
 
 /* 移动端文字优化 */
@@ -257,22 +239,4 @@ button:disabled {
   html.dark {
     --border-color: rgb(255 255 255 / 30%);
   }
-}
-
-/* 全局透明无边框输入框样式 */
-.clean-input {
-  background: transparent !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-  appearance: none !important;
-}
-
-.clean-input:focus {
-  background: transparent !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-
-  --tw-ring-color: transparent !important;
 }

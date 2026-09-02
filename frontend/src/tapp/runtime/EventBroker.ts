@@ -1,8 +1,8 @@
 import type { PublishEventRequest, TappEvent, TappInstance } from '../types'
 import type { TappBridge } from './TappBridge'
 import { getDefaultLocale } from '../../i18n'
-import { userFacingError } from '../../utils/userFacingError'
 import { subscribeToTheme } from '../../utils/themeSubscriber'
+import { userFacingError } from '../../utils/userFacingError'
 import * as TappApiService from '../services/TappApiService'
 import { onSpaNavigation } from './spaNavigation'
 

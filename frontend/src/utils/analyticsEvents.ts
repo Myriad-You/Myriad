@@ -65,10 +65,6 @@ export const AnalyticsEvents = {
 export type AnalyticsEventName =
   (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents]
 
-/** All known labels for admin UI / i18n completeness checks. */
-export const ANALYTICS_EVENT_NAMES: readonly AnalyticsEventName[] =
-  Object.values(AnalyticsEvents)
-
 const lastFired = new Map<string, number>()
 
 export interface TrackProductEventOpts {

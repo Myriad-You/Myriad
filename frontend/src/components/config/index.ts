@@ -47,6 +47,7 @@ export {
   ADVANCED_RESET_KEYS,
   ALL_OWNED_UI_BAG_KEYS,
   configChangesNeedHardReload,
+  configChangesNeedPersonaPublicNameRefresh,
   configChangesNeedPlatformsCacheInvalidation,
   configChangesNeedRuntimeReload,
   configChangesNeedWallpaperReload,

@@ -104,6 +104,10 @@ await Tapp.storage.remove('key');
 await Tapp.storage.keys();
 await Tapp.storage.getAll();
 await Tapp.storage.clear();
+
+const card = await Tapp.persona.get();
+// { enabled, name, moodBand, activity, portraitUrl }
+// portraitUrl 是宿主同源路径，可直接 <img src>；不要 network:fetch，也没有性格正文或 Rig
 ```
 
 应用内翻译资源通过 `code.i18n` 提供；Page、Widget 与 core 统一使用同步的
@@ -121,7 +125,8 @@ await Tapp.storage.clear();
 
 临时预览 **不签发 Runtime Grant**。`playgroundPreviewHandlers.ts` 实际注册的大致是：
 内存 `storage` / `settings`、`ui` 主题·语言·确认·全屏（通知禁用）、`context.*` 预览桩、
-`assets.list`（空）/`assets.get`（失败）、`api.list`（空）/`api.execute`（禁用）。
+`persona.get` 固定样例（不打真实人设 API）、`assets.list`（空）/`assets.get`（失败）、
+`api.list`（空）/`api.execute`（禁用）。
 
 下列能力在完整 SDK 里可能有方法名，但 **Playground 预览中不可用**（失败或明确错误）：
 

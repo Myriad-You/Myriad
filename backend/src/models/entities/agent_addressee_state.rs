@@ -9,7 +9,11 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub user_id: i32,
     pub mood: f64,
+    pub arousal: f64,
+    pub emotion: f64,
+    pub emotion_arousal: f64,
     pub activity: String,
+    pub activity_updated_at: DateTimeWithTimeZone,
     pub do_not_disturb: bool,
     #[sea_orm(nullable)]
     pub dnd_start_minute: Option<i32>,
@@ -19,9 +23,8 @@ pub struct Model {
     pub last_user_message_at: Option<DateTimeWithTimeZone>,
     #[sea_orm(nullable)]
     pub last_proactive_at: Option<DateTimeWithTimeZone>,
-    /// Last time the departure decay was charged, so one silence window is only charged once.
-    #[sea_orm(nullable)]
-    pub last_departure_at: Option<DateTimeWithTimeZone>,
+    pub mood_settled_at: DateTimeWithTimeZone,
+    pub emotion_settled_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }
 

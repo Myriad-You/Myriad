@@ -75,6 +75,18 @@ export function shouldDeliverNotification(
   return preferences.delivery[location]
 }
 
+/**
+ * Toast 只在人看不见 Agent 面板时弹。面板开着，通知已经在对话里，不必再盖一层。
+ */
+export function shouldEmitNotificationToast(
+  preferences: NotificationPreferences,
+  notification: AppNotification,
+  agentPanelVisible: boolean,
+): boolean {
+  if (agentPanelVisible) return false
+  return shouldDeliverNotification(preferences, notification, 'toast')
+}
+
 export function notificationToastType(
   notification: AppNotification,
 ): ToastType {

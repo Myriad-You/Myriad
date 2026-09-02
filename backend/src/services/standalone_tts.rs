@@ -1,4 +1,4 @@
-//! Standalone TTS synthesis (cache + Tencent) shared by HTTP `/api/speech/tts`
+//! Standalone TTS synthesis (cache + provider) shared by HTTP `/api/speech/tts`
 //! and agent `speech.tts`.
 //!
 //! Lives in the services layer so agent handlers do not depend on `api::speech`.
@@ -207,6 +207,9 @@ pub async fn synthesize_standalone_tts(request: &TtsApiRequest) -> Result<TtsApi
     if provider == SpeechProviderKind::Gemini {
         return synthesize_gemini_standalone(request).await;
     }
+    if provider == SpeechProviderKind::MiniMax {
+        return synthesize_minimax_standalone(request, codec).await;
+    }
 
     let voice_type = request
         .voice_type
@@ -294,6 +297,45 @@ async fn synthesize_gemini_standalone(request: &TtsApiRequest) -> Result<TtsApiR
         success: true,
         audio: Some(audio_b64),
         session_id: Some(format!("gemini-{}", &text_hash[..8])),
+        cached: Some(false),
+        error: None,
+    })
+}
+
+async fn synthesize_minimax_standalone(
+    request: &TtsApiRequest,
+    codec: &str,
+) -> Result<TtsApiResponse, String> {
+    let sample_rate = request.sample_rate.unwrap_or(16000);
+    let (audio, voice) = crate::services::speech_runtime::synthesize_minimax_tts(
+        &request.text,
+        codec,
+        sample_rate,
+        request.speed,
+        request.volume,
+        request.emotion.as_deref(),
+    )
+    .await?;
+    let text_hash = generate_text_hash(&request.text);
+    let speed = request.speed.unwrap_or(0.0);
+    let cache_voice = cache_tag_from_voice(&voice);
+    let audio_b64 = BASE64.encode(&audio);
+    if let Err(e) = write_tts_file(
+        &text_hash,
+        cache_voice,
+        speed,
+        sample_rate,
+        codec,
+        &audio_b64,
+    )
+    .await
+    {
+        tracing::warn!("Failed to write MiniMax TTS file: {}", e);
+    }
+    Ok(TtsApiResponse {
+        success: true,
+        audio: Some(audio_b64),
+        session_id: Some(format!("minimax-{}", &text_hash[..8])),
         cached: Some(false),
         error: None,
     })

@@ -21,12 +21,6 @@ export interface ApiRequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>
 }
 
-export interface ApiResponse<T> {
-  data: T
-  status: number
-  ok: boolean
-}
-
 /**
  * API 错误类
  */
@@ -43,7 +37,7 @@ export class ApiError extends Error {
   }
 }
 
-const STABLE_ERROR_CODE = /^[A-Za-z][A-Za-z0-9_]{2,64}$/
+const STABLE_ERROR_CODE = /^[A-Z]\w{2,64}$/i
 
 function readErrorString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined

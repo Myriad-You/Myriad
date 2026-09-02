@@ -40,80 +40,10 @@
 use crate::config::DynamicConfig;
 use serde::{Deserialize, Serialize};
 
-pub const UNKNOWN_TAPP_PERMISSION_CODE: &str = "UNKNOWN_TAPP_PERMISSION";
-
-/// 已移除权限名的替代建议（仅用于错误提示，不构成兼容映射；
-/// 未知名仍 fail-closed，绝不解码成新权限）。
-/// 单一来源：permission-service、manifest 校验、声明式 API 与运行时签发共用。
-pub(crate) fn tapp_permission_replacement_hint(permission: &str) -> Option<&'static str> {
-    match permission {
-        "storage" => Some(
-            "use 'storage:read' or 'storage:write' instead; update the TAPP Manifest, then update or reinstall the app",
-        ),
-        "federation:write" => Some(
-            "use 'federation:post', 'federation:interact', 'federation:channel', 'federation:room', or 'federation:ring' instead; update the TAPP Manifest, then update or reinstall the app",
-        ),
-        "brew:comment" => Some(
-            "use 'brew:read' (read comments) or 'brew:commentWrite' (write comments) instead",
-        ),
-        _ => None,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnknownTappPermission {
-    pub permission: String,
-}
-
-impl UnknownTappPermission {
-    pub fn code(&self) -> &'static str {
-        UNKNOWN_TAPP_PERMISSION_CODE
-    }
-
-    pub fn message(&self) -> String {
-        match tapp_permission_replacement_hint(&self.permission) {
-            Some(hint) => format!("Unknown Tapp permission '{}'; {}", self.permission, hint),
-            None => format!("Unknown Tapp permission '{}'", self.permission),
-        }
-    }
-}
-
-impl std::fmt::Display for UnknownTappPermission {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message())
-    }
-}
-
-impl std::error::Error for UnknownTappPermission {}
-
-/// 用户角色
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum UserRole {
-    Admin,
-    User,
-    Guest,
-}
-
-impl UserRole {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            UserRole::Admin => "admin",
-            UserRole::User => "user",
-            UserRole::Guest => "guest",
-        }
-    }
-}
-
-impl From<&str> for UserRole {
-    fn from(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "admin" => UserRole::Admin,
-            "user" => UserRole::User,
-            _ => UserRole::Guest,
-        }
-    }
-}
+pub use myriad_tapp_contract::permission::{
+    tapp_permission_replacement_hint, PermissionLevel, TappPermission, UnknownTappPermission,
+    UserRole, UNKNOWN_TAPP_PERMISSION_CODE,
+};
 
 /// Agent / 会话 `user_id` → TAPP 角色。管理员以当前库角色为准；访客为负 id。
 pub fn role_from_user_id(user_id: i32, is_admin: bool) -> UserRole {
@@ -128,408 +58,58 @@ pub fn role_from_user_id(user_id: i32, is_admin: bool) -> UserRole {
     }
 }
 
-/// Tapp 权限（与前端 TappPermission 类型对应）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TappPermission {
-    // Basic 级别
-    #[serde(rename = "platform:read")]
-    PlatformRead,
-    /// First-party site analytics aggregates (no visitor hashes).
-    #[serde(rename = "analytics:read")]
-    AnalyticsRead,
-    #[serde(rename = "tappList:read")]
-    TappListRead,
-    #[serde(rename = "brew:read")]
-    BrewRead,
-    /// 修改当前用户自己的阅读状态与收藏（Basic，需登录主体）。
-    #[serde(rename = "brew:write")]
-    BrewWrite,
-    #[serde(rename = "report:read")]
-    ReportRead,
-    #[serde(rename = "storage:read")]
-    StorageRead,
-    #[serde(rename = "ui:notification")]
-    UiNotification,
-    #[serde(rename = "ui:fullscreen")]
-    UiFullscreen,
-    #[serde(rename = "ui:theme")]
-    UiTheme,
-    #[serde(rename = "ui:confirm")]
-    UiConfirm,
-    /// Open a host browser tab for a manifest-declared allowlisted link only.
-    #[serde(rename = "ui:openUrl")]
-    UiOpenUrl,
-    #[serde(rename = "media:read")]
-    MediaRead,
-    /// Play package audio via blob/data URLs inside the sandbox.
-    #[serde(rename = "media:audio")]
-    MediaAudio,
-    /// Control media playback (play/pause/skip). Basic — always available.
-    #[serde(rename = "media:control")]
-    MediaControl,
-    #[serde(rename = "event:subscribe")]
-    EventSubscribe,
-    #[serde(rename = "federation:read")]
-    FederationRead,
-    #[serde(rename = "federation:message")]
-    FederationMessage,
-    #[serde(rename = "federation:files")]
-    FederationFiles,
-    #[serde(rename = "game:session")]
-    GameSession,
-
-    // Basic 级别（拆分自 federation:write，ADR 0013 / 0020）
-    /// follow/unfollow, like/unlike, bookmark/unbookmark, announce/unannounce.
-    /// Basic 但要求持久登录主体（游客无身份可绑定互动）。
-    #[serde(rename = "federation:interact")]
-    FederationInteract,
-    /// Ring membership and peer/sync operations. Basic 但同样要求持久登录主体。
-    #[serde(rename = "federation:ring")]
-    FederationRing,
-
-    // Elevated 级别（拆分自 federation:write，ADR 0013 / 0020）
-    /// Publish/unpublish, create notes, uploads and other actions that create
-    /// externally visible posts; includes signing-key rotation and outbound
-    /// delivery-queue management (both change what peers receive).
-    #[serde(rename = "federation:post")]
-    FederationPost,
-    /// Create, accept, close, delete, key setup and governance for Channels.
-    #[serde(rename = "federation:channel")]
-    FederationChannel,
-    /// Create/update/delete/join/invite/governance/key/sticker/pin operations
-    /// for Rooms.
-    #[serde(rename = "federation:room")]
-    FederationRoom,
-
-    // Elevated 级别
-    #[serde(rename = "ai:generate")]
-    AiGenerate,
-    #[serde(rename = "ai:analyze")]
-    AiAnalyze,
-    #[serde(rename = "ai:chat")]
-    AiChat,
-    #[serde(rename = "ai:image")]
-    AiImage,
-    #[serde(rename = "3d:generate")]
-    ThreeDGenerate,
-    #[serde(rename = "report:write")]
-    ReportWrite,
-    #[serde(rename = "network:fetch")]
-    NetworkFetch,
-    #[serde(rename = "component:theme")]
-    ComponentTheme,
-    #[serde(rename = "shortcut:register")]
-    ShortcutRegister,
-    #[serde(rename = "event:publish")]
-    EventPublish,
-    #[serde(rename = "scheduler:register")]
-    SchedulerRegister,
-    #[serde(rename = "speech:tts")]
-    SpeechTts,
-    #[serde(rename = "speech:asr")]
-    SpeechAsr,
-    #[serde(rename = "storage:write")]
-    StorageWrite,
-    /// 创建/更新/删除 Brew 评论与回复（Elevated，需登录主体）。
-    #[serde(rename = "brew:commentWrite")]
-    BrewCommentWrite,
-
-    // Privileged 级别
-    #[serde(rename = "widget:register")]
-    WidgetRegister,
-    #[serde(rename = "platform:write")]
-    PlatformWrite,
-    #[serde(rename = "platform:register")]
-    PlatformRegister,
-    #[serde(rename = "component:agent")]
-    ComponentAgent,
-    #[serde(rename = "tappList:manage")]
-    TappListManage,
-    #[serde(rename = "brew:manage")]
-    BrewManage,
-    #[serde(rename = "federation:trust")]
-    FederationTrust,
-}
-
-impl TappPermission {
-    /// Capabilities whose real backend routes require an authenticated,
-    /// durable application user. Guest Runtime Grants must not advertise these
-    /// even when their broad level is basic/elevated.
-    /// Capabilities whose HTTP boundary still requires a durable logged-in user.
-    ///
-    /// Guest-safe basic capabilities (private storage under signed guest session
-    /// id, public platform cache reads, **reduced** `analytics:read` visitor-card
-    /// aggregates) are intentionally **not** listed here so Runtime Grants can
-    /// include them for guest widgets. Full admin analytics breakdowns stay
-    /// server-gated on admin role inside the analytics handlers.
-    fn requires_authenticated_subject(&self) -> bool {
-        matches!(
-            self,
-            TappPermission::BrewWrite
-                | TappPermission::BrewCommentWrite
-                | TappPermission::ReportRead
-                | TappPermission::UiNotification
-                | TappPermission::ComponentTheme
-                | TappPermission::ShortcutRegister
-                | TappPermission::SchedulerRegister
-                | TappPermission::SpeechTts
-                | TappPermission::SpeechAsr
-                | TappPermission::FederationInteract
-                | TappPermission::FederationRing
-        )
+/// 中文文案；不是契约目录的一部分。
+#[allow(dead_code)]
+pub fn display_name(permission: TappPermission) -> &'static str {
+    match permission {
+        TappPermission::WidgetRegister => "注册小组件",
+        TappPermission::PlatformRead => "读取平台数据",
+        TappPermission::AnalyticsRead => "读取访问统计",
+        TappPermission::TappListRead => "读取 Tapp 列表",
+        TappPermission::BrewRead => "读取 Brew 内容",
+        TappPermission::BrewWrite => "修改 Brew 阅读状态与收藏",
+        TappPermission::BrewCommentWrite => "写 Brew 评论",
+        TappPermission::PlatformWrite => "写入平台数据",
+        TappPermission::PlatformRegister => "注册新平台",
+        TappPermission::AiGenerate => "AI 生成",
+        TappPermission::AiAnalyze => "AI 分析",
+        TappPermission::AiChat => "AI 对话",
+        TappPermission::AiImage => "AI 图片生成",
+        TappPermission::ThreeDGenerate => "3D 模型生成",
+        TappPermission::ReportRead => "读取报告",
+        TappPermission::ReportWrite => "生成报告",
+        TappPermission::StorageRead => "读取本地存储",
+        TappPermission::StorageWrite => "写入本地存储",
+        TappPermission::UiNotification => "显示通知",
+        TappPermission::UiFullscreen => "全屏模式",
+        TappPermission::UiTheme => "主题访问",
+        TappPermission::UiConfirm => "确认对话框",
+        TappPermission::UiOpenUrl => "打开声明链接",
+        TappPermission::NetworkFetch => "网络请求",
+        TappPermission::MediaControl => "媒体控制",
+        TappPermission::MediaRead => "读取媒体",
+        TappPermission::MediaAudio => "播放音频",
+        TappPermission::ComponentTheme => "注册主题",
+        TappPermission::ComponentAgent => "注册 Agent",
+        TappPermission::TappListManage => "管理 Tapp",
+        TappPermission::BrewManage => "管理 Brew",
+        TappPermission::ShortcutRegister => "注册快捷键",
+        TappPermission::EventPublish => "发布事件",
+        TappPermission::SchedulerRegister => "注册定时任务",
+        TappPermission::EventSubscribe => "订阅事件",
+        TappPermission::SpeechTts => "文本转语音",
+        TappPermission::SpeechAsr => "语音转文本",
+        TappPermission::FederationRead => "读取联邦数据",
+        TappPermission::FederationPost => "发布联邦内容",
+        TappPermission::FederationInteract => "联邦互动",
+        TappPermission::FederationChannel => "频道管理",
+        TappPermission::FederationRoom => "房间管理",
+        TappPermission::FederationRing => "Ring 管理",
+        TappPermission::FederationMessage => "联邦消息",
+        TappPermission::FederationFiles => "联邦文件传输",
+        TappPermission::FederationTrust => "联邦信任管理",
+        TappPermission::GameSession => "游戏房间会话",
     }
-
-    /// 获取权限等级
-    pub fn level(&self) -> PermissionLevel {
-        match self {
-            // Basic
-            TappPermission::PlatformRead
-            | TappPermission::AnalyticsRead
-            | TappPermission::TappListRead
-            | TappPermission::BrewRead
-            | TappPermission::BrewWrite
-            | TappPermission::ReportRead
-            | TappPermission::StorageRead
-            | TappPermission::UiNotification
-            | TappPermission::UiFullscreen
-            | TappPermission::UiTheme
-            | TappPermission::UiConfirm
-            | TappPermission::UiOpenUrl
-            | TappPermission::MediaRead
-            | TappPermission::MediaAudio
-            | TappPermission::MediaControl
-            | TappPermission::EventSubscribe
-            | TappPermission::FederationRead
-            | TappPermission::FederationInteract
-            | TappPermission::FederationRing
-            | TappPermission::FederationMessage
-            | TappPermission::FederationFiles
-            | TappPermission::GameSession => PermissionLevel::Basic,
-
-            // Elevated（可配置下放的集合见 all_elevated）
-            TappPermission::AiGenerate
-            | TappPermission::AiAnalyze
-            | TappPermission::AiChat
-            | TappPermission::AiImage
-            | TappPermission::ThreeDGenerate
-            | TappPermission::NetworkFetch
-            | TappPermission::ComponentTheme
-            | TappPermission::ShortcutRegister
-            | TappPermission::EventPublish
-            | TappPermission::SchedulerRegister
-            | TappPermission::SpeechTts
-            | TappPermission::SpeechAsr => PermissionLevel::Elevated,
-            TappPermission::StorageWrite => PermissionLevel::Elevated,
-            TappPermission::FederationPost
-            | TappPermission::FederationChannel
-            | TappPermission::FederationRoom => PermissionLevel::Elevated,
-            TappPermission::BrewCommentWrite => PermissionLevel::Elevated,
-
-            // Privileged
-            TappPermission::WidgetRegister
-            | TappPermission::PlatformWrite
-            | TappPermission::PlatformRegister
-            | TappPermission::ComponentAgent
-            | TappPermission::TappListManage
-            | TappPermission::BrewManage
-            | TappPermission::FederationTrust
-            | TappPermission::ReportWrite => PermissionLevel::Privileged,
-        }
-    }
-
-    /// 获取权限的显示名称
-    #[allow(dead_code)]
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            TappPermission::WidgetRegister => "注册小组件",
-            TappPermission::PlatformRead => "读取平台数据",
-            TappPermission::AnalyticsRead => "读取访问统计",
-            TappPermission::TappListRead => "读取 Tapp 列表",
-            TappPermission::BrewRead => "读取 Brew 内容",
-            TappPermission::BrewWrite => "修改 Brew 阅读状态与收藏",
-            TappPermission::BrewCommentWrite => "写 Brew 评论",
-            TappPermission::PlatformWrite => "写入平台数据",
-            TappPermission::PlatformRegister => "注册新平台",
-            TappPermission::AiGenerate => "AI 生成",
-            TappPermission::AiAnalyze => "AI 分析",
-            TappPermission::AiChat => "AI 对话",
-            TappPermission::AiImage => "AI 图片生成",
-            TappPermission::ThreeDGenerate => "3D 模型生成",
-            TappPermission::ReportRead => "读取报告",
-            TappPermission::ReportWrite => "生成报告",
-            TappPermission::StorageRead => "读取本地存储",
-            TappPermission::StorageWrite => "写入本地存储",
-            TappPermission::UiNotification => "显示通知",
-            TappPermission::UiFullscreen => "全屏模式",
-            TappPermission::UiTheme => "主题访问",
-            TappPermission::UiConfirm => "确认对话框",
-            TappPermission::UiOpenUrl => "打开声明链接",
-            TappPermission::NetworkFetch => "网络请求",
-            TappPermission::MediaControl => "媒体控制",
-            TappPermission::MediaRead => "读取媒体",
-            TappPermission::MediaAudio => "播放音频",
-            TappPermission::ComponentTheme => "注册主题",
-            TappPermission::ComponentAgent => "注册 Agent",
-            TappPermission::TappListManage => "管理 Tapp",
-            TappPermission::BrewManage => "管理 Brew",
-            TappPermission::ShortcutRegister => "注册快捷键",
-            TappPermission::EventPublish => "发布事件",
-            TappPermission::SchedulerRegister => "注册定时任务",
-            TappPermission::EventSubscribe => "订阅事件",
-            TappPermission::SpeechTts => "文本转语音",
-            TappPermission::SpeechAsr => "语音转文本",
-            TappPermission::FederationRead => "读取联邦数据",
-            TappPermission::FederationPost => "发布联邦内容",
-            TappPermission::FederationInteract => "联邦互动",
-            TappPermission::FederationChannel => "频道管理",
-            TappPermission::FederationRoom => "房间管理",
-            TappPermission::FederationRing => "Ring 管理",
-            TappPermission::FederationMessage => "联邦消息",
-            TappPermission::FederationFiles => "联邦文件传输",
-            TappPermission::FederationTrust => "联邦信任管理",
-            TappPermission::GameSession => "游戏房间会话",
-        }
-    }
-
-    /// 获取所有可配置下放的 elevated 级别权限（不含 report:write）
-    pub fn all_elevated() -> Vec<TappPermission> {
-        vec![
-            TappPermission::AiGenerate,
-            TappPermission::AiAnalyze,
-            TappPermission::AiChat,
-            TappPermission::AiImage,
-            TappPermission::ThreeDGenerate,
-            TappPermission::NetworkFetch,
-            TappPermission::ComponentTheme,
-            TappPermission::ShortcutRegister,
-            TappPermission::EventPublish,
-            TappPermission::SchedulerRegister,
-            TappPermission::SpeechTts,
-            TappPermission::SpeechAsr,
-            TappPermission::StorageWrite,
-            TappPermission::FederationPost,
-            TappPermission::FederationChannel,
-            TappPermission::FederationRoom,
-            TappPermission::BrewCommentWrite,
-        ]
-    }
-
-    /// 从字符串解析权限
-    pub fn from_str(s: &str) -> Option<TappPermission> {
-        match s {
-            "widget:register" => Some(TappPermission::WidgetRegister),
-            "platform:read" => Some(TappPermission::PlatformRead),
-            "analytics:read" => Some(TappPermission::AnalyticsRead),
-            "tappList:read" => Some(TappPermission::TappListRead),
-            "brew:read" => Some(TappPermission::BrewRead),
-            "brew:write" => Some(TappPermission::BrewWrite),
-            "platform:write" => Some(TappPermission::PlatformWrite),
-            "platform:register" => Some(TappPermission::PlatformRegister),
-            "report:read" => Some(TappPermission::ReportRead),
-            "report:write" => Some(TappPermission::ReportWrite),
-            "storage:read" => Some(TappPermission::StorageRead),
-            "ui:notification" => Some(TappPermission::UiNotification),
-            "ui:fullscreen" => Some(TappPermission::UiFullscreen),
-            "ui:theme" => Some(TappPermission::UiTheme),
-            "ui:confirm" => Some(TappPermission::UiConfirm),
-            "ui:openUrl" => Some(TappPermission::UiOpenUrl),
-            "ai:generate" => Some(TappPermission::AiGenerate),
-            "ai:analyze" => Some(TappPermission::AiAnalyze),
-            "ai:chat" => Some(TappPermission::AiChat),
-            "ai:image" => Some(TappPermission::AiImage),
-            "3d:generate" => Some(TappPermission::ThreeDGenerate),
-            "network:fetch" => Some(TappPermission::NetworkFetch),
-            "media:control" => Some(TappPermission::MediaControl),
-            "media:read" => Some(TappPermission::MediaRead),
-            "media:audio" => Some(TappPermission::MediaAudio),
-            "component:theme" => Some(TappPermission::ComponentTheme),
-            "component:agent" => Some(TappPermission::ComponentAgent),
-            "tappList:manage" => Some(TappPermission::TappListManage),
-            "brew:manage" => Some(TappPermission::BrewManage),
-            "shortcut:register" => Some(TappPermission::ShortcutRegister),
-            "event:publish" => Some(TappPermission::EventPublish),
-            "event:subscribe" => Some(TappPermission::EventSubscribe),
-            "scheduler:register" => Some(TappPermission::SchedulerRegister),
-            "speech:tts" => Some(TappPermission::SpeechTts),
-            "speech:asr" => Some(TappPermission::SpeechAsr),
-            "storage:write" => Some(TappPermission::StorageWrite),
-            "brew:commentWrite" => Some(TappPermission::BrewCommentWrite),
-            "federation:read" => Some(TappPermission::FederationRead),
-            "federation:post" => Some(TappPermission::FederationPost),
-            "federation:interact" => Some(TappPermission::FederationInteract),
-            "federation:channel" => Some(TappPermission::FederationChannel),
-            "federation:room" => Some(TappPermission::FederationRoom),
-            "federation:ring" => Some(TappPermission::FederationRing),
-            "federation:message" => Some(TappPermission::FederationMessage),
-            "federation:files" => Some(TappPermission::FederationFiles),
-            "federation:trust" => Some(TappPermission::FederationTrust),
-            "game:session" => Some(TappPermission::GameSession),
-            _ => None,
-        }
-    }
-
-    /// 转换为字符串
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TappPermission::WidgetRegister => "widget:register",
-            TappPermission::PlatformRead => "platform:read",
-            TappPermission::AnalyticsRead => "analytics:read",
-            TappPermission::TappListRead => "tappList:read",
-            TappPermission::BrewRead => "brew:read",
-            TappPermission::BrewWrite => "brew:write",
-            TappPermission::PlatformWrite => "platform:write",
-            TappPermission::PlatformRegister => "platform:register",
-            TappPermission::ReportRead => "report:read",
-            TappPermission::ReportWrite => "report:write",
-            TappPermission::StorageRead => "storage:read",
-            TappPermission::StorageWrite => "storage:write",
-            TappPermission::BrewCommentWrite => "brew:commentWrite",
-            TappPermission::UiNotification => "ui:notification",
-            TappPermission::UiFullscreen => "ui:fullscreen",
-            TappPermission::UiTheme => "ui:theme",
-            TappPermission::UiConfirm => "ui:confirm",
-            TappPermission::UiOpenUrl => "ui:openUrl",
-            TappPermission::AiGenerate => "ai:generate",
-            TappPermission::AiAnalyze => "ai:analyze",
-            TappPermission::AiChat => "ai:chat",
-            TappPermission::AiImage => "ai:image",
-            TappPermission::ThreeDGenerate => "3d:generate",
-            TappPermission::NetworkFetch => "network:fetch",
-            TappPermission::MediaControl => "media:control",
-            TappPermission::MediaRead => "media:read",
-            TappPermission::MediaAudio => "media:audio",
-            TappPermission::ComponentTheme => "component:theme",
-            TappPermission::ComponentAgent => "component:agent",
-            TappPermission::TappListManage => "tappList:manage",
-            TappPermission::BrewManage => "brew:manage",
-            TappPermission::ShortcutRegister => "shortcut:register",
-            TappPermission::EventPublish => "event:publish",
-            TappPermission::EventSubscribe => "event:subscribe",
-            TappPermission::SchedulerRegister => "scheduler:register",
-            TappPermission::SpeechTts => "speech:tts",
-            TappPermission::SpeechAsr => "speech:asr",
-            TappPermission::FederationRead => "federation:read",
-            TappPermission::FederationPost => "federation:post",
-            TappPermission::FederationInteract => "federation:interact",
-            TappPermission::FederationChannel => "federation:channel",
-            TappPermission::FederationRoom => "federation:room",
-            TappPermission::FederationRing => "federation:ring",
-            TappPermission::FederationMessage => "federation:message",
-            TappPermission::FederationFiles => "federation:files",
-            TappPermission::FederationTrust => "federation:trust",
-            TappPermission::GameSession => "game:session",
-        }
-    }
-}
-
-/// 权限等级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PermissionLevel {
-    Public,
-    Basic,
-    Elevated,
-    Privileged,
 }
 
 /// Tapp 权限检查服务

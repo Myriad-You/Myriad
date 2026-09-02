@@ -62,8 +62,6 @@ export function isCheckStale(
   return age >= STALE_WHEN_OFF_SECS
 }
 
-export type AgoUnit = 'justNow' | 'min' | 'hour' | 'day'
-
 export type AgoParts =
   | { unit: 'justNow' }
   | { unit: 'min'; n: number }
@@ -117,7 +115,7 @@ export interface LatestTipFields {
 }
 
 /**
- * Formal release tags look like v0.2.6 (`v`-prefixed semver, matching DeployTag).
+ * Formal release tags look like v0.4.0 (`v`-prefixed semver, matching DeployTag).
  * Kept local so planLatestUpdate stays free of UI imports.
  */
 function isReleaseTag(tag: string): boolean {

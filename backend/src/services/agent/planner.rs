@@ -3,17 +3,19 @@
 //! 合并意图分析 + 方案生成为单次 Pro AI 调用。
 //! 直接输出可执行的 Recipe 步骤。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::config::ModelTier;
-use crate::services::agent::capability::{get_capabilities_by_ids, get_compact_index};
+use crate::services::agent::capability::{
+    capability_covered_by_grants, get_capabilities_by_ids, get_compact_index_for_grants,
+};
 use crate::services::agent::identity;
 use crate::services::agent::intent::keywords::LanguageDetector;
 use crate::services::agent::memory;
 use crate::services::agent::recipe::validate_and_convert_steps;
 use crate::services::agent::types::*;
 use crate::services::ai::create_ai_analyzer_for_tier;
-use crate::services::analyzer::AiAnalyzer;
+use crate::services::analyzer::{AiAnalyzer, StreamDelta};
 
 /// Planner — 单次 Pro AI 调用完成意图理解 + 执行规划
 pub struct Planner {
@@ -39,17 +41,65 @@ impl Planner {
     }
 
     /// 主入口：用户请求 → PlannerOutput
+    #[allow(dead_code)]
     pub async fn plan(&self, request: &UserRequest) -> Result<PlannerOutput, String> {
-        self.plan_internal(request, None).await
+        self.plan_internal(request, None, None, None).await
     }
 
-    /// 升级重规划（携带前次结果上下文）
-    pub async fn replan(
+    pub async fn plan_for(
+        &self,
+        request: &UserRequest,
+        granted: &HashSet<String>,
+    ) -> Result<PlannerOutput, String> {
+        self.plan_internal(request, None, None, Some(granted)).await
+    }
+
+    /// Live SSE path: reasoning deltas go out while the planner JSON is still forming.
+    #[allow(dead_code)]
+    pub async fn plan_with_progress(
+        &self,
+        request: &UserRequest,
+        progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    ) -> Result<PlannerOutput, String> {
+        self.plan_internal(request, None, Some(progress_tx), None)
+            .await
+    }
+
+    pub async fn plan_with_progress_for(
+        &self,
+        request: &UserRequest,
+        progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+        granted: &HashSet<String>,
+    ) -> Result<PlannerOutput, String> {
+        self.plan_internal(request, None, Some(progress_tx), Some(granted))
+            .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn replan_with_progress(
         &self,
         request: &UserRequest,
         escalation_hint: &str,
+        progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
     ) -> Result<PlannerOutput, String> {
-        self.plan_internal(request, Some(escalation_hint)).await
+        self.plan_internal(request, Some(escalation_hint), Some(progress_tx), None)
+            .await
+    }
+
+    pub async fn replan_with_progress_for(
+        &self,
+        request: &UserRequest,
+        escalation_hint: &str,
+        progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+        granted: &HashSet<String>,
+    ) -> Result<PlannerOutput, String> {
+        self.plan_internal(
+            request,
+            Some(escalation_hint),
+            Some(progress_tx),
+            Some(granted),
+        )
+        .await
     }
 
     /// 内部规划逻辑
@@ -57,6 +107,8 @@ impl Planner {
         &self,
         request: &UserRequest,
         escalation_hint: Option<&str>,
+        progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
+        granted: Option<&HashSet<String>>,
     ) -> Result<PlannerOutput, String> {
         // 尝试获取 AI（支持热加载配置）
         let runtime_analyzer;
@@ -77,27 +129,40 @@ impl Planner {
 
         // 构建 prompt
         let system_prompt = self
-            .build_system_prompt(request, language, escalation_hint)
+            .build_system_prompt(request, language, escalation_hint, granted)
             .await;
         let user_prompt = self.build_user_prompt(request, escalation_hint);
 
         // 走提供商原生的结构化输出：由 API 层保证返回是合法 JSON，
         // 而不是靠 prompt 里的「请只输出 JSON」再从自由文本里抠花括号。
         let schema = planner_output_schema();
-        let response = match ai_analyzer
-            .analyze_json(
-                &system_prompt,
-                &user_prompt,
-                PLANNER_SCHEMA_NAME,
-                Some(&schema),
-            )
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(error = %e, "[Planner] AI call failed, retrying once");
-                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-                match ai_analyzer
+        let mut response = None;
+        for attempt in 0..2 {
+            let result = if let Some(tx) = progress_tx {
+                ai_analyzer
+                    .analyze_json_streaming(
+                        &system_prompt,
+                        &user_prompt,
+                        PLANNER_SCHEMA_NAME,
+                        Some(&schema),
+                        |delta| {
+                            let tx = tx.clone();
+                            async move {
+                                if let StreamDelta::Reasoning(token) = delta {
+                                    let _ = tx
+                                        .send(AgentProgressEvent::ThinkingToken {
+                                            token,
+                                            done: false,
+                                        })
+                                        .await;
+                                }
+                                true
+                            }
+                        },
+                    )
+                    .await
+            } else {
+                ai_analyzer
                     .analyze_json(
                         &system_prompt,
                         &user_prompt,
@@ -105,25 +170,41 @@ impl Planner {
                         Some(&schema),
                     )
                     .await
-                {
-                    Ok(r) => r,
-                    Err(e2) => {
+            };
+            match result {
+                Ok(text) => {
+                    response = Some(text);
+                    break;
+                }
+                Err(error) => {
+                    if attempt == 0 {
+                        tracing::warn!(%error, "[Planner] AI call failed, retrying once");
+                        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                    } else {
                         tracing::warn!(
-                            error = %e2,
+                            %error,
                             "[Planner] AI call failed after retry, using fallback plan"
                         );
                         return Ok(self.fallback_plan(request));
                     }
                 }
             }
-        };
+        }
+        let response = response.expect("loop sets response or returns");
 
         // 解析响应
         let mut output = self.parse_response(&response)?;
 
         // 校验步骤（如果是 plan 状态）
         if output.status == PlannerStatus::Plan && !output.steps.is_empty() {
-            if let Err(e) = self.validate_steps(&mut output).await {
+            let autonomy_cap = request
+                .context
+                .as_ref()
+                .and_then(|context| context.autonomy_permission_cap.as_deref());
+            if let Err(e) = self
+                .validate_steps(&mut output, autonomy_cap, granted)
+                .await
+            {
                 tracing::warn!(error = %e, "[Planner] Step validation failed, trying to recover");
                 // 验证失败时降级为 chat
                 output.status = PlannerStatus::Chat;
@@ -158,6 +239,7 @@ impl Planner {
         request: &UserRequest,
         language: super::intent::keywords::Language,
         escalation_hint: Option<&str>,
+        granted: Option<&HashSet<String>>,
     ) -> String {
         let mut stable: Vec<String> = Vec::new();
         let mut volatile: Vec<String> = Vec::new();
@@ -186,6 +268,21 @@ impl Planner {
         }
 
         volatile.extend(crate::services::agent::merope::speaking_prompt(request.user_id).await);
+
+        if let Some(cap) = request
+            .context
+            .as_ref()
+            .and_then(|context| context.autonomy_permission_cap.as_ref())
+            .filter(|cap| !cap.is_empty())
+        {
+            volatile.push(format!(
+                "## 自治授权上限\n本轮办事只能使用当前授予权限与自治授权的交集，不得规划需要其他权限的步骤。允许的权限：\n{}",
+                cap.iter()
+                    .map(|permission| format!("- {permission}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
+        }
 
         // 1.5. 多 Agent 角色概览（注入 worker 身份摘要）
         if let Some(mgr) = identity::get_identity_manager() {
@@ -290,7 +387,7 @@ impl Planner {
         }
 
         // 3. 能力索引（含相关 Skill）
-        let compact_index = get_compact_index().await;
+        let compact_index = get_compact_index_for_grants(granted).await;
         stable.push(format!(
             "## 可用能力（紧凑索引）\n\
              条目字段：`id` 能力 ID、`h` 用途、`p` 必需参数、`o` 该能力的输出字段。\n\
@@ -309,8 +406,14 @@ impl Planner {
         // 5. 相关 Skill 预过滤（语义匹配 top-5，随用户输入变化）
         if let Some(registry) = super::skill::get_skill_registry() {
             let relevant = registry.get_relevant_skills(&request.raw_input, 5).await;
-            if !relevant.is_empty() {
-                let skill_lines: Vec<String> = relevant
+            let mut filtered = Vec::new();
+            for sm in relevant {
+                if super::skill::skill_covered_by_grants(&sm.skill, granted).await {
+                    filtered.push(sm);
+                }
+            }
+            if !filtered.is_empty() {
+                let skill_lines: Vec<String> = filtered
                     .iter()
                     .map(|sm| {
                         let params_hint = if sm.skill.parameters.is_empty() {
@@ -411,7 +514,31 @@ impl Planner {
             if let Some(custom_data) = &context.custom_data {
                 let has_page = custom_data.get("pageContent").is_some();
                 if has_page {
-                    prompt.push_str("\n页面上下文可用：true（可在 params 中用 \"inputFrom\": \"__page_context__\" 引用）");
+                    prompt.push_str("\n页面上下文可用：true。总结/分析用 \"contentFrom\": \"__page_context__\"；page.content / page.understand 用 \"contextFrom\": \"__page_context__\"（不要写成 inputFrom）");
+                }
+
+                if let Some(attachments) = custom_data.get("attachments").and_then(|v| v.as_array())
+                {
+                    if !attachments.is_empty() {
+                        prompt.push_str("\n\n<user_attachments>");
+                        for att in attachments {
+                            let name = att.get("name").and_then(|v| v.as_str()).unwrap_or("file");
+                            let mime = att.get("mime").and_then(|v| v.as_str()).unwrap_or("");
+                            let size = att.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                            prompt.push_str(&format!("\n- {} ({}, {} bytes)", name, mime, size));
+                            if let Some(text) = att.get("text").and_then(|v| v.as_str()) {
+                                if !text.is_empty() {
+                                    prompt.push_str("\n  <excerpt>\n");
+                                    prompt.push_str(text);
+                                    prompt.push_str("\n  </excerpt>");
+                                }
+                            } else if mime.starts_with("image/") {
+                                prompt
+                                    .push_str("\n  （图片像素未随请求发送，只能看到文件名和类型）");
+                            }
+                        }
+                        prompt.push_str("\n</user_attachments>");
+                    }
                 }
 
                 // 用户偏好
@@ -496,9 +623,61 @@ impl Planner {
             }
         }
     }
+}
 
+/// Whether a recipe/planner step is covered by the current grant set.
+pub(crate) async fn capability_allowed_for_grants(
+    capability_id: &str,
+    params: &HashMap<String, serde_json::Value>,
+    granted: &HashSet<String>,
+) -> Result<(), String> {
+    if let Some(skill_id) = capability_id.strip_prefix("skill:") {
+        let allowed = match super::skill::get_skill_registry() {
+            Some(registry) => match registry.get(skill_id).await {
+                Some(skill) => super::skill::skill_covered_by_grants(&skill, Some(granted)).await,
+                None => false,
+            },
+            None => false,
+        };
+        if !allowed {
+            return Err(format!("capability '{capability_id}' is not available"));
+        }
+        return Ok(());
+    }
+    if capability_id.starts_with("mcp.") {
+        if !granted.contains("mcp:execute") {
+            return Err(format!("capability '{capability_id}' is not available"));
+        }
+        return Ok(());
+    }
+    match get_capabilities_by_ids(&[capability_id.to_string()])
+        .await
+        .into_iter()
+        .next()
+    {
+        Some(cap) => {
+            if !capability_covered_by_grants(&cap, Some(granted)) {
+                return Err(format!("capability '{capability_id}' is not available"));
+            }
+        }
+        None => {
+            return Err(format!("capability '{capability_id}' is not available"));
+        }
+    }
+    if capability_id == "scheduler.create" {
+        crate::services::agent::scheduler_create_actions_within_grants(params, granted)?;
+    }
+    Ok(())
+}
+
+impl Planner {
     /// 校验步骤（加载完整 capability schema 验证）
-    async fn validate_steps(&self, output: &mut PlannerOutput) -> Result<(), String> {
+    async fn validate_steps(
+        &self,
+        output: &mut PlannerOutput,
+        autonomy_cap: Option<&[String]>,
+        granted: Option<&HashSet<String>>,
+    ) -> Result<(), String> {
         let cap_ids: Vec<String> = output
             .steps
             .iter()
@@ -510,6 +689,26 @@ impl Planner {
         let test_steps = output.steps.clone();
         let reasoning = output.reasoning.clone();
         validate_and_convert_steps(test_steps, reasoning, &cap_schemas)?;
+
+        if let Some(granted) = granted {
+            for step in &output.steps {
+                capability_allowed_for_grants(&step.capability_id, &step.params, granted).await?;
+            }
+        }
+
+        if autonomy_cap.is_some() {
+            for capability in &cap_schemas {
+                if !crate::services::agent::consciousness::required_permissions_within_cap(
+                    &capability.required_permissions,
+                    autonomy_cap,
+                ) {
+                    return Err(format!(
+                        "capability '{}' exceeds the autonomy permission cap",
+                        capability.id
+                    ));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -705,6 +904,8 @@ fn describe_route(route: &str) -> &'static str {
     match route.trim_matches('/') {
         "brew" => "Brew 订阅页面",
         "tapp" | "tapps" => "Tapp 应用页面",
+        "library" => "资料库页面",
+        "config" | "settings" => "设置页面",
         route if route.starts_with("platform/bilibili") => "B站数据页面",
         route if route.starts_with("platform/steam") => "Steam 游戏页面",
         route if route.starts_with("platform/github") => "GitHub 页面",
@@ -744,7 +945,7 @@ const PLANNER_RULES: &str = r#"## 规则
 4. `params` 根据能力描述和 `"p"` 参数列表推断合理值
 5. **❗ xxxFrom 必须配合 depends_on**：使用 `"xxxFrom": "step_id"` 引用其他步骤输出时，**必须同时在 `depends_on` 中声明该步骤**。例如 `"dataFrom": "search"` → `"depends_on": ["search"]`。缺少 depends_on 会导致步骤并行执行、引用为 null
 5.1 **优先引用具体字段**：`"xxxFrom"` 支持 `"step_id.字段名"`，字段名取自能力索引的 `o` 列表。例如 `ai.webSearch` 的 `o` 含 `results`，就写 `"dataFrom": "search.results"`。引用整个步骤（`"search"`）只在需要完整输出对象时使用
-6. 如果页面上下文可用，可用 `"inputFrom": "__page_context__"` 引用当前页面内容
+6. 如果页面上下文可用：总结/分析用 `"contentFrom": "__page_context__"`；`page.content` / `page.understand` 用 `"contextFrom": "__page_context__"`（不要写成 `inputFrom`，这两个能力读的是 `context`）
 7. `on_failure` 策略：
    - 数据获取步骤用 `"abort"`（后续步骤依赖数据，获取失败则无法继续）
    - AI 处理步骤可用 `"skip"`（非关键性分析/总结可跳过）
@@ -1071,12 +1272,14 @@ mod tests {
                 &request("帮我看看最新的订阅文章"),
                 crate::services::agent::intent::keywords::Language::Chinese,
                 None,
+                None,
             )
             .await;
         let english = planner
             .build_system_prompt(
                 &request("summarize my newest feed items"),
                 crate::services::agent::intent::keywords::Language::English,
+                None,
                 None,
             )
             .await;
@@ -1105,6 +1308,7 @@ mod tests {
                 &request("换一个说法"),
                 crate::services::agent::intent::keywords::Language::Chinese,
                 Some("上次没有找到数据"),
+                None,
             )
             .await;
 
@@ -1130,6 +1334,7 @@ mod tests {
                 &request("你好"),
                 crate::services::agent::intent::keywords::Language::Chinese,
                 None,
+                None,
             )
             .await;
         assert!(prompt.contains("## 身份"));
@@ -1137,6 +1342,41 @@ mod tests {
             prompt.contains("你是 Agent") || prompt.contains("You are Agent"),
             "identity names the product Agent"
         );
+    }
+
+    #[test]
+    fn user_prompt_includes_attachment_excerpts() {
+        let prompt = test_planner().build_user_prompt(
+            &UserRequest {
+                raw_input: "看看这个".to_string(),
+                timestamp: chrono::Utc::now(),
+                user_id: 1,
+                context: Some(RequestContext {
+                    custom_data: Some(serde_json::json!({
+                        "attachments": [
+                            {
+                                "name": "n.txt",
+                                "mime": "text/plain",
+                                "size": 4,
+                                "text": "hello"
+                            },
+                            {
+                                "name": "a.png",
+                                "mime": "image/png",
+                                "size": 12
+                            }
+                        ]
+                    })),
+                    ..Default::default()
+                }),
+            },
+            None,
+        );
+        assert!(prompt.contains("<user_attachments>"));
+        assert!(prompt.contains("n.txt"));
+        assert!(prompt.contains("hello"));
+        assert!(prompt.contains("a.png"));
+        assert!(prompt.contains("图片像素未随请求发送"));
     }
 
     #[test]
@@ -1166,5 +1406,26 @@ mod tests {
         );
         let parsed = planner.parse_response(&raw).expect("parse");
         assert_eq!(parsed.status, PlannerStatus::Plan);
+    }
+
+    #[tokio::test]
+    async fn capability_allowed_for_grants_hides_ungranted_tools() {
+        let mut granted = HashSet::new();
+        granted.insert("ai:chat".to_string());
+        assert!(
+            capability_allowed_for_grants("ai.chat", &HashMap::new(), &granted)
+                .await
+                .is_ok()
+        );
+        assert!(
+            capability_allowed_for_grants("speech.tts", &HashMap::new(), &granted)
+                .await
+                .is_err()
+        );
+        assert!(
+            capability_allowed_for_grants("not.a.tool", &HashMap::new(), &granted)
+                .await
+                .is_err()
+        );
     }
 }

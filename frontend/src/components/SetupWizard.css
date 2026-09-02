@@ -30,15 +30,12 @@
   --sob-surface-rgb: var(--surface-rgb, 255 255 255);
 
   /* —— 动效令牌：一处改、全向导同步 —— */
-  --sob-dur-instant: 90ms;
   --sob-dur-fast: 160ms;
   --sob-dur-base: 280ms;
   --sob-dur-slow: 420ms;
   --sob-dur-enter: 480ms;
   --sob-stagger: 42ms;
-  --sob-shift-xs: 4px;
   --sob-shift-sm: 10px;
-  --sob-shift-md: 16px;
   --sob-shift-x: 22px;
   --sob-scale-press: 0.94;
   --sob-scale-hover: 1.04;
@@ -48,8 +45,6 @@
   --sob-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --sob-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --sob-ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
-  --sob-ease-exit: cubic-bezier(0.4, 0, 1, 1);
-  --sob-ease-emphasis: cubic-bezier(0.22, 1, 0.36, 1);
 
   /* 语义过渡：控件直接 transition: var(...) */
   --sob-t-fill:
@@ -1530,15 +1525,12 @@ html.dark .setup-ob-bar .setup-ob-cta {
 
 @media (prefers-reduced-motion: reduce) {
   .setup-ob {
-    --sob-dur-instant: 1ms;
     --sob-dur-fast: 1ms;
     --sob-dur-base: 1ms;
     --sob-dur-slow: 1ms;
     --sob-dur-enter: 1ms;
     --sob-stagger: 0ms;
-    --sob-shift-xs: 0px;
     --sob-shift-sm: 0px;
-    --sob-shift-md: 0px;
     --sob-shift-x: 0px;
     --sob-scale-press: 1;
     --sob-scale-hover: 1;
@@ -1581,7 +1573,6 @@ html[data-perf-mode='exlight'] .setup-ob {
   --sob-dur-enter: var(--sob-dur-base);
   --sob-dur-slow: var(--sob-dur-base);
   --sob-shift-sm: 0px;
-  --sob-shift-md: 0px;
   --sob-shift-x: 0px;
   --sob-scale-press: 1;
   --sob-scale-hover: 1;

@@ -100,15 +100,6 @@ pub fn shared_dynamic_config() -> &'static Arc<TokioRwLock<DynamicConfig>> {
     &crate::GLOBAL_DYNAMIC_CONFIG
 }
 
-/// Replace the process-shared dynamic config contents (and thus every
-/// `AppState` that shares the Arc after `from_shared`).
-///
-/// Prefer State write on full-mode HTTP paths; reserve this for bootstrap /
-/// CONFIG_MODE setup only.
-pub async fn replace_shared_dynamic_config(config: DynamicConfig) {
-    *crate::GLOBAL_DYNAMIC_CONFIG.write().await = config;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

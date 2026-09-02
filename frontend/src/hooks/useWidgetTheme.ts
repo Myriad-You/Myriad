@@ -18,7 +18,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { API_URL } from '../config'
+import { currentCopy } from '../i18n/localeCopy'
 import { getUIConfigDeduped } from '../utils/requestDedup'
+import { showError } from '../utils/toastManager'
+import { userFacingError } from '../utils/userFacingError'
 import { resyncWallpaperBlur } from '../utils/wallpaperState'
 
 // 类型定义
@@ -133,7 +136,7 @@ function debouncedSave(csrfToken: string) {
 
   saveTimeout = setTimeout(async () => {
     try {
-      await fetch(`${API_URL}/api/config/dashboard`, {
+      const res = await fetch(`${API_URL}/api/config/dashboard`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -142,8 +145,14 @@ function debouncedSave(csrfToken: string) {
         credentials: 'include',
         body: JSON.stringify({ widget_theme: JSON.stringify(globalState) }),
       })
+      if (!res.ok) {
+        throw new Error(`Failed to save widget theme: HTTP ${res.status}`)
+      }
     } catch (err) {
       console.error('保存小组件主题失败:', err)
+      showError(
+        userFacingError(err, currentCopy().errors.widgetThemeSaveFailed),
+      )
     }
   }, SAVE_DEBOUNCE_MS)
 }

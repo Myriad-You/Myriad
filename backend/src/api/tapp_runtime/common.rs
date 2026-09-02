@@ -144,8 +144,8 @@ fn tapp_access_http_error(err: TappAccessError) -> HttpError {
         TappAccessError::Database => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
-                "error": err.error_code(),
-                "code": "database_error",
+                "error": err.message(),
+                "code": "tapp_access_check_failed",
             })),
         ),
         TappAccessError::NoAdmin => (

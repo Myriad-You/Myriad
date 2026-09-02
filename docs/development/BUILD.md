@@ -28,6 +28,7 @@ dependencies (see [Cargo Workspaces](https://doc.rust-lang.org/book/ch14-03-carg
 | `backend/migrations/` | `migration` |
 | `crates/myriad-error/` | `myriad-error` (shared `AppError` + redact) |
 | `crates/myriad-data-key/` | `myriad-data-key` (config/federation AES-GCM key) |
+| `crates/myriad-merope/` | `myriad-merope` (Merope domain rules and contracts) |
 | `crates/myriad-outbound/` | `myriad-outbound` (SSRF-safe HTTP egress) |
 | `crates/myriad-image-proxy/` | `myriad-image-proxy` (hotlink image proxy helpers) |
 | `crates/myriad-json-schema/` | `myriad-json-schema` (JSON schema helpers) |
@@ -38,10 +39,14 @@ dependencies (see [Cargo Workspaces](https://doc.rust-lang.org/book/ch14-03-carg
 | `crates/myriad-psn-auth/` | `myriad-psn-auth` (PSN NPSSO→token) |
 | `crates/myriad-tapp-registry/` | `myriad-tapp-registry` (runtime registry/mailbox) |
 | `crates/tapp-contract/` | `myriad-tapp-contract` |
+| `crates/myriad-agent-rules/` | `myriad-agent-rules` (pure Agent caps and projections) |
+| `crates/myriad-tapp-rules/` | `myriad-tapp-rules` (HMAC, transform, package plan, feed) |
+| `tools/tapp-contract-export/` | `myriad-tapp-contract-export` (prints `export_tapp_contract()`) |
 
 Shared artifacts: root `Cargo.lock` and root `target/`.  
-`proxy/`, `updater/`, and `tools/tapp-contract-export/` are listed in
-`workspace.exclude` — independent packages with their own lock + `target`.
+`proxy/` and `updater/` are listed in `workspace.exclude` — independent
+packages with their own lock + `target`. `tools/tapp-contract-export/` is a
+workspace member.
 
 From any directory under the workspace, Cargo still finds the root. Preferred
 commands from the repo root:

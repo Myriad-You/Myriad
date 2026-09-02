@@ -1,11 +1,9 @@
 //! Myriad backend binary.
 //!
-//! Modularization left pure helpers and path-stable re-exports that are adopted
-//! incrementally by handlers/tests. Until that adoption finishes, dead_code and
-//! reexport unused_imports would fail CI `clippy -D warnings` without changing
-//! runtime behavior. Scoped allow keeps the tree green without mass-deleting
-//! intentional pure surfaces.
-#![allow(dead_code)]
+//! Re-exports are path-stable on purpose: submodules reach each other through
+//! `use super::*`, and several `use` lines only feed `#[cfg(test)]` blocks, so
+//! the non-test target reports them unused. Removing them breaks the test
+//! target — keep the allow rather than trusting `cargo fix --all-targets`.
 #![allow(unused_imports)]
 #![allow(private_interfaces)]
 // Style fallout from the large modularization split (doc formatting, signature
@@ -426,6 +424,28 @@ async fn run_server() -> anyhow::Result<()> {
                 // Re-create run hubs + wait-loops for waiting_for_input tasks so
                 // answer/subscribe work after process restart.
                 api::agent::restore_waiting_runs_after_boot().await;
+                api::agent::reclaim_stranded_running_intentions(&db).await;
+                {
+                    let autonomy_db = db.clone();
+                    tokio::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_secs(15));
+                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        loop {
+                            interval.tick().await;
+                            // Share the 15s wake, not a call stack: a slow or
+                            // panicking autonomy tick must not hold the next opening.
+                            let work_db = autonomy_db.clone();
+                            tokio::spawn(async move {
+                                api::agent::tick_autonomy_work(work_db).await;
+                            });
+                            let speak_db = autonomy_db.clone();
+                            tokio::spawn(async move {
+                                crate::services::agent::merope::tick_speak_intents(speak_db).await;
+                            });
+                        }
+                    });
+                }
                 tracing::info!("✅ Agent waiting-task run hubs restored");
 
                 // Expire persisted Tapp Agent interactions and resume their

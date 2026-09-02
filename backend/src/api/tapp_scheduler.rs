@@ -48,14 +48,6 @@ pub async fn shutdown_scheduler() {
     crate::services::tapp_scheduler::shutdown_scheduler().await;
 }
 
-/// Public re-export for agent/system handlers.
-pub fn scheduler_engine() -> Result<
-    std::sync::Arc<tokio::sync::RwLock<crate::services::tapp_scheduler::TappSchedulerEngine>>,
-    String,
-> {
-    crate::services::tapp_scheduler::scheduler_engine()
-}
-
 /// HTTP-facing handle: 503 when the engine has not been started.
 fn get_scheduler() -> Result<Arc<RwLock<TappSchedulerEngine>>, HttpError> {
     service_scheduler().map_err(|_| {

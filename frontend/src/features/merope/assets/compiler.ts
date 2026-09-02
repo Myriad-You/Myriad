@@ -4,6 +4,7 @@ import type {
   prepareRigPsdImport,
 } from '../rig/psdImporter'
 import type { MeropeRigManifest } from '../rig/types'
+import { userFacingError } from '../../../utils/userFacingError'
 import { diagnoseRig } from '../rig/diagnostics'
 
 export type RigAssetCompileStage =
@@ -29,39 +30,17 @@ export interface RigAssetPreflight extends ImportedRigAsset {
   prepared: PreparedRigPsdImport
 }
 
-export interface RigAssetCompilerDependencies {
+/** 预检要的两件外部事：解析打包、送后端编译。落库由 persistRigAsset 单独拿 upload。 */
+interface RigAssetPreflightDependencies {
   prepare: typeof prepareRigPsdImport
   preview: typeof previewMeropeRigImport
-  upload: typeof importMeropeRig
-}
-
-/**
- * Executes the PSD → atlas → persisted manifest DAG with observable stages.
- * A failed stage is terminal, so callers never mistake a packed atlas for a
- * successfully stored character asset.
- */
-export async function compileRigAsset(
-  file: File,
-  sourceMasterAssetId: string,
-  dependencies: RigAssetCompilerDependencies,
-  onStage?: (event: RigAssetCompileEvent) => void,
-  sourceGenerationFingerprint?: string,
-): Promise<ImportedRigAsset> {
-  const preflight = await preflightRigAsset(
-    file,
-    sourceMasterAssetId,
-    dependencies,
-    onStage,
-    sourceGenerationFingerprint,
-  )
-  return persistRigAsset(preflight, dependencies.upload, onStage)
 }
 
 /** Parses, packs, server-compiles, migrates and diagnoses without persistence. */
 export async function preflightRigAsset(
   file: File,
   sourceMasterAssetId: string,
-  dependencies: Pick<RigAssetCompilerDependencies, 'prepare' | 'preview'>,
+  dependencies: RigAssetPreflightDependencies,
   onStage?: (event: RigAssetCompileEvent) => void,
   sourceGenerationFingerprint?: string,
 ): Promise<RigAssetPreflight> {
@@ -100,7 +79,7 @@ export async function preflightRigAsset(
       prepared.atlas,
       prepared.analysisReference,
     )
-    copyPreviewChestProfile(prepared.source, manifest)
+    copyPreviewPlaybackProfiles(prepared.source, manifest)
     emit(onStage, 'compile-preview', 'completed')
     emit(onStage, 'analyze-capabilities', 'started')
     const report = diagnoseRig(manifest)
@@ -113,13 +92,14 @@ export async function preflightRigAsset(
 }
 
 /** Preserve the one-shot preview analysis so persistence never calls AI again. */
-function copyPreviewChestProfile(
+function copyPreviewPlaybackProfiles(
   source: PreparedRigPsdImport['source'],
   manifest: MeropeRigManifest,
 ): void {
-  const profile = manifest.anime25dPlayback?.chestProfile
-  if (!profile || !source.anime25dPlayback) return
-  source.anime25dPlayback.chestProfile = { ...profile }
+  const playback = manifest.anime25dPlayback
+  if (!playback || !source.anime25dPlayback) return
+  source.anime25dPlayback.chestProfile = { ...playback.chestProfile }
+  source.anime25dPlayback.shellProfile = structuredClone(playback.shellProfile)
 }
 
 /** Commits the exact source and atlas that passed preflight. */
@@ -153,5 +133,6 @@ function emit(
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  const fallback = error instanceof Error ? error.message : String(error)
+  return userFacingError(error, fallback)
 }

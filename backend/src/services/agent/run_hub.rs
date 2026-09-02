@@ -366,10 +366,25 @@ WHERE namespace = $1 AND runtime_id = $2
     ///
     /// Live SSE must not wait on registry DB writes: a slow persist would fill the
     /// mpsc forwarder and freeze step progress. Persistence is best-effort async.
+    /// Data-plane frames (visemes, spectrum, VAD) must never reach this method.
     pub async fn publish(self: &Arc<Self>, event: AgentProgressEvent) {
+        if super::turn::event_plane(&event) == super::turn::EventPlane::Data {
+            tracing::error!("[Agent Run] data-plane event dropped from run hub");
+            return;
+        }
         let mut notify = false;
         let (envelope, task_id, status, progress, message, success) = {
             let mut state = self.state.lock().await;
+            // A terminal envelope is the run's hard boundary. SSE consumers
+            // close on it, so accepting anything later only creates durable
+            // events no live rig can ever observe and can even revive status.
+            if state.completed {
+                tracing::warn!(
+                    run_id = %self.run_id,
+                    "[Agent Run] post-terminal event dropped"
+                );
+                return;
+            }
             let success = match &event {
                 AgentProgressEvent::RunStarted { .. } => {
                     notify = true;
@@ -429,7 +444,7 @@ WHERE namespace = $1 AND runtime_id = $2
                     success,
                     response,
                 } => {
-                    notify = true;
+                    notify = !super::turn::is_chat_turn_completion(response);
                     if !task_id.is_empty() {
                         state.task_id = Some(task_id.clone());
                     }
@@ -562,13 +577,24 @@ pub async fn create_run(user_id: i32, session_id: Option<String>) -> Arc<AgentRu
 /// Run still doing work. `waiting_for_input` is excluded: that run is waiting on
 /// the person, not occupying them. Heartbeat uses SYSTEM_USER_ID.
 pub async fn user_has_executing_run(user_id: i32) -> bool {
-    let runs = AGENT_RUNS.read().await;
-    for run in runs.values() {
-        if run.user_id == user_id && run.is_executing().await {
-            return true;
+    user_executing_run_count(user_id).await > 0
+}
+
+pub async fn user_executing_run_count(user_id: i32) -> usize {
+    let candidates = AGENT_RUNS
+        .read()
+        .await
+        .values()
+        .filter(|run| run.user_id == user_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut count = 0;
+    for run in candidates {
+        if run.is_executing().await {
+            count += 1;
         }
     }
-    false
+    count
 }
 
 pub async fn get_run_for_user(run_id: &str, user_id: i32) -> Option<Arc<AgentRun>> {
@@ -670,6 +696,36 @@ mod tests {
         assert!(matches!(
             envelope.event,
             AgentProgressEvent::Progress { progress: 10, .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn terminal_event_is_the_last_event_in_a_run() {
+        let run = AgentRun::new("run_terminal".to_string(), 1, None);
+        run.publish(AgentProgressEvent::TaskCompleted {
+            task_id: "task_terminal".to_string(),
+            success: true,
+            response: Box::new(serde_json::json!({
+                "success": true,
+                "message": "done"
+            })),
+        })
+        .await;
+        run.publish(AgentProgressEvent::Progress {
+            progress: 5,
+            completed_steps: 0,
+            total_steps: 1,
+            message: "too late".to_string(),
+        })
+        .await;
+
+        let (history, sequence, completed) = run.snapshot().await;
+        assert_eq!(history.len(), 1);
+        assert_eq!(sequence, 1);
+        assert!(completed);
+        assert!(matches!(
+            history.last().map(|event| &event.event),
+            Some(AgentProgressEvent::TaskCompleted { .. })
         ));
     }
 }

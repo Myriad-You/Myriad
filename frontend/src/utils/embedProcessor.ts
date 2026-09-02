@@ -60,12 +60,6 @@ export type EmbedType =
   'netease-music' | 'steam-game' | 'bilibili-video' | 'github-repo'
 
 // 嵌入信息
-export interface EmbedInfo {
-  type: EmbedType
-  id: string
-  url?: string
-  originalHtml: string
-}
 
 /**
  * 从网易云音乐 iframe 提取歌曲 ID

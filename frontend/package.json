@@ -1,7 +1,7 @@
 {
   "name": "myriad-frontend",
   "type": "module",
-  "version": "0.3.37",
+  "version": "0.4.0",
   "description": "Frontend for Myriad — a myriad of lights, in one place.",
   "engines": {
     "node": ">=24 <25"
@@ -34,12 +34,14 @@
     "@astrojs/compiler-rs": "^0.3.2",
     "@astrojs/react": "^6.0.2",
     "ag-psd": "^31.0.2",
+    "agora-rtc-sdk-ng": "^4.24.2",
     "astro": "^7.1.6",
     "axios": "^1.19.0",
     "isomorphic-dompurify": "^3.21.0",
     "jszip": "^3.10.1",
     "lucide-react": "^1.28.0",
     "motion": "^12.43.0",
+    "pinyin-pro": "3.29.3",
     "prismjs": "^1.30.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

@@ -52,6 +52,13 @@ import {
   stopTapp,
 } from './TappLifecycleApi'
 import {
+  awaitModel3dTask,
+  createModel3dTask,
+  getModel3dStatus,
+  getModel3dTask,
+  uploadModel3dFile,
+} from './TappModel3dApi'
+import {
   exportTapp,
   getTappAsset,
   getTappResources,
@@ -78,13 +85,6 @@ import {
   setStorage,
 } from './TappStorageApi'
 import {
-  awaitModel3dTask,
-  createModel3dTask,
-  getModel3dStatus,
-  getModel3dTask,
-  uploadModel3dFile,
-} from './TappModel3dApi'
-import {
   getAllWidgets,
   registerTappWidget,
   unregisterTappWidget,
@@ -98,12 +98,12 @@ export * from './TappHostIntegrationApi'
 export * from './TappInstallationApi'
 export * from './TappInteractionApi'
 export * from './TappLifecycleApi'
+export * from './TappModel3dApi'
 export * from './TappPackageResourceApi'
 export * from './TappPlatformApi'
 export * from './TappReportCatalogApi'
 export * from './TappRuntimeAccessApi'
 export * from './TappStorageApi'
-export * from './TappModel3dApi'
 export * from './TappWidgetApi'
 
 export default {

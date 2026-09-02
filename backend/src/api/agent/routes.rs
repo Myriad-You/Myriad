@@ -50,14 +50,6 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                     middleware::auth::auth_middleware,
                 )),
         )
-        // 重新加载 Heartbeat 配置（需要认证）
-        .route(
-            "/heartbeat/reload",
-            post(reload_heartbeat).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
-        )
         // 热重载 MCP 配置（需要认证）
         .route(
             "/mcp/reload",
@@ -135,10 +127,9 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
-        // Agent 列表（需要认证）
         .route(
-            "/agents",
-            get(list_agents).route_layer(from_fn_with_state(
+            "/presence",
+            post(super::post_live_presence).route_layer(from_fn_with_state(
                 app_state.clone(),
                 middleware::auth::auth_middleware,
             )),
@@ -185,13 +176,6 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
         )
         // 确认敏感操作（需要认证）
         .route(
-            "/confirm",
-            post(confirm_operation).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
-        )
-        .route(
             "/confirm/stream",
             post(confirm_operation_stream).route_layer(from_fn_with_state(
                 app_state.clone(),
@@ -230,6 +214,13 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        .route(
+            "/tasks/{task_id}/frontend-ack",
+            post(frontend_step_ack).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 回答任务问题（需要认证）
         .route(
             "/tasks/{task_id}/answer",
@@ -254,6 +245,13 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
+        .route(
+            "/session/cancel-chat",
+            post(cancel_chat_turn).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // 向当前会话注入转向指令（需要认证）
         .route(
             "/session/steer",
@@ -261,6 +259,38 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 app_state.clone(),
                 middleware::auth::auth_middleware,
             )),
+        )
+        // 自主 Work 提案：只有用户接受后，前端才把返回的 input 送入 Work。
+        .route(
+            "/intentions",
+            get(list_intentions).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
+            "/intentions/{intent_id}/accept",
+            post(accept_intention).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
+            "/intentions/{intent_id}/dismiss",
+            post(dismiss_intention).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
+            "/autonomy",
+            get(get_autonomy_grant)
+                .put(put_autonomy_grant)
+                .delete(delete_autonomy_grant)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::auth_middleware,
+                )),
         )
         // 会话管理路由
         // 创建会话
@@ -395,14 +425,6 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                     middleware::auth::auth_middleware,
                 )),
         )
-        // 能力缺口报告（需要认证）
-        .route(
-            "/gaps",
-            get(list_capability_gaps).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
-        )
         // 通知路由
         // 通知 SSE 流
         .route(
@@ -426,22 +448,6 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
         .route(
             "/notifications",
             get(list_notifications).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
-        )
-        // 标记通知已读
-        .route(
-            "/notifications/{notification_id}/read",
-            post(mark_notification_read).route_layer(from_fn_with_state(
-                app_state.clone(),
-                middleware::auth::auth_middleware,
-            )),
-        )
-        // 标记全部已读
-        .route(
-            "/notifications/read-all",
-            post(mark_all_notifications_read).route_layer(from_fn_with_state(
                 app_state.clone(),
                 middleware::auth::auth_middleware,
             )),

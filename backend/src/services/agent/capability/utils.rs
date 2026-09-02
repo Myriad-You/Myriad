@@ -492,7 +492,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "auth.status" => "认证状态。检查用户认证和权限状态",
         "permission.check" => "授予权限检查。按当前会话角色；带 tappId 时与该安装批准权限求交，需重新授权则 granted 为 false",
         "export.data" => "数据导出。导出平台数据为指定格式",
-        "image.cache" => "图片缓存。缓存外部图片到本地",
+        "image.cache" => "图片缓存。传入 url 下载到本站 image-cache；无 url 时 action=status 查询、action=clear 清理",
         "proxy.image" => "图片代理。代理获取外链图片",
 
         // Tapp 定时任务（tapp_scheduled_tasks）
@@ -539,7 +539,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "brewlia.podcast" => "AI 播客生成。将文章转换为对话式播客文稿",
 
         // 语音服务
-        "speech.tts" => "文字转语音。与 /api/speech/tts 相同路径，返回 base64 音频",
+        "speech.tts" => "文字转语音。与 /api/speech/tts 相同路径，合成后由前端播放",
 
         // 存储
         "storage.set" => "存储数据。保存数据到 Tapp 存储",
@@ -549,7 +549,7 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
         "prompt.generate" => "提示词生成。为图片生成提供优化的提示词。必须在 description 参数中传入角色/场景的详细描述（角色全名、来源作品、外貌特征含发型发色瞳色服装等、场景、画风）。你应该利用自己的知识补充角色细节",
         "random.content" => "随机内容。获取随机推荐内容",
         "content.write" => "内容写入。写入内容数据",
-        "context.reference" => "上下文引用。处理对话中的上下文引用",
+        "context.reference" => "引用前序步骤输出。params.stepId 为步骤 ID，path 为字段路径（如 results[0].title），transform 可选 none/stringify/parse/join/first/last",
 
         _ => "",
     }
@@ -645,8 +645,8 @@ pub fn get_quick_reference() -> Value {
             "ai.summarize": {"content": "文章内容或 contentFrom 引用", "maxLength": 300},
             "ai.analyze": {"content": "待分析文本", "analysisType": "sentiment|trends|custom", "customPrompt": "自定义分析角度"},
             "brew.items": {"limit": 10, "source_id": "可选源ID", "unread_only": true},
-            "router.navigate": {"path": "/library, /brew, /config, /tapp, /reports"},
-            "music.control": {"action": "play|pause|next|prev|mute|unmute|volume", "volume": 50},
+            "router.navigate": {"path": "/, /library, /brew, /reports, /config, /tapp"},
+            "music.control": {"action": "play|pause|toggle|next|previous|mute|unmute|volume", "volume": 50},
             "scheduler.create": {"tappId": "已安装TappID", "name": "任务名", "scheduleType": "cron", "schedule": {"cron": "*/30 * * * *"}},
             "heartbeat.create": {"name": "Brew早间总结", "schedule": "0 9 * * *", "action": "总结 brew 订阅", "enabled": true}
         }

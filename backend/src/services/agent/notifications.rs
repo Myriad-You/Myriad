@@ -211,8 +211,6 @@ pub enum NotificationEvent {
     NewNotification { notification: Notification },
     /// 通知已读
     NotificationRead { id: String, user_id: i32 },
-    /// 该用户全部已读（SSE 端按 user_id 过滤转发）
-    NotificationsReadAll { user_id: i32 },
     /// 通知被删除
     NotificationDeleted { id: String, user_id: i32 },
     /// 通知被批量清空（SSE 端按 user_id 过滤转发）
@@ -228,7 +226,6 @@ pub fn event_is_for_user(event: &NotificationEvent, user_id: i32) -> bool {
         }
         NotificationEvent::NotificationRead { user_id: owner, .. }
         | NotificationEvent::NotificationDeleted { user_id: owner, .. }
-        | NotificationEvent::NotificationsReadAll { user_id: owner }
         | NotificationEvent::NotificationsCleared { user_id: owner } => *owner == user_id,
         // resync 对所有订阅者广播；由 SSE 转发层无条件下发
         NotificationEvent::Resync { .. } => true,
@@ -566,7 +563,7 @@ impl NotificationManager {
         // Flag off must look exactly like before: no landing hint of its own,
         // the panel keeps resolving these by notification type and session id.
         if merope_on {
-            metadata["action"] = serde_json::json!("open_arael");
+            metadata["action"] = serde_json::json!("open_agent");
         }
         let mut notification = Notification::new(user_id, notification_type, priority, title, body)
             .with_metadata(metadata);
@@ -729,52 +726,6 @@ impl NotificationManager {
         } else {
             Ok(false)
         }
-    }
-
-    /// 标记全部已读（仅影响该用户的通知）
-    pub async fn mark_all_read(&self, user_id: i32) -> Result<u64, String> {
-        let marked_in_db = if let Some(db) = &self.db {
-            match notif_entity::Entity::update_many()
-                .col_expr(
-                    notif_entity::Column::Read,
-                    sea_orm::sea_query::Expr::value(true),
-                )
-                .filter(notif_entity::Column::UserId.eq(user_id))
-                .filter(notif_entity::Column::Read.eq(false))
-                .exec(db)
-                .await
-            {
-                Ok(result) => result.rows_affected,
-                Err(error) => {
-                    tracing::warn!("[Notifications] Mark all read failed: {}", error);
-                    return Err(error.to_string());
-                }
-            }
-        } else {
-            0
-        };
-        let marked_in_memory = {
-            let mut history = self.history.write().await;
-            let mut count = 0u64;
-            for n in history
-                .iter_mut()
-                .filter(|n| !n.read && n.user_id == Some(user_id))
-            {
-                n.read = true;
-                count += 1;
-            }
-            count
-        };
-        if marked_in_memory > 0 || marked_in_db > 0 {
-            let _ = self
-                .tx
-                .send(NotificationEvent::NotificationsReadAll { user_id });
-        }
-        Ok(if self.db.is_some() {
-            marked_in_db
-        } else {
-            marked_in_memory
-        })
     }
 
     /// 删除单条通知（带用户归属校验）

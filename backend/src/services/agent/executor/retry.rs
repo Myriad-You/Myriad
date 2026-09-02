@@ -113,6 +113,7 @@ impl Executor {
                     .and_then(Value::as_str)
                     .map(str::to_owned),
                 execution_context: Some(context.clone()),
+                autonomy_permission_cap: context.autonomy_permission_cap.clone(),
             };
 
             // 快照 context 以便重试时回滚

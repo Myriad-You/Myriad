@@ -27,6 +27,7 @@ pub enum ReportCatalogError {
 }
 
 impl ReportCatalogError {
+    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
     pub fn code(&self) -> &'static str {
         match self {
             Self::Database => "REPORT_DATABASE_ERROR",
@@ -174,7 +175,7 @@ impl TappReportCrudError {
     pub fn message(&self) -> &'static str {
         match self {
             Self::InvalidReportType => "report_type must be platform or custom",
-            Self::Database => "Database error",
+            Self::Database => "Failed to load report",
             Self::NotFound => "Report not found",
             Self::CreateFailed => "Failed to create report",
             Self::UpdateFailed => "Failed to update report",
@@ -513,7 +514,10 @@ mod tests {
             TappReportCrudError::CreateFailed.message(),
             "Failed to create report"
         );
-        assert_eq!(TappReportCrudError::Database.message(), "Database error");
+        assert_eq!(
+            TappReportCrudError::Database.message(),
+            "Failed to load report"
+        );
         assert_eq!(TappReportCrudError::InvalidReportType.status_hint(), 400);
         assert_eq!(TappReportCrudError::NotFound.status_hint(), 404);
         assert_eq!(TappReportCrudError::CreateFailed.status_hint(), 500);

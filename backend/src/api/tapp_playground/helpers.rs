@@ -340,6 +340,7 @@ pub(super) const PREVIEW_PERMISSIONS: &[&str] = &[
 /// Intersect manifest declarations with temporary preview grants.
 ///
 /// Deny-by-default: undeclared allowlist entries are not auto-granted.
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub(super) fn select_preview_granted_permissions(declared: &[String]) -> Vec<String> {
     declared
         .iter()

@@ -12,11 +12,8 @@ use std::collections::{HashMap, HashSet};
 use super::executor_footer::*;
 use super::handlers::HandlerContext;
 use super::Executor;
-use super::{
-    clear_cancellation, extract_image_url, is_cancelled, persist_task_async, summarize_output,
-    TASK_STORE,
-};
-use super::{dag, error_analyzer, events, retry, task_store};
+use super::{clear_cancellation, is_cancelled, persist_task_async, TASK_STORE};
+use super::{dag, error_analyzer, events, frontend_ack, retry, task_store};
 
 impl Executor {
     pub(crate) fn should_block_unconfirmed_dynamic_step(user_id: i32, risk: RiskLevel) -> bool {
@@ -133,10 +130,24 @@ impl Executor {
             recipe.page_context.clone(),
             recipe.conversation_context.clone(),
         );
+        context.autonomy_permission_cap = recipe.autonomy_permission_cap.clone();
         context.variables.insert(
             "_task_id".to_string(),
             Value::String(task_state.task_id.clone()),
         );
+        if let Some(route) = recipe.metadata.get("current_route").cloned() {
+            context
+                .variables
+                .insert("_current_route".to_string(), route);
+        }
+        if let Some(music) = recipe.metadata.get("music_status").cloned() {
+            context.variables.insert("_music_status".to_string(), music);
+        }
+        if let Some(windows) = recipe.metadata.get("window_state").cloned() {
+            context
+                .variables
+                .insert("_window_state".to_string(), windows);
+        }
 
         // 记录对话上下文信息
         if let Some(ref history) = context.conversation_context {
@@ -427,6 +438,7 @@ impl Executor {
                                 user_id,
                                 task_id: Some(executor_task_id),
                                 execution_context: Some(ctx.clone()),
+                                autonomy_permission_cap: ctx.autonomy_permission_cap.clone(),
                             };
                             let pre_dyn = ctx.pending_dynamic_steps.len();
                             let pre_decisions = ctx.decision_history.len();
@@ -493,7 +505,6 @@ impl Executor {
                         match step_result {
                             Ok(output) => {
                                 Self::record_step_to_breaker(par_tier, true);
-                                context.add_output(&step.id, output.clone());
                                 // 合并并行步骤产生的 variables 和 decisions 到主 context
                                 for (k, v) in returned_vars {
                                     context.variables.entry(k).or_insert(v);
@@ -502,6 +513,18 @@ impl Executor {
 
                                 let is_injected = dag_injected_ids.contains(&step.id);
 
+                                let output = frontend_ack::publish_and_await_snapshots(
+                                    &emitter,
+                                    &task_state.task_id,
+                                    &step.id,
+                                    &step.capability_id,
+                                    0,
+                                    duration_ms,
+                                    output,
+                                    &mut context,
+                                    true,
+                                )
+                                .await;
                                 {
                                     let output_preview = {
                                         let s = serde_json::to_string(&output).unwrap_or_default();
@@ -511,15 +534,6 @@ impl Executor {
                                             s
                                         }
                                     };
-                                    emitter
-                                        .step_succeeded(
-                                            &step.id,
-                                            0,
-                                            duration_ms,
-                                            summarize_output(&output),
-                                            extract_image_url(&output),
-                                        )
-                                        .await;
                                     emitter
                                         .debug_complete(
                                             &step.id,
@@ -733,6 +747,9 @@ impl Executor {
                                                     user_id,
                                                     task_id: Some(executor_task_id),
                                                     execution_context: Some(ctx.clone()),
+                                                    autonomy_permission_cap: ctx
+                                                        .autonomy_permission_cap
+                                                        .clone(),
                                                 };
                                                 let pre_dyn = ctx.pending_dynamic_steps.len();
                                                 let pre_decisions = ctx.decision_history.len();
@@ -949,23 +966,21 @@ impl Executor {
                         }
 
                         if outcome.success {
-                            emitter
-                                .step_succeeded(
-                                    &step.id,
-                                    0,
-                                    duration_ms,
-                                    summarize_output(
-                                        outcome.output.as_ref().unwrap_or(&json!(null)),
-                                    ),
-                                    extract_image_url(
-                                        outcome.output.as_ref().unwrap_or(&json!(null)),
-                                    ),
-                                )
-                                .await;
-
-                            task_state
-                                .step_results
-                                .insert(step.id.clone(), outcome.to_step_result(&step.id));
+                            let merged = frontend_ack::publish_and_await_snapshots(
+                                &emitter,
+                                &task_state.task_id,
+                                &step.id,
+                                &step.capability_id,
+                                0,
+                                duration_ms,
+                                outcome.output.clone().unwrap_or(json!(null)),
+                                &mut context,
+                                true,
+                            )
+                            .await;
+                            let mut result = outcome.to_step_result(&step.id);
+                            result.output = Some(merged);
+                            task_state.step_results.insert(step.id.clone(), result);
 
                             if let Some(ref mut dag) = dag_scheduler {
                                 dag.mark_completed(&step.id);
@@ -1138,20 +1153,18 @@ impl Executor {
             let duration_ms = outcome.duration_ms;
 
             if outcome.success {
-                let output = outcome.output.clone().unwrap_or_default();
-
-                // 发送步骤完成事件（Skill 编排步骤不发送前端可见的完成事件）
-                if !is_skill_planning {
-                    emitter
-                        .step_succeeded(
-                            &step.id,
-                            step_display_index,
-                            duration_ms,
-                            summarize_output(&output),
-                            extract_image_url(&output),
-                        )
-                        .await;
-                }
+                let output = frontend_ack::publish_and_await_snapshots(
+                    &emitter,
+                    &task_state.task_id,
+                    &step.id,
+                    &step.capability_id,
+                    step_display_index,
+                    duration_ms,
+                    outcome.output.clone().unwrap_or_default(),
+                    &mut context,
+                    !is_skill_planning,
+                )
+                .await;
                 emitter
                     .debug_complete(
                         &step.id,
@@ -1220,9 +1233,9 @@ impl Executor {
                     }
                 }
 
-                task_state
-                    .step_results
-                    .insert(step.id.clone(), outcome.to_step_result(&step.id));
+                let mut result = outcome.to_step_result(&step.id);
+                result.output = Some(output.clone());
+                task_state.step_results.insert(step.id.clone(), result);
 
                 if let Some(ref mut dag) = dag_scheduler {
                     dag.mark_completed(&step.id);
@@ -1254,7 +1267,8 @@ impl Executor {
                     task_store::save_task_to_db(user_id, &task_state)
                         .await
                         .map_err(|error| {
-                            format!("persist Tapp interaction wait state failed: {error}")
+                            tracing::error!(%error, "persist Tapp interaction wait state failed");
+                            "Failed to persist Tapp interaction wait state".to_string()
                         })?;
                     return Ok(task_state);
                 }

@@ -363,6 +363,7 @@ fn first_nonempty_setup_secret<'a>(header: Option<&'a str>, body: Option<&'a str
 ///
 /// `.env` 是逐行 `KEY=VALUE` 的格式，值里出现 CR/LF 就能凭空造出新的一行，
 /// 也就是注入任意环境变量。NUL 会截断多数解析器，一并拒绝。
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub fn validate_env_value(key: &str, value: &str) -> Result<(), String> {
     if value.contains('\n') || value.contains('\r') {
         return Err(format!(

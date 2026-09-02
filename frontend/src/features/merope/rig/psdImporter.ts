@@ -1,8 +1,10 @@
 import type { Layer, Psd } from 'ag-psd'
+import type {
+  Anime25DSourceReference,
+  PreparedAnime25DRigImport,
+} from './anime25dImporter'
 import { currentCopy } from '../../../i18n/localeCopy'
-import type { PreparedAnime25DRigImport } from './anime25dImporter'
 import {
-  normalizeAnime25DLayerName,
   prepareAnime25DRigPsd,
 } from './anime25dImporter'
 
@@ -35,70 +37,63 @@ export async function prepareRigPsdImport(
     totalMemoryLimit: 128 * 1024 * 1024,
   })
   validateFaceRigDocument(psd)
+  const sourceReference = await alignSourceMasterToSeeThroughDocument(
+    sourceMasterAssetId,
+    psd.width,
+    psd.height,
+  )
   return prepareAnime25DRigPsd(
     psd,
     sourceMasterAssetId,
     onStage,
     sourceGenerationFingerprint,
+    sourceReference,
   )
 }
 
-export async function compositePsdToPng(file: File): Promise<File> {
-  if (file.size <= 0 || file.size > MAX_PSD_BYTES) {
-    throw new Error(currentCopy().merope.psdTooLarge)
-  }
-  const { readPsd } = await import('ag-psd')
-  const psd = readPsd(await file.arrayBuffer(), {
-    useImageData: true,
-    skipCompositeImageData: true,
-    skipThumbnail: true,
-    skipLinkedFilesData: true,
-    totalMemoryLimit: 128 * 1024 * 1024,
-  })
-  validateFaceRigDocument(psd)
-  const canvas = document.createElement('canvas')
-  canvas.width = psd.width
-  canvas.height = psd.height
-  const context = canvas.getContext('2d')
-  if (!context) throw new Error(currentCopy().merope.psdPreviewFailed)
-  paintPsdLayers(context, psd.children || [])
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (next) =>
-        next
-          ? resolve(next)
-          : reject(new Error(currentCopy().merope.psdPreviewFailed)),
-      'image/png',
+/**
+ * See-through centers a non-square input on a transparent square, then scales
+ * that square to the requested PSD resolution. Repeating that transform gives
+ * the importer a pixel-aligned copy of the original visible composition.
+ */
+async function alignSourceMasterToSeeThroughDocument(
+  sourceMasterAssetId: string,
+  width: number,
+  height: number,
+): Promise<Anime25DSourceReference | undefined> {
+  if (width !== height) return undefined
+  const response = await fetch(sourceMasterAssetId)
+  if (!response.ok) throw new Error(currentCopy().merope.psdPreviewFailed)
+  const bitmap = await createImageBitmap(await response.blob())
+  try {
+    const squareEdge = Math.max(bitmap.width, bitmap.height)
+    const paddingX = Math.floor((squareEdge - bitmap.width) / 2)
+    const paddingY = Math.floor((squareEdge - bitmap.height) / 2)
+    const scaleX = width / squareEdge
+    const scaleY = height / squareEdge
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error(currentCopy().merope.psdPreviewFailed)
+    context.imageSmoothingEnabled = true
+    context.imageSmoothingQuality = 'high'
+    context.drawImage(
+      bitmap,
+      paddingX * scaleX,
+      paddingY * scaleY,
+      bitmap.width * scaleX,
+      bitmap.height * scaleY,
     )
-  })
-  return new File([blob], 'uploaded-portrait.png', { type: 'image/png' })
-}
-
-function paintPsdLayers(
-  context: CanvasRenderingContext2D,
-  layers: Layer[],
-): void {
-  for (const layer of layers) {
-    if (layer.hidden) continue
-    if (layer.children) {
-      paintPsdLayers(context, layer.children)
-      continue
+    return {
+      width,
+      height,
+      data: context.getImageData(0, 0, width, height).data,
     }
-    const pixels = layer.imageData
-    if (!pixels?.data || !pixels.width || !pixels.height) continue
-    const image = context.createImageData(pixels.width, pixels.height)
-    image.data.set(pixels.data)
-    const scratch = document.createElement('canvas')
-    scratch.width = pixels.width
-    scratch.height = pixels.height
-    const scratchContext = scratch.getContext('2d')
-    if (!scratchContext) continue
-    scratchContext.putImageData(image, 0, 0)
-    context.drawImage(scratch, layer.left ?? 0, layer.top ?? 0)
+  } finally {
+    bitmap.close()
   }
 }
-
-export const normalizePsdLayerName = normalizeAnime25DLayerName
 
 function validateFaceRigDocument(psd: Psd): void {
   if (

@@ -9,7 +9,6 @@ import type { LibrarySourcePreferences } from '../ModuleConfigSection'
 import type { PermissionConfigValues } from '../PermissionsConfigSection'
 import type { Config, ConfigField, ShowMessage } from './types'
 import { useCallback } from 'react'
-import { userFacingError } from '../../../utils/userFacingError'
 import {
   fetchConfig,
   updateConfig,
@@ -47,6 +46,7 @@ import {
   updateReportSettings,
 } from '../../../utils/reportSettings'
 import { clearLibraryDataCache } from '../../../utils/requestDedup'
+import { userFacingError } from '../../../utils/userFacingError'
 import {
   DEFAULT_FEDERATION_POLICY,
 
@@ -211,7 +211,7 @@ export function useConfigReset(args: {
         }),
       )
     } catch (error) {
-      const errorMsg = `${t.config.resetFailed}${userFacingError(error, t.errors.unknown)}`
+      const errorMsg = userFacingError(error, t.config.resetFailed)
       showMessage(errorMsg, 'error', 0)
       window.dispatchEvent(
         new CustomEvent('config-reset-result', {
@@ -451,7 +451,7 @@ export function useConfigReset(args: {
         3000,
       )
     } catch (error) {
-      const errorMsg = `${t.config.resetFailed}${userFacingError(error, t.errors.unknown)}`
+      const errorMsg = userFacingError(error, t.config.resetFailed)
       showMessage(errorMsg, 'error', 0)
     } finally {
       setSaving(false)

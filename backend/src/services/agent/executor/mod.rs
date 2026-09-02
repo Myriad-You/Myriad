@@ -19,12 +19,14 @@
 pub mod dag;
 pub mod error_analyzer;
 pub mod events;
+pub mod frontend_ack;
 pub mod handlers;
 pub mod retry;
 pub mod task_store;
 pub mod utils;
 
 // 重新导出常用类型
+pub use frontend_ack::submit as submit_frontend_ack;
 pub use task_store::{
     cancel_task_for_user, claim_task_for_resume, clear_cancellation, enqueue_steering,
     get_task_for_user, get_user_tasks, init_task_store_db, is_cancelled, maybe_cleanup_tasks,

@@ -1,7 +1,7 @@
 import type {
-  PersonaGender,
   NameStyle,
   OnboardingHeaderChrome,
+  PersonaGender,
 } from '../onboardingTypes'
 import { useLayoutEffect, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'

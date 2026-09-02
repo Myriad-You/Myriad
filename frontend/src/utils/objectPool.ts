@@ -178,50 +178,6 @@ export class ObjectPool<T> {
 
 // 预定义的对象池
 
-/** DOM 节点复用池配置 */
-export interface DOMNodePoolConfig {
-  tagName: string
-  className?: string
-  maxSize?: number
-}
-
-/**
- * 创建 DOM 节点对象池
- * 用于频繁创建/销毁相同类型 DOM 节点的场景
- */
-export function createDOMNodePool(
-  config: DOMNodePoolConfig,
-): ObjectPool<HTMLElement> {
-  return new ObjectPool<HTMLElement>({
-    create: () => {
-      const el = document.createElement(config.tagName)
-      if (config.className) {
-        el.className = config.className
-      }
-      return el
-    },
-    reset: (el) => {
-      // 清理事件监听器（通过克隆替换）
-      // 注意：这会丢失引用，调用方需要重新获取
-      el.innerHTML = ''
-      el.style.cssText = ''
-      el.removeAttribute('style')
-      // 保留 className
-      if (config.className) {
-        el.className = config.className
-      } else {
-        el.className = ''
-      }
-    },
-    destroy: (el) => {
-      // 从 DOM 中移除（如果已挂载）
-      el.remove()
-    },
-    maxSize: config.maxSize ?? 20,
-    idleTimeout: 120000, // 2分钟
-  })
-}
-
 /** 动画状态对象 */
 export interface AnimationStateObject {
   id: string
@@ -291,33 +247,6 @@ export const timerPool = new ObjectPool<TimerObject>({
 })
 
 // 工具函数
-
-/**
- * 使用池化定时器
- * 自动管理定时器的获取和释放
- */
-export function usePooledTimeout(
-  callback: () => void,
-  delay: number,
-): () => void {
-  const timer = timerPool.acquire()
-  timer.callback = callback
-  timer.delay = delay
-
-  timer.id = setTimeout(() => {
-    callback()
-    timerPool.release(timer)
-  }, delay)
-
-  // 返回取消函数
-  return () => {
-    if (timer.id !== null) {
-      clearTimeout(timer.id)
-      timer.id = null
-    }
-    timerPool.release(timer)
-  }
-}
 
 /**
  * 批量对象池管理器

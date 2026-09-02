@@ -94,37 +94,13 @@ export interface TranslationKeys {
 
   merope: {
     title: string
-    statusBarTitle: string
-    statusLoading: string
-    statusDisabled: string
-    statusNeedLogin: string
-    statusCreateHint: string
-    statusContinueHint: string
-    statusReadyHint: string
-    statusCreate: string
-    statusContinue: string
-    statusOpen: string
-    statusLogin: string
-    tapToOpen: string
-    chat: string
     memories: string
     settings: string
-    messagePlaceholder: string
     send: string
-    emptyMessages: string
-    emptyMemories: string
     enable: string
-    autonomy: string
-    autonomyLow: string
-    autonomyNormal: string
-    autonomyHigh: string
     doNotDisturb: string
-    showThought: string
-    collapsedByDefault: string
     deletePersona: string
-    deleteConfirm: string
     loadFailed: string
-    sendFailed: string
     psdNeedAsset: string
     psdTooLarge: string
     psdPreviewFailed: string
@@ -132,8 +108,6 @@ export interface TranslationKeys {
     psdLayerCountInvalid: string
     canvasUnsupported: string
     anime25dMissingFace: string
-    anime25dInvalidPixels: string
-    anime25dMissingHandwear: string
     anime25dMissingLayer: string
     anime25dPartCount: string
     anime25dContractMissing: string
@@ -141,38 +115,35 @@ export interface TranslationKeys {
     anime25dAtlasOverflow: string
     anime25dBoneLimit: string
     rigAtlasFailed: string
-    statusIdle: string
-    statusThinking: string
-    statusTalking: string
-    unread: string
+    rigImportFailed: string
+    rigCommitFailed: string
+    rigCompileFailed: string
+    rigStoredInvalid: string
+    portraitUnavailable: string
+    portraitDownloadFailed: string
+    portraitUploadFailed: string
+    seeThroughStatusFailed: string
+    anime25dWebglFailed: string
+    anime25dPlaybackFailed: string
     visualTitle: string
-    visualDescription: string
     visualRequirements: string
-    visualRequirementsDescription: string
     visualRequirementsPlaceholder: string
     visualGenerate: string
     visualRegenerate: string
     visualGenerating: string
-    visualReady: string
     visualDownload: string
     visualFailed: string
     motionPsdUpload: string
     motionPsdUploading: string
     visualConfirm: string
-    motionWorkbench: string
-    motionWorkbenchDescription: string
-    essentials: string
-    essentialsDescription: string
     anime25dRuntimeCredit: string
     anime25dDebug: string
-    anime25dDebugDescription: string
     overviewGroup: string
     overviewGroupDescription: string
     overviewName: string
     overviewMood: string
     overviewActivity: string
     overviewDoNotDisturb: string
-    overviewDoNotDisturbHint: string
     overviewDndWindow: string
     overviewDndStart: string
     overviewDndEnd: string
@@ -195,10 +166,7 @@ export interface TranslationKeys {
     visualSourceTitle: string
     visualSourceEmpty: string
     assetGroup: string
-    assetGroupDescription: string
     assetEmpty: string
-    assetMake: string
-    assetRig: string
     assetNeedsPortrait: string
     rigGroup: string
     rigGroupDescription: string
@@ -214,6 +182,9 @@ export interface TranslationKeys {
     anime25dInspectEyesValue: string
     anime25dInspectMouthValue: string
     anime25dInspectCanvasValue: string
+    anime25dInspectEnvelopeValue: string
+    anime25dInspectPerformanceValue: string
+    anime25dInspectWorkloadValue: string
     clusterHead: string
     clusterEyes: string
     clusterBrows: string
@@ -264,14 +235,25 @@ export interface TranslationKeys {
     anime25dTalking: string
     anime25dPresetShock: string
     anime25dPresetDeadpan: string
-    anime25dPresetHair: string
     anime25dPresetIdle: string
     anime25dPresetSmile: string
-    anime25dPresetTalk: string
-    anime25dPresetLookLeft: string
-    anime25dPresetLookRight: string
     anime25dPresetWinkLeft: string
     anime25dPresetWinkRight: string
+    anime25dPresetThinking: string
+    anime25dPresetDizzy: string
+    anime25dPresetSqueeze: string
+    anime25dPresetCry: string
+    anime25dPresetAngry: string
+    anime25dPresetSpeechless: string
+    anime25dPresetManiac: string
+    anime25dPresetSilly: string
+    anime25dPresetLovestruck: string
+    anime25dProbeTurnLeft: string
+    anime25dProbeTurnRight: string
+    anime25dProbePitchUp: string
+    anime25dProbePitchDown: string
+    anime25dProbeFullLeft: string
+    anime25dProbeFullRight: string
     anime25dBlinkNow: string
     anime25dResetPose: string
     anime25dInspect: string
@@ -280,15 +262,49 @@ export interface TranslationKeys {
     anime25dInspectEyes: string
     anime25dInspectMouth: string
     anime25dInspectCanvas: string
+    anime25dInspectEnvelope: string
+    anime25dInspectPerformance: string
+    anime25dInspectWorkload: string
     anime25dInspectEmpty: string
-    motionPsd: string
-    motionPsdDescription: string
     rigPathUpload: string
     rigPathUploadHint: string
     rigPathSeeThrough: string
     rigPathSeeThroughHint: string
     rigTokenReady: string
     rigPreflightTitle: string
+    rigPreflightSummary: string
+    rigPreflightReady: string
+    rigPreflightActivated: string
+    rigPreflightIssuesTitle: string
+    rigPreflightNoIssues: string
+    rigPreflightStepValidate: string
+    rigPreflightStepValidateDescription: string
+    rigPreflightStepPack: string
+    rigPreflightStepPackDescription: string
+    rigPreflightStepPreview: string
+    rigPreflightStepPreviewDescription: string
+    rigPreflightStepAnalyze: string
+    rigPreflightStepAnalyzeDescription: string
+    rigPreflightStepActivate: string
+    rigPreflightStepActivateDescription: string
+    rigPreflightStatusPending: string
+    rigPreflightStatusRunning: string
+    rigPreflightStatusCompleted: string
+    rigPreflightStatusFailed: string
+    rigDiagnosticSeverityError: string
+    rigDiagnosticSeverityWarning: string
+    rigDiagnosticSeverityInfo: string
+    rigDiagnosticMissingPresentationFallback: string
+    rigDiagnosticUnknownPresentationVariant: string
+    rigDiagnosticMissingHead: string
+    rigDiagnosticMissingBody: string
+    rigDiagnosticMissingMouth: string
+    rigDiagnosticMissingGaze: string
+    rigDiagnosticMissingFacialVariants: string
+    rigDiagnosticMissingSecondaryMotion: string
+    rigDiagnosticMissingOutfitProfile: string
+    rigDiagnosticMissingSpatialProfile: string
+    rigDiagnosticRigidPartDeformation: string
     rigReadyTitle: string
     rigReadyHint: string
     motionSeeThroughToken: string
@@ -308,16 +324,10 @@ export interface TranslationKeys {
     motionSeeThroughGenerate: string
     motionSeeThroughGenerating: string
     motionNeedsRig: string
-    motionPsdPreflight: string
-    motionPsdValidating: string
     motionPsdCommit: string
-    faceStage: string
     adminTitle: string
     adminDescription: string
     faceOpen: string
-    adminEnabled: string
-    adminWorker: string
-    adminInterval: string
     personaLabelTemperament: string
     personaLabelLikes: string
     personaLabelDrives: string
@@ -1010,6 +1020,11 @@ export interface TranslationKeys {
     usersRefreshDesc: string
     usersLoadError: string
     usersActionError: string
+    usersUpdateFailed: string
+    usersCreateFailed: string
+    usersDeleteFailed: string
+    usersUninstallFailed: string
+    usersUnlinkFailed: string
     usersErrorUnlinkLast: string
     usersErrorDeleteSelf: string
     usersErrorLastAdmin: string
@@ -1373,6 +1388,14 @@ export interface TranslationKeys {
     memorySaverGroupDesc: string
     memorySaver: string
     memorySaverHint: string
+    agentOptions: string
+    agentOptionsDesc: string
+    agentHeartbeatTitle: string
+    agentHeartbeatDesc: string
+    agentSkillsTitle: string
+    agentSkillsDesc: string
+    agentMemoryTitle: string
+    agentMemoryDesc: string
     agentPersona: string
     agentPersonaBeta: string
     agentPersonaHint: string
@@ -1381,15 +1404,14 @@ export interface TranslationKeys {
     /** Shown while the Pro tier is off */
     agentPersonaNeedsPro: string
     /** Shown while the Pro tier is off (legacy key, same copy as needsPro) */
-    agentPersonaNeedsLiteAndPro: string
-    agentPersonaMood: string
-    agentPersonaActivity: string
     agentPersonaEmpty: string
     agentPersonaEmptyLead: string
     agentPersonaNeedsReports: string
     agentPersonaDelete: string
     agentPersonaDeleteConfirm: string
     agentPersonaDeleteFailed: string
+    agentPersonaSpeech: string
+    agentPersonaSpeechHint: string
     enableProxy: string
     enableProxyHint: string
     proxyUrl: string
@@ -1598,10 +1620,12 @@ export interface TranslationKeys {
     aiVendorUsedPro: string
     aiVendorUsedImage: string
     aiVendorUsedSpeech: string
+    aiVendorUsedRealtime: string
     aiVendorUsedJoin: string
     aiVendorCapText: string
     aiVendorCapImage: string
     aiVendorCapSpeech: string
+    aiVendorCapRealtime: string
     aiVendorSetupTitle: string
     aiVendorSetupOpen: string
     aiVendorSetupPortalTitle: string
@@ -1634,6 +1658,12 @@ export interface TranslationKeys {
     aiVendorSetupTencentCreateDesc: string
     aiVendorSetupTencentFillTitle: string
     aiVendorSetupTencentFillDesc: string
+    aiVendorSetupAgoraPortalTitle: string
+    aiVendorSetupAgoraPortalDesc: string
+    aiVendorSetupAgoraCreateTitle: string
+    aiVendorSetupAgoraCreateDesc: string
+    aiVendorSetupAgoraFillTitle: string
+    aiVendorSetupAgoraFillDesc: string
     aiImageTitle: string
     aiImageDesc: string
     speechServiceTitle: string
@@ -1659,6 +1689,15 @@ export interface TranslationKeys {
     speechTtsModel: string
     speechTtsVoice: string
     speechOpenRouterTtsHint: string
+    speechMinimaxAsrHint: string
+    agoraConvoEnabled: string
+    agoraConvoEnabledDesc: string
+    agoraConvoHint: string
+    agoraAppId: string
+    agoraAppCertificate: string
+    agoraCustomerId: string
+    agoraCustomerSecret: string
+    agoraApiBase: string
     platformDescGithub: string
     platformDescBilibili: string
     platformDescBangumi: string
@@ -1924,6 +1963,7 @@ export interface TranslationKeys {
     moduleVisibilityAdmin: string
     moduleVisibilitySaved: string
     moduleVisibilityLoadFailed: string
+    moduleVisibilitySaveFailed: string
     agentUsageGuest: string
     agentUsageUser: string
     agentUsageNone: string
@@ -1947,6 +1987,7 @@ export interface TranslationKeys {
     hitokotoAuthorFieldHint: string
     hitokotoSaved: string
     hitokotoLoadFailed: string
+    hitokotoSaveFailed: string
     reportSettingsTitle: string
     reportSettingsDesc: string
     reportExpiryEnabled: string
@@ -1958,6 +1999,7 @@ export interface TranslationKeys {
     reportExpiryDaysHint: string
     reportSettingsSaved: string
     reportSettingsLoadFailed: string
+    reportSettingsSaveFailed: string
     aiQuotaTitle: string
     aiQuotaDesc: string
     userAiQuota: string
@@ -2005,6 +2047,7 @@ export interface TranslationKeys {
   // 小组件
   widgets: {
     welcome: string
+    agentPersona: string
     quickStats: string
     recentActivity: string
     friendLinks: string
@@ -2119,6 +2162,7 @@ export interface TranslationKeys {
     playbackNotSupported: string
     // 空状态
     emptyLibrary: string
+    loadFailed: string
     emptyCategory: string
     canvasPanHint: string
     /** Touch-first short copy for narrow viewports */
@@ -2154,18 +2198,235 @@ export interface TranslationKeys {
     title: string
   }
 
+  // Agent 岛的状态语言（供无障碍播报与调试）
+  agentPanel: {
+    status: {
+      idle: string
+      listening: string
+      thinking: string
+      working: string
+      needsInput: string
+      done: string
+      error: string
+    }
+    context: {
+      watching: string
+      onPage: string
+      selected: string
+      /** 关掉读页之后那一行 */
+      blind: string
+      allowHint: string
+      muteHint: string
+      routes: {
+        home: string
+        library: string
+        brew: string
+        reports: string
+        config: string
+        tapp: string
+        other: string
+      }
+    }
+    actions: {
+      summarize: string
+      translate: string
+      explain: string
+    }
+    /** 动作胶囊按下后真正发出去的话 */
+    prompts: {
+      summarize: string
+      translate: string
+      explainSelection: string
+      translateSelection: string
+    }
+    inputPlaceholder: string
+    /** 聊天档输入框 */
+    chatPlaceholder: string
+    /** 做事 / 聊天。胶囊上写着快捷键，Tab 在输入行里切换 */
+    mode: {
+      label: string
+      work: string
+      chat: string
+      shortcut: string
+    }
+    /** Agent noticed something and is asking permission to turn it into Work. */
+    intention: {
+      kicker: string
+      accept: string
+      continue: string
+      dismiss: string
+      failed: string
+    }
+    /** 聊天档右边那枚心情贴。档位词复用设定页的 mood */
+    mood: {
+      kicker: string
+    }
+    send: string
+    /** 输入框里那枚状态灯兼添加附件 */
+    attach: {
+      /** 次要说明：这是一份附件 */
+      kind: string
+      add: string
+      remove: string
+      tooMany: string
+      tooLarge: string
+      unsupported: string
+      /** 只有附件没有字时发给后端的那句 */
+      fallback: string
+    }
+    /** 展开到完整对话 */
+    expand: string
+    /** 执行引擎的状态与错误文案（从旧面板的 arael 块搬过来） */
+    accessDenied: string
+    answerFailed: string
+    askArael: string
+    cancelFailed: string
+    confirmExpiredHint: string
+    errorWithDetail: string
+    executionFailed: string
+    failReason: string
+    interrupted: string
+    loginRequiredHint: string
+    queueBusy: string
+    quotaCooldown: string
+    quotaExhausted: string
+    requestTimeout: string
+    streamError: string
+    taskCompleted: string
+    agentPersonaOff: string
+    presetTitleTooLong: string
+    presetSummaryTooLong: string
+    presetStepsTooLarge: string
+    presetHistoryTooLong: string
+    save: string
+    saved: string
+    unsave: string
+    edit: string
+    removeSession: string
+    confirmRemoveSession: string
+    copy: string
+    copied: string
+    retry: string
+    zoomImage: string
+    closeImage: string
+    newSession: string
+    stop: string
+    voice: {
+      start: string
+      stop: string
+      working: string
+      conversationHint: string
+      conversationStop: string
+    }
+    /** 定时任务 / 技能 / 记忆 */
+    manage: {
+      title: string
+      tabs: { heartbeat: string; skills: string; memory: string }
+      needLogin: string
+      loadFailed: string
+      actionFailed: string
+      emptyHeartbeat: string
+      emptySkills: string
+      emptyMemory: string
+      personaElsewhere: string
+      doNotDisturb: string
+      autonomyAllow: string
+      turnTraceTitle: string
+      turnTraceIdle: string
+      turnTraceExport: string
+      turnTraceTiming: string
+      lastRun: string
+      neverRun: string
+      remove: string
+      confirmRemove: string
+      newTask: string
+      newTaskDesc: string
+      enabled: string
+      disabled: string
+      originManual: string
+      originLearned: string
+      originImproved: string
+      searchTasks: string
+      searchSkills: string
+      searchMemory: string
+      noneMatch: string
+      skillRecord: string
+      refreshDesc: string
+      enableTask: string
+      memoryContent: string
+      confirmRemoveMemory: string
+      taskName: string
+      taskAction: string
+      taskActionHint: string
+      taskSchedule: string
+      taskScheduleHint: string
+      save: string
+      cancel: string
+      badCron: string
+      everyMinutes: string
+      everyHours: string
+      hourly: string
+      dailyAt: string
+      preset15m: string
+      preset30m: string
+      preset1h: string
+      preset6h: string
+      presetDaily9: string
+      presetCustom: string
+    }
+    /** 思考过程那一行 */
+    thinking: {
+      doneSteps: string
+      failed: string
+    }
+    /** 会话一览 */
+    sessions: {
+      title: string
+      empty: string
+      untitled: string
+      loadFailed: string
+      needLogin: string
+      justNow: string
+      minutesAgo: string
+      hoursAgo: string
+      daysAgo: string
+    }
+    /** 敏感操作确认卡片 */
+    action: {
+      risk: {
+        none: string
+        low: string
+        medium: string
+        high: string
+        critical: string
+      }
+      steps: string
+      impact: string
+      expiresIn: string
+      expired: string
+      confirm: string
+      cancel: string
+    }
+    /** 撤销刚才那一下 */
+    undo: {
+      button: string
+      did: {
+        navigate: string
+        brew_open_article: string
+      }
+    }
+  }
+
   // Agent 人设设定引导
   agentPersona: {
     onboarding: {
       openPage: string
-      editPage: string
-      setupLabel: string
-      currentPersona: string
       mood: {
         floor: string
-        low: string
-        normal: string
-        high: string
+        sad: string
+        tense: string
+        calm: string
+        excited: string
       }
       moodLine: string
       activity: {
@@ -2193,17 +2454,13 @@ export interface TranslationKeys {
       step4Lead: string
       step5Title: string
       step5Lead: string
-      noReports: string
       selectedCount: string
       selectNothingYet: string
-      skipTags: string
       dragCanvas: string
       signalsEmpty: string
       loadingAiSignals: string
       loadSignalsFailed: string
       generationTimeout: string
-      aiDistilledMeta: string
-      reportsButFallback: string
       regenerateSeeds: string
       regeneratingSeeds: string
       saveFirst: string
@@ -2231,7 +2488,6 @@ export interface TranslationKeys {
       clothingStyleLabel: string
       clothingStyleRequired: string
       visualStyleAsk: string
-      visualNotesAsk: string
       visualBackToStyle: string
       clothingStyle: {
         everyday: string
@@ -2253,9 +2509,7 @@ export interface TranslationKeys {
         rain: string
       }
       extraLabel: string
-      extraHint: string
       extraPlaceholder: string
-      personaGroupCharacter: string
       regeneratePersona: string
       regeneratingPersona: string
       regeneratePersonaFailed: string
@@ -2270,7 +2524,6 @@ export interface TranslationKeys {
       importPortraitBusy: string
       importPortraitFailed: string
       personaFieldGenerating: string
-      personaDraftLabel: string
       editPersona: string
       doneEditing: string
       cancelEdit: string
@@ -2281,16 +2534,12 @@ export interface TranslationKeys {
       fieldVoice: string
       fieldSummary: string
       creating: string
-      createAndContinue: string
       createFailed: string
       saving: string
-      saveAndContinue: string
       saveFailed: string
       personaIncompleteHint: string
       proUnavailable: string
       standardUnavailable: string
-      visualDesignScopeTitle: string
-      visualDesignScopeHint: string
       visualRequirements: string
       visualRequirementsHint: string
       visualRequirementsPlaceholder: string
@@ -2311,7 +2560,6 @@ export interface TranslationKeys {
       visualDesignGenerate: string
       visualDesignGenerating: string
       visualDesignRegenerate: string
-      visualDesignConfirm: string
       editVisual: string
       visualDesignFailed: string
       visualDesignLanguageFailed: string
@@ -2320,10 +2568,7 @@ export interface TranslationKeys {
       portraitTalkLead: string
       portraitLoading: string
       portraitEmpty: string
-      portraitContractTitle: string
-      portraitContractHint: string
       portraitRequirements: string
-      portraitRequirementsHint: string
       portraitRequirementsPlaceholder: string
       portraitGenerate: string
       portraitGenerating: string
@@ -2359,6 +2604,60 @@ export interface TranslationKeys {
     requestFailed: string
     invalidResponse: string
     operationFailed: string
+    tappSaveFailed: string
+    tappGenerateFailed: string
+    reportSaveFailed: string
+    reminderSaveFailed: string
+    noteSaveFailed: string
+    bookmarkSaveFailed: string
+    reportLoadFailed: string
+    tappAccessCheckFailed: string
+    tappResourceLoadFailed: string
+    tappFindFailed: string
+    tappInstallCheckFailed: string
+    imageCacheFailed: string
+    imageTooLarge: string
+    storageNotWritable: string
+    psnNpssoExpired: string
+    psnRequestFailed: string
+    schemaMismatch: string
+    dnsFailed: string
+    inboxNotReady: string
+    inboxFailed: string
+    federationInitFailed: string
+    federationDataFailed: string
+    federationKeyRotateFailed: string
+    model3dFailed: string
+    profileTextLoadFailed: string
+    profileTextSaveFailed: string
+    avatarSourceLoadFailed: string
+    avatarSourceSaveFailed: string
+    platformNamedFetchFailed: string
+    brewRefreshFailed: string
+    brewParseFailed: string
+    brewInvalidUrl: string
+    brewSourceSaveFailed: string
+    brewSourceDeleteFailed: string
+    brewCategorySaveFailed: string
+    brewCategoryDeleteFailed: string
+    brewLoadFailed: string
+    platformCacheMissing: string
+    mcpTalkFailed: string
+    mcpTimeout: string
+    mcpResponseInvalid: string
+    mcpToolFailed: string
+    aiStepFailed: string
+    skillFileFailed: string
+    skillFileInvalid: string
+    skillCooldown: string
+    commentLoadFailed: string
+    commentRepliesLoadFailed: string
+    commentSaveFailed: string
+    commentDeleteFailed: string
+    articleLoadFailed: string
+    readingStateFailed: string
+    contentSaveFailed: string
+    tappStorageFailed: string
     rateLimited: string
     rateLimitedLogin: string
     rateLimitedFetch: string
@@ -2378,7 +2677,25 @@ export interface TranslationKeys {
     database: string
     passwordFailed: string
     sessionFailed: string
+    agentSessionLoadFailed: string
+    agentSessionSaveFailed: string
+    agentSessionArchiveFailed: string
+    personaLoadFailed: string
+    personaSaveFailed: string
+    personaDeleteFailed: string
+    addresseeLoadFailed: string
+    addresseeSaveFailed: string
+    presetLoadFailed: string
+    presetSaveFailed: string
+    presetDeleteFailed: string
+    accountLoadFailed: string
+    accountSaveFailed: string
+    passwordChangeFailed: string
+    passwordSetFailed: string
+    localLoginSaveFailed: string
     configFilePermission: string
+    configFileReadFailed: string
+    iconSaveFailed: string
     aiResponseInvalid: string
     aiGenerationFailed: string
     asrInvalidAudio: string
@@ -2468,6 +2785,8 @@ export interface TranslationKeys {
     privateNetworkBlocked: string
     feedNotFound: string
     rsshubUnavailable: string
+    rsshubLoadFailed: string
+    rsshubSaveFailed: string
     pipelineTooManySteps: string
     heartbeatAdminRequired: string
     writeItemsOverCap: string
@@ -2485,6 +2804,42 @@ export interface TranslationKeys {
     emptyDialogueText: string
     csrfUnavailable: string
     streamUnreadable: string
+    dndScheduleInvalid: string
+    dndScheduleIncomplete: string
+    e2eKeyFailed: string
+    configSaveFailed: string
+    dashboardLayoutSaveFailed: string
+    dashboardTitleSaveFailed: string
+    customPlatformsSaveFailed: string
+    controlPanelSaveFailed: string
+    controlPanelLoadFailed: string
+    titleStyleSaveFailed: string
+    widgetThemeSaveFailed: string
+    notificationDeleteFailed: string
+    notificationClearFailed: string
+    configReloadFailed: string
+    mediaActionInvalid: string
+    mediaModeInvalid: string
+    scheduleInvalid: string
+    federationPublishFailed: string
+    federationShareFailed: string
+    federationActionFailed: string
+    transferNotReady: string
+    federationMediaUploadFailed: string
+    agentStepSkipped: string
+    agentStepRetrying: string
+    agentConfirmFailed: string
+    agentSteeringFailed: string
+    geoLoadFailed: string
+    tappOpenFailed: string
+    scheduleRegisterFailed: string
+    serviceNotConfigured: string
+    notificationUnavailable: string
+    notificationPrefsSaveFailed: string
+    notificationPrefsLoadFailed: string
+    clipboardFailed: string
+    localeLoadFailed: string
+    ttsSettingsSaveFailed: string
   }
 
   wallpaperStatus: {
@@ -2611,6 +2966,7 @@ export interface TranslationKeys {
     shuffle: string
     listRepeat: string
     loadPlaylistFailed: string
+    loadSongFailed: string
     playlistEmpty: string
     playlistRateLimited: string
     playlistBlocked: string
@@ -2639,24 +2995,15 @@ export interface TranslationKeys {
     bio: string
     account: string
     role: string
-    admin: string
-    normalUser: string
-    authMethod: string
     localAccount: string
-    githubAccount: string
-    githubBinding: string
     githubLinked: string
     githubNotLinked: string
     /** @deprecated Prefer hybridAccountWithProviders; kept for fallbacks */
-    hybridAccount: string
     /** e.g. 本地 + {providers} — providers already joined */
-    hybridAccountWithProviders: string
-    bindGithub: string
     changePassword: string
     currentPassword: string
     newPassword: string
     confirmNewPassword: string
-    enterCurrentPassword: string
     atLeast8Chars: string
     enterPasswordAgain: string
     newPasswordMinLength: string
@@ -2691,6 +3038,7 @@ export interface TranslationKeys {
     oauthUnbind: string
     oauthUnbindConfirm: string
     oauthUnbindFailed: string
+    oauthLoadFailed: string
     oauthNoProviders: string
     oauthNotConfigured: string
     profileDisplaySourcesTitle: string
@@ -2769,17 +3117,12 @@ export interface TranslationKeys {
     github: string
 
     // 弹幕默认文本
-    danmakuDefaults: string[]
 
     // 玩家类型
     casualPlayer: string
 
     // 开发者级别
-    activeDeveloper: string
-    legendary: string
     core: string
-    senior: string
-    prolific: string
     active: string
 
     // 统计标签
@@ -2792,8 +3135,6 @@ export interface TranslationKeys {
     lists: string
 
     // 状态文本
-    analyzingRepos: string
-    noReposFound: string
 
     // Toast 消息
     noPlatformReports: string
@@ -2802,7 +3143,6 @@ export interface TranslationKeys {
     refreshingReport: string
     reportRefreshSuccess: string
     reportRefreshNoData: string
-    getLatestReportFailed: string
     refreshReportFailed: string
     adminOnlyGenerate: string
     generateFailed: string
@@ -2812,9 +3152,7 @@ export interface TranslationKeys {
 
     // UI 文本
     close: string
-    regenerateReport: string
     aiSummary: string
-    deepInsightReport: string
     noEnabledPlatforms: string
     noEnabledPlatformsDesc: string
     platformReport: string
@@ -2840,19 +3178,14 @@ export interface TranslationKeys {
     dataEcho: string
     deepInsight: string
     unknownPlatform: string
-    generating: string
     generate: string
     tenThousandSuffix: string
     bangumiDone: string
     bangumiDoing: string
     bangumiWish: string
-    bangumiOnHold: string
-    bangumiDropped: string
     malDone: string
     malDoing: string
     malWish: string
-    malOnHold: string
-    malDropped: string
   }
 
   // 平台二级页数据管理
@@ -2957,6 +3290,7 @@ export interface TranslationKeys {
   // 最近活动小组件
   recentActivity: {
     widgetTitle: string
+    loadFailed: string
     yes: string
     no: string
     unknownProject: string
@@ -3128,6 +3462,7 @@ export interface TranslationKeys {
     fillPopupContent: string
     invalidUrlPattern: string
     createCustomPlatformFailed: string
+    deleteCustomPlatformFailed: string
     confirmDeleteCustomPlatform: string
     close: string
     delete: string
@@ -3473,6 +3808,7 @@ export interface TranslationKeys {
     playgroundErrorDetail: string
     /** Preview sandbox/widget runtime; `{message}`. */
     playgroundRuntimeError: string
+    playgroundUnknownError: string
     playgroundCancel: string
     playgroundCancelled: string
     playgroundAgentTrace: string
@@ -3520,6 +3856,7 @@ export interface TranslationKeys {
     selectTappFile: string
     invalidTappFile: string
     installFailed: string
+    alreadyInstalled: string
     installSuccess: string
 
     // 运行页面
@@ -3530,7 +3867,9 @@ export interface TranslationKeys {
     invalidId: string
     appCodeLoadFailed: string
     loadAppFailed: string
+    listLoadFailed: string
     startAppFailed: string
+    stopAppFailed: string
     widgetNotFound: string
     needStartToShow: string
     defaultNotificationTitle: string
@@ -3548,6 +3887,8 @@ export interface TranslationKeys {
     windowScheme: string
     scheme: string
     saveCurrentScheme: string
+    schemeSaveFailed: string
+    schemeLoadFailed: string
     saving: string
     noSavedSchemes: string
     windowCount: string
@@ -3595,6 +3936,7 @@ export interface TranslationKeys {
     loading: string
     settingSaved: string
     settingSaveFailed: string
+    settingsLoadFailed: string
     apiCredentials: string
     apiCredentialsDesc: string
     credentialConfigured: string
@@ -3622,6 +3964,7 @@ export interface TranslationKeys {
     credentialReauthorizationRequired: string
     credentialSaved: string
     credentialSaveFailed: string
+    credentialLoadFailed: string
     credentialRemoved: string
     credentialRemoveFailed: string
 
@@ -3684,6 +4027,7 @@ export interface TranslationKeys {
     storeUrlExists: string
     storeInvalidIndex: string
     storeDownloadFailed: string
+    storeVersionMismatch: string
     storeAddFailed: string
     storeRemoveFailed: string
     storeUpdateFailed: string
@@ -3728,6 +4072,8 @@ export interface TranslationKeys {
     invalidUrl: string
     addSourceFailed: string
     updateSourceFailed: string
+    deleteSourceFailed: string
+    toggleSourceFailed: string
     refreshAllStores: string
     confirmDeleteSource: string
 
@@ -3747,6 +4093,7 @@ export interface TranslationKeys {
     article: string
     loadSourcesFailed: string
     loadArticlesFailed: string
+    starFailed: string
     subscription: string
     subscriptions: string
     unread: string
@@ -4366,189 +4713,13 @@ export interface TranslationKeys {
   }
 
   // Agent
-  arael: {
-    // 问候语
-    greeting: {
-      lateNight: string
-      morning: string
-      afternoon: string
-      evening: string
-    }
-    // 页面提示
-    pageHints: {
-      library: string[]
-      brew: string[]
-      reports: string[]
-      config: string[]
-      tapp: string[]
-    }
-    generalHints: string[]
-    // 空状态
-    heroSub: string
-    askArael: string
-    recentConversations: string
-    noRecentConversations: string
-    unnamedConversation: string
-    // 输入
-    inputPlaceholder: string
-    recording: string
-    recognizing: string
-    stopRecording: string
-    voiceInput: string
-    stopConversation: string
-    stop: string
-    // 会话列表
-    historyTitle: string
-    newSession: string
-    noHistory: string
-    messageCount: string
-    // 相对时间
-    timeJustNow: string
-    timeMinutesAgo: string
-    timeHoursAgo: string
-    timeDaysAgo: string
-    // 管理面板
-    tabPersona: string
-    tabHeartbeat: string
-    tabSkills: string
-    tabMemory: string
-    personaName: string
-    personaPersonality: string
-    personaPersonalityHint: string
-    personaSave: string
-    personaReset: string
-    personaOwnerOnly: string
-    personaDoNotDisturb: string
-    agentPersonaOff: string
-    statusNeedLogin: string
-    emptyHeartbeat: string
-    emptyHeartbeatHint: string
-    emptySkills: string
-    emptyMemory: string
-    manageLoadError: string
-    manageActionError: string
-    loginRequiredHint: string
-    manageAdminOnly: string
-    editHeartbeat: string
-    saveHeartbeat: string
-    createHeartbeat: string
-    deleteHeartbeat: string
-    confirmDeleteHeartbeat: string
-    heartbeatName: string
-    heartbeatNamePlaceholder: string
-    heartbeatSchedule: string
-    heartbeatScheduleCustom: string
-    heartbeatCronHint: string
-    heartbeatAction: string
-    heartbeatActionPlaceholder: string
-    heartbeatEnabled: string
-    heartbeatActive: string
-    heartbeatPaused: string
-    heartbeatLastRun: string
-    heartbeatNeverRun: string
-    heartbeatCount: string
-    heartbeatPresetsAria: string
-    cronEveryMinutes: string
-    cronEveryHours: string
-    cronHourly: string
-    cronDaily: string
-    cronPreset15m: string
-    cronPreset30m: string
-    cronPreset1h: string
-    cronPreset6h: string
-    cronPresetDaily9: string
-    originManual: string
-    originAuto: string
-    originImproved: string
-    statSuccess: string
-    statFail: string
-    memPreference: string
-    memFact: string
-    memDecision: string
-    memNote: string
-    memKnowledge: string
-    memLesson: string
-    memPattern: string
-    memInsight: string
-    memSession: string
-    deleteMemory: string
-    editMemory: string
-    deleteSkill: string
-    // 聊天消息
-    waiting: string
-    failed: string
-    retryRequest: string
-    // 执行详情
-    loading: string
-    autoDegraded: string
-    retryCount: string
-    recalledMemories: string
-    skill: string
-    // 收藏
-    run: string
-    unfavorite: string
-    // 任务状态
-    processing: string
-    interrupted: string
-    executionFailed: string
-    unknownError: string
-    presetTitleTooLong: string
-    presetSummaryTooLong: string
-    presetStepsTooLarge: string
-    presetHistoryTooLong: string
-    partialComplete: string
-    failReason: string
-    answerFailed: string
-    /** Sensitive confirmation: risk badge */
-    confirmRisk: string
-    confirmExpiresIn: string
-    confirmExpired: string
-    confirmExpiredHint: string
-    // 思考面板
-    thinking: string
-    completed: string
-    errorOccurred: string
-    elapsedTime: string
-    totalTime: string
-    stepLabel: string
-    imageLoadFailed: string
-    taskCompleted: string
-    // 操作按钮
-    manage: string
-    debugPanel: string
-    inputAnswer: string
-    errorWithDetail: string
-    quotaCooldown: string
-    quotaExhausted: string
-    queueBusy: string
-    accessDenied: string
-    aiGeneratedImage: string
-    // 记忆 tier
-    memTierLong: string
-    memTierMid: string
-    memTierShort: string
-    // Heartbeat
-    toggleOn: string
-    toggleOff: string
-    // 错误消息
-    streamError: string
-    noResponse: string
-    requestTimeout: string
-    taskEndedWithStatus: string
-    // 消息操作
-    copyMessage: string
-    copied: string
-    // 会话管理
-    searchSessions: string
-    deleteSession: string
-    deleteSessionConfirm: string
-  }
 
   // 通知中心
   notificationCenter: {
     title: string
     tabControl: string
     empty: string
+    loadFailed: string
     clearAll: string
     clearConfirm: string
     enableSystemNotif: string

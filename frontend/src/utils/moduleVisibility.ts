@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { currentCopy } from '../i18n/localeCopy'
 import apiService from '../services/api'
 import { dedupedFetch } from './requestDedup'
+import { userFacingError } from './userFacingError'
 
 export type ModuleVisibilityLevel = 'all' | 'authenticated' | 'admin'
 export type ModuleVisibilityKey =
@@ -50,18 +51,6 @@ export const MODULE_VISIBILITY_LEVELS: ModuleVisibilityLevel[] = [
   'all',
   'authenticated',
   'admin',
-]
-
-export const AGENT_GUEST_USAGE_LEVELS: AgentGuestUsageLevel[] = [
-  'none',
-  'visible',
-]
-
-export const AGENT_USER_USAGE_LEVELS: AgentUserUsageLevel[] = [
-  'none',
-  'chat',
-  'standard',
-  'elevated',
 ]
 
 export const MODULE_VISIBILITY_UPDATED_EVENT =
@@ -186,24 +175,6 @@ export function canUseAgent(
   return preferences.agentUsage.user !== 'none'
 }
 
-export function getModuleVisibilityKeyForPath(
-  pathname: string,
-): ModuleVisibilityKey | null {
-  if (pathname === '/library' || pathname.startsWith('/library/')) {
-    return 'library'
-  }
-  if (pathname === '/brew' || pathname.startsWith('/brew/')) {
-    return 'brew'
-  }
-  if (pathname === '/reports' || pathname.startsWith('/reports/')) {
-    return 'reports'
-  }
-  if (pathname === '/tapp' || pathname.startsWith('/tapp/')) {
-    return 'tapp'
-  }
-  return null
-}
-
 export async function fetchModuleVisibilityPreferences() {
   // cacheTTL: 0 → 只合并并发中的重复请求（启动时多处同时读取），
   // 不缓存结果，保证每次独立读取都拿到最新偏好
@@ -309,7 +280,10 @@ export async function updateModuleVisibilityPreferences(
   )
   if (!response.success) {
     throw new Error(
-      response.message || currentCopy().errors.operationFailed,
+      userFacingError(
+        response.message,
+        currentCopy().config.moduleVisibilitySaveFailed,
+      ),
     )
   }
   const next = normalizeModuleVisibilityPreferences(response.preferences)

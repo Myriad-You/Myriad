@@ -16,27 +16,6 @@ export interface ComponentConfig {
   [key: string]: unknown
 }
 
-/** Theme 组件配置 */
-export interface ThemeComponentConfig extends ComponentConfig {
-  name: string
-  /**
-   * 小组件表面样式（受约束枚举）：'glass' | 'solid' | 'flat' | 'outline'
-   * 宿主仅消费此白名单值，见 useTappThemes 的校验。
-   */
-  surface?: string
-  /**
-   * 小组件光晕模式（受约束枚举）：'identity' | 'primary' | 'none'
-   */
-  glow?: string
-}
-
-/** Agent 组件配置 */
-export interface AgentComponentConfig extends ComponentConfig {
-  name: string
-  description?: string
-  capabilities: string[]
-}
-
 /** 已注册组件 */
 export interface RegisteredComponent {
   id: string
@@ -238,16 +217,6 @@ export async function streamAgentInteractions(
       }
     },
     signal,
-  )
-}
-
-export async function getAgentInteraction(
-  interactionId: string,
-  runtimeGrant: string,
-): Promise<AgentInteractionV2> {
-  return apiRequest(
-    `/api/tapp/agent/v2/interactions/${encodeURIComponent(interactionId)}`,
-    { runtimeGrant },
   )
 }
 

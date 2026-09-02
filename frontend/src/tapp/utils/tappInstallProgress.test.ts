@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   clampInstallPercent,
-  formatInstallBytes,
   isLargeTappInstall,
   LARGE_TAPP_INSTALL_BYTES,
 } from './tappInstallProgress.ts'
@@ -18,10 +17,5 @@ describe('tappInstallProgress', () => {
     assert.equal(clampInstallPercent(-5), 0)
     assert.equal(clampInstallPercent(150), 100)
     assert.equal(clampInstallPercent(42.4), 42)
-  })
-  it('formats bytes', () => {
-    assert.equal(formatInstallBytes(500), '500 B')
-    assert.ok(formatInstallBytes(2048).includes('KB'))
-    assert.ok(formatInstallBytes(2 * 1024 * 1024).includes('MB'))
   })
 })

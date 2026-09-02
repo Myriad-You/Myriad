@@ -1,6 +1,10 @@
 import type { MeropeRigManifest } from './types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { deriveGeometryChestProfile } from '../anime25drig/chestPhysics'
+import { ANIME25D_PLAYBACK_VERSION } from '../anime25drig/credit'
+import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
+import { deriveAnime25DShellProfile } from '../anime25drig/shellProfile'
 import { RIG_IR_VERSION } from './contract'
 import { isLiveMeropeManifest, isRigManifest } from './types'
 
@@ -63,9 +67,17 @@ test('rejects leftover clip-stack fields', () => {
 test('only treats a layered Anime2.5D package as a live site face', () => {
   assert.equal(isLiveMeropeManifest(manifest), false)
   const live = structuredClone(manifest)
-  live.anime25dPlayback = {
+  const mouth = {
+    x0: 0.4,
+    y0: 0.4,
+    x1: 0.6,
+    y1: 0.5,
+    cx: 0.5,
+    cy: 0.45,
+  }
+  const playbackSource = {
     kind: 'anime-2.5d-rig',
-    version: 1,
+    version: ANIME25D_PLAYBACK_VERSION,
     engine: 'Anime2.5DRig',
     engineUrl: 'https://github.com/852wa/Anime2.5DRig',
     license: 'MIT',
@@ -94,13 +106,51 @@ test('only treats a layered Anime2.5D package as a live site face', () => {
       neckTop: 0.4,
       neckBottom: 0.5,
       bodyPivot: { x: 0.5, y: 0.7 },
-      mouth: { x0: 0.4, y0: 0.4, x1: 0.6, y1: 0.5, cx: 0.5, cy: 0.45 },
+      mouth,
       faceScale: 1,
     },
+    mouthProfile: analyzeAnime25DMouthProfile(
+      [],
+      { x: 0, y: 0, width: 1152, height: 1536 },
+      mouth,
+    ),
+  }
+  const shellProfile = deriveAnime25DShellProfile(playbackSource)
+  shellProfile.head.radiusX = 1
+  shellProfile.head.radiusY = 1
+  shellProfile.head.radiusZ = 1
+  shellProfile.hair.radiusX = 1
+  shellProfile.hair.radiusY = 1
+  shellProfile.hair.radiusZ = 1
+  live.anime25dPlayback = {
+    ...playbackSource,
+    chestProfile: deriveGeometryChestProfile(playbackSource),
+    shellProfile,
   }
   assert.equal(isLiveMeropeManifest(live), true)
+  const missingChestProfile = structuredClone(live) as unknown as {
+    anime25dPlayback: Record<string, unknown>
+  }
+  delete missingChestProfile.anime25dPlayback.chestProfile
+  assert.equal(isLiveMeropeManifest(missingChestProfile), false)
+  const missingShellProfile = structuredClone(live) as unknown as {
+    anime25dPlayback: Record<string, unknown>
+  }
+  delete missingShellProfile.anime25dPlayback.shellProfile
+  assert.equal(isLiveMeropeManifest(missingShellProfile), false)
+  live.anime25dPlayback.version = 6 as typeof ANIME25D_PLAYBACK_VERSION
+  assert.equal(isLiveMeropeManifest(live), false)
+  live.anime25dPlayback.version = ANIME25D_PLAYBACK_VERSION
+  live.anime25dPlayback.shellProfile.hair.frontGap = 0.7
+  assert.equal(isLiveMeropeManifest(live), false)
+  live.anime25dPlayback.shellProfile.hair.frontGap = 0.18
+  assert.equal(isLiveMeropeManifest(live), true)
+  live.anime25dPlayback.shellProfile.torso.radiusZ = 0
+  assert.equal(isLiveMeropeManifest(live), false)
+  live.anime25dPlayback.shellProfile.torso.radiusZ = 1
+  assert.equal(isLiveMeropeManifest(live), true)
   live.anime25dPlayback.chestProfile = {
-    version: 1,
+    version: 2,
     enabled: true,
     source: 'ai-vision',
     centerX: 576,
@@ -110,13 +160,21 @@ test('only treats a layered Anime2.5D package as a live site face', () => {
     visibleScale: 0.7,
     motionScale: 1.05,
     frequencyScale: 0.96,
+    supportScale: 0.35,
+    garmentMotionScale: 0.8,
     confidence: 0.9,
   }
+  assert.equal(isLiveMeropeManifest(live), true)
+  live.anime25dPlayback.chestProfile.supportScale = 1.1
+  assert.equal(isLiveMeropeManifest(live), false)
+  live.anime25dPlayback.chestProfile.supportScale = 0.35
   assert.equal(isLiveMeropeManifest(live), true)
   live.anime25dPlayback.chestProfile.enabled = false
   live.anime25dPlayback.chestProfile.source = 'gender-policy'
   live.anime25dPlayback.chestProfile.visibleScale = 0
   live.anime25dPlayback.chestProfile.motionScale = 0
+  live.anime25dPlayback.chestProfile.supportScale = 1
+  live.anime25dPlayback.chestProfile.garmentMotionScale = 0
   live.anime25dPlayback.chestProfile.confidence = 1
   assert.equal(isLiveMeropeManifest(live), true)
   live.anime25dPlayback.chestProfile.radiusX = 900

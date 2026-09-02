@@ -5,8 +5,6 @@
 //! 2. 分块传输与进度追踪
 //! 3. 基于 Channel 的文件传输 Activity
 
-#![allow(dead_code)]
-
 use axum::{http::StatusCode, Json};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
@@ -1484,7 +1482,6 @@ pub async fn upload_chunk(
 /// Resolved on-disk file for a completed transfer the user is allowed to read.
 #[derive(Debug)]
 pub struct TransferFileContent {
-    pub transfer_id: String,
     pub filename: String,
     pub mime_type: String,
     pub file_size: u64,
@@ -1614,7 +1611,6 @@ pub async fn open_transfer_file(
     }
 
     Ok(TransferFileContent {
-        transfer_id: row.try_get("", "transfer_id").unwrap_or_default(),
         filename: safe_filename(&filename),
         mime_type,
         file_size,

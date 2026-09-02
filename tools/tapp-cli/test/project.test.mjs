@@ -54,15 +54,21 @@ describe('Tapp project core', () => {
     assert.deepEqual(current.limits, backendContract.limits)
     assert.deepEqual(current.rules, backendContract.rules)
     assert.deepEqual(current.patterns, backendContract.patterns)
+    assert.deepEqual(current.permissionLevels, backendContract.permissionLevels)
+    assert.deepEqual(current.replacementHints, backendContract.replacementHints)
+    assert.deepEqual(
+      current.requiresAuthenticatedSubject,
+      backendContract.requiresAuthenticatedSubject,
+    )
+    assert.deepEqual(permissionCatalog().permissionLevels, backendContract.permissionLevels)
   })
 
-  upstreamIt('keeps the generated catalog aligned with permissionConfig', async () => {
+  upstreamIt('keeps generated actions aligned with permissionConfig', async () => {
     const source = await readFile(
       resolve(myriadRoot, 'frontend/src/tapp/runtime/permissionConfig.ts'),
       'utf8',
     )
-    const { permissionLevels, actions } = parsePermissionSource(source)
-    assert.deepEqual(permissionCatalog().permissionLevels, permissionLevels)
+    const { actions } = parsePermissionSource(source)
     assert.deepEqual(permissionCatalog().actions, actions)
   })
 

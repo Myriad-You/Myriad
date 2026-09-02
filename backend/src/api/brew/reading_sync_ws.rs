@@ -20,7 +20,9 @@ use crate::models::entities::{
 };
 use crate::services::brew_scheduler::get_brew_scheduler;
 
-use super::helpers::{brew_http_err, get_user_and_admin_status, get_user_id_from_headers};
+use super::helpers::{
+    brew_http_err, brew_store_http, get_user_and_admin_status, get_user_id_from_headers,
+};
 
 /// 获取单篇文章详情（游客可访问）
 /// 游客不查询已读/收藏状态以节约计算
@@ -107,13 +109,7 @@ pub(crate) async fn get_item(
             StatusCode::NOT_FOUND,
             Json(json!({ "success": false, "error": "Item not found" })),
         ))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("find article", e)),
     }
 }
 
@@ -190,11 +186,7 @@ pub(crate) async fn update_item_state(
             return Err(brew_http_err(StatusCode::NOT_FOUND, "Item not found"));
         }
         Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            return Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ));
+            return Err(brew_store_http("find article", e));
         }
     };
     let source_id = item.source_id;
@@ -249,13 +241,7 @@ pub(crate) async fn update_item_state(
                     }
                     Ok(Json(json!({ "success": true })))
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, "Database error");
-                    Err(brew_http_err(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Database error",
-                    ))
-                }
+                Err(e) => Err(brew_store_http("update reading state", e)),
             }
         }
         Ok(None) => {
@@ -294,22 +280,10 @@ pub(crate) async fn update_item_state(
                     }
                     Ok(Json(json!({ "success": true })))
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, "Database error");
-                    Err(brew_http_err(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Database error",
-                    ))
-                }
+                Err(e) => Err(brew_store_http("create reading state", e)),
             }
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("find reading state", e)),
     }
 }
 

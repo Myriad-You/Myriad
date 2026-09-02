@@ -233,7 +233,10 @@ pub(crate) fn seal_integrity(content_hash_hex: &str) -> Result<Value, String> {
     let plain = format!("{INTEGRITY_PLAIN_PREFIX}{content_hash_hex}");
     let token = myriad_data_key::data_key()
         .encrypt(&plain)
-        .map_err(|e| format!("integrity_seal_failed: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "integrity seal failed");
+            "integrity_seal_failed".to_string()
+        })?;
     Ok(json!({
         "alg": INTEGRITY_ALG,
         "key_fingerprint": myriad_data_key::data_key().fingerprint(),

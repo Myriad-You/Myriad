@@ -20,6 +20,14 @@ pub(crate) fn brew_http_err(status: StatusCode, error: impl Into<String>) -> Htt
     ))
 }
 
+pub(crate) fn brew_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {
+    tracing::error!(%error, context, "brew store failed");
+    brew_http_err(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("Failed to {context}"),
+    )
+}
+
 /// 从请求头获取用户 ID（含 session epoch 校验）
 pub(crate) async fn get_user_id_from_headers(
     headers: &axum::http::HeaderMap,

@@ -32,7 +32,7 @@ impl TappAccessError {
     /// Short machine-oriented label (maps to JSON `error` in the API adapter).
     pub fn error_code(&self) -> &'static str {
         match self {
-            Self::Database => "Database error",
+            Self::Database => "tapp_access_check_failed",
             Self::NoAdmin => "No admin user found",
             Self::AccessDenied { .. } => "Access denied",
             Self::PermissionNotGranted { .. } => "Permission denied",
@@ -42,7 +42,7 @@ impl TappAccessError {
     /// Human-readable message suitable for agents and API `message` fields.
     pub fn message(&self) -> String {
         match self {
-            Self::Database => "Database error".to_string(),
+            Self::Database => "Failed to verify Tapp access".to_string(),
             Self::NoAdmin => "No admin user found".to_string(),
             Self::AccessDenied { is_guest: true } => {
                 "This Tapp is not available for guest access".to_string()

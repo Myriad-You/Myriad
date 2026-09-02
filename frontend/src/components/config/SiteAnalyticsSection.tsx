@@ -325,7 +325,7 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
         // AbortError is expected when switching range quickly
         if (e instanceof DOMException && e.name === 'AbortError') return
         console.error('analytics summary failed', e)
-        setError(a.loadFailed)
+        setError(userFacingError(e, a.loadFailed))
         setData(null)
       } finally {
         if (!signal?.aborted) setLoading(false)

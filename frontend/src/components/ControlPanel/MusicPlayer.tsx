@@ -21,8 +21,8 @@ import React, {
   useState,
 } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { formatMusicError } from '../../utils/musicError'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
+import { formatMusicError } from '../../utils/musicError'
 import {
   formatTime,
   getSongVipStatus,

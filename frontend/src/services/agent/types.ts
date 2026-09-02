@@ -6,8 +6,72 @@
 
 // 处理上下文
 
+export type RigMotionStyle = 'restrained' | 'even' | 'open'
+export type RigMusicEnergy = 'quiet' | 'soft' | 'present' | 'strong'
+export type RigBeatPhase = 'rest' | 'downbeat' | 'pulse' | 'hold'
+export type RigBehaviorFunction =
+  | 'orient'
+  | 'attend'
+  | 'acknowledge'
+  | 'uncertain'
+  | 'prepareSpeech'
+  | 'emphasize'
+  | 'surprise'
+  | 'celebrate'
+  | 'relief'
+  | 'entrain'
+  | 'express'
+export type RigBehaviorPhase =
+  | 'planned'
+  | 'preparing'
+  | 'committed'
+  | 'holding'
+  | 'recovering'
+  | 'complete'
+  | 'rejected'
+
+export interface RigStateSummary {
+  expression: PerformanceBaseline['expression'] | 'steady'
+  posture: PerformanceBaseline['posture']
+  acting: {
+    intent: PerformanceCue['intent'] | null
+    phase: PerformancePhase | 'idle'
+    function: RigBehaviorFunction | null
+    lifecycle: RigBehaviorPhase | null
+    remainingMs: number
+  }
+  /** Concurrent semantic behaviors; `acting` above remains the primary cue. */
+  activeBehaviors: {
+    function: RigBehaviorFunction
+    lifecycle: RigBehaviorPhase
+    source: string
+    resources: string[]
+    remainingMs: number
+  }[]
+  owners: {
+    mouth: string
+    expression: string
+    gaze: string
+    headBody: string
+  }
+  speaking: boolean
+  singing: boolean
+  musicPlaying: boolean
+  music?: {
+    energy: RigMusicEnergy
+    beat: RigBeatPhase
+  }
+  capabilities: string[]
+  recentIntents: PerformanceCue['intent'][]
+  motionStyle: RigMotionStyle
+  pageVisible: boolean
+  faceVisible: boolean
+}
+
 /** 处理上下文 */
 export interface ProcessContext {
+  /** 运行时路径：聊天只使用 Lite，办事保留完整 Agent。 */
+  mode?: 'work' | 'chat'
   /** 当前页面路由 */
   currentRoute?: string
   /** 活跃的平台 */
@@ -16,6 +80,10 @@ export interface ProcessContext {
   sessionId?: string
   /** 自定义数据 */
   customData?: Record<string, unknown>
+  /** 用户已接受、正在进入 Work 的自主提案。 */
+  intentionId?: string
+  /** Semantic live-face snapshot. Event-scoped; never a driver. */
+  rigState?: RigStateSummary
 }
 
 /** 处理请求 */
@@ -111,14 +179,10 @@ export type AgentResponseType =
   | 'error'
 
 export type PerformancePhase =
-  | 'reaction'
-  | 'delivery'
-  | 'outcome'
-  | 'proactive'
-  | 'mood'
+  'reaction' | 'delivery' | 'outcome' | 'proactive' | 'mood'
 
 export interface PerformanceBaseline {
-  expression: 'withdrawn' | 'subdued' | 'steady' | 'warm'
+  expression: 'withdrawn' | 'subdued' | 'steady' | 'warm' | 'tense'
   posture: 'closed' | 'neutral' | 'open'
   motionEnergy: number
   attention: number
@@ -133,28 +197,47 @@ export interface PerformanceCue {
     | 'emphasize'
     | 'listen'
     | 'notify'
+    | 'think'
+    | 'dizzy'
+    | 'cry'
+    | 'angry'
+    | 'speechless'
+    | 'maniac'
+    | 'silly'
+    | 'lovestruck'
   atMs: number
   intensity: number
   tempo: number
   fadeInMs: number
   fadeOutMs: number
+  /**
+   * Scheduler-resolved `strokeEnd -> relax` span. Absent on a cue that came
+   * straight from the model; the player then falls back to its tempo heuristic.
+   */
+  holdMs?: number
   interrupt: 'replace' | 'queue' | 'if-lower'
 }
 
 export interface PerformanceDirective {
   phase: PerformancePhase
   moodRevision: number
+  /** Persona-resolved movement quality for this whole round. */
+  motionStyle: RigMotionStyle
   plan: {
     baseline?: PerformanceBaseline
     cues: PerformanceCue[]
   }
 }
 
+export type MoodBandName = 'floor' | 'sad' | 'tense' | 'calm' | 'excited'
+
 export interface MoodTransition {
   before: number
   after: number
-  bandBefore: 'floor' | 'low' | 'normal' | 'high'
-  bandAfter: 'floor' | 'low' | 'normal' | 'high'
+  arousalBefore?: number
+  arousalAfter?: number
+  bandBefore: MoodBandName
+  bandAfter: MoodBandName
   delta: number
   cause: string
   revision: number
@@ -248,6 +331,8 @@ export interface StepCompletedEvent {
   degraded?: boolean
   /** 图片生成结果 URL */
   imageUrl?: string
+  /** 本步立刻执行的前端动作（不要等整份 recipe 结束） */
+  frontendActions?: FrontendAction[]
 }
 
 /** 步骤重试事件（智能重试：分析错误后修改参数） */
@@ -302,6 +387,13 @@ export interface ErrorEvent {
 /** AI 总结流式 token 事件 */
 export interface SummaryTokenEvent {
   type: 'summary_token'
+  token: string
+  done: boolean
+}
+
+/** 模型思考链流式 token。进过程区，不进正文。 */
+export interface ThinkingTokenEvent {
+  type: 'thinking_token'
   token: string
   done: boolean
 }
@@ -408,6 +500,7 @@ export type ProgressEvent =
   | SessionCreatedEvent
   | SessionTitleUpdatedEvent
   | SummaryTokenEvent
+  | ThinkingTokenEvent
   | PerformancePlanEvent
   | MeropeStateChangedEvent
   | PlannerDecisionEvent
@@ -457,13 +550,19 @@ export type FrontendActionType =
   | 'music_get_status'
   | 'music_load_playlist'
   | 'reading_list'
+  | 'show_notification'
+  | 'copy_clipboard'
+  | 'play_audio'
+  | 'show_data'
+  | 'download_file'
+  | 'show_report'
 
 /** 窗口目标 */
 export interface WindowTarget {
   windowId?: string
   tappId?: string
   tappName?: string
-  position?: 'active' | 'left' | 'right' | 'next' | 'previous'
+  position?: 'active' | 'left' | 'right' | 'next' | 'previous' | 'all'
 }
 
 /** 页面元素目标 */
@@ -612,6 +711,7 @@ export interface ConversationMessage {
 /** 会话信息 */
 export interface SessionInfo {
   id: string
+  mode?: 'work' | 'chat'
   title: string | null
   messageCount: number
   archived: boolean
@@ -730,24 +830,4 @@ export interface SkillInfo {
 
 // 中断/转向 (Phase 1A)
 
-/** 中断会话请求 */
-export interface InterruptRequest {
-  input: string
-}
-
-/** 转向会话请求 */
-export interface SteerRequest {
-  instruction: string
-}
-
 // 多 Agent (Phase 6)
-
-/** Agent 配置信息 */
-export interface AgentProfile {
-  id: string
-  role: AgentRole
-  description: string
-  defaultTier: string
-  maxConcurrency: number
-  capabilityPrefixes: string[]
-}

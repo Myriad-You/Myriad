@@ -24,6 +24,10 @@ pub enum DeclaredResourceKind {
     /// UTF-8 text entrypoint / CSS / HTML / widget templates.
     Text,
     /// Page module under `page/` (same UTF-8 rule; distinct missing-file copy).
+    ///
+    /// 目前无构造点：安装期把 page/ 也按 Text 处理。校验分支保留，
+    /// 需要区分 page 模块的缺失文案时直接可用。
+    #[allow(dead_code)]
     PageModule,
     /// Agent interaction JSON schema (size-bounded + subset schema rules).
     AgentSchema,
@@ -371,8 +375,10 @@ pub fn validate_agent_schema_bytes(relative: &str, bytes: &[u8]) -> Result<(), S
     }
     let schema = serde_json::from_slice::<serde_json::Value>(bytes)
         .map_err(|_| format!("Agent schema is not valid JSON: {relative}"))?;
-    validate_inline_data_schema(&schema)
-        .map_err(|error| format!("Invalid Agent schema {relative}: {error}"))
+    validate_inline_data_schema(&schema).map_err(|error| {
+        tracing::error!(%error, relative, "invalid agent schema");
+        format!("Invalid Agent schema {relative}: {error}")
+    })
 }
 
 /// Size budget for declared package assets.
@@ -453,6 +459,7 @@ impl ArchiveBudget {
 /// Validate one package asset size and running total.
 ///
 /// Returns the updated total after adding this asset.
+#[allow(dead_code)] // 仅测试调用：生产走同名 *_with(budget) 变体，这是默认预算的便捷包装。
 pub fn validate_asset_resource_bytes(
     relative: &str,
     size: u64,
@@ -559,6 +566,7 @@ pub fn validate_write_assets_declaration(
 // ── Archive entry pure rules ────────────────────────────────────────────────
 
 /// Reject oversized archive file counts before iterating entries.
+#[allow(dead_code)] // 仅测试调用：生产走同名 *_with(budget) 变体，这是默认预算的便捷包装。
 pub fn validate_archive_entry_count(count: usize) -> Result<(), String> {
     validate_archive_entry_count_with(count, ArchiveBudget::standard())
 }
@@ -580,6 +588,7 @@ pub fn validate_archive_entry_count_with(
 ///
 /// `paths` tracks duplicates; `total_size` is uncompressed bytes seen so far.
 /// Directories contribute neither size nor must exist as files.
+#[allow(dead_code)] // 仅测试调用：生产走同名 *_with(budget) 变体，这是默认预算的便捷包装。
 pub fn validate_archive_entry(
     name: &str,
     is_dir: bool,

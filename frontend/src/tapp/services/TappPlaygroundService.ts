@@ -1,5 +1,6 @@
 import type { TappManifest } from '../types'
 import { API_URL } from '../../config'
+import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, parseApiErrorBody } from '../../services/api'
 import { getCSRFToken } from '../../utils/csrf'
 
@@ -285,7 +286,7 @@ async function generateViaStream(
       } else if (raw.type === 'done') {
         finalResponse = raw.response
       } else if (raw.type === 'error') {
-        streamError = raw.message || 'Generation failed'
+        streamError = raw.message || currentCopy().tapp.playgroundGenerateFailed
       }
     }
     if (finalResponse || streamError) {
@@ -313,7 +314,7 @@ async function generateViaStream(
       } else if (raw.type === 'done') {
         finalResponse = raw.response
       } else if (raw.type === 'error') {
-        streamError = raw.message || 'Generation failed'
+        streamError = raw.message || currentCopy().tapp.playgroundGenerateFailed
       }
     }
   }
@@ -328,7 +329,7 @@ async function generateViaStream(
     if (signal.aborted) {
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
-    throw new Error('Playground stream ended without a final response')
+    throw new Error(currentCopy().tapp.playgroundStreamIncompleteHint)
   }
   return finalResponse
 }

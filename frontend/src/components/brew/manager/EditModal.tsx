@@ -26,8 +26,8 @@ import {
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useI18n } from '../../../contexts/I18nContext'
-import { userFacingError } from '../../../utils/userFacingError'
 import { generateStyleTags } from '../../../services/brewApi'
+import { userFacingError } from '../../../utils/userFacingError'
 import { Spinner } from '../../Spinner'
 
 // Framer Motion transition 配置常量

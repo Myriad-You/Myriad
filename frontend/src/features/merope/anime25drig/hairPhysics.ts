@@ -34,6 +34,29 @@ export interface HairSpringState {
   dx: number
 }
 
+export interface Anime25DHairSpringBinding {
+  stiff: HairSpringState
+  soft: HairSpringState
+  phase: number
+  stiffnessScale: number
+  dampingScale: number
+}
+
+export interface Anime25DHairSpringLayer {
+  springs: readonly Anime25DHairSpringBinding[] | null
+}
+
+export interface Anime25DHairSpringFrame {
+  enabled: boolean
+  idle: boolean
+  angleX: number
+  angleZ: number
+  faceScale: number
+  neckPivotY: number
+  faceCenterY: number
+  time: number
+}
+
 /**
  * Derive restrained per-strand motion from its projected pixel length.
  * Displacement follows length approximately linearly, while response speed
@@ -91,12 +114,51 @@ export function stepHairSpring(
   )
   const dt = boundedElapsed / steps
   for (let step = 0; step < steps; step += 1) {
-    const acceleration =
-      -stiffness * (spring.x - target) - damping * spring.v
+    const acceleration = -stiffness * (spring.x - target) - damping * spring.v
     spring.v += acceleration * dt
     spring.x += spring.v * dt
   }
   spring.dx = -(spring.x - target) * pull
+}
+
+/** Advance every authored strand after the shared head pose has settled. */
+export function stepAnime25DHairLayerSprings(
+  layers: readonly Anime25DHairSpringLayer[],
+  frame: Readonly<Anime25DHairSpringFrame>,
+  elapsedSeconds: number,
+): void {
+  if (!frame.enabled) return
+  const headOffsetX =
+    (frame.angleX * 14 +
+      frame.angleZ * 0.07 * (frame.neckPivotY - frame.faceCenterY)) *
+    frame.faceScale
+  const windAmplitude = frame.idle ? 1 : 0
+  for (const layer of layers) {
+    if (!layer.springs) continue
+    for (const spring of layer.springs) {
+      const wind =
+        windAmplitude *
+        (1.8 * Math.sin(frame.time * 0.8 + spring.phase) +
+          Math.sin(frame.time * 1.9 + spring.phase * 2.3))
+      const target = headOffsetX + wind * frame.faceScale
+      stepHairSpring(
+        spring.stiff,
+        target,
+        70 * spring.stiffnessScale,
+        9 * spring.dampingScale,
+        2.2,
+        elapsedSeconds,
+      )
+      stepHairSpring(
+        spring.soft,
+        target,
+        16 * spring.stiffnessScale,
+        1.3 * spring.dampingScale,
+        3,
+        elapsedSeconds,
+      )
+    }
+  }
 }
 
 /**

@@ -178,26 +178,6 @@ pub async fn save(
     Ok(preferences)
 }
 
-/// Merge local keys into stored sizes (local wins for conflicts) and persist.
-pub async fn merge_and_save(
-    db: &DatabaseConnection,
-    user_id: i32,
-    patch: TappListCardSizes,
-) -> Result<TappListCardSizes, String> {
-    let mut current = load(db, user_id).await;
-    for (id, size) in patch.normalized().sizes {
-        current.sizes.insert(id, size);
-    }
-    // Cap after merge
-    if current.sizes.len() > MAX_ENTRIES {
-        let keys: Vec<_> = current.sizes.keys().cloned().collect();
-        for key in keys.into_iter().skip(MAX_ENTRIES) {
-            current.sizes.remove(&key);
-        }
-    }
-    save(db, user_id, current).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

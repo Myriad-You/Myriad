@@ -18,10 +18,10 @@
 统一策略字符串（三处保持一致）：
 
 ```text
-geolocation=(self), microphone=(), camera=()
+geolocation=(self), microphone=(self), camera=()
 ```
 
-含义：本站可请求定位；麦克风/摄像头仍禁用。
+含义：本站可请求定位和麦克风（听/说）；摄像头仍禁用。跨源 iframe（TAPP）拿不到麦克风。
 
 ## 后端已添加的响应头
 
@@ -37,7 +37,7 @@ geolocation=(self), microphone=(), camera=()
 - `X-Frame-Options: DENY`
 - `X-XSS-Protection: 1; mode=block`
 - `Referrer-Policy: strict-origin-when-cross-origin`
-- `Permissions-Policy: geolocation=(self), microphone=(), camera=()`（本站可请求定位，用于天气等）
+- `Permissions-Policy: geolocation=(self), microphone=(self), camera=()`（本站可定位、用麦克风；摄像头仍禁用）
 - `Strict-Transport-Security`：仅 `ENVIRONMENT=production` 时添加。
 
 开发环境默认不启用 CSP。如需本地验证 CSP：
@@ -54,7 +54,7 @@ ENABLE_CSP_DEV=true
    （`X-Real-IP` / 可信 XFF / CDN 头）。见下文「Docker + 宿主反向代理」。
 3. **外层 Nginx/Caddy**：不要设置 `Permissions-Policy: geolocation=()`，否则会覆盖
    Myriad 允许本站定位的策略。若外层自行加 Permissions-Policy，请使用与上表相同的
-   `geolocation=(self), microphone=(), camera=()`。
+   `geolocation=(self), microphone=(self), camera=()`。
 
 ## 当前生产拓扑
 
@@ -233,7 +233,7 @@ curl -I http://localhost:1103/health
 ## 相关配置
 
 - `ENVIRONMENT=production`：启用生产 CSP 和 HSTS。
-- `CSP_CONNECT_SRC`：覆盖生产 CSP 的 `connect-src`，默认为 `'self' https:`。
+- `CSP_CONNECT_SRC`：覆盖生产 CSP 的 `connect-src`，默认为 `'self' https: wss: stun: turn:`（含声网 RTC）。
 - `ENABLE_CSP_DEV=true`：开发环境也启用 CSP。
 - `PROXY_TRUSTED_UPSTREAMS`：允许传递真实客户端 IP 的外层代理 IP/CIDR 列表。
   留空时不信任任何转发头；切勿设为 `0.0.0.0/0`。

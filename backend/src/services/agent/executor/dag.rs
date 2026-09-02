@@ -8,6 +8,7 @@ pub use crate::services::agent::dag_pure::DagScheduler;
 use crate::services::agent::types::FailureStrategy;
 
 /// Adapter wrapper: mark failed + log strategy effect for operators.
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub fn mark_failed_with_log(
     scheduler: &mut DagScheduler,
     step_id: &str,

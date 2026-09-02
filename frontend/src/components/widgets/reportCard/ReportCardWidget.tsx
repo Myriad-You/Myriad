@@ -48,6 +48,7 @@ export const ReportCardWidget = memo(
     const platformId = resolveReportPlatformId(config)
     const [reportData, setReportData] = useState<any>(null)
     const [loading, setLoading] = useState(true)
+    const [failed, setFailed] = useState(false)
     const isOverviewControlled = controlledShowOverview !== undefined
     const [internalShowOverview, setInternalShowOverview] = useState(true)
     const showOverview = isOverviewControlled
@@ -91,10 +92,12 @@ export const ReportCardWidget = memo(
             visuals = pickPlatformCardVisuals(data, platformId)
           }
           setReportData(visuals)
+          setFailed(false)
         } catch (err) {
           if (cancelled) return
           console.error(`${t.reportCardWidget.fetchReportFailed}:`, err)
           setReportData(null)
+          setFailed(true)
         } finally {
           if (!cancelled) setLoading(false)
         }
@@ -305,7 +308,11 @@ export const ReportCardWidget = memo(
     if (!loading && !reportData) {
       return (
         <div className="h-full w-full flex items-center justify-center text-gray-400 text-sm">
-          <span>{t.reportCard.noReportData}</span>
+          <span>
+            {failed
+              ? t.reportCardWidget.fetchReportFailed
+              : t.reportCard.noReportData}
+          </span>
         </div>
       )
     }

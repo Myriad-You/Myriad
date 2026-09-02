@@ -119,7 +119,7 @@ TitleFontSelector（编辑模式）→ setSurface/setGlowMode
   `.glass-60/70/90/95`（默认 80%）—— **档位仅玻璃默认态生效，切主题时让位给全局收敛**。
   Tapp/Brew 卡片、共享控制岛（`ISLAND_GLASS`）走的都是这条。
 - **保留自定义透明度的浮动 chrome（CSS 文件里的具名类）**：在 theme.css 的 chrome 覆盖清单里加选择器。
-  当前清单：`.dynamic-island` · `.secondary-island` · `.control-bar-trigger` · `.site-footer-content` · `.arael-panel`。
+  当前清单：`.dynamic-island` · `.secondary-island` · `.control-bar-trigger` · `.site-footer-content`。
   用 `:root[data-surface] <selector>` 作用域 —— 默认态保留组件硬编码透明度，仅切非玻璃主题时收敛。
 
 ### Tapp 注册主题（第三方源）—— 安全边界

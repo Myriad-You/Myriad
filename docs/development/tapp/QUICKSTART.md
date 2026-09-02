@@ -47,7 +47,8 @@ myriad-tapp pack .
 列表页支持 **我的 / 站点** 范围、卡片 `1x1`·`2x1` 与登录用户拖拽排序；布局 API 见
 [列表布局](REST_API.md#列表布局-apitappslist-card-sizes)。若声明 `analytics:read`，
 可用 [访问统计 SDK](API_REFERENCE.md#访问统计-api)（admin 完整 summary；user/guest 仅
-访客卡片聚合；关闭采集时 `enabled: false` 短路）。
+访客卡片聚合；关闭采集时 `enabled: false` 短路）。站点 Agent 人设用
+[人设名片](API_REFERENCE.md#人设名片-api)（无需权限；只读名字、心情带、同源立绘路径）。
 
 Page 内可用 Canvas 2D / WebGL。Three.js 当作包内 guest 依赖放进 `page/` 并 require，贴图和
 `.glb` 走 `Tapp.assets`，不要走 CDN。约定见 [图形与轻量游戏](GRAPHICS.md)；可安装的官方

@@ -27,8 +27,6 @@ export const WIDGET_SAFE_PADDING = 14
 export const WIDGET_RADIUS_SHELL = 'rounded-xl'
 /** 卡片内嵌套表面圆角 class（8px）— 面板 / 媒体 / tile / 列表行 */
 export const WIDGET_RADIUS_NESTED = 'rounded-lg'
-/** 卡片内微矩形圆角 class（6px）— 小图标底 / 行 hover / 角标 */
-export const WIDGET_RADIUS_MICRO = 'rounded-md'
 
 export interface WidgetShellProps {
   children: ReactNode

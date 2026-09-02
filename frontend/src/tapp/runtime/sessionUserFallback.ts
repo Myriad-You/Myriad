@@ -53,10 +53,3 @@ export async function fetchSessionUserSnapshot(): Promise<SessionUserSnapshot | 
     return null
   }
 }
-
-export function roleFromSessionSnapshot(
-  snap: SessionUserSnapshot | null,
-): HostUserRole {
-  if (!snap) return 'guest'
-  return snap.role
-}

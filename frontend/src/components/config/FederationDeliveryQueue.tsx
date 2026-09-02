@@ -22,13 +22,13 @@ import type {
 } from '../settings/ManagedList'
 import React, { useCallback, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
 import { FaRedo, FaSearch, FaSyncAlt, FaTrash } from '../../lib/icons'
 import { federationApi } from '../../services/federationApi'
 import {
   isCancelledDeliveryError,
   shouldOfferDeliveryRetry,
 } from '../../utils/federationDeliveryUi'
+import { userFacingError } from '../../utils/userFacingError'
 import { ManagedList } from '../settings/ManagedList'
 
 type Msg = (
@@ -575,10 +575,15 @@ export const FederationDeliveryQueue: React.FC<
         subtitle: (
           <>
             {target}
-            {item.error_message ? (
+            {!cancelled && item.error_message ? (
               <>
                 <br />
-                <span className="managed-list-error">{item.error_message}</span>
+                <span className="managed-list-error">
+                  {userFacingError(
+                    item.error_message,
+                    t.errors.noticeDeliveryFailed,
+                  )}
+                </span>
               </>
             ) : null}
           </>
@@ -588,7 +593,15 @@ export const FederationDeliveryQueue: React.FC<
         busy: !!busyAction,
       }
     })
-  }, [filteredItems, rowBusy, anyBusy, c, handleRetry, handleRemove])
+  }, [
+    filteredItems,
+    rowBusy,
+    anyBusy,
+    c,
+    handleRetry,
+    handleRemove,
+    t.errors.noticeDeliveryFailed,
+  ])
 
   return (
     <ManagedList

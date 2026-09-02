@@ -41,15 +41,15 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import {
-  httpStatusMessage,
-  isUselessErrorText,
-  userFacingError,
-} from '../../utils/userFacingError'
-import {
   detectVersionDrift,
   makeUpdaterApi,
   UpdaterError,
 } from '../../services/updaterApi'
+import {
+  httpStatusMessage,
+  isUselessErrorText,
+  userFacingError,
+} from '../../utils/userFacingError'
 import {
   ButtonItem,
   ManagedList,
@@ -68,16 +68,16 @@ import {
   deriveSelection,
   format,
   formatBytes,
+  INFRA_OUTCOME_MAX_TRIES,
+  INFRA_OUTCOME_POLL_MS,
   infraComponentBehind,
   infraLatestTip,
   isDismissedLastFailed,
-  rememberDismissedLastFailed,
-  INFRA_OUTCOME_MAX_TRIES,
-  INFRA_OUTCOME_POLL_MS,
   isFreshInfraOutcome,
   isTransientUpdaterError,
   modeForTarget,
   POLL_INTERVAL,
+  rememberDismissedLastFailed,
   sleep,
   snapshotDeleteBlockReason,
   upstreamDetail,

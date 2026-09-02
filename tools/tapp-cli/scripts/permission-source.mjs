@@ -32,15 +32,7 @@ function requireParseable(sourceFile) {
   }
 }
 
-export function parsePermissionSource(source) {
-  const sourceFile = ts.createSourceFile(
-    'permissionConfig.ts',
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  )
-  requireParseable(sourceFile)
+function parsePermissionLevels(sourceFile) {
   const levels = unwrap(initializer(sourceFile, 'PERMISSION_LEVELS'))
   if (!ts.isObjectLiteralExpression(levels)) {
     throw new Error('PERMISSION_LEVELS must be an object literal')
@@ -53,7 +45,10 @@ export function parsePermissionSource(source) {
     const value = stringValue(property.initializer)
     if (name && value !== undefined) permissionLevels[name] = value
   }
+  return permissionLevels
+}
 
+function parsePermissionActions(sourceFile) {
   const permissionMap = unwrap(initializer(sourceFile, 'PERMISSION_MAP'))
   if (!ts.isNewExpression(permissionMap) || !ts.isIdentifier(permissionMap.expression) || permissionMap.expression.text !== 'Map') {
     throw new Error('PERMISSION_MAP must be a Map literal')
@@ -70,6 +65,26 @@ export function parsePermissionSource(source) {
     const permission = stringValue(entry.elements[1])
     if (action !== undefined && permission !== undefined) actions[action] = permission
   }
+  return actions
+}
+
+/**
+ * Frontend `permissionConfig.ts` table.
+ *
+ * CLI generated `permissionLevels` come from `export_tapp_contract()`, not
+ * from this parse. `actions` (PERMISSION_MAP) remain the frontend/fixture map.
+ */
+export function parsePermissionSource(source) {
+  const sourceFile = ts.createSourceFile(
+    'permissionConfig.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
+  requireParseable(sourceFile)
+  const permissionLevels = parsePermissionLevels(sourceFile)
+  const actions = parsePermissionActions(sourceFile)
 
   if (Object.keys(permissionLevels).length < 30 || Object.keys(actions).length < 150) {
     throw new Error('Permission catalog parse produced unexpectedly few entries')

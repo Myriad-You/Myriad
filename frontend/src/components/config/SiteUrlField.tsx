@@ -8,11 +8,11 @@ import type {
 } from '../../services/siteDomainApi'
 import React, { useCallback, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
 import {
   changeSiteDomain,
   checklistItems,
 } from '../../services/siteDomainApi'
+import { userFacingError } from '../../utils/userFacingError'
 import { InputItem } from '../settings'
 import './SiteUrlField.css'
 

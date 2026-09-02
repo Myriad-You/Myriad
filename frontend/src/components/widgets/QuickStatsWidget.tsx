@@ -225,6 +225,7 @@ export const QuickStatsWidget = memo(
       book: 0,
     })
     const [loading, setLoading] = useState(true)
+    const [failed, setFailed] = useState(false)
 
     // 从缓存加载
     const loadFromCache = useCallback(() => {
@@ -289,11 +290,13 @@ export const QuickStatsWidget = memo(
           )
 
           setStats(counts)
+          setFailed(false)
           saveToCache(counts)
         }
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
           console.error(`${t.quickStats.fetchStatsFailed}:`, err)
+          setFailed(true)
         }
       } finally {
         setLoading(false)
@@ -362,6 +365,12 @@ export const QuickStatsWidget = memo(
         }
       >
         <div className="relative flex min-h-0 flex-1 flex-col">
+          {!loading && failed && stats.total === 0 ? (
+            <div className="flex flex-1 items-center justify-center text-center text-xs text-gray-500 dark:text-gray-400">
+              {t.quickStats.fetchStatsFailed}
+            </div>
+          ) : (
+          <>
           {/* 顶部：标题 + 总数 */}
           <div
             className="flex items-start justify-between mb-2 ml-1.5"
@@ -432,6 +441,8 @@ export const QuickStatsWidget = memo(
               </motion.div>
             ))}
           </div>
+          </>
+          )}
 
           <WidgetSkeletonCover
             active={loading}

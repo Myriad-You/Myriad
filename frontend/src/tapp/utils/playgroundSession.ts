@@ -367,14 +367,6 @@ export function getActiveSession(
   )
 }
 
-export function updateActiveSession(
-  store: PlaygroundSessionsStore,
-  updater: (session: PlaygroundSession) => PlaygroundSession,
-  touch = true,
-): PlaygroundSessionsStore {
-  return updateActiveSessionWithMeta(store, updater, touch).store
-}
-
 export function updateActiveSessionWithMeta(
   store: PlaygroundSessionsStore,
   updater: (session: PlaygroundSession) => PlaygroundSession,
@@ -396,12 +388,6 @@ export function updateActiveSessionWithMeta(
     activeSessionId: updated.id,
     sessions,
   })
-}
-
-export function createAndActivateSession(
-  store: PlaygroundSessionsStore,
-): PlaygroundSessionsStore {
-  return createAndActivateSessionWithMeta(store).store
 }
 
 export function createAndActivateSessionWithMeta(
@@ -426,13 +412,6 @@ export function switchSession(
       s.id === sessionId ? { ...s, updatedAt: Date.now() } : s,
     ),
   }
-}
-
-export function deleteSession(
-  store: PlaygroundSessionsStore,
-  sessionId: string,
-): PlaygroundSessionsStore {
-  return deleteSessionWithMeta(store, sessionId).store
 }
 
 export function deleteSessionWithMeta(

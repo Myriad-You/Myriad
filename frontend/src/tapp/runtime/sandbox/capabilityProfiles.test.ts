@@ -91,6 +91,7 @@ describe('sandbox capability profiles', () => {
     assert.ok(tapp.component)
     assert.ok(tapp.dynamicContent)
     assert.ok(tapp.model3d)
+    assert.ok(tapp.persona)
     assert.equal(typeof (tapp.ui as Record<string, unknown>).confirm, 'function')
   })
 
@@ -100,6 +101,7 @@ describe('sandbox capability profiles', () => {
     assert.ok(tapp.scheduler)
     assert.ok(tapp.event)
     assert.ok(tapp.federation)
+    assert.ok(tapp.persona)
     assert.equal(tapp.widget, undefined)
     assert.equal(tapp.tappList, undefined)
     assert.equal(tapp.component, undefined)

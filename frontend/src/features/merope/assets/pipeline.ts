@@ -5,42 +5,13 @@ import type {
 } from './compiler'
 import { importMeropeRig, previewMeropeRigImport } from '../api'
 import { prepareRigPsdImport } from '../rig/psdImporter'
-import {
-  compileRigAsset,
-  persistRigAsset,
-  preflightRigAsset,
-} from './compiler'
+import { persistRigAsset, preflightRigAsset } from './compiler'
 
 export type {
   ImportedRigAsset,
   RigAssetCompileEvent,
   RigAssetPreflight,
 } from './compiler'
-
-/** PSD parsing, atlas packing, validation, and upload form one transaction. */
-export async function importRigPsdAsset(
-  file: File,
-  sourceMasterAssetId: string,
-  dependencies: {
-    prepare?: typeof prepareRigPsdImport
-    preview?: typeof previewMeropeRigImport
-    upload?: typeof importMeropeRig
-    onStage?: (event: RigAssetCompileEvent) => void
-  } = {},
-  sourceGenerationFingerprint?: string,
-): Promise<ImportedRigAsset> {
-  return compileRigAsset(
-    file,
-    sourceMasterAssetId,
-    {
-      prepare: dependencies.prepare || prepareRigPsdImport,
-      preview: dependencies.preview || previewMeropeRigImport,
-      upload: dependencies.upload || importMeropeRig,
-    },
-    dependencies.onStage,
-    sourceGenerationFingerprint,
-  )
-}
 
 export async function preflightRigPsdAsset(
   file: File,

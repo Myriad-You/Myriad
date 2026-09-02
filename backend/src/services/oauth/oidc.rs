@@ -57,7 +57,10 @@ async fn oidc_client(url: &str) -> Result<(url::Url, reqwest::Client), String> {
         Some("Myriad-OIDC"),
     )
     .await
-    .map_err(|e| format!("OIDC endpoint rejected by outbound policy ({url}): {e}"))
+    .map_err(|error| {
+        tracing::error!(%error, %url, "OIDC endpoint rejected by outbound policy");
+        "OIDC endpoint rejected by outbound policy".to_string()
+    })
 }
 
 /// 读取受限长度的响应体并按 JSON 解析。
@@ -67,8 +70,14 @@ async fn oidc_json<T: serde::de::DeserializeOwned>(
 ) -> Result<T, String> {
     let bytes = crate::services::outbound_security::read_limited_body(resp, OIDC_MAX_BODY)
         .await
-        .map_err(|e| format!("OIDC {what} body rejected: {e}"))?;
-    serde_json::from_slice(&bytes).map_err(|e| format!("OIDC {what} JSON parse failed: {e:?}"))
+        .map_err(|error| {
+            tracing::error!(%error, what, "OIDC response body rejected");
+            format!("OIDC {what} body rejected")
+        })?;
+    serde_json::from_slice(&bytes).map_err(|error| {
+        tracing::error!(error = ?error, what, "OIDC JSON parse failed");
+        format!("OIDC {what} JSON parse failed")
+    })
 }
 
 /// OIDC discovery 文档（只保留我们用得到的字段）
@@ -135,11 +144,10 @@ impl OidcProvider {
 
         tracing::debug!("🔄 Refreshing OIDC discovery for {}", self.slug);
         let (endpoint, http) = oidc_client(&self.discovery_url).await?;
-        let resp = http
-            .get(endpoint)
-            .send()
-            .await
-            .map_err(|e| format!("OIDC discovery GET failed: {e:?}"))?;
+        let resp = http.get(endpoint).send().await.map_err(|error| {
+            tracing::error!(error = ?error, "OIDC discovery GET failed");
+            "OIDC discovery GET failed".to_string()
+        })?;
         let doc: DiscoveryDoc = oidc_json(resp, "discovery").await?;
 
         let mut guard = self.cache.write().await;
@@ -170,17 +178,17 @@ impl OidcProvider {
             .ok_or_else(|| "OIDC discovery missing 'jwks_uri'".to_string())?;
         // jwks_uri 来自 discovery 响应 —— 由远端决定，必须走 SSRF 策略
         let (endpoint, http) = oidc_client(jwks_uri).await?;
-        let resp = http
-            .get(endpoint)
-            .send()
-            .await
-            .map_err(|e| format!("OIDC JWKS GET failed: {e:?}"))?;
+        let resp = http.get(endpoint).send().await.map_err(|error| {
+            tracing::error!(error = ?error, "OIDC JWKS GET failed");
+            "OIDC JWKS GET failed".to_string()
+        })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             // Cap error body the same way as success (MYR-011 / outbound limited body).
             let body = read_error_body_limited(resp).await;
-            return Err(format!("OIDC JWKS endpoint returned {status}: {body}"));
+            tracing::error!(%status, %body, "OIDC JWKS endpoint failed");
+            return Err("OIDC JWKS endpoint failed".to_string());
         }
 
         oidc_json(resp, "jwks").await
@@ -196,8 +204,10 @@ impl OidcProvider {
             .issuer
             .as_deref()
             .ok_or_else(|| "OIDC discovery missing 'issuer'".to_string())?;
-        let header =
-            decode_header(id_token).map_err(|e| format!("OIDC id_token header invalid: {e}"))?;
+        let header = decode_header(id_token).map_err(|error| {
+            tracing::error!(%error, "OIDC id_token header invalid");
+            "OIDC id_token header invalid".to_string()
+        })?;
 
         ensure_asymmetric_id_token_alg(header.alg)?;
 
@@ -205,16 +215,20 @@ impl OidcProvider {
         let jwk = select_jwk(&jwks, header.kid.as_deref())?;
         ensure_jwk_matches_id_token(jwk, header.alg)?;
 
-        let key = DecodingKey::from_jwk(jwk)
-            .map_err(|e| format!("OIDC JWK decoding key invalid: {e}"))?;
+        let key = DecodingKey::from_jwk(jwk).map_err(|error| {
+            tracing::error!(%error, "OIDC JWK decoding key invalid");
+            "OIDC JWK decoding key invalid".to_string()
+        })?;
         let mut validation = Validation::new(header.alg);
         validation.set_audience(&[self.client_id.as_str()]);
         validation.set_issuer(&[issuer]);
         validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
         validation.validate_nbf = true;
 
-        let data = decode::<serde_json::Value>(id_token, &key, &validation)
-            .map_err(|e| format!("OIDC id_token verification failed: {e}"))?;
+        let data = decode::<serde_json::Value>(id_token, &key, &validation).map_err(|error| {
+            tracing::error!(%error, "OIDC id_token verification failed");
+            "OIDC id_token verification failed".to_string()
+        })?;
         validate_authorized_party(&data.claims, &self.client_id)?;
         if let Some(expected) = expected_nonce.filter(|n| !n.is_empty()) {
             validate_id_token_nonce(&data.claims, expected)?;
@@ -237,7 +251,10 @@ async fn read_error_body_limited(resp: reqwest::Response) -> String {
                 s.into_owned()
             }
         }
-        Err(e) => format!("<body unread: {e}>"),
+        Err(e) => {
+            tracing::warn!(error = %e, "OIDC error body unread");
+            "<body unread>".to_string()
+        }
     }
 }
 
@@ -275,8 +292,10 @@ impl OAuthProvider for OidcProvider {
         let scope = self.scope_string();
         // 用 url crate 解析 + append query，避免 authorization_endpoint 本身带 ?param 时
         // 拼出 https://x?a=b?response_type=code 这种非法 URL
-        let mut url = url::Url::parse(&doc.authorization_endpoint)
-            .map_err(|e| format!("invalid authorization_endpoint: {e}"))?;
+        let mut url = url::Url::parse(&doc.authorization_endpoint).map_err(|error| {
+            tracing::error!(%error, "invalid OIDC authorization_endpoint");
+            "invalid authorization_endpoint".to_string()
+        })?;
         {
             let mut pairs = url.query_pairs_mut();
             pairs
@@ -334,12 +353,16 @@ impl OAuthProvider for OidcProvider {
             .form(&params)
             .send()
             .await
-            .map_err(|e| format!("OIDC token POST failed: {e:?}"))?;
+            .map_err(|error| {
+                tracing::error!(error = ?error, "OIDC token POST failed");
+                "OIDC token POST failed".to_string()
+            })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let body = read_error_body_limited(resp).await;
-            return Err(format!("OIDC token endpoint returned {status}: {body}"));
+            tracing::error!(%status, %body, "OIDC token endpoint failed");
+            return Err("OIDC token endpoint failed".to_string());
         }
 
         let token: TokenResp = oidc_json(resp, "token").await?;
@@ -377,7 +400,10 @@ impl OAuthProvider for OidcProvider {
                         .bearer_auth(&tokens.access_token)
                         .send()
                         .await
-                        .map_err(|e| format!("OIDC userinfo GET failed: {e:?}"))?;
+                        .map_err(|error| {
+                            tracing::error!(error = ?error, "OIDC userinfo GET failed");
+                            "OIDC userinfo GET failed".to_string()
+                        })?;
                     oidc_json::<serde_json::Value>(resp, "userinfo").await?
                 } else {
                     id_claims.clone()

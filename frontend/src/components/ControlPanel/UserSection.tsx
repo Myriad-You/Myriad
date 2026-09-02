@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
+import { setForegroundSurface } from '../../features/merope/perception/surface'
 import { useSiteOwnerProfile } from '../../hooks/useSiteOwnerProfile'
 import { onProfileDisplayChanged } from '../../services/avatarSourceApi'
 import { getCSRFToken } from '../../utils/csrf'
@@ -135,6 +136,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       }
       if (modalState === 'closed') {
         setModalState('mounting')
+        setForegroundSurface('user_modal')
         void import('../../utils/analyticsEvents').then(
           ({ trackProductEvent, AnalyticsEvents }) => {
             trackProductEvent(AnalyticsEvents.USER_MODAL_OPEN, {
@@ -149,6 +151,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
     const closeModal = useCallback(() => {
       if (modalState === 'visible' || modalState === 'mounting') {
         setModalState('closing')
+        setForegroundSurface('control_panel')
       }
     }, [modalState])
 

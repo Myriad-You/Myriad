@@ -46,11 +46,11 @@ import { useNavigate } from 'react-router-dom'
 import { Spinner } from '../../components/Spinner'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { ensureMotionReady, isMotionReady } from '../../lib/lazyMotion'
 import { hasSessionHint } from '../../utils/sessionDetection'
 import { showError, showInfo, showSuccess } from '../../utils/toastManager'
+import { userFacingError } from '../../utils/userFacingError'
 import { EXAMPLE_TAPPS } from '../examples'
 import { getTappRuntime } from '../runtime'
 import { RemoteStoreService } from '../services/RemoteStoreService'
@@ -534,7 +534,7 @@ export function TappStore({
       } catch (error) {
         console.error('Failed to uninstall Tapp:', error)
         showError(
-          userFacingError(error, t.tapp.unknownError),
+          userFacingError(error, t.tapp.uninstallFailed),
           t.tapp.uninstallFailed,
         )
         throw error
@@ -667,7 +667,7 @@ export function TappStore({
       } catch (error) {
         console.error('Failed to install Tapp:', error)
         showError(
-          userFacingError(error, t.tapp.unknownError),
+          userFacingError(error, t.tapp.installFailed),
           t.tapp.installFailed,
         )
       } finally {
@@ -784,7 +784,7 @@ export function TappStore({
       } catch (error) {
         console.error('Failed to update Tapp:', error)
         showError(
-          userFacingError(error, t.tapp.unknownError),
+          userFacingError(error, t.tapp.updateFailed),
           t.tapp.updateFailed,
         )
       } finally {
@@ -827,7 +827,7 @@ export function TappStore({
       await loadRemoteApps(true)
     } catch (error) {
       console.error('Failed to toggle source:', error)
-      showError(userFacingError(error, t.tapp.unknownError))
+      showError(userFacingError(error, t.tapp.toggleSourceFailed))
     }
   }
 
@@ -847,7 +847,7 @@ export function TappStore({
       showSuccess(t.tapp.deleteSource)
     } catch (error) {
       console.error('Failed to remove source:', error)
-      showError(userFacingError(error, t.tapp.unknownError))
+      showError(userFacingError(error, t.tapp.deleteSourceFailed))
       throw error
     }
   }
@@ -863,7 +863,7 @@ export function TappStore({
       showSuccess(t.tapp.addSource)
     } catch (error) {
       console.error('Failed to add source:', error)
-      showError(userFacingError(error, t.tapp.unknownError))
+      showError(userFacingError(error, t.tapp.addSourceFailed))
       // 让配置页表单保留输入、显示错误（与 delete 一致 rethrow）
       throw error
     }
@@ -894,7 +894,7 @@ export function TappStore({
       showSuccess(t.tapp.saveSource)
     } catch (error) {
       console.error('Failed to update source:', error)
-      showError(userFacingError(error, t.tapp.unknownError))
+      showError(userFacingError(error, t.tapp.updateSourceFailed))
       throw error
     }
   }

@@ -1,12 +1,7 @@
 import type { MeropeRigManifest, RigBone } from './types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-  buildRigSemantics,
-  resolveRigSemantics,
-  semanticBoneId,
-  semanticChain,
-} from './semantics'
+import { buildRigSemantics, resolveRigSemantics } from './semantics'
 
 const customBones: RigBone[] = [
   { id: 'hips-x', parent: null, pivot: { x: 0.5, y: 0.8 } },
@@ -46,12 +41,9 @@ test('runtime consumes custom torso and whole-handwear mappings', () => {
       secondaryBoneIds: ['fabric-17'],
     },
   } as MeropeRigManifest
-  assert.equal(semanticBoneId(manifest, 'torso'), 'spine-x')
-  assert.equal(semanticBoneId(manifest, 'handwear'), 'painted-hands-x')
-  assert.deepEqual(semanticChain(manifest, 'torso'), [
-    'hips-x',
-    'spine-x',
-    'skull-x',
-  ])
-  assert.deepEqual(resolveRigSemantics(manifest).secondaryBoneIds, ['fabric-17'])
+  const semantics = resolveRigSemantics(manifest)
+  assert.equal(semantics.bones.torso, 'spine-x')
+  assert.equal(semantics.bones.handwear, 'painted-hands-x')
+  assert.deepEqual(semantics.chains.torso, ['hips-x', 'spine-x', 'skull-x'])
+  assert.deepEqual(semantics.secondaryBoneIds, ['fabric-17'])
 })

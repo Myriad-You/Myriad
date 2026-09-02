@@ -342,6 +342,7 @@ pub fn require_download_page_template_if_declared<'a>(
 }
 
 /// Bound the declared assets list before download (store-side contract).
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub fn validate_store_declared_assets_count(declared_len: usize) -> Result<(), String> {
     validate_store_declared_assets_count_max(declared_len, MAX_TAPP_ASSETS)
 }
@@ -359,6 +360,7 @@ pub fn validate_store_declared_assets_count_max(
 }
 
 /// Whether two catalog URLs refer to the same store source (normalized).
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub fn store_catalog_urls_match(a: &str, b: &str) -> bool {
     normalize_store_catalog_url(a) == normalize_store_catalog_url(b)
 }

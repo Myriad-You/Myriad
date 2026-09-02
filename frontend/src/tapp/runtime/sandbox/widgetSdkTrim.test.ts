@@ -56,6 +56,7 @@ describe('generateWidgetSDK permission trim', () => {
     const sdk = generateWidgetSDK(makeInstance([]), 'tok')
     assert.match(sdk, /storage:\s*\{/)
     assert.match(sdk, /lifecycle:\s*\{/)
+    assert.match(sdk, /sendRequest\('persona'/)
     // Shape preserved for DX; heavy sendRequest bodies omitted
     assert.match(sdk, /\bai:\s*\{/)
     assert.match(sdk, /\bmodel3d:\s*\{/)

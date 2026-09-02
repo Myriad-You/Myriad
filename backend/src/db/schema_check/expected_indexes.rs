@@ -661,6 +661,30 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: false,
         },
         IndexDef {
+            name: "idx_agent_intentions_user_status".into(),
+            table: "agent_intentions".into(),
+            columns: vec!["user_id".into(), "status".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_intentions_user_updated".into(),
+            table: "agent_intentions".into(),
+            columns: vec!["user_id".into(), "updated_at".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_intentions_source_event".into(),
+            table: "agent_intentions".into(),
+            columns: vec!["source_event_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_agent_intentions_user_source_event".into(),
+            table: "agent_intentions".into(),
+            columns: vec!["user_id".into(), "source_event_id".into()],
+            is_unique: true,
+        },
+        IndexDef {
             name: "idx_federation_domain_aliases_new".into(),
             table: "federation_domain_aliases".into(),
             columns: vec!["new_base_url".into()],

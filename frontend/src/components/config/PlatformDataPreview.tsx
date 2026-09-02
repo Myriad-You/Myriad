@@ -9,6 +9,7 @@ import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { fetchJson } from '../../utils/apiHelper'
 import { resolvePlatformId } from '../../utils/platformId'
+import { userFacingError } from '../../utils/userFacingError'
 import { SettingGroup, useSettingGuide } from '../settings'
 import './PlatformDataPreview.css'
 
@@ -88,7 +89,7 @@ export const PlatformDataPreview = forwardRef<
   const [preview, setPreview] = useState<PlatformCachePreviewResponse | null>(
     null,
   )
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const requestRef = useRef(0)
 
   const numberLocale =
@@ -98,7 +99,7 @@ export const PlatformDataPreview = forwardRef<
     if (!platformId) return
     const requestId = ++requestRef.current
     setLoading(true)
-    setError(false)
+    setError(null)
     try {
       const data = await fetchJson<PlatformCachePreviewResponse>(
         `${API_URL}/api/cache/preview/${encodeURIComponent(platformId)}`,
@@ -107,7 +108,7 @@ export const PlatformDataPreview = forwardRef<
       )
       if (requestId !== requestRef.current) return
       if (!data.success) {
-        setError(true)
+        setError(dm.previewLoadFailed)
         setPreview(null)
         return
       }
@@ -115,14 +116,14 @@ export const PlatformDataPreview = forwardRef<
     } catch (e) {
       console.error(`Failed to load ${platformName} data preview:`, e)
       if (requestId !== requestRef.current) return
-      setError(true)
+      setError(userFacingError(e, dm.previewLoadFailed))
       setPreview(null)
     } finally {
       if (requestId === requestRef.current) {
         setLoading(false)
       }
     }
-  }, [platformId, platformName])
+  }, [platformId, platformName, dm.previewLoadFailed])
 
   useImperativeHandle(ref, () => ({ reload: load }), [load])
 
@@ -186,7 +187,7 @@ export const PlatformDataPreview = forwardRef<
 
       {error ? (
         <p className="platform-data-preview-status settings-text-3">
-          {dm.previewLoadFailed}
+          {error}
         </p>
       ) : null}
 

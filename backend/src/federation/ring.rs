@@ -3,8 +3,6 @@
 //! 去中心化环网：Tapp 商店发现、Brew 推荐交换、Library 交换圈、实例目录
 //! 基于 Gossip 协议进行对等同步，每个节点维护 known_peers 列表
 
-#![allow(dead_code)]
-
 use axum::{http::StatusCode, Json};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
@@ -133,17 +131,6 @@ pub struct RingPeer {
     pub actor_url: String,
     pub instance_domain: String,
     pub added_at: String,
-}
-
-/// 同步数据载荷
-#[derive(Debug, Deserialize)]
-pub struct SyncDataRequest {
-    /// 携带的数据条目（取决于 ring_type）
-    pub entries: Vec<serde_json::Value>,
-    /// 来源 peer
-    pub origin_peer: Option<String>,
-    /// 剩余 TTL
-    pub ttl: Option<u32>,
 }
 
 /// 添加 Peer 请求

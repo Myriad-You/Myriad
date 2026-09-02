@@ -81,9 +81,18 @@ pub fn paths() -> &'static DataPaths {
 }
 
 fn storage_error(action: &str, path: &Path, error: io::Error) -> io::Error {
+    let cause = match error.kind() {
+        io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
+            "storage is not writable"
+        }
+        io::ErrorKind::StorageFull => "not enough disk space",
+        io::ErrorKind::NotFound => "path not found",
+        io::ErrorKind::AlreadyExists => "already exists",
+        _ => "failed",
+    };
     io::Error::new(
         error.kind(),
-        format!("{action} {}: {error}", path.display()),
+        format!("{action} {}: {cause}", path.display()),
     )
 }
 
@@ -244,7 +253,10 @@ mod tests {
         };
 
         let error = verify_storage_layout_writable(&data_paths).unwrap_err();
-        assert!(error.to_string().contains(&data_file.display().to_string()));
+        let message = error.to_string();
+        assert!(message.contains(&data_file.display().to_string()));
+        assert!(!message.contains("os error"));
+        assert!(message.contains("create storage directory"), "{message}");
 
         fs::remove_dir_all(base).unwrap();
     }

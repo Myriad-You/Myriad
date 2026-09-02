@@ -136,8 +136,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "userInfo": { "type": "object" },
-                "favorites": { "type": "array" },
-                "bangumi": { "type": "array" }
+                "uid": { "type": "string" },
+                "name": { "type": "string" }
             }
         }),
         required_permissions: vec!["bilibili:read".to_string()],
@@ -207,22 +207,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "steam.user".to_string(),
         name: "Steam 用户查询".to_string(),
-        description: "获取 Steam 用户信息和游戏库".to_string(),
+        description: "读取本站已同步的 Steam 缓存（不是按 steamId 实时查询）".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
-            "properties": {
-                "steamId": { "type": "string" }
-            },
-            "required": ["steamId"]
+            "properties": {}
         }),
         output_schema: json!({
             "type": "object",
             "properties": {
                 "userInfo": { "type": "object" },
-                "games": { "type": "array" },
-                "recentGames": { "type": "array" }
+                "source": { "type": "string" }
             }
         }),
         required_permissions: vec!["steam:read".to_string()],
@@ -247,8 +243,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "repos": { "type": "array" },
-                "contributions": { "type": "object" }
+                "type": { "type": "string" },
+                "data": { "description": "repos / contributions / starred 对应的数据" }
             }
         }),
         required_permissions: vec!["github:read".to_string()],
@@ -273,6 +269,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
+                "type": { "type": "string" },
+                "data": { "description": "playlists / recent / favorites 对应的数据" },
                 "playlists": { "type": "array" },
                 "songs": { "type": "array" }
             }
@@ -287,19 +285,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "bilibili.bangumi".to_string(),
         name: "Bilibili 追番查询".to_string(),
-        description: "查询用户的 Bilibili 追番/追剧列表".to_string(),
+        description: "读取本站已同步的 B 站追番缓存（不是按 uid 实时查询）".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
-            "properties": {
-                "uid": { "type": "integer" },
-                "type": { "type": "string", "enum": ["bangumi", "cinema"], "default": "bangumi" }
-            }
+            "properties": {}
         }),
         output_schema: json!({
             "type": "object",
             "properties": {
+                "source": { "type": "string" },
+                "bangumis": { "type": "array" },
                 "items": { "type": "array" },
                 "total": { "type": "integer" }
             }
@@ -343,18 +340,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "steam.wishlist".to_string(),
         name: "Steam 愿望单".to_string(),
-        description: "查询用户 Steam 愿望单".to_string(),
+        description: "读取本站已同步的 Steam 愿望单缓存（不是按 steamId 实时查询）".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
-            "properties": {
-                "steamId": { "type": "string" }
-            }
+            "properties": {}
         }),
         output_schema: json!({
             "type": "object",
             "properties": {
+                "source": { "type": "string" },
+                "wishlist": { "type": "array" },
                 "items": { "type": "array" },
                 "total": { "type": "integer" }
             }
@@ -375,7 +372,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
         input_schema: json!({
             "type": "object",
             "properties": {
-                "appId": { "type": "integer" }
+                "appId": { "type": "integer", "description": "也接受字符串 / app_id" },
+                "app_id": { "type": "integer" }
             },
             "required": ["appId"]
         }),

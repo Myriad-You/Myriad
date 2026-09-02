@@ -56,6 +56,7 @@ import {
   registerLifecycleHandlers,
   registerMediaHandlers,
   registerModel3dHandlers,
+  registerPersonaHandlers,
   registerPlatformHandlers,
   registerReportHandlers,
   registerSchedulerHandlers,
@@ -812,6 +813,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         registerGameHandlers(bridge, currentTappInstance)
       }
       registerContextHandlers(bridge, currentTappInstance)
+      registerPersonaHandlers(bridge)
       // data-exchange stays public (consent host + broker still enforce)
       const closeDataExchange = registerDataExchangeHandlers(
         bridge,

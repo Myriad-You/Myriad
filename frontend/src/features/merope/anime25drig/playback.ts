@@ -1,11 +1,16 @@
-import { ANIME25D_LAYER_DEPTH, type Anime25DLayerRole } from '../rig/anime25d'
+import type { Anime25DLayerRole } from '../rig/anime25d'
 import type {
   Anime25DEyeAnchor,
   Anime25DFade,
+  Anime25DMouthProfile,
   Anime25DPlayback,
   Anime25DPlaybackAnchors,
   Anime25DPlaybackLayer,
 } from './types'
+import { currentCopy } from '../../../i18n/localeCopy'
+import { ANIME25D_LAYER_DEPTH, anime25DLayerFade } from '../rig/anime25d'
+import { deriveGeometryChestProfile } from './chestPhysics'
+import { deriveAnime25DShellProfile } from './shellProfile'
 import { anime25DPlaybackSource } from './types'
 
 export interface Anime25DPlaybackBuildLayer {
@@ -20,7 +25,14 @@ export interface Anime25DPlaybackBuildLayer {
 
 /** Raw `rig.anchors` from Anime2.5DRig `buildRig`. */
 export interface Anime25DRiggerAnchors {
-  face: { cx: number; cy: number; x0: number; x1: number; y0: number; y1: number }
+  face: {
+    cx: number
+    cy: number
+    x0: number
+    x1: number
+    y0: number
+    y1: number
+  }
   eyeL?: Anime25DEyeAnchor
   eyeR?: Anime25DEyeAnchor
   mouth: {
@@ -43,6 +55,7 @@ export interface Anime25DPlaybackBuildInput {
   frameHeight: number
   layers: Anime25DPlaybackBuildLayer[]
   anchors: Anime25DPlaybackAnchors
+  mouthProfile: Anime25DMouthProfile
 }
 
 /** Translate Anime2.5DRig document anchors into the 3:4 content frame. */
@@ -109,11 +122,17 @@ export function buildAnime25DPlayback(
     toPlaybackLayer(layer, width, index),
   )
   requiredLayer(layers, 'face')
-  return {
+  const source = {
     ...anime25DPlaybackSource(),
     pixelCanvas: { width, height },
     layers,
     anchors: input.anchors,
+  }
+  return {
+    ...source,
+    mouthProfile: input.mouthProfile,
+    chestProfile: deriveGeometryChestProfile(source),
+    shellProfile: deriveAnime25DShellProfile(source),
   }
 }
 
@@ -163,11 +182,7 @@ function playbackDepth(role: string): number {
 }
 
 function playbackFade(role: string): Anime25DFade | null {
-  if (role === 'eyewhite' || role === 'irides' || role === 'eyelash') return 'eyeOpen'
-  if (role === 'eye-close') return 'eyeClose'
-  if (role === 'mouth-open') return 'mouthOpen'
-  if (role === 'mouth-close') return 'mouthClose'
-  return null
+  return anime25DLayerFade(role)
 }
 
 function requiredLayer(
@@ -175,6 +190,10 @@ function requiredLayer(
   role: string,
 ): Anime25DPlaybackLayer {
   const layer = layers.find((candidate) => candidate.role === role)
-  if (!layer) throw new Error(`Anime2.5DRig playback missing ${role}`)
+  if (!layer) {
+    throw new Error(
+      currentCopy().merope.anime25dMissingLayer.replace('{role}', role),
+    )
+  }
   return layer
 }

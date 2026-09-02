@@ -408,10 +408,6 @@ async fn do_uninstall_tapp(
     Ok(Json(ApiResponse::success(())))
 }
 
-/// Private (non-admin) installs are kept while the subject stays active.
-/// After this many days without login/seen activity, they are pruned.
-pub const PRIVATE_INSTALL_INACTIVITY_DAYS: i64 = 14;
-
 /// Delete private Tapp installs owned by non-admin users who have been inactive
 /// for `inactivity_days` (based on `COALESCE(last_login_at, last_seen_at, created_at)`).
 ///

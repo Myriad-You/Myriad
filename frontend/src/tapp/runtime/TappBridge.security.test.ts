@@ -7,11 +7,11 @@
 import type { TappInstance } from '../types'
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
+import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits.ts'
 import {
   applyFederationLimitsPayload,
   resetFederationLimitsForTests,
 } from './federationLimits.ts'
-import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits.ts'
 import { TappBridge } from './TappBridge.ts'
 
 const instance: TappInstance = {

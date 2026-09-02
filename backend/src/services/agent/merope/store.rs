@@ -2,6 +2,7 @@ use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
+    TransactionTrait,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -9,6 +10,8 @@ use uuid::Uuid;
 use crate::models::entities::{
     agent_addressee_state, agent_diary, agent_persona, agent_proactive_messages, agent_sessions,
 };
+
+use super::state::{clamp, persona_affect_baseline, settle, Affect, AffectBaseline};
 
 pub const PERSONA_ROW_ID: &str = "site";
 
@@ -85,6 +88,16 @@ fn visual_generation_inputs_changed(current: Option<&Value>, update: &JsonDocume
     }
 }
 
+/// Name or visual appearance changed: old portrait and Rig must both go.
+pub fn generation_inputs_changed(
+    existing_name: &str,
+    existing_visual: Option<&Value>,
+    next_name: &str,
+    visual_update: &JsonDocumentUpdate,
+) -> bool {
+    existing_name != next_name || visual_generation_inputs_changed(existing_visual, visual_update)
+}
+
 fn apply_persona_update(
     existing: agent_persona::Model,
     name: String,
@@ -93,16 +106,17 @@ fn apply_persona_update(
     contract: &PersonaContractUpdate,
     updated_by: i32,
 ) -> agent_persona::ActiveModel {
-    let generation_inputs_changed = existing.name != name
-        || visual_generation_inputs_changed(
-            existing.visual_profile.as_ref(),
-            &contract.visual_profile,
-        );
+    let inputs_changed = generation_inputs_changed(
+        &existing.name,
+        existing.visual_profile.as_ref(),
+        &name,
+        &contract.visual_profile,
+    );
     let mut active: agent_persona::ActiveModel = existing.into();
     active.name = Set(name);
     active.personality = Set(personality);
     match portrait {
-        PortraitUpdate::Keep if generation_inputs_changed => active.portrait_asset_id = Set(None),
+        PortraitUpdate::Keep if inputs_changed => active.portrait_asset_id = Set(None),
         PortraitUpdate::Keep => {}
         PortraitUpdate::Clear => active.portrait_asset_id = Set(None),
         PortraitUpdate::Set(value) => active.portrait_asset_id = Set(Some(value.clone())),
@@ -113,7 +127,7 @@ fn apply_persona_update(
         &mut active.portrait_generation,
         &contract.portrait_generation,
     );
-    if (!matches!(portrait, PortraitUpdate::Keep) || generation_inputs_changed)
+    if (!matches!(portrait, PortraitUpdate::Keep) || inputs_changed)
         && matches!(contract.portrait_generation, JsonDocumentUpdate::Keep)
     {
         active.portrait_generation = Set(None);
@@ -331,72 +345,171 @@ fn is_unique_conflict(err: &impl std::fmt::Display) -> bool {
     lower.contains("23505") || lower.contains("duplicate key")
 }
 
-pub async fn get_or_create_state(
-    db: &DatabaseConnection,
+pub async fn load_affect_baseline<C>(db: &C) -> AffectBaseline
+where
+    C: ConnectionTrait,
+{
+    match get_persona_on(db).await {
+        Ok(Some(persona)) => {
+            persona_affect_baseline(persona.persona_json.as_ref(), &persona.personality)
+        }
+        _ => AffectBaseline::default(),
+    }
+}
+
+pub fn affect_from_state(state: &agent_addressee_state::Model) -> Affect {
+    Affect {
+        mood: state.mood,
+        arousal: state.arousal,
+        emotion: state.emotion,
+        emotion_arousal: state.emotion_arousal,
+    }
+}
+
+fn hours_since(at: chrono::DateTime<chrono::FixedOffset>) -> f64 {
+    let secs = (Utc::now() - at.with_timezone(&Utc)).num_seconds();
+    (secs.max(0) as f64) / 3600.0
+}
+
+/// Overlay regression in memory. Writing on read would refresh `updated_at` and
+/// keep a stale `working` activity alive.
+fn overlay_settled(
+    mut state: agent_addressee_state::Model,
+    base: AffectBaseline,
+) -> agent_addressee_state::Model {
+    let settled = settle(
+        affect_from_state(&state),
+        base,
+        hours_since(state.mood_settled_at),
+        hours_since(state.emotion_settled_at),
+    );
+    state.mood = settled.mood;
+    state.arousal = settled.arousal;
+    state.emotion = settled.emotion;
+    state.emotion_arousal = settled.emotion_arousal;
+    state
+}
+
+pub async fn get_or_create_state<C>(
+    db: &C,
     user_id: i32,
-) -> Result<agent_addressee_state::Model, anyhow::Error> {
+) -> Result<agent_addressee_state::Model, anyhow::Error>
+where
+    C: ConnectionTrait,
+{
+    let base = load_affect_baseline(db).await;
     if let Some(existing) = agent_addressee_state::Entity::find_by_id(user_id)
         .one(db)
         .await?
     {
-        return Ok(existing);
+        return Ok(overlay_settled(existing, base));
     }
+    let rest = Affect::at_rest(base);
     let now = Utc::now().into();
     let active = agent_addressee_state::ActiveModel {
         user_id: Set(user_id),
-        mood: Set(70.0),
+        mood: Set(rest.mood),
+        arousal: Set(rest.arousal),
+        emotion: Set(rest.emotion),
+        emotion_arousal: Set(rest.emotion_arousal),
         activity: Set("idle".to_string()),
+        activity_updated_at: Set(now),
         do_not_disturb: Set(false),
         dnd_start_minute: Set(None),
         dnd_end_minute: Set(None),
         last_user_message_at: Set(None),
         last_proactive_at: Set(None),
-        last_departure_at: Set(None),
+        mood_settled_at: Set(now),
+        emotion_settled_at: Set(now),
         updated_at: Set(now),
     };
     match active.insert(db).await {
         Ok(model) => Ok(model),
-        Err(err) if is_unique_conflict(&err) => agent_addressee_state::Entity::find_by_id(user_id)
-            .one(db)
-            .await?
-            .ok_or_else(|| err.into()),
+        Err(err) if is_unique_conflict(&err) => {
+            let existing = agent_addressee_state::Entity::find_by_id(user_id)
+                .one(db)
+                .await?
+                .ok_or_else(|| anyhow::Error::from(err))?;
+            Ok(overlay_settled(existing, base))
+        }
         Err(err) => Err(err.into()),
     }
 }
 
-pub async fn save_mood(
-    db: &DatabaseConnection,
+async fn save_affect_on<C>(
+    db: &C,
     user_id: i32,
-    mood: f64,
+    affect: Affect,
     touch_user_message: bool,
-) -> Result<agent_addressee_state::Model, anyhow::Error> {
-    let mut state = get_or_create_state(db, user_id).await?;
+) -> Result<agent_addressee_state::Model, anyhow::Error>
+where
+    C: ConnectionTrait,
+{
+    let state = get_or_create_state(db, user_id).await?;
     let now = Utc::now().into();
-    let mut active: agent_addressee_state::ActiveModel = state.clone().into();
-    active.mood = Set(super::clamp_mood(mood));
+    let mut active: agent_addressee_state::ActiveModel = state.into();
+    active.mood = Set(clamp(affect.mood));
+    active.arousal = Set(clamp(affect.arousal));
+    active.emotion = Set(clamp(affect.emotion));
+    active.emotion_arousal = Set(clamp(affect.emotion_arousal));
+    active.mood_settled_at = Set(now);
+    active.emotion_settled_at = Set(now);
     active.updated_at = Set(now);
     if touch_user_message {
         active.last_user_message_at = Set(Some(now));
     }
-    state = active.update(db).await?;
-    Ok(state)
-}
-
-/// Departure decay. Stamps `last_departure_at` so the same silence window is not
-/// charged twice — `updated_at` cannot carry that, every activity write touches it.
-pub async fn save_departure_mood(
-    db: &DatabaseConnection,
-    user_id: i32,
-    mood: f64,
-) -> Result<agent_addressee_state::Model, anyhow::Error> {
-    let state = get_or_create_state(db, user_id).await?;
-    let now = Utc::now().into();
-    let mut active: agent_addressee_state::ActiveModel = state.into();
-    active.mood = Set(super::clamp_mood(mood));
-    active.last_departure_at = Set(Some(now));
-    active.updated_at = Set(now);
     Ok(active.update(db).await?)
 }
+
+/// Apply one affect delta to the latest row under a per-addressee database
+/// lock. Chat turns, async appraisal and task outcomes can arrive from
+/// different sessions or backend replicas; serializing the read-modify-write
+/// keeps every delta instead of letting the last absolute write erase one.
+pub async fn update_affect<F>(
+    db: &DatabaseConnection,
+    user_id: i32,
+    touch_user_message: bool,
+    update: F,
+) -> Result<(Affect, agent_addressee_state::Model), anyhow::Error>
+where
+    F: FnOnce(&mut Affect) + Send,
+{
+    let transaction = db.begin().await?;
+    lock_addressee(&transaction, user_id).await?;
+    let state = get_or_create_state(&transaction, user_id).await?;
+    let before = affect_from_state(&state);
+    let mut after = before;
+    update(&mut after);
+    let saved = save_affect_on(&transaction, user_id, after, touch_user_message).await?;
+    transaction.commit().await?;
+    Ok((before, saved))
+}
+
+async fn lock_addressee<C>(db: &C, user_id: i32) -> Result<(), anyhow::Error>
+where
+    C: ConnectionTrait,
+{
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock($1, $2)",
+        vec![1296388165_i32.into(), user_id.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
+/// One table, three sources.
+///
+/// The rows are the same shape, are created and deleted together, and are read
+/// together (`list_diary_from_sources`), so a discriminator is the right split
+/// and three tables would only buy a three-way union. What the sources do not
+/// share is meaning: `remember` is a fact the user stated, while `event` and
+/// `chat` are summaries the platform generated about them. Reads are therefore
+/// always source-scoped — there is no "latest row of any kind" — so a stated
+/// fact can never arrive somewhere expecting a generated summary.
+pub const DIARY_SOURCE_EVENT: &str = "event";
+pub const DIARY_SOURCE_CHAT: &str = "chat";
+pub const DIARY_SOURCE_REMEMBER: &str = "remember";
 
 pub async fn insert_diary(
     db: &DatabaseConnection,
@@ -417,28 +530,40 @@ pub async fn insert_diary(
 pub async fn latest_diary(
     db: &DatabaseConnection,
     user_id: i32,
-    source: Option<&str>,
+    source: &str,
 ) -> Result<Option<agent_diary::Model>, anyhow::Error> {
-    let mut query = agent_diary::Entity::find()
-        .filter(agent_diary::Column::UserId.eq(user_id))
-        .order_by_desc(agent_diary::Column::CreatedAt);
-    if let Some(source) = source {
-        query = query.filter(agent_diary::Column::Source.eq(source));
-    }
-    Ok(query.one(db).await?)
-}
-
-pub async fn list_diary(
-    db: &DatabaseConnection,
-    user_id: i32,
-    limit: u64,
-) -> Result<Vec<agent_diary::Model>, anyhow::Error> {
     Ok(agent_diary::Entity::find()
         .filter(agent_diary::Column::UserId.eq(user_id))
+        .filter(agent_diary::Column::Source.eq(source))
+        .order_by_desc(agent_diary::Column::CreatedAt)
+        .one(db)
+        .await?)
+}
+
+pub async fn list_diary_from_sources(
+    db: &DatabaseConnection,
+    user_id: i32,
+    sources: &[&str],
+    limit: u64,
+) -> Result<Vec<agent_diary::Model>, anyhow::Error> {
+    if sources.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    Ok(agent_diary::Entity::find()
+        .filter(agent_diary::Column::UserId.eq(user_id))
+        .filter(agent_diary::Column::Source.is_in(sources.iter().copied()))
         .order_by_desc(agent_diary::Column::CreatedAt)
         .limit(limit)
         .all(db)
         .await?)
+}
+
+pub async fn list_remembered(
+    db: &DatabaseConnection,
+    user_id: i32,
+    limit: u64,
+) -> Result<Vec<agent_diary::Model>, anyhow::Error> {
+    list_diary_from_sources(db, user_id, &[DIARY_SOURCE_REMEMBER], limit).await
 }
 
 pub async fn insert_proactive(
@@ -548,14 +673,54 @@ pub async fn set_activity(
     user_id: i32,
     activity: &str,
 ) -> Result<agent_addressee_state::Model, anyhow::Error> {
-    let state = get_or_create_state(db, user_id).await?;
+    let transaction = db.begin().await?;
+    lock_addressee(&transaction, user_id).await?;
+    let state = get_or_create_state(&transaction, user_id).await?;
     if state.activity == activity {
+        transaction.commit().await?;
         return Ok(state);
     }
     let mut active: agent_addressee_state::ActiveModel = state.into();
+    let now = Utc::now().into();
     active.activity = Set(activity.to_string());
-    active.updated_at = Set(Utc::now().into());
-    Ok(active.update(db).await?)
+    active.activity_updated_at = Set(now);
+    active.updated_at = Set(now);
+    let saved = active.update(&transaction).await?;
+    transaction.commit().await?;
+    Ok(saved)
+}
+
+/// Keep the most active phase while more than one run is live. A second run
+/// starting its talking phase must not downgrade another run already working.
+pub async fn promote_activity(
+    db: &DatabaseConnection,
+    user_id: i32,
+    activity: &str,
+) -> Result<agent_addressee_state::Model, anyhow::Error> {
+    let transaction = db.begin().await?;
+    lock_addressee(&transaction, user_id).await?;
+    let state = get_or_create_state(&transaction, user_id).await?;
+    if activity_rank(activity) <= activity_rank(&state.activity) {
+        transaction.commit().await?;
+        return Ok(state);
+    }
+    let mut active: agent_addressee_state::ActiveModel = state.into();
+    let now = Utc::now().into();
+    active.activity = Set(activity.to_string());
+    active.activity_updated_at = Set(now);
+    active.updated_at = Set(now);
+    let saved = active.update(&transaction).await?;
+    transaction.commit().await?;
+    Ok(saved)
+}
+
+fn activity_rank(activity: &str) -> u8 {
+    match activity {
+        "working" => 3,
+        "thinking" => 2,
+        "talking" => 1,
+        _ => 0,
+    }
 }
 
 pub async fn touch_proactive(
@@ -566,7 +731,6 @@ pub async fn touch_proactive(
     let now = Utc::now().into();
     let mut active: agent_addressee_state::ActiveModel = state.into();
     active.last_proactive_at = Set(Some(now));
-    active.activity = Set("idle".to_string());
     active.updated_at = Set(now);
     Ok(active.update(db).await?)
 }
@@ -584,6 +748,13 @@ mod tests {
         ));
         assert!(!is_unique_conflict(&"connection reset"));
         assert!(!is_unique_conflict(&"null value in column unique_id"));
+    }
+
+    #[test]
+    fn concurrent_activity_only_moves_toward_the_busier_phase() {
+        assert!(activity_rank("working") > activity_rank("thinking"));
+        assert!(activity_rank("thinking") > activity_rank("talking"));
+        assert!(activity_rank("talking") > activity_rank("idle"));
     }
 
     #[test]
@@ -605,8 +776,7 @@ mod tests {
             }
         });
         let existing_visual_profile = changed_visual_profile.clone();
-        changed_visual_profile["visualIdentity"]["hairShape"] =
-            json!("银灰高马尾与偏分刘海");
+        changed_visual_profile["visualIdentity"]["hairShape"] = json!("银灰高马尾与偏分刘海");
         let existing = agent_persona::Model {
             id: PERSONA_ROW_ID.to_string(),
             name: "Arael".to_string(),
@@ -631,6 +801,40 @@ mod tests {
         );
         assert_eq!(active.portrait_generation, Set(None));
         assert_eq!(active.portrait_asset_id, Set(None));
+    }
+
+    #[test]
+    fn generation_inputs_changed_without_a_portrait() {
+        let mut next = json!({
+            "gender": "female",
+            "visualIdentity": {
+                "faceDesign": "女性化读取，紧凑圆润鹅蛋脸",
+                "eyeDesign": "中等偏大的紫色宝石眼，视线坚定",
+                "hairShape": "银灰齐颌短发与偏分刘海",
+                "hairLayerPlan": "后发、刘海和左右侧发形成独立轮廓",
+                "upperBodySilhouette": "紧凑肩线、清楚领口与胸前焦点",
+                "outfitConstruction": "敞开领口内搭叠短外套并止于高腰",
+                "sleeveArmDesign": "左右袖片携局部前臂进入画面",
+                "materialPlan": "哑光布料",
+                "heroAccessory": "左胸星轨扣饰",
+                "paletteHint": "雾蓝为主、银白为辅、金色点缀",
+                "motif": "单一星轨弧线集中在胸前"
+            }
+        });
+        let existing = next.clone();
+        next["visualIdentity"]["hairShape"] = json!("银灰高马尾与偏分刘海");
+        assert!(generation_inputs_changed(
+            "Arael",
+            Some(&existing),
+            "Arael",
+            &JsonDocumentUpdate::Set(next),
+        ));
+        assert!(!generation_inputs_changed(
+            "Arael",
+            Some(&existing),
+            "Arael",
+            &JsonDocumentUpdate::Keep,
+        ));
     }
 
     #[test]

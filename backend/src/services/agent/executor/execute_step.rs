@@ -2,6 +2,7 @@
 
 use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 use crate::services::agent::capability::get_registry;
+use crate::services::agent::external_pure::classify_outbound_fetch;
 use crate::services::agent::types::{self, *};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -55,17 +56,35 @@ impl Executor {
                 .ok_or_else(|| format!("Unknown capability: {}", step.capability_id))?;
 
         // 权限校验：检查 capability 声明的 required_permissions
-        if !capability.required_permissions.is_empty() {
+        if !capability.required_permissions.is_empty()
+            || handler_ctx.autonomy_permission_cap.is_some()
+        {
             let user_perms =
                 crate::services::agent::get_user_permissions(handler_ctx.db, handler_ctx.user_id)
                     .await;
-            for perm in &capability.required_permissions {
-                if !user_perms.contains(perm) {
-                    return Err(format!(
-                        "权限不足：执行 '{}' 需要 '{}' 权限",
-                        step.capability_id, perm
-                    ));
-                }
+            let granted: Vec<String> = user_perms.into_iter().collect();
+            let grant = if handler_ctx.autonomy_permission_cap.is_some() {
+                crate::services::agent::consciousness::AutonomyGrantStore::new(
+                    handler_ctx.db.clone(),
+                )
+                .find(handler_ctx.user_id)
+                .await
+                .ok()
+                .flatten()
+            } else {
+                None
+            };
+            if let Some(error) =
+                crate::services::agent::consciousness::autonomy_execute_permission_error(
+                    handler_ctx.user_id,
+                    grant.as_ref(),
+                    &granted,
+                    handler_ctx.autonomy_permission_cap.as_deref(),
+                    &step.capability_id,
+                    &capability.required_permissions,
+                )
+            {
+                return Err(error);
             }
         }
 
@@ -131,6 +150,14 @@ impl Executor {
             &mut resolved_params,
             &context.step_outputs,
         );
+        inject_request_context_params(
+            &step.capability_id,
+            &mut resolved_params,
+            context.variables.get("_current_route"),
+            context.page_context.as_ref(),
+            context.variables.get("_music_status"),
+            context.variables.get("_window_state"),
+        );
 
         // 根据能力类别和预估时长确定超时（秒），预估时长取3倍作为缓冲
         // 优先使用 RecipeStep 指定的 timeout_ms，否则用能力声明推断
@@ -175,56 +202,49 @@ impl Executor {
         )
         .await?;
 
-        Self::report_output_contract(step, &capability, &output);
+        Self::apply_output_contract(step, &capability, &output)?;
 
         Ok(output)
     }
 
-    /// 校验步骤输出是否符合能力声明的 `output_schema`，**只上报、不判失败**。
+    /// Breach (wrong JSON type / missing required) fails the step. Drift is
+    /// still log-only: a handler that returns extra keys plus none of the
+    /// declared ones is usually a schema leftover, not a crashed tool.
     ///
-    /// 最初的版本把 Breach（声明字段类型不符）判为步骤失败，理由是「声明和实现
-    /// 不一致必然是 bug」。但错的一方可能是**声明**：`output_schema` 在此之前从未
-    /// 被任何代码读取，注册表里的声明基本是照着愿望写的。仅在 16 个 AI 能力里就
-    /// 查出 2 处类型写错（`ai.analyze` 的 `analysis` 实为字符串、`ai.recommend`
-    /// 的 `recommendations` 在退化路径上是字符串）——按 12% 的错误率推算，未采样的
-    /// 路径几乎必然还有。判失败就等于让一处声明笔误直接打挂一条正常功能。
-    ///
-    /// 另外 `required` 在全部 output_schema 里出现 0 次，所以「只对缺 required
-    /// 致命」也是空条件，起不到兜底作用。
-    ///
-    /// 因此运行时只记录，`Breach` / `Drift` 的区分留给 CI：
-    /// `output_contract` 的样本输出表断言被覆盖的能力不得出现 Breach。等注册表
-    /// 的声明被逐个校准干净，再把这里翻回判失败。
-    ///
-    /// MCP 工具的 output_schema 是本地合成的占位（`{"type": "string"}`），不是
-    /// 外部服务的真实契约，完全不参与校验。
-    fn report_output_contract(step: &RecipeStep, capability: &Capability, output: &Value) {
+    /// MCP tools synthesize a local `{"type": "string"}` placeholder and stay
+    /// exempt.
+    fn apply_output_contract(
+        step: &RecipeStep,
+        capability: &Capability,
+        output: &Value,
+    ) -> Result<(), String> {
         if step.capability_id.starts_with("mcp.") {
-            return;
+            return Ok(());
         }
 
         let Some(violation) = crate::services::agent::capability::check_output_contract(
             &capability.output_schema,
             output,
         ) else {
-            return;
+            return Ok(());
         };
 
         if violation.is_fatal() {
-            tracing::warn!(
+            tracing::error!(
                 step_id = %step.id,
                 capability = %step.capability_id,
                 violation = violation.message(),
-                "[Executor] Step output breaches its declared contract (reported, not enforced)"
+                "[Executor] Step output breaches its declared contract"
             );
-        } else {
-            tracing::warn!(
-                step_id = %step.id,
-                capability = %step.capability_id,
-                violation = violation.message(),
-                "[Executor] Capability output_schema has drifted from its handler"
-            );
+            return Err(violation.message().to_string());
         }
+        tracing::warn!(
+            step_id = %step.id,
+            capability = %step.capability_id,
+            violation = violation.message(),
+            "[Executor] Capability output_schema has drifted from its handler"
+        );
+        Ok(())
     }
 
     /// 执行 Skill 步骤
@@ -252,6 +272,13 @@ impl Executor {
             "[Executor] Executing skill"
         );
 
+        let user_perms =
+            crate::services::agent::get_user_permissions(handler_ctx.db, handler_ctx.user_id).await;
+        if !crate::services::agent::skill::skill_covered_by_grants(&skill, Some(&user_perms)).await
+        {
+            return Err(format!("Skill '{}' is not available", skill.name));
+        }
+
         // 检查 gating（前置条件）
         if !skill.gating.capabilities.is_empty() {
             let cap_registry = get_registry().await;
@@ -278,6 +305,18 @@ impl Executor {
             let all_caps = cap_registry.get_all();
             for cap in &all_caps {
                 if gating_caps.contains(&cap.id) || cap.id.starts_with("ai.") {
+                    if !crate::services::agent::capability::capability_covered_by_grants(
+                        cap,
+                        Some(&user_perms),
+                    ) {
+                        continue;
+                    }
+                    if !crate::services::agent::consciousness::required_permissions_within_cap(
+                        &cap.required_permissions,
+                        handler_ctx.autonomy_permission_cap.as_deref(),
+                    ) {
+                        continue;
+                    }
                     // 提取 required params
                     let params_hint = cap
                         .input_schema
@@ -503,10 +542,10 @@ impl Executor {
             count_hint = count_hint,
         );
 
-        let ai_result = analyzer
-            .analyze(&prompt)
-            .await
-            .map_err(|e| format!("Skill AI planning failed: {}", e))?;
+        let ai_result = analyzer.analyze(&prompt).await.map_err(|error| {
+            tracing::error!(%error, "Skill AI planning failed");
+            classify_outbound_fetch("Skill AI planning failed", &error.to_string())
+        })?;
 
         tracing::debug!(
             skill_id = skill_id,
@@ -814,6 +853,17 @@ impl Executor {
         params: &mut HashMap<String, Value>,
         previous_outputs: &HashMap<String, Value>,
     ) {
+        if capability_id == "context.reference" {
+            if let Some(ref_str) = context_reference_source(params) {
+                if let Some(value) = self.resolve_path_reference(&ref_str, previous_outputs) {
+                    let transform = params.get("transform").and_then(Value::as_str);
+                    params.insert(
+                        "value".to_string(),
+                        apply_reference_transform(value, transform),
+                    );
+                }
+            }
+        }
         if capability_id == "music.playlist" {
             let has_playlist_id = params
                 .get("playlistId")
@@ -1068,6 +1118,100 @@ impl Executor {
     // 动态步骤生成系统
 }
 
+/// `context.reference` stepId + optional path → `step_id` or `step_id.path`.
+fn context_reference_source(params: &HashMap<String, Value>) -> Option<String> {
+    let step_id = params
+        .get("stepId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    match params
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(path) => Some(format!("{step_id}.{path}")),
+        None => Some(step_id.to_string()),
+    }
+}
+
+fn apply_reference_transform(value: Value, transform: Option<&str>) -> Value {
+    match transform.unwrap_or("none") {
+        "stringify" => Value::String(value.to_string()),
+        "parse" => value
+            .as_str()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or(value),
+        "join" => match &value {
+            Value::Array(items) => Value::String(
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            _ => value,
+        },
+        "first" => match &value {
+            Value::Array(items) => items.first().cloned().unwrap_or(Value::Null),
+            _ => value,
+        },
+        "last" => match &value {
+            Value::Array(items) => items.last().cloned().unwrap_or(Value::Null),
+            _ => value,
+        },
+        _ => value,
+    }
+}
+
+/// Fill `currentPath` / `context` from the turn request when the planner omitted
+/// them. `router.state` declares an empty input schema, so without this it
+/// always reports `/`.
+fn inject_request_context_params(
+    capability_id: &str,
+    params: &mut HashMap<String, Value>,
+    current_route: Option<&Value>,
+    page_context: Option<&Value>,
+    music_status: Option<&Value>,
+    window_state: Option<&Value>,
+) {
+    let needs_path = matches!(
+        capability_id,
+        "router.state" | "page.content" | "page.understand" | "page.interact"
+    );
+    if needs_path {
+        let missing = params
+            .get("currentPath")
+            .is_none_or(|v| v.as_str().map(str::trim).unwrap_or("").is_empty());
+        if missing {
+            if let Some(route) = current_route
+                .cloned()
+                .filter(|v| v.as_str().map(str::trim).is_some_and(|s| !s.is_empty()))
+            {
+                params.insert("currentPath".to_string(), route);
+            }
+        }
+    }
+    if matches!(capability_id, "page.content" | "page.understand")
+        && !params.contains_key("context")
+    {
+        if let Some(page) = page_context.cloned() {
+            params.insert("context".to_string(), page);
+        }
+    }
+    if capability_id == "music.status" && !params.contains_key("status") {
+        if let Some(status) = music_status.cloned() {
+            params.insert("status".to_string(), status);
+        }
+    }
+    if capability_id == "tapp.windows" && !params.contains_key("windowState") {
+        if let Some(state) = window_state.cloned() {
+            params.insert("windowState".to_string(), state);
+        }
+    }
+}
+
 #[cfg(test)]
 mod output_contract_tests {
     use super::*;
@@ -1106,43 +1250,138 @@ mod output_contract_tests {
         })
     }
 
-    /// The reporter never fails a step, whatever it finds. Enforcement lives in
-    /// CI (see `output_contract`'s sample-output table) until the registry's
-    /// declarations have been verified against their handlers.
     #[test]
-    fn reporting_never_fails_a_step() {
-        for output in [
-            json!({ "summary": "ok" }),
-            json!({ "summary": 42 }),
-            json!({ "message": "no declared field present" }),
-            json!({}),
-            json!("not an object at all"),
-        ] {
-            Executor::report_output_contract(
-                &step("ai.summarize"),
-                &capability("ai.summarize", summarize_schema()),
-                &output,
-            );
-        }
+    fn breach_fails_the_step_and_drift_does_not() {
+        let cap = capability("ai.summarize", summarize_schema());
+        let id = step("ai.summarize");
+        assert!(Executor::apply_output_contract(&id, &cap, &json!({ "summary": "ok" })).is_ok());
+        assert!(Executor::apply_output_contract(&id, &cap, &json!({ "summary": 42 })).is_err());
+        assert!(Executor::apply_output_contract(
+            &id,
+            &cap,
+            &json!({ "message": "no declared field" })
+        )
+        .is_ok());
+        assert!(Executor::apply_output_contract(&id, &cap, &json!({})).is_ok());
+        assert!(Executor::apply_output_contract(&id, &cap, &json!("not an object")).is_err());
     }
 
     #[test]
     fn mcp_tools_are_exempt_from_the_contract() {
-        // `mcp_capability` synthesizes `{"type": "string"}` locally; it is not a
-        // contract the external server ever agreed to.
-        Executor::report_output_contract(
+        assert!(Executor::apply_output_contract(
             &step("mcp.docs.lookup"),
             &capability("mcp.docs.lookup", json!({ "type": "string" })),
             &json!({ "content": [{ "type": "text" }] }),
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn context_reference_source_and_transform() {
+        let mut params = HashMap::new();
+        params.insert("stepId".to_string(), json!("search"));
+        assert_eq!(context_reference_source(&params).as_deref(), Some("search"));
+        params.insert("path".to_string(), json!("results[0].title"));
+        assert_eq!(
+            context_reference_source(&params).as_deref(),
+            Some("search.results[0].title")
+        );
+
+        let joined = apply_reference_transform(json!(["a", "b"]), Some("join"));
+        assert_eq!(joined, json!("a\nb"));
+        let first = apply_reference_transform(json!([1, 2, 3]), Some("first"));
+        assert_eq!(first, json!(1));
+        let parsed = apply_reference_transform(json!("{\"k\":1}"), Some("parse"));
+        assert_eq!(parsed["k"], 1);
+    }
+
+    #[test]
+    fn request_route_fills_router_state_current_path() {
+        let mut params = HashMap::new();
+        inject_request_context_params(
+            "router.state",
+            &mut params,
+            Some(&json!("/library")),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(
+            params.get("currentPath").and_then(Value::as_str),
+            Some("/library")
         );
     }
 
     #[test]
+    fn page_snapshot_fills_page_content_context() {
+        let mut params = HashMap::new();
+        let snapshot = json!({ "content": "正文", "title": "标题" });
+        inject_request_context_params(
+            "page.content",
+            &mut params,
+            Some(&json!("/brew")),
+            Some(&snapshot),
+            None,
+            None,
+        );
+        assert_eq!(
+            params.get("currentPath").and_then(Value::as_str),
+            Some("/brew")
+        );
+        assert_eq!(params.get("context"), Some(&snapshot));
+    }
+
+    #[test]
+    fn explicit_current_path_is_not_overwritten() {
+        let mut params = HashMap::new();
+        params.insert("currentPath".to_string(), json!("/tapp"));
+        inject_request_context_params(
+            "router.state",
+            &mut params,
+            Some(&json!("/library")),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(
+            params.get("currentPath").and_then(Value::as_str),
+            Some("/tapp")
+        );
+    }
+
+    #[test]
+    fn music_and_window_snapshots_fill_status_params() {
+        let mut params = HashMap::new();
+        let music = json!({ "isPlaying": true, "title": "song" });
+        let windows = json!({ "windows": [], "windowCount": 0 });
+        inject_request_context_params(
+            "music.status",
+            &mut params,
+            None,
+            None,
+            Some(&music),
+            Some(&windows),
+        );
+        assert_eq!(params.get("status"), Some(&music));
+        let mut window_params = HashMap::new();
+        inject_request_context_params(
+            "tapp.windows",
+            &mut window_params,
+            None,
+            None,
+            Some(&music),
+            Some(&windows),
+        );
+        assert_eq!(window_params.get("windowState"), Some(&windows));
+    }
+
+    #[test]
     fn capabilities_without_a_declared_schema_are_unconstrained() {
-        Executor::report_output_contract(
+        assert!(Executor::apply_output_contract(
             &step("router.navigate"),
             &capability("router.navigate", json!({})),
             &json!({ "whatever": true }),
-        );
+        )
+        .is_ok());
     }
 }

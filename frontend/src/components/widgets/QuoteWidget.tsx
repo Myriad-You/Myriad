@@ -16,6 +16,7 @@ import {
   getRandomQuote,
   HITOKOTO_CONFIG_UPDATED_EVENT,
 } from '../../utils/dynamicContent'
+import { userFacingError } from '../../utils/userFacingError'
 import { Spinner } from '../Spinner'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetShell } from './shared/WidgetShell'
@@ -40,6 +41,7 @@ export const QuoteWidget = memo(
     const { t, locale } = useI18n()
     const [quoteData, setQuoteData] = useState<QuoteData | null>(null)
     const [loading, setLoading] = useState(true)
+    const [fetchError, setFetchError] = useState('')
     const [themeColor, setThemeColor] = useState('#a855f7')
 
     // 从缓存加载
@@ -83,10 +85,14 @@ export const QuoteWidget = memo(
         const quote = await getRandomQuote(locale)
         if (quote) {
           setQuoteData(quote)
+          setFetchError('')
           saveToCache(quote)
         }
       } catch (error) {
         console.error(`${t.quoteWidget.fetchQuoteFailed}:`, error)
+        setFetchError(
+          userFacingError(error, t.quoteWidget.fetchQuoteFailed),
+        )
       } finally {
         setLoading(false)
       }
@@ -191,7 +197,9 @@ export const QuoteWidget = memo(
     if (!quoteData) {
       return (
         <div className="h-full w-full flex items-center justify-center text-gray-400">
-          <span>{t.quoteWidget.unavailable}</span>
+          <span>
+            {fetchError || t.quoteWidget.unavailable}
+          </span>
         </div>
       )
     }

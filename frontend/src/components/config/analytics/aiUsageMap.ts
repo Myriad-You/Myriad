@@ -56,7 +56,7 @@ export function aiUsersToRankRows(
   }))
 }
 
-export type AiUsageSourceLabels = {
+export interface AiUsageSourceLabels {
   scheduler: string
   agent: string
   reports: string

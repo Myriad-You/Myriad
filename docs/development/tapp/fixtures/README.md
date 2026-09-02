@@ -12,7 +12,7 @@ capabilities. Comment-only sync across stacks is not enough; tests fail on drift
 
 1. **Edit the fixture(s) first** (add/remove/rename routes or actions, change
    permission strings).
-2. Update backend `TappPermission` (`permission_service.rs`) and frontend
+2. Update `TappPermission` in `crates/tapp-contract/src/permission.rs` and frontend
    `PERMISSION_LEVELS` / types if you introduced a new permission string.
 3. Update frontend `permissionConfig.ts` `PERMISSION_MAP` for action changes.
 4. Host route maps are loaded from `host_route_permissions.json` — no parallel

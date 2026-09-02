@@ -143,10 +143,11 @@ pub async fn get_current_user(
         .await
     {
         Ok(row) => row,
-        Err(_) => {
+        Err(error) => {
+            tracing::error!(%error, "failed to load current user");
             return Err(HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
+                Json(json!({ "error": "Failed to load current user" })),
             )));
         }
     };

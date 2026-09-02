@@ -28,13 +28,13 @@ export function compensateSyntheticClosedEyeAngles(
 ): void {
   for (const side of ['L', 'R'] as const) {
     const closed = parts.find(
-      part =>
+      (part) =>
         part.synthetic === true &&
         part.side === side &&
         part.name.startsWith('eye_close'),
     )
     const open = parts.find(
-      part => part.side === side && part.name.startsWith('eyelash'),
+      (part) => part.side === side && part.name.startsWith('eyelash'),
     )
     if (!closed || !open) continue
     const closedAngle = rgbaPrincipalAngleDegrees(closed.img)
@@ -95,9 +95,7 @@ function rotatePartAroundPlacementAnchor(
   part.w = image.width
   part.h = image.height
   part.x = Math.round(centerX - image.width / 2)
-  part.y = Math.round(
-    closeY - image.height * CLOSED_EYE_VERTICAL_ALIGNMENT,
-  )
+  part.y = Math.round(closeY - image.height * CLOSED_EYE_VERTICAL_ALIGNMENT)
 }
 
 /** Positive degrees rotate clockwise in canvas coordinates. */

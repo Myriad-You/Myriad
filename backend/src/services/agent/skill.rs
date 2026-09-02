@@ -72,6 +72,32 @@ pub struct SkillGating {
     pub capabilities: Vec<String>,
 }
 
+/// Whether this skill's gating capabilities are all in the grant set.
+///
+/// Empty gating stays visible (expansion is still grant-filtered at execute).
+/// Unknown gating ids fail closed. `granted = None` is unfiltered.
+pub async fn skill_covered_by_grants(
+    skill: &Skill,
+    granted: Option<&std::collections::HashSet<String>>,
+) -> bool {
+    let Some(granted) = granted else {
+        return true;
+    };
+    if skill.gating.capabilities.is_empty() {
+        return true;
+    }
+    let registry = super::capability::get_registry().await;
+    for cap_id in &skill.gating.capabilities {
+        let Some(cap) = registry.get(cap_id) else {
+            return false;
+        };
+        if !super::capability::capability_covered_by_grants(cap, Some(granted)) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Skill 来源
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -743,5 +769,46 @@ mod tests {
             platform.gating.capabilities,
             vec!["platform.read".to_string()]
         );
+    }
+
+    fn stub_skill(capabilities: Vec<String>) -> Skill {
+        Skill {
+            id: "stub".into(),
+            name: "stub".into(),
+            description: String::new(),
+            full_instructions: String::new(),
+            triggers: vec![],
+            category: String::new(),
+            gating: SkillGating {
+                platforms: vec![],
+                capabilities,
+            },
+            tier_hint: None,
+            origin: SkillOrigin::Manual,
+            parameters: vec![],
+            file_path: PathBuf::new(),
+            loaded_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn skill_gating_follows_capability_grants() {
+        use std::collections::HashSet;
+
+        let skill = stub_skill(vec!["speech.tts".into()]);
+        let without = HashSet::from(["ai:chat".to_string()]);
+        assert!(
+            !skill_covered_by_grants(&skill, Some(&without)).await,
+            "speech.tts gating must not pass without speech:tts"
+        );
+        let with = HashSet::from(["speech:tts".to_string()]);
+        assert!(skill_covered_by_grants(&skill, Some(&with)).await);
+        assert!(skill_covered_by_grants(&skill, None).await);
+
+        let open = stub_skill(vec![]);
+        assert!(skill_covered_by_grants(&open, Some(&without)).await);
+
+        let unknown = stub_skill(vec!["not.a.capability".into()]);
+        assert!(!skill_covered_by_grants(&unknown, Some(&with)).await);
     }
 }

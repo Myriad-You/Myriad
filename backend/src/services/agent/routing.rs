@@ -313,11 +313,6 @@ impl AgentRouter {
         distribution
     }
 
-    /// 获取所有 Agent 配置
-    pub fn get_all_profiles(&self) -> Vec<&AgentProfile> {
-        self.profiles.values().collect()
-    }
-
     /// 生成任务分配摘要（用于日志和前端展示）
     pub fn summarize_assignment(&self, capability_ids: &[String]) -> TaskAssignment {
         let distribution = self.analyze_distribution(capability_ids);

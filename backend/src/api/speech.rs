@@ -1,7 +1,7 @@
 //! 语音服务 API
 //!
 //! 提供 TTS（文本转语音）和 ASR（语音转文本）的 HTTP API。
-//! 服务商由设置里的 `speech_provider` 决定：腾讯云、OpenAI、OpenRouter 或 Gemini。
+//! 服务商由设置里的 `speech_provider` 决定：腾讯云、OpenAI、OpenRouter、Gemini 或 MiniMax。
 
 use crate::middleware::auth::Claims;
 use axum::{
@@ -53,6 +53,9 @@ pub fn create_speech_routes(app_state: crate::state::AppState) -> Router<crate::
         .route("/status", get(get_speech_status))
         // 设置页可用性测试（TTS + 可选 ASR）
         .route("/test", post(test_speech_service))
+        .route("/convo/start", post(start_convo_session))
+        .route("/convo/stop", post(stop_convo_session))
+        .route("/convo/interrupt", post(interrupt_convo_session))
         // 可用音色列表
         .route("/voices", get(get_voice_list))
         // 可用引擎列表
@@ -340,6 +343,9 @@ pub struct SpeechStatusResponse {
     pub available: bool,
     pub tts_enabled: bool,
     pub asr_enabled: bool,
+    pub convo_enabled: bool,
+    /// 人设开口朗读。人设未生效或开关关着时为 false。
+    pub persona_speech_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -903,13 +909,116 @@ async fn openai_speech_to_text(request: AsrApiRequest) -> (StatusCode, Json<AsrA
 /// GET /api/speech/status
 pub async fn get_speech_status() -> impl IntoResponse {
     let probe = crate::services::speech_runtime::speech_probe().await;
+    let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
+    let convo_enabled = crate::services::agora_convo::convo_configured(&config);
+    let persona_speech_enabled = config.merope_speech_enabled_resolved();
+    drop(config);
     Json(SpeechStatusResponse {
-        available: probe.available,
+        available: probe.available || convo_enabled,
         tts_enabled: probe.tts_enabled,
         asr_enabled: probe.asr_enabled,
+        convo_enabled,
+        persona_speech_enabled,
         provider: Some(probe.provider),
         error: probe.error,
     })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConvoStartRequest {
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConvoAgentRequest {
+    pub agent_id: String,
+}
+
+pub async fn start_convo_session(
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<ConvoStartRequest>,
+) -> impl IntoResponse {
+    let language = request.language.unwrap_or_else(|| "zh-CN".to_string());
+    let language = match language.as_str() {
+        code if code.starts_with("en") => "en-US",
+        _ => "zh-CN",
+    };
+    let user_id = claims.sub.parse().unwrap_or(0);
+    let prompt = convo_system_prompt(user_id).await;
+    match crate::services::agora_convo::start_session(language, &prompt).await {
+        Ok(session) => (StatusCode::OK, Json(json_ok_session(session))).into_response(),
+        Err(error) => convo_error(error).into_response(),
+    }
+}
+
+pub async fn stop_convo_session(Json(request): Json<ConvoAgentRequest>) -> impl IntoResponse {
+    match crate::services::agora_convo::stop_session(&request.agent_id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
+        Err(error) => convo_error(error).into_response(),
+    }
+}
+
+pub async fn interrupt_convo_session(Json(request): Json<ConvoAgentRequest>) -> impl IntoResponse {
+    match crate::services::agora_convo::interrupt_session(&request.agent_id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
+        Err(error) => convo_error(error).into_response(),
+    }
+}
+
+async fn convo_system_prompt(user_id: i32) -> String {
+    let soul = crate::services::agent::merope::resolve_speaking_soul()
+        .await
+        .unwrap_or_else(|| {
+            crate::services::agent::merope::speaking_prompts::PERSONA_SPEAKING_CONTRACT.to_string()
+        });
+    let mut parts = vec![
+        soul,
+        "用嘴说出来：一两句就够，不要列表，不要 markdown。".to_string(),
+    ];
+    parts.extend(crate::services::agent::merope::speaking_prompt(user_id).await);
+    parts.join("\n\n")
+}
+
+fn json_ok_session(session: crate::services::agora_convo::ConvoSession) -> serde_json::Value {
+    serde_json::json!({
+        "success": true,
+        "app_id": session.app_id,
+        "channel": session.channel,
+        "uid": session.uid,
+        "token": session.token,
+        "agent_id": session.agent_id,
+    })
+}
+
+fn convo_error(error: crate::services::agora_convo::AgoraConvoError) -> impl IntoResponse {
+    use crate::services::agora_convo::AgoraConvoError;
+    let (status, message) = match &error {
+        AgoraConvoError::NotConfigured(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg.clone()),
+        AgoraConvoError::Token(e) => (StatusCode::BAD_REQUEST, e.to_string()),
+        AgoraConvoError::Network(msg) => (
+            StatusCode::BAD_GATEWAY,
+            format!("Speech service is unreachable: {msg}"),
+        ),
+        AgoraConvoError::Api {
+            status: http_status,
+            message,
+        } => {
+            let detail = if message.trim().is_empty() {
+                format!("Speech service request failed (HTTP {http_status})")
+            } else {
+                format!("{message} (HTTP {http_status})")
+            };
+            (StatusCode::BAD_GATEWAY, detail)
+        }
+    };
+    (
+        status,
+        Json(serde_json::json!({
+            "success": false,
+            "error": message,
+        })),
+    )
 }
 
 /// POST /api/speech/test

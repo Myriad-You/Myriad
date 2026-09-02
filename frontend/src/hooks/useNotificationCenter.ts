@@ -10,7 +10,10 @@ import type {
  * 由 GlobalControlPanel（智能岛）独占消费——保持单一 SSE 连接。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { currentCopy } from '../i18n/localeCopy'
 import notificationApi from '../services/notificationApi'
+import { showError } from '../utils/toastManager'
+import { userFacingError } from '../utils/userFacingError'
 
 /** 列表长度上限：历史加载 50 条，SSE 增量在此封顶，防止长会话无限增长 */
 const MAX_ITEMS = 100
@@ -53,6 +56,11 @@ export function useNotificationCenter({
       setLoaded(true)
     } catch (e) {
       console.warn('[NotificationCenter] Failed to load history:', e)
+      if (!enabledRef.current || userIdRef.current !== requestedUserId) return
+      showError(
+        userFacingError(e, currentCopy().notificationCenter.loadFailed),
+      )
+      setLoaded(true)
     }
   }, [userId])
 
@@ -95,8 +103,7 @@ export function useNotificationCenter({
           // broadcast 丢事件后后端发 resync；补拉历史避免漏通知
           void loadHistoryRef.current()
         }
-        // init / notification_read / notifications_read_all：
-        // 已读概念已移除，忽略（后端事件保留以兼容其他客户端）
+        // init / notification_read：已读动作已从本仓客户端拿掉，忽略。
       },
       {
         // EventSource 闪断重连后补拉，覆盖 resync 之外的丢包窗口
@@ -121,6 +128,9 @@ export function useNotificationCenter({
         await notificationApi.remove(n.id)
       } catch (e) {
         console.warn('[NotificationCenter] delete failed:', e)
+        showError(
+          userFacingError(e, currentCopy().errors.notificationDeleteFailed),
+        )
         void loadHistory()
       }
     },
@@ -133,6 +143,9 @@ export function useNotificationCenter({
       await notificationApi.clearAll()
     } catch (e) {
       console.warn('[NotificationCenter] clear all failed:', e)
+      showError(
+        userFacingError(e, currentCopy().errors.notificationClearFailed),
+      )
       void loadHistory()
     }
   }, [loadHistory])

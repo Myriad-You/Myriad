@@ -46,9 +46,6 @@ export interface IframeDimensions {
   safeInsetLeft?: number
 }
 
-/** 尺寸变化回调 */
-export type OnResizeCallback = (dimensions: IframeDimensions) => void
-
 /** 与 useWidgetSize 同一基准，保证库预览 / 网格实装比例一致 */
 const BASE_CELL_SIZE = STANDARD_CELL_SIZE
 

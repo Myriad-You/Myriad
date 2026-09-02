@@ -16,11 +16,11 @@ import type {
   UpdateSourceRequest,
 } from '../types/brew'
 import { API_URL } from '../config'
-import { ApiError, parseApiErrorBody } from './api'
 import { getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
-import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
 import { requestCache } from '../utils/requestCache'
+import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
+import { ApiError, parseApiErrorBody } from './api'
 
 const API_BASE = `${API_URL}/api/brew`
 

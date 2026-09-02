@@ -35,10 +35,6 @@ function statsBaseUrl(): string | null {
   return raw.replace(/\/+$/, '')
 }
 
-export function isStoreStatsEnabled(): boolean {
-  return statsBaseUrl() !== null
-}
-
 /** Merge download counts for the given app ids (batch ≤ 100). */
 export async function fetchStoreDownloadCounts(
   appIds: string[],

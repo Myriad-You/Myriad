@@ -19,8 +19,8 @@ import {
 } from '../../lib/api'
 
 import { getCSRFToken } from '../../utils/csrf'
-import { userFacingError } from '../../utils/userFacingError'
 import { purgeFrontendCachesAndReload } from '../../utils/frontendCachePurge'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   ButtonItem,
   InputItem,

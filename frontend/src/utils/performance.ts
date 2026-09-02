@@ -138,55 +138,6 @@ export function doubleRaf(callback: () => void): void {
 }
 
 /**
- * 带最大等待时间的 RAF 节流
- * 确保即使在高频调用时也能定期执行
- */
-export function rafThrottleWithMaxWait<T extends (...args: any[]) => any>(
-  fn: T,
-  maxWait: number = 100,
-): (...args: Parameters<T>) => void {
-  let rafId: number | null = null
-  let lastExecute = 0
-  let pendingArgs: Parameters<T> | null = null
-  let context: any = null
-
-  return function (this: any, ...args: Parameters<T>) {
-    // eslint-disable-next-line ts/no-this-alias
-    context = this
-    pendingArgs = args
-
-    const now = performance.now()
-    const timeSinceLastExecute = now - lastExecute
-
-    // 如果超过最大等待时间，立即执行
-    if (timeSinceLastExecute >= maxWait) {
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId)
-        rafId = null
-      }
-      lastExecute = now
-      fn.apply(context, pendingArgs)
-      pendingArgs = null
-      return
-    }
-
-    // 否则使用 RAF 节流
-    if (rafId !== null) {
-      return
-    }
-
-    rafId = requestAnimationFrame(() => {
-      rafId = null
-      lastExecute = performance.now()
-      if (pendingArgs) {
-        fn.apply(context, pendingArgs)
-        pendingArgs = null
-      }
-    })
-  }
-}
-
-/**
  * 空闲执行 - 使用requestIdleCallback
  * @param fn 要执行的函数
  * @param options 配置选项
@@ -204,65 +155,6 @@ export function runWhenIdle(
 }
 
 /**
- * 分批处理大数组
- * @param array 要处理的数组
- * @param batchSize 每批大小
- * @param processor 处理函数
- */
-export async function processBatched<T>(
-  array: T[],
-  batchSize: number,
-  processor: (item: T, index: number) => void | Promise<void>,
-): Promise<void> {
-  for (let i = 0; i < array.length; i += batchSize) {
-    const batch = array.slice(i, i + batchSize)
-
-    await Promise.all(
-      batch.map((item, batchIndex) => processor(item, i + batchIndex)),
-    )
-
-    // 让出主线程
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  }
-}
-
-/**
- * 性能监控包装器
- * @param name 性能标记名称
- * @param fn 要监控的函数
- */
-export async function measurePerformance<T>(
-  name: string,
-  fn: () => T | Promise<T>,
-): Promise<T> {
-  if (typeof performance === 'undefined') {
-    return await fn()
-  }
-
-  const startMark = `${name}-start`
-  const endMark = `${name}-end`
-  const measureName = name
-
-  performance.mark(startMark)
-
-  try {
-    const result = await fn()
-    performance.mark(endMark)
-    performance.measure(measureName, startMark, endMark)
-
-    return result
-  } catch (error) {
-    performance.mark(endMark)
-    throw error
-  } finally {
-    // 清理标记
-    performance.clearMarks(startMark)
-    performance.clearMarks(endMark)
-    performance.clearMeasures(measureName)
-  }
-}
-
-/**
  * 预加载图片（使用对象池）
  * @param src 图片URL
  */
@@ -271,14 +163,6 @@ export async function preloadImage(src: string): Promise<void> {
   if (!success) {
     throw new Error(`Failed to preload image: ${src}`)
   }
-}
-
-/**
- * 预加载多个图片
- * @param srcs 图片URL数组
- */
-export async function preloadImages(srcs: string[]): Promise<void> {
-  await Promise.all(srcs.map((src) => preloadImage(src)))
 }
 
 /**
@@ -315,30 +199,4 @@ export class MemoryManager {
   static getSize(): number {
     return this.cache.size
   }
-}
-
-/**
- * Web Workers工具
- */
-export function createWorker(fn: (...args: unknown[]) => unknown): Worker {
-  const blob = new Blob([`(${fn.toString()})()`], {
-    type: 'application/javascript',
-  })
-  const url = URL.createObjectURL(blob)
-  const worker = new Worker(url)
-  // Worker 构造完成后脚本已被接管，立即释放临时 Blob URL。
-  URL.revokeObjectURL(url)
-  return worker
-}
-
-/**
- * 检测性能API支持
- */
-export const performanceSupport = {
-  observer: typeof PerformanceObserver !== 'undefined',
-  navigation: typeof PerformanceNavigationTiming !== 'undefined',
-  paint: typeof PerformancePaintTiming !== 'undefined',
-  resource: typeof PerformanceResourceTiming !== 'undefined',
-  requestIdleCallback: 'requestIdleCallback' in window,
-  intersectionObserver: 'IntersectionObserver' in window,
 }

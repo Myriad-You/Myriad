@@ -38,6 +38,12 @@ export interface VendorSetupI18n {
   aiVendorSetupTencentCreateDesc: string
   aiVendorSetupTencentFillTitle: string
   aiVendorSetupTencentFillDesc: string
+  aiVendorSetupAgoraPortalTitle: string
+  aiVendorSetupAgoraPortalDesc: string
+  aiVendorSetupAgoraCreateTitle: string
+  aiVendorSetupAgoraCreateDesc: string
+  aiVendorSetupAgoraFillTitle: string
+  aiVendorSetupAgoraFillDesc: string
 }
 
 const CONSOLE_URL: Record<string, string> = {
@@ -66,17 +72,21 @@ const CONSOLE_URL: Record<string, string> = {
   nvidia: 'https://build.nvidia.com/settings/api-key',
   tencentHunyuan: 'https://console.cloud.tencent.com/hunyuan',
   tencent: 'https://console.cloud.tencent.com/cam/capi',
+  agora: 'https://console.shengwang.cn/',
 }
 
 function fillName(template: string, name: string): string {
   return template.replaceAll('{name}', name)
 }
 
-function setupKind(presetId: string): 'azure' | 'compatible' | 'ollama' | 'tencent' | 'key' {
+function setupKind(
+  presetId: string,
+): 'azure' | 'compatible' | 'ollama' | 'tencent' | 'agora' | 'key' {
   if (presetId === 'azureOpenAI') return 'azure'
   if (presetId === 'openaiCompatible') return 'compatible'
   if (presetId === 'ollama') return 'ollama'
   if (presetId === 'tencent') return 'tencent'
+  if (presetId === 'agora') return 'agora'
   return 'key'
 }
 
@@ -146,6 +156,16 @@ export function getVendorSetupGuide(
         step('portal', t.aiVendorSetupTencentPortalTitle, t.aiVendorSetupTencentPortalDesc, href),
         step('create', t.aiVendorSetupTencentCreateTitle, t.aiVendorSetupTencentCreateDesc),
         step('fill', t.aiVendorSetupTencentFillTitle, t.aiVendorSetupTencentFillDesc),
+      ],
+    }
+  }
+  if (kind === 'agora') {
+    return {
+      title: t.aiVendorSetupTitle,
+      steps: [
+        step('portal', t.aiVendorSetupAgoraPortalTitle, t.aiVendorSetupAgoraPortalDesc, href),
+        step('create', t.aiVendorSetupAgoraCreateTitle, t.aiVendorSetupAgoraCreateDesc),
+        step('fill', t.aiVendorSetupAgoraFillTitle, t.aiVendorSetupAgoraFillDesc),
       ],
     }
   }

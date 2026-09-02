@@ -14,6 +14,9 @@ export interface ConfigSearchI18n {
     dataDesc: string
     ai: string
     aiDesc: string
+    agentHeartbeatTitle: string
+    agentSkillsTitle: string
+    agentMemoryTitle: string
     tripo: string
     tripoDesc: string
     basic: string
@@ -212,6 +215,17 @@ export function buildSearchableContent(
       '图片',
       '生成',
       'image',
+      'agent',
+      '定时',
+      '定时任务',
+      '技能',
+      '记忆',
+      'heartbeat',
+      'skills',
+      'memory',
+      t.config.agentHeartbeatTitle,
+      t.config.agentSkillsTitle,
+      t.config.agentMemoryTitle,
     ],
   })
 

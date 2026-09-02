@@ -114,12 +114,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anstyle"
-version = "1.0.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
-
-[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1235,12 +1229,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
-name = "downcast"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
-
-[[package]]
 name = "dtoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1471,15 +1459,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "fragile"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8878864ba14bb86e818a412bfd6f18f9eabd4ec0f008a28e8f7eb61db532fcf9"
-dependencies = [
- "futures-core",
 ]
 
 [[package]]
@@ -2412,7 +2391,7 @@ dependencies = [
 
 [[package]]
 name = "migration"
-version = "0.3.37"
+version = "0.4.0"
 dependencies = [
  "sea-orm",
  "sea-orm-migration",
@@ -2458,32 +2437,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mockall"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a6ceddfe3ce334925e96bf420fdb2dcee5bed6c632a168ece622676dadeaf8a"
-dependencies = [
- "cfg-if",
- "downcast",
- "fragile",
- "mockall_derive",
- "predicates",
- "predicates-tree",
-]
-
-[[package]]
-name = "mockall_derive"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cfe16fbe8a314aeec0b861ac24e60b1e123e97634bab045475b9d6a18416fd8"
-dependencies = [
- "cfg-if",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "multer"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2501,8 +2454,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "myriad-agent-rules"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "regex",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "myriad-backend"
-version = "0.3.37"
+version = "0.4.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2525,7 +2490,7 @@ dependencies = [
  "lazy_static",
  "md5",
  "migration",
- "mockall",
+ "myriad-agent-rules",
  "myriad-data-key",
  "myriad-error",
  "myriad-image-proxy",
@@ -2539,6 +2504,7 @@ dependencies = [
  "myriad-psn-auth",
  "myriad-tapp-contract",
  "myriad-tapp-registry",
+ "myriad-tapp-rules",
  "oauth2",
  "oauth2-reqwest",
  "once_cell",
@@ -2548,7 +2514,6 @@ dependencies = [
  "regex",
  "reqwest",
  "rsa 0.10.0-rc.18",
- "schemars",
  "scraper",
  "sea-orm",
  "sea-orm-migration",
@@ -2618,7 +2583,6 @@ dependencies = [
 name = "myriad-merope"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "earcutr",
  "serde",
  "serde_json",
@@ -2679,9 +2643,12 @@ dependencies = [
 name = "myriad-tapp-contract"
 version = "0.1.0"
 dependencies = [
+ "http",
  "schemars",
+ "semver",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -2699,6 +2666,22 @@ dependencies = [
  "sea-orm",
  "serde",
  "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "myriad-tapp-rules"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.0",
+ "hex",
+ "hmac 0.13.0",
+ "myriad-tapp-contract",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "subtle",
  "tracing",
 ]
 
@@ -3213,32 +3196,6 @@ name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
-
-[[package]]
-name = "predicates"
-version = "3.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ada8f2932f28a27ee7b70dd6c1c39ea0675c55a36879ab92f3a715eaa1e63cfe"
-dependencies = [
- "anstyle",
- "predicates-core",
-]
-
-[[package]]
-name = "predicates-core"
-version = "1.0.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cad38746f3166b4031b1a0d39ad9f954dd291e7854fcc0eed52ee41a0b50d144"
-
-[[package]]
-name = "predicates-tree"
-version = "1.0.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0de1b847b39c8131db0467e9df1ff60e6d0562ab8e9a16e568ad0fdb372e2f2"
-dependencies = [
- "predicates-core",
- "termtree",
-]
 
 [[package]]
 name = "primeorder"
@@ -4748,12 +4705,6 @@ checksum = "5fed54709c5b3a53d09bb1c113ea4f5ceafd1e772ddcb0030a82e1d56c087b08"
 dependencies = [
  "new_debug_unreachable",
 ]
-
-[[package]]
-name = "termtree"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "thiserror"

@@ -3,19 +3,16 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::rig_contract::PRESENTATION_SLOT_VARIANTS;
 pub use crate::rig_contract::{
-    CHARACTER_ASSET_CONTRACT_VERSION, MAX_RIG_BONES, MAX_RIG_COLLISION_VOLUMES, MAX_RIG_PARTS,
-    MAX_RIG_TEXTURES, MAX_RIG_TOTAL_VERTICES, MAX_RIG_VERTICES_PER_PART,
-    MIN_SUPPORTED_RIG_IR_VERSION, PORTRAIT_CANVAS_HEIGHT, PORTRAIT_CANVAS_WIDTH, RIG_IR_VERSION,
-    RIG_SCHEMA_VERSION,
+    CHARACTER_ASSET_CONTRACT_VERSION, MAX_RIG_BONES, MAX_RIG_PARTS, MAX_RIG_TEXTURES,
+    MAX_RIG_TOTAL_VERTICES, MAX_RIG_VERTICES_PER_PART, MIN_SUPPORTED_RIG_IR_VERSION,
+    PORTRAIT_CANVAS_HEIGHT, PORTRAIT_CANVAS_WIDTH, RIG_IR_VERSION, RIG_SCHEMA_VERSION,
 };
+use crate::rig_contract::{CHARACTER_ASSET_REQUIRED_CAPABILITIES, PRESENTATION_SLOT_VARIANTS};
 use crate::rig_outfit::{
     default_semantic_anchors, outfit_profile_is_valid, semantic_anchors_are_valid,
 };
-pub use crate::rig_outfit::{
-    infer_outfit_profile, RigOutfitProfile, RigOutfitTopology, RigSemanticAnchor,
-};
+pub use crate::rig_outfit::{infer_outfit_profile, RigOutfitProfile, RigSemanticAnchor};
 pub use crate::rig_semantics::RigSemantics;
 use crate::rig_semantics::{default_rig_semantics, migrate_rig_semantics, rig_semantics_are_valid};
 use crate::rig_spatial::{infer_spatial_profile, spatial_profile_is_valid, RigSpatialProfile};
@@ -239,6 +236,8 @@ pub enum RigValidationError {
     Semantics,
     #[error("rig spatial profile is invalid")]
     SpatialProfile,
+    #[error("Anime2.5D playback contract is invalid")]
+    Anime25DPlayback,
 }
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -296,6 +295,13 @@ impl RigManifest {
             || self.canvas.height <= 0.0
         {
             return Err(RigValidationError::Canvas);
+        }
+        if self
+            .anime25d_playback
+            .as_ref()
+            .is_some_and(|playback| !crate::anime25d_contract::playback_is_valid(playback))
+        {
+            return Err(RigValidationError::Anime25DPlayback);
         }
         if self.bones.is_empty() || self.bones.len() > MAX_RIG_BONES {
             return Err(RigValidationError::TooManyBones);
@@ -588,19 +594,43 @@ pub fn validate_character_asset_source(
         && parent_is("right-eye", "face")
         && parent_is("mouth", "face")
         && parent_is("a25d-handwear", "body");
-    let required_layers = has_layer("a25d-face")
-        && has_layer("a25d-front-hair")
-        && has_layer("a25d-back-hair")
-        && has_layer("a25d-topwear")
-        && has_variant("eye-left", "open")
-        && has_variant("eye-left", "closed")
-        && has_variant("eye-right", "open")
-        && has_variant("eye-right", "closed")
-        && has_variant("mouth", "open")
-        && has_variant("mouth", "closed")
-        && rigid_fragment("left")
-        && rigid_fragment("right");
-    if canonical_skeleton && required_layers && !forbidden_bone && !forbidden_layer {
+    let has_capability = |capability: &str| match capability {
+        "separate-face" => has_layer("a25d-face"),
+        "independent-eyes" => has_variant("eye-left", "open") && has_variant("eye-right", "open"),
+        "blink" => has_variant("eye-left", "closed") && has_variant("eye-right", "closed"),
+        "dizzy-eye-variant" => {
+            has_variant("eye-left", "dizzy") && has_variant("eye-right", "dizzy")
+        }
+        "squeeze-eye-variant" => {
+            has_variant("eye-left", "squeeze") && has_variant("eye-right", "squeeze")
+        }
+        "cry-eye-variant" => has_variant("eye-left", "cry") && has_variant("eye-right", "cry"),
+        "silly-eye-variant" => {
+            has_variant("eye-left", "silly") && has_variant("eye-right", "silly")
+        }
+        "lovestruck-heart-pupils" => {
+            has_layer("a25d-lovestruck-heart-left") && has_layer("a25d-lovestruck-heart-right")
+        }
+        "lovestruck-face-effects" => {
+            has_layer("a25d-lovestruck-face-effect") && has_layer("a25d-lovestruck-drool")
+        }
+        "cry-mouth-variant" => has_variant("mouth", "cry"),
+        "maniac-mouth-variant" => has_variant("mouth", "maniac"),
+        "silly-mouth-variant" => has_variant("mouth", "silly"),
+        "mouth-shapes" => ["closed", "open", "wide", "round", "narrow"]
+            .iter()
+            .all(|variant| has_variant("mouth", variant)),
+        "separate-front-hair" => has_layer("a25d-front-hair"),
+        "separate-back-hair" => has_layer("a25d-back-hair"),
+        "separate-topwear" => has_layer("a25d-topwear"),
+        "rigid-left-arm-fragment" => rigid_fragment("left"),
+        "rigid-right-arm-fragment" => rigid_fragment("right"),
+        _ => false,
+    };
+    let required_capabilities = CHARACTER_ASSET_REQUIRED_CAPABILITIES
+        .iter()
+        .all(|capability| has_capability(capability));
+    if canonical_skeleton && required_capabilities && !forbidden_bone && !forbidden_layer {
         Ok(())
     } else {
         Err(RigValidationError::AssetContract)
@@ -1035,6 +1065,7 @@ fn motion_profile_is_valid(profile: &RigMotionProfile) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rig_outfit::RigOutfitTopology;
 
     fn sample_vertex(x: f32, y: f32) -> RigVertex {
         RigVertex {
@@ -1120,6 +1151,16 @@ mod tests {
                 height: PORTRAIT_CANVAS_HEIGHT,
             }
         );
+    }
+
+    #[test]
+    fn manifest_rejects_invalid_anime25d_playback() {
+        let mut rig = sample_manifest();
+        rig.anime25d_playback = Some(serde_json::json!({
+            "kind": "anime-2.5d-rig",
+            "version": 6
+        }));
+        assert_eq!(rig.validate(), Err(RigValidationError::Anime25DPlayback));
     }
 
     #[test]
@@ -1277,6 +1318,30 @@ mod tests {
                 "left-eye",
             ),
             layer(
+                "a25d-eye-dizzy-left",
+                Some("eye-left"),
+                Some("dizzy"),
+                "left-eye",
+            ),
+            layer(
+                "a25d-eye-squeeze-left",
+                Some("eye-left"),
+                Some("squeeze"),
+                "left-eye",
+            ),
+            layer(
+                "a25d-eye-cry-left",
+                Some("eye-left"),
+                Some("cry"),
+                "left-eye",
+            ),
+            layer(
+                "a25d-eye-silly-left",
+                Some("eye-left"),
+                Some("silly"),
+                "left-eye",
+            ),
+            layer(
                 "a25d-eye-open-right",
                 Some("eye-right"),
                 Some("open"),
@@ -1288,8 +1353,42 @@ mod tests {
                 Some("closed"),
                 "right-eye",
             ),
+            layer(
+                "a25d-eye-dizzy-right",
+                Some("eye-right"),
+                Some("dizzy"),
+                "right-eye",
+            ),
+            layer(
+                "a25d-eye-squeeze-right",
+                Some("eye-right"),
+                Some("squeeze"),
+                "right-eye",
+            ),
+            layer(
+                "a25d-eye-cry-right",
+                Some("eye-right"),
+                Some("cry"),
+                "right-eye",
+            ),
+            layer(
+                "a25d-eye-silly-right",
+                Some("eye-right"),
+                Some("silly"),
+                "right-eye",
+            ),
             layer("a25d-mouth-open", Some("mouth"), Some("open"), "mouth"),
             layer("a25d-mouth-close", Some("mouth"), Some("closed"), "mouth"),
+            layer("a25d-mouth-wide", Some("mouth"), Some("wide"), "mouth"),
+            layer("a25d-mouth-round", Some("mouth"), Some("round"), "mouth"),
+            layer("a25d-mouth-narrow", Some("mouth"), Some("narrow"), "mouth"),
+            layer("a25d-mouth-cry", Some("mouth"), Some("cry"), "mouth"),
+            layer("a25d-mouth-maniac", Some("mouth"), Some("maniac"), "mouth"),
+            layer("a25d-mouth-silly", Some("mouth"), Some("silly"), "mouth"),
+            layer("a25d-lovestruck-heart-left", None, None, "left-eye"),
+            layer("a25d-lovestruck-heart-right", None, None, "right-eye"),
+            layer("a25d-lovestruck-face-effect", None, None, "face"),
+            layer("a25d-lovestruck-drool", None, None, "face"),
             layer("a25d-handwear-left", None, None, "a25d-handwear-left"),
             layer("a25d-handwear-right", None, None, "a25d-handwear-right"),
         ];

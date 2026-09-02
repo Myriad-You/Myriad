@@ -3,9 +3,6 @@
  * 使用内存缓存 + TTL + LRU 上限，减少重复请求并防止缓存无限增长
  */
 
-import { ApiError } from '../services/api'
-import { httpStatusMessage } from './userFacingError'
-
 interface CacheEntry<T> {
   data: T
   timestamp: number
@@ -217,23 +214,3 @@ class RequestCache {
 
 // 导出单例实例
 export const requestCache = new RequestCache()
-
-// 为方便使用，导出包装好的 fetch 函数
-export async function cachedFetch<T>(
-  key: string,
-  url: string,
-  options?: RequestInit,
-  ttl?: number,
-): Promise<T> {
-  return requestCache.fetch(
-    key,
-    async () => {
-      const response = await fetch(url, options)
-      if (!response.ok) {
-        throw new ApiError(httpStatusMessage(response.status), response.status)
-      }
-      return response.json()
-    },
-    ttl,
-  )
-}

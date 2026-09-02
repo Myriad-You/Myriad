@@ -12,6 +12,34 @@ use serde_json::Value;
 use super::ai_process_pure::USER_TEXT_MAX_CHARS;
 use super::identity;
 use super::types::AgentProgressEvent;
+use crate::services::analyzer::StreamDelta;
+
+pub(crate) async fn emit_stream_delta(
+    tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    delta: StreamDelta,
+) {
+    let event = match delta {
+        StreamDelta::Reasoning(token) => AgentProgressEvent::ThinkingToken { token, done: false },
+        StreamDelta::Text(token) => AgentProgressEvent::SummaryToken { token, done: false },
+    };
+    let _ = tx.send(event).await;
+}
+
+/// Seal both model streams after the caller has published its delivery beat.
+pub(crate) async fn finish_stream(tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>) {
+    let _ = tx
+        .send(AgentProgressEvent::ThinkingToken {
+            token: String::new(),
+            done: true,
+        })
+        .await;
+    let _ = tx
+        .send(AgentProgressEvent::SummaryToken {
+            token: String::new(),
+            done: true,
+        })
+        .await;
+}
 
 // ─────────────────────────────────────────────
 // 1. AI 驱动的最终回复生成（异步，支持流式）
@@ -209,13 +237,7 @@ async fn ai_announce_plan(
         "{soul}\n\n{merope}\
          User: \"{user_input}\"\n\n\
          Your plan:\n{steps_list}\n\n\
-         Now tell the user what you're about to do. Rules:\n\
-         - Be SPECIFIC: mention the concrete things you'll do (e.g. \"查东京天气，再找最近好看的动画\"), not vague summaries.\n\
-         - Be direct and concise. 1-2 sentences max.\n\
-         - Match the user's language.\n\
-         - Do NOT use numbered lists, bullet points, or \"1. 2. 3.\" format.\n\
-         - Do NOT use filler phrases like \"好的\" \"没问题\" \"马上开始\" \"让我来\" at the start.\n\
-         - Sound like a real person, not a customer service bot.",
+         用一两句告诉对方你具体要做什么。按人设说话，用对方的语言。点出具体事项，不要客服开场，不要列表。",
         soul = soul,
         merope = merope_prefix,
         user_input = user_input,
@@ -224,20 +246,28 @@ async fn ai_announce_plan(
 
     let tx = progress_tx.clone();
     match analyzer
-        .analyze_stream(&prompt, |token| {
-            let _ = tx.try_send(AgentProgressEvent::SummaryToken {
-                token: token.to_string(),
-                done: false,
-            });
-            true
+        .analyze_stream_parts(&prompt, |delta| {
+            let tx = tx.clone();
+            async move {
+                emit_stream_delta(&tx, delta).await;
+                true
+            }
         })
         .await
     {
         Ok(full_text) if !full_text.trim().is_empty() => {
-            let _ = tx.try_send(AgentProgressEvent::SummaryToken {
-                token: String::new(),
-                done: true,
-            });
+            let _ = tx
+                .send(AgentProgressEvent::ThinkingToken {
+                    token: String::new(),
+                    done: true,
+                })
+                .await;
+            let _ = tx
+                .send(AgentProgressEvent::SummaryToken {
+                    token: String::new(),
+                    done: true,
+                })
+                .await;
             Some(full_text.trim().to_string())
         }
         Ok(_) => None,
@@ -497,14 +527,13 @@ async fn ai_summarize(
          用户的请求：「{user_request}」\n\n\
          你为了回答这个请求，执行了多个步骤，以下是各步骤产出的原始素材：\n\
          {steps_text}\n\n\
-         现在请基于这些素材，直接回复用户。要求：\n\
-         - 你的回复就是最终呈现给用户的内容，直接回答用户的请求，不要有「以下是…」「根据…」之类的前缀\n\
-         - 步骤素材是你的参考资料，提炼关键信息写成自然流畅的回复，不要照搬原文\n\
-         - 回复长度匹配内容丰富度：简单结果 1-2 句话，丰富内容可以用几段\n\
-         - 包含具体的名字、数字、事实，不要笼统\n\
-         - 用用户使用的语言回复\n\
-         - 不要提及步骤编号、JSON、技术细节\n\
-         - 如果生成了图片，在末尾自然地提一下",
+         现在请基于这些素材，直接回复用户。按人设说话，禁止输出 AI 味。要求：\n\
+         - 直接回答请求，不要「以下是…」「根据…」这类前缀\n\
+         - 素材只作参考，写成这个人会说的话，不要照搬原文\n\
+         - 长度跟内容走：简单结果一两句，丰富内容可以几段\n\
+         - 点出具体名字、数字、事实\n\
+         - 用对方的语言；不要提步骤编号、JSON 或技术细节\n\
+         - 如果生成了图片，在末尾自然提一下",
         soul = soul,
         merope = merope_prefix,
         user_request = user_request,
@@ -514,20 +543,28 @@ async fn ai_summarize(
     if let Some(tx) = progress_tx {
         let tx = tx.clone();
         match analyzer
-            .analyze_stream(&prompt, |token| {
-                let _ = tx.try_send(AgentProgressEvent::SummaryToken {
-                    token: token.to_string(),
-                    done: false,
-                });
-                true
+            .analyze_stream_parts(&prompt, |delta| {
+                let tx = tx.clone();
+                async move {
+                    emit_stream_delta(&tx, delta).await;
+                    true
+                }
             })
             .await
         {
             Ok(full_text) if !full_text.trim().is_empty() => {
-                let _ = tx.try_send(AgentProgressEvent::SummaryToken {
-                    token: String::new(),
-                    done: true,
-                });
+                let _ = tx
+                    .send(AgentProgressEvent::ThinkingToken {
+                        token: String::new(),
+                        done: true,
+                    })
+                    .await;
+                let _ = tx
+                    .send(AgentProgressEvent::SummaryToken {
+                        token: String::new(),
+                        done: true,
+                    })
+                    .await;
                 Some(full_text.trim().to_string())
             }
             Ok(_) => None,
@@ -970,16 +1007,6 @@ pub fn search_results_found(count: usize, query: &str) -> String {
 /// 活跃平台
 pub fn active_platforms(count: usize) -> String {
     format!("活跃在 {} 个平台", count)
-}
-
-/// TTS 未配置（operator guidance; full code path still implemented）
-pub fn tts_not_configured() -> String {
-    "Speech service is not configured".to_string()
-}
-
-/// 图片生成完成但无法提取 URL
-pub fn image_generated_no_url() -> String {
-    "The image was generated but no URL was returned".to_string()
 }
 
 /// API Key 未配置

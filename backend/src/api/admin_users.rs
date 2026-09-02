@@ -34,12 +34,14 @@ pub(crate) const LEGACY_PRIMARY_ADMIN_ID: i32 = 1;
 
 type ApiError = (StatusCode, Json<Value>);
 
-fn db_error(e: impl std::fmt::Debug) -> ApiError {
-    tracing::error!("admin_users DB error: {:?}", e);
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({"error": "Database error", "code": "database_error"})),
-    )
+fn db_error<E: std::fmt::Display>(context: &'static str) -> impl FnOnce(E) -> ApiError {
+    move |error| {
+        tracing::error!(%error, context, "admin users store failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to {context}") })),
+        )
+    }
 }
 
 fn http_to_api(err: crate::error::HttpError) -> ApiError {
@@ -125,7 +127,7 @@ async fn load_is_owner(db: &DatabaseConnection, user_id: i32) -> Result<bool, Ap
             [user_id.into()],
         ))
         .await
-        .map_err(db_error)?;
+        .map_err(db_error("check owner"))?;
     Ok(row
         .and_then(|r| r.try_get::<bool>("", "is_owner").ok())
         .unwrap_or(false))
@@ -236,7 +238,7 @@ pub async fn list_users(
             vec![],
         ))
         .await
-        .map_err(db_error)?;
+        .map_err(db_error("list users"))?;
 
     let identity_rows = db
         .query_all_raw(Statement::from_sql_and_values(
@@ -247,7 +249,7 @@ pub async fn list_users(
             vec![],
         ))
         .await
-        .map_err(db_error)?;
+        .map_err(db_error("list user identities"))?;
 
     let mut identities_by_user: HashMap<i32, Vec<Value>> = HashMap::new();
     for row in &identity_rows {
@@ -285,7 +287,7 @@ pub async fn get_user(
             [user_id.into()],
         ))
         .await
-        .map_err(db_error)?
+        .map_err(db_error("find user"))?
         .ok_or_else(not_found)?;
 
     let identity_rows = db
@@ -298,7 +300,7 @@ pub async fn get_user(
             [user_id.into()],
         ))
         .await
-        .map_err(db_error)?;
+        .map_err(db_error("list user identities"))?;
     let identities: Vec<Value> = identity_rows.iter().map(identity_row_to_json).collect();
 
     let tapp_rows = db
@@ -309,7 +311,7 @@ pub async fn get_user(
             [user_id.into()],
         ))
         .await
-        .map_err(db_error)?;
+        .map_err(db_error("list user apps"))?;
     let tapps: Vec<Value> = tapp_rows
         .iter()
         .map(|row| {
@@ -363,7 +365,7 @@ pub async fn update_user(
             [user_id.into()],
         ))
         .await
-        .map_err(db_error)?
+        .map_err(db_error("find user"))?
         .ok_or_else(not_found)?;
     let target_is_admin = target.try_get::<bool>("", "is_admin").unwrap_or(false);
     let target_is_owner = target.try_get::<bool>("", "is_owner").unwrap_or(false);
@@ -393,7 +395,7 @@ pub async fn update_user(
                     vec![],
                 ))
                 .await
-                .map_err(db_error)?
+                .map_err(db_error("count admins"))?
                 .and_then(|r| r.try_get::<i64>("", "n").ok())
                 .unwrap_or(0);
             if admin_count <= 1 {
@@ -414,7 +416,7 @@ pub async fn update_user(
                 [user_id.into()],
             ))
             .await
-            .map_err(db_error)?
+            .map_err(db_error("count identities"))?
             .and_then(|r| r.try_get::<i64>("", "n").ok())
             .unwrap_or(0);
         if identity_count == 0 {
@@ -481,7 +483,7 @@ pub async fn update_user(
         params,
     ))
     .await
-    .map_err(db_error)?;
+    .map_err(db_error("update user"))?;
 
     // Role changes are authorization facts, not merely profile fields.  Drop
     // this process's snapshot and fan out a PostgreSQL invalidation so a
@@ -547,7 +549,7 @@ pub async fn unlink_identity(
             [user_id.into(), identity_id.into()],
         ))
         .await
-        .map_err(db_error)?
+        .map_err(db_error("load identity"))?
         .ok_or_else(not_found)?;
 
     if !info
@@ -578,7 +580,7 @@ pub async fn unlink_identity(
         [identity_id.into(), user_id.into()],
     ))
     .await
-    .map_err(db_error)?;
+    .map_err(db_error("unlink identity"))?;
 
     tracing::info!(
         "✅ Admin {} unlinked identity {} from user {}",
@@ -653,7 +655,7 @@ async fn cleanup_user_related_data(
             [user_id.into()],
         ))
         .await
-        .map_err(db_error)?;
+        .map_err(db_error("cleanup user data"))?;
     }
 
     Ok(())
@@ -689,7 +691,7 @@ pub async fn delete_user(
             [user_id.into()],
         ))
         .await
-        .map_err(db_error)?
+        .map_err(db_error("find user"))?
         .ok_or_else(not_found)?;
     let target_is_admin = target.try_get::<bool>("", "is_admin").unwrap_or(false);
     let target_is_owner = target.try_get::<bool>("", "is_owner").unwrap_or(false);
@@ -712,7 +714,7 @@ pub async fn delete_user(
                 vec![],
             ))
             .await
-            .map_err(db_error)?
+            .map_err(db_error("count admins"))?
             .and_then(|r| r.try_get::<i64>("", "n").ok())
             .unwrap_or(0);
         if admin_count <= 1 {
@@ -723,7 +725,7 @@ pub async fn delete_user(
         }
     }
 
-    let txn = db.begin().await.map_err(db_error)?;
+    let txn = db.begin().await.map_err(db_error("begin user delete"))?;
     cleanup_user_related_data(&txn, user_id).await?;
     // user_identities CASCADE；其余已在 cleanup 中处理
     let result = txn
@@ -733,13 +735,15 @@ pub async fn delete_user(
             [user_id.into()],
         ))
         .await
-        .map_err(db_error)?;
+        .map_err(db_error("delete user"))?;
     if result.rows_affected() == 0 {
-        txn.rollback().await.map_err(db_error)?;
+        txn.rollback()
+            .await
+            .map_err(db_error("rollback user delete"))?;
         return Err(not_found());
     }
 
-    txn.commit().await.map_err(db_error)?;
+    txn.commit().await.map_err(db_error("commit user delete"))?;
 
     // Invalidate locally after the destructive commit, then fan out a best-
     // effort PostgreSQL notification.  If the notification is missed, the

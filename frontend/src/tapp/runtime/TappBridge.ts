@@ -22,12 +22,12 @@ import type {
 } from '../types'
 import { userFacingError } from '../../utils/userFacingError'
 import { getQuotaManager } from '../services/QuotaManager'
+import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits'
 import {
   federationLiveLimits,
   federationMessageEnvelopeBytes,
   refreshFederationLimits,
 } from './federationLimits'
-import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits'
 import { PERMISSION_MAP } from './permissionConfig'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 

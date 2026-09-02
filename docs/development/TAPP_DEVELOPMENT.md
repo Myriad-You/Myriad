@@ -13,7 +13,7 @@
 | [Playground 生成上下文](tapp/PLAYGROUND_GENERATION_CONTEXT.md) | 注入模型的开发上下文与能力边界 |
 | [快速入门](tapp/QUICKSTART.md) | CLI 创建/校验/打包，代码架构，生命周期 |
 | [Manifest 配置](tapp/MANIFEST.md) | 完整的可安装 `manifest.json` 配置参考（含 `analytics:read` 等权限） |
-| [SDK API 参考](tapp/API_REFERENCE.md) | 所有 Tapp SDK API（含 `Tapp.analytics`） |
+| [SDK API 参考](tapp/API_REFERENCE.md) | 所有 Tapp SDK API（含 `Tapp.analytics`、`Tapp.persona`） |
 | [小组件开发](tapp/WIDGET.md) | Widget 开发指南、尺寸适配、样式规范 |
 | [页面样式规范](tapp/PAGE.md) | Page 布局、深色模式与 i18n |
 | [安全沙箱](tapp/SANDBOX.md) | CSP 策略、iframe 限制、权限系统 |

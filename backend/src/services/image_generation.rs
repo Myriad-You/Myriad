@@ -489,6 +489,7 @@ async fn load_generated_bytes(
     Ok((bytes.to_vec(), media_type))
 }
 
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 fn request_parts(
     config: &ImageGenerationConfig,
     prompt: &str,
@@ -1049,10 +1050,6 @@ fn validate_magic(bytes: &[u8], media_type: &str) -> Result<(), ImageGenerationE
             "generated payload does not match its image media type".to_string(),
         )
     })
-}
-
-fn clean_key(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn strip_openai_prefix(model: &str) -> &str {

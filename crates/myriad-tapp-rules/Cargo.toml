@@ -1,0 +1,19 @@
+[package]
+name = "myriad-tapp-rules"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Pure Tapp evaluators (HMAC, transform, package plan, feed merge)."
+authors = ["Myriad Contributors"]
+
+[dependencies]
+base64 = "0.23"
+hex = "0.4"
+hmac = "0.13"
+myriad-tapp-contract = { path = "../tapp-contract" }
+semver = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11"
+subtle = "2.6"
+tracing = "0.1"

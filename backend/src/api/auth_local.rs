@@ -23,6 +23,19 @@ use crate::middleware::auth::{
     notify_auth_cache_invalidation,
 };
 
+fn auth_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {
+    tracing::error!(%error, context, "auth store failed");
+    HttpError::from((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": format!("Failed to {context}") })),
+    ))
+}
+
+fn auth_store_app(context: &'static str, error: impl std::fmt::Display) -> HttpError {
+    tracing::error!(%error, context, "auth store failed");
+    HttpError(AppError::internal(format!("Failed to {context}")))
+}
+
 /// Modest global cap on concurrent Argon2 hash/verify work (MYR-006).
 ///
 /// Argon2 is intentionally CPU- and memory-heavy. Unbounded `spawn_blocking`
@@ -32,6 +45,7 @@ use crate::middleware::auth::{
 /// change-password, set-password, setup create-admin, and admin create-user
 /// all share this single permit path via [`hash_password`] / [`verify_password`].
 /// Historical default concurrency (default memory profile). Saver uses 1 via memory_profile.
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 const PASSWORD_HASH_PERMITS: usize = 4;
 /// How long a request may wait for a hash/verify permit before 503.
 /// Acts as a short queue bound — waiters beyond this get 503, not harsher IP limits.
@@ -163,7 +177,8 @@ pub(crate) fn map_create_admin_insert_error(err: &dyn std::fmt::Display) -> AppE
         // first-admin race almost always means setup already completed.
         return admin_already_exists_error();
     }
-    AppError::internal("Failed to create admin account").with_message(s)
+    tracing::error!(error = %s, "create admin insert failed");
+    AppError::internal("Failed to create admin account")
 }
 
 /// POST /api/setup/create-admin
@@ -189,10 +204,10 @@ pub async fn create_admin(
 
     use sea_orm::Value as SeaValue;
 
-    let txn = db.begin().await.map_err(|e| {
-        tracing::error!("create-admin begin transaction failed: {:?}", e);
-        HttpError(AppError::internal("Database error"))
-    })?;
+    let txn = db
+        .begin()
+        .await
+        .map_err(|error| auth_store_app("begin admin setup", error))?;
 
     // Serialize concurrent setup; released automatically on commit/rollback.
     txn.execute_raw(Statement::from_sql_and_values(
@@ -201,10 +216,7 @@ pub async fn create_admin(
         [CREATE_ADMIN_ADVISORY_LOCK_KEY.into()],
     ))
     .await
-    .map_err(|e| {
-        tracing::error!("create-admin advisory lock failed: {:?}", e);
-        HttpError(AppError::internal("Database error"))
-    })?;
+    .map_err(|error| auth_store_app("lock admin setup", error))?;
 
     // Setup-only: reject if any admin already exists (any auth_provider).
     let admin_exists_result = txn
@@ -216,10 +228,7 @@ pub async fn create_admin(
             vec![],
         ))
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to check existing admin: {:?}", e);
-            HttpError(AppError::internal("Database error"))
-        })?;
+        .map_err(|error| auth_store_app("check existing admin", error))?;
 
     let admin_exists: bool = admin_exists_result
         .and_then(|row| row.try_get("", "exists").ok())
@@ -366,12 +375,7 @@ pub async fn local_login(
             vec![SeaValue::String(Some(request.username.clone()))],
         ))
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?;
+        .map_err(|error| auth_store_http("look up account", error))?;
 
     let user_row = match user_result {
         Some(row) => row,
@@ -532,12 +536,7 @@ pub async fn change_password(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?;
+        .map_err(|error| auth_store_http("look up account", error))?;
 
     let user_row = user_result.ok_or_else(|| {
         tracing::warn!("User not found: {}", user_id);
@@ -605,18 +604,8 @@ pub async fn change_password(
             ],
         ))
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Failed to update password", "code": "password_failed"})),
-            ))
-        })?
-        .ok_or_else(|| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Failed to update password", "code": "password_failed"})),
-            ))
-        })?;
+        .map_err(|error| auth_store_http("change password", error))?
+        .ok_or_else(|| auth_store_http("change password", "no user row returned"))?;
 
     let new_tv: i64 = updated
         .try_get::<i32>("", "token_version")
@@ -863,11 +852,7 @@ pub async fn register(
             )));
         }
         Err(error) => {
-            tracing::error!(error = %error, "register: failed to read installation claim");
-            return Err(HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            )));
+            return Err(auth_store_http("read installation claim", error));
         }
     }
 
@@ -884,12 +869,7 @@ pub async fn register(
             vec![SeaValue::String(Some(req.username.clone()))],
         ))
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?;
+        .map_err(|error| auth_store_http("check username", error))?;
     if dup.is_some() {
         return Err(HttpError::from((
             StatusCode::CONFLICT,
@@ -987,12 +967,7 @@ pub async fn set_password(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?
+        .map_err(|error| auth_store_http("look up account", error))?
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::NOT_FOUND,
@@ -1023,12 +998,7 @@ pub async fn set_password(
             vec![SeaValue::String(Some(hash)), SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Failed to set password", "code": "password_failed"})),
-            ))
-        })?;
+        .map_err(|error| auth_store_http("set password", error))?;
     let new_tv = updated
         .as_ref()
         .and_then(|row| {
@@ -1116,12 +1086,7 @@ pub async fn toggle_local_login(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?
+        .map_err(|error| auth_store_http("look up account", error))?
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::NOT_FOUND,
@@ -1160,12 +1125,7 @@ pub async fn toggle_local_login(
         vec![SeaValue::Bool(Some(disabled)), SeaValue::Int(Some(user_id))],
     ))
     .await
-    .map_err(|_e| {
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to update", "code": "update_failed"})),
-        ))
-    })?;
+    .map_err(|error| auth_store_http("update local login", error))?;
 
     Ok(Json(json!({"success": true, "enabled": req.enabled})))
 }
@@ -1280,12 +1240,7 @@ pub async fn admin_create_user(
             vec![SeaValue::String(Some(req.username.clone()))],
         ))
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?;
+        .map_err(|error| auth_store_http("check username", error))?;
     if dup.is_some() {
         return Err(HttpError::from((
             StatusCode::CONFLICT,

@@ -724,8 +724,10 @@ pub(crate) async fn materialize_remote_public_room(
                WHEN EXCLUDED.shared_data_config IS NULL THEN federation_rooms.shared_data_config
                WHEN lower(btrim(federation_rooms.home_server)) = lower(btrim(EXCLUDED.home_server))
                     OR btrim(federation_rooms.home_server) = ''
-               THEN COALESCE(federation_rooms.shared_data_config, '{}'::jsonb)
-                    || EXCLUDED.shared_data_config
+               -- Column is `json`, which has no `||`. Merge through jsonb and cast
+               -- back so every CASE branch resolves to `json`.
+               THEN (COALESCE(federation_rooms.shared_data_config::jsonb, '{}'::jsonb)
+                     || EXCLUDED.shared_data_config::jsonb)::json
                ELSE federation_rooms.shared_data_config
              END,
              updated_at = NOW()"#,

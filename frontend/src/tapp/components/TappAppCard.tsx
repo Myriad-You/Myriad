@@ -145,27 +145,11 @@ export function loadTappAppCardSizes(): Record<string, TappAppCardSize> {
   return loadTappAppCardLayout().sizes
 }
 
-/** Persist list card sizes map (keeps existing order). */
-export function saveTappAppCardSizes(
-  map: Record<string, TappAppCardSize>,
-): void {
-  const prev = loadTappAppCardLayout()
-  saveTappAppCardLayout({ sizes: map, order: prev.order })
-}
-
 // Re-export pure order helpers (implementation lives in utils for unit tests).
 export {
   applyTappAppCardOrder,
   isSiteOwnerLayoutPending,
 } from '../utils/tappAppCardOrder'
-
-/** Default size when user has not chosen (compact 1x1). */
-export function resolveTappAppCardSize(
-  _tapp: TappInstance,
-  override?: TappAppCardSize,
-): TappAppCardSize {
-  return override ?? '1x1'
-}
 
 export function toggleTappAppCardSize(size: TappAppCardSize): TappAppCardSize {
   return size === '2x1' ? '1x1' : '2x1'

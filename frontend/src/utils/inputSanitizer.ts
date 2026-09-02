@@ -3,8 +3,6 @@
  * 防止 XSS、SQL 注入等攻击
  */
 
-import { currentCopy } from '../i18n/localeCopy'
-
 /**
  * HTML 实体编码
  */
@@ -33,77 +31,6 @@ export function sanitizeUsername(username: string): string {
 }
 
 /**
- * 清洗邮箱输入
- */
-export function sanitizeEmail(email: string): string {
-  return email.trim().toLowerCase().slice(0, 255)
-}
-
-/**
- * 验证邮箱格式
- */
-export function isValidEmail(email: string): boolean {
-  const emailRegex = /^[\w.%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i
-  return emailRegex.test(email) && email.length <= 255
-}
-
-/**
- * 验证用户名格式
- */
-export function isValidUsername(username: string): boolean {
-  const usernameRegex = /^\w{3,50}$/
-  return usernameRegex.test(username)
-}
-
-/**
- * 验证密码强度
- */
-export interface PasswordStrength {
-  isValid: boolean
-  score: number // 0-4
-  feedback: string[]
-}
-
-export function checkPasswordStrength(password: string): PasswordStrength {
-  const feedback: string[] = []
-  let score = 0
-
-  const t = currentCopy().errors
-  // 长度检查
-  if (password.length < 8) {
-    feedback.push(t.passwordMinLength)
-    return { isValid: false, score: 0, feedback }
-  }
-  if (password.length >= 12) score++
-  if (password.length >= 16) score++
-
-  // 复杂度检查
-  if (/[a-z]/.test(password)) score++
-  if (/[A-Z]/.test(password)) score++
-  if (/\d/.test(password)) score++
-  if (/[^a-z0-9]/i.test(password)) score++
-
-  // 反馈
-  if (!/[a-z]/.test(password)) feedback.push(t.passwordNeedLower)
-  if (!/[A-Z]/.test(password)) feedback.push(t.passwordNeedUpper)
-  if (!/\d/.test(password)) feedback.push(t.passwordNeedDigit)
-  if (!/[^a-z0-9]/i.test(password)) feedback.push(t.passwordNeedSpecial)
-
-  // 常见弱密码检查
-  const commonPasswords = ['password', '12345678', 'qwerty', 'admin', 'letmein']
-  if (commonPasswords.some((weak) => password.toLowerCase().includes(weak))) {
-    feedback.push(t.passwordTooCommon)
-    score = Math.max(0, score - 2)
-  }
-
-  return {
-    isValid: password.length >= 8 && password.length <= 128,
-    score: Math.min(4, score),
-    feedback,
-  }
-}
-
-/**
  * 清洗 URL 输入
  */
 export function sanitizeUrl(url: string): string {
@@ -117,51 +44,6 @@ export function sanitizeUrl(url: string): string {
   } catch {
     return ''
   }
-}
-
-/**
- * 验证并清洗整数输入
- */
-export function sanitizeInteger(
-  value: any,
-  min?: number,
-  max?: number,
-): number | null {
-  const num = Number.parseInt(value, 10)
-  if (Number.isNaN(num)) return null
-  if (min !== undefined && num < min) return null
-  if (max !== undefined && num > max) return null
-  return num
-}
-
-/**
- * 验证并清洗文本输入
- */
-export function sanitizeText(text: string, maxLength: number = 1000): string {
-  return stripHtmlTags(text).trim().slice(0, maxLength)
-}
-
-/**
- * 防止路径遍历攻击
- */
-export function sanitizePath(path: string): string {
-  return path
-    .replace(/\.\./g, '') // 移除 ..
-    .replace(/\/\//g, '/') // 移除双斜杠
-    .replace(/^\//, '') // 移除开头斜杠
-}
-
-/**
- * 验证文件名
- */
-export function isValidFilename(filename: string): boolean {
-  // 不允许路径分隔符和特殊字符
-  const invalidChars = /[<>:"/\\|?*\x00-\x1F]/
-  return (
-    !invalidChars.test(filename) &&
-    filename.length > 0 &&
-    filename.length <= 255
-  )
 }
 
 /**

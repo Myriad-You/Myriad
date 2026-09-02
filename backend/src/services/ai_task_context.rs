@@ -133,7 +133,7 @@ async fn require_capability(
     .await
     .map_err(|err| match err {
         TappAccessError::Database => {
-            AiContextError::new(500, "AI_CONTEXT_READ_FAILED", "Database error")
+            AiContextError::new(500, "AI_CONTEXT_READ_FAILED", err.message())
         }
         TappAccessError::NoAdmin => {
             AiContextError::new(500, "AI_CONTEXT_READ_FAILED", "No admin user found")

@@ -6,11 +6,16 @@
 
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
-import { ApiError, parseApiErrorBody } from './api'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
+import { userFacingError } from '../utils/userFacingError'
+import { ApiError, parseApiErrorBody } from './api'
 
-function speechHttpError(status: number, raw: string, fallback: string): ApiError {
+function speechHttpError(
+  status: number,
+  raw: string,
+  fallback: string,
+): ApiError {
   let parsed: unknown
   try {
     parsed = raw.trim() ? JSON.parse(raw) : undefined
@@ -45,13 +50,6 @@ export interface VoiceInfo {
   voice_type: 'ultra_natural' | 'llm' | 'premium'
   /** 是否支持情感控制 */
   emotion_support: boolean
-}
-
-/**
- * 音色列表响应
- */
-export interface VoiceListResponse {
-  voices: VoiceInfo[]
 }
 
 /**
@@ -173,6 +171,19 @@ export interface SpeechStatus {
   available: boolean
   tts_enabled: boolean
   asr_enabled: boolean
+  convo_enabled?: boolean
+  /** 人设开口朗读。缺省或 false 都不读。 */
+  persona_speech_enabled?: boolean
+  error?: string
+}
+
+export interface ConvoSession {
+  success: boolean
+  app_id: string
+  channel: string
+  uid: number
+  token: string
+  agent_id: string
   error?: string
 }
 
@@ -251,13 +262,40 @@ async function request<T>(
  */
 export type SpeechAttributionHeaders = Record<string, string>
 
+let speechStatusCache: SpeechStatus | null = null
+let speechStatusInflight: Promise<SpeechStatus> | null = null
+
+/** Settings save: drop the cached /status so the next probe sees the new switch. */
+export function invalidateSpeechStatusCache(): void {
+  speechStatusCache = null
+  speechStatusInflight = null
+}
+
 /**
- * 获取语音服务状态
+ * 获取语音服务状态。
+ * 无归因头的调用共一份缓存（面板开开关关不该反复打 /status）；
+ * Tapp 沙箱带归因头的走原路，不和宿主那份混。
  */
 export async function getSpeechStatus(
   attributionHeaders?: SpeechAttributionHeaders,
 ): Promise<SpeechStatus> {
-  return request<SpeechStatus>('/status', { headers: attributionHeaders })
+  if (attributionHeaders) {
+    return request<SpeechStatus>('/status', { headers: attributionHeaders })
+  }
+  if (speechStatusCache) return speechStatusCache
+  if (!speechStatusInflight) {
+    speechStatusInflight = request<SpeechStatus>('/status')
+      .then((status) => {
+        speechStatusCache = status
+        speechStatusInflight = null
+        return status
+      })
+      .catch((error: unknown) => {
+        speechStatusInflight = null
+        throw error
+      })
+  }
+  return speechStatusInflight
 }
 
 /**
@@ -328,6 +366,29 @@ export async function speechToText(
     method: 'POST',
     body: JSON.stringify(req),
     headers: attributionHeaders,
+  })
+}
+
+export async function startConvoSession(language?: string): Promise<ConvoSession> {
+  return request<ConvoSession>('/convo/start', {
+    method: 'POST',
+    body: JSON.stringify({ language }),
+  })
+}
+
+export async function stopConvoSession(agentId: string): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/convo/stop', {
+    method: 'POST',
+    body: JSON.stringify({ agent_id: agentId }),
+  })
+}
+
+export async function interruptConvoSession(
+  agentId: string,
+): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/convo/interrupt', {
+    method: 'POST',
+    body: JSON.stringify({ agent_id: agentId }),
   })
 }
 
@@ -531,14 +592,20 @@ export class CloudPodcastPlayer {
           // 显示第一个错误
           const firstError = response.errors[0]
           throw new Error(
-            `${currentCopy().brew.generateFailed}: ${
+            userFacingError(
               firstError.error === 'empty_dialogue_text'
                 ? currentCopy().errors.emptyDialogueText
-                : firstError.error
-            }`,
+                : firstError.error,
+              currentCopy().brew.generateFailed,
+            ),
           )
         } else if (response.error) {
-          throw new Error(response.error)
+          throw new Error(
+            userFacingError(
+              response.error,
+              currentCopy().brew.generatePodcastFailed,
+            ),
+          )
         } else {
           throw new Error(currentCopy().brew.generatePodcastFailed)
         }
@@ -857,21 +924,10 @@ export function saveTTSSettings(settings: Partial<TTSSettings>) {
     localStorage.setItem('brewlia_tts_settings', JSON.stringify(merged))
   } catch (e) {
     console.warn('[TTS] Failed to save settings:', e)
+    void import('../utils/toastManager').then(({ showError }) => {
+      showError(userFacingError(e, currentCopy().errors.ttsSettingsSaveFailed))
+    })
   }
-}
-
-/**
- * 缓存统计响应
- */
-export interface CacheStatsResponse {
-  /** 缓存文件数量 */
-  file_count: number
-  /** 缓存目录数量（不同文本） */
-  text_count: number
-  /** 缓存总大小（字节） */
-  total_size: number
-  /** 格式化的大小 */
-  total_size_formatted: string
 }
 
 /**
@@ -884,13 +940,6 @@ export interface ClearCacheResponse {
   freed_size: number
   freed_size_formatted: string
   error?: string
-}
-
-/**
- * 获取 TTS 缓存统计
- */
-export async function getCacheStats(): Promise<CacheStatsResponse> {
-  return request<CacheStatsResponse>('/cache/stats')
 }
 
 /**

@@ -553,22 +553,6 @@ html.dark .badge-local {
   color: #93c5fd;
 }
 
-/* 混合账户徽章（本地管理员 + GitHub 绑定） */
-.badge-hybrid {
-  background: linear-gradient(135deg, #a5b4fc 0%, #818cf8 100%);
-  color: #312e81;
-  box-shadow: 0 2px 8px rgb(99 102 241 / 30%);
-}
-
-html.dark .badge-hybrid {
-  background: linear-gradient(
-    135deg,
-    rgb(129 140 248 / 25%) 0%,
-    rgb(99 102 241 / 25%) 100%
-  );
-  color: #c7d2fe;
-}
-
 /* 简介 */
 .user-modal-bio {
   text-align: center;

@@ -48,10 +48,23 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 
 fn server_error(context: &str, error: impl std::fmt::Display) -> ApiError {
     tracing::error!("avatar_source {context}: {error}");
+    let message = if context == "set" {
+        "Failed to save avatar source"
+    } else {
+        "Failed to load avatar sources"
+    };
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({"success": false, "message": "Failed to load avatar sources"})),
+        Json(json!({"success": false, "message": message})),
     )
+}
+
+fn apply_error(error: String) -> ApiError {
+    if error.starts_with("Failed to ") {
+        server_error("set", error)
+    } else {
+        bad_request(error)
+    }
 }
 
 async fn current_user_id(
@@ -111,7 +124,7 @@ async fn apply_source(
     let kind = parse_kind(&payload.kind)?;
     let avatar_url = set_avatar_source(db, user_id, kind, payload.source_ref.as_deref())
         .await
-        .map_err(bad_request)?;
+        .map_err(apply_error)?;
 
     Ok(Json(json!({
         "success": true,

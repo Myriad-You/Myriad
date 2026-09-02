@@ -26,6 +26,8 @@ import { getTappIconStyle } from '../../tapp/utils/tappColors'
 import { TAPP_LIST_PATH, tappRunPath } from '../../tapp/utils/tappPaths'
 import { getCSRFToken } from '../../utils/csrf'
 import { normalizeOAuthIconUrl } from '../../utils/oauthIcons'
+import { showError } from '../../utils/toastManager'
+import { userFacingError } from '../../utils/userFacingError'
 import { Avatar } from '../Avatar'
 import { AvatarSourcePicker } from '../AvatarSourcePicker'
 import OAuthIconImage from '../OAuthIconImage'
@@ -316,10 +318,11 @@ export const UserModal: FC<UserModalProps> = ({
       }
     } catch (error) {
       console.error('Failed to load OAuth bindings:', error)
+      setOAuthError(userFacingError(error, t.userModal.oauthLoadFailed))
     } finally {
       setOAuthLoading(false)
     }
-  }, [])
+  }, [t.userModal.oauthLoadFailed])
 
   // 主页徽章需要 identities；进入 OAuth 页再拉一次以同步解绑/绑定
   useEffect(() => {
@@ -444,15 +447,18 @@ export const UserModal: FC<UserModalProps> = ({
       if (!response.ok) {
         const body = await response.json().catch(() => null)
         setOAuthError(
-          (typeof body?.message === 'string' && body.message) ||
-            (typeof body?.error === 'string' && body.error) ||
+          userFacingError(
+            (typeof body?.message === 'string' && body.message) ||
+              (typeof body?.error === 'string' && body.error) ||
+              `HTTP ${response.status}`,
             t.userModal.oauthUnbindFailed,
+          ),
         )
         return
       }
       await loadOAuthBindings()
-    } catch {
-      setOAuthError(t.userModal.networkError)
+    } catch (error) {
+      setOAuthError(userFacingError(error, t.userModal.networkError))
     } finally {
       setUnbindingId(null)
     }
@@ -471,12 +477,13 @@ export const UserModal: FC<UserModalProps> = ({
         setRecentTapps(recentList)
       } catch (error) {
         console.error('Failed to load tapps:', error)
+        showError(userFacingError(error, t.tapp.listLoadFailed))
       } finally {
         setTappsLoading(false)
       }
     }
     loadData()
-  }, [])
+  }, [t.tapp.listLoadFailed])
 
   // 处理修改密码
   const handleChangePassword = async (e: SubmitEvent<HTMLFormElement>) => {
@@ -538,10 +545,15 @@ export const UserModal: FC<UserModalProps> = ({
         alert(t.userModal.passwordChanged)
         setPage('main')
       } else {
-        setPasswordError(result.message || result.error || t.common.error)
+        setPasswordError(
+          userFacingError(
+            result.message || result.error || `HTTP ${response.status}`,
+            t.errors.passwordChangeFailed,
+          ),
+        )
       }
-    } catch (_error) {
-      setPasswordError(t.userModal.networkError)
+    } catch (error) {
+      setPasswordError(userFacingError(error, t.userModal.networkError))
     } finally {
       setPasswordSubmitting(false)
     }
@@ -599,10 +611,15 @@ export const UserModal: FC<UserModalProps> = ({
         setHasPassword(true)
         setPage('main')
       } else {
-        setPasswordError(result.message || result.error || t.common.error)
+        setPasswordError(
+          userFacingError(
+            result.message || result.error || `HTTP ${response.status}`,
+            t.errors.passwordSetFailed,
+          ),
+        )
       }
-    } catch (_error) {
-      setPasswordError(t.userModal.networkError)
+    } catch (error) {
+      setPasswordError(userFacingError(error, t.userModal.networkError))
     } finally {
       setPasswordSubmitting(false)
     }
@@ -1102,7 +1119,7 @@ export const UserModal: FC<UserModalProps> = ({
                   ) : (
                     // 无最近使用时显示空状态
                     <span className="user-modal-recent-empty">
-                      {t.userModal.noRecentTapps || 'No recent apps'}
+                      {t.userModal.noRecentTapps}
                     </span>
                   )}
                 </div>

@@ -2080,11 +2080,7 @@ mod tests {
             Some("Invalid attachment URL")
         );
         assert_eq!(
-            attachment_url_rejection_reason(
-                base,
-                1,
-                "https://evil.com/media/federation/1/abc.jpg"
-            ),
+            attachment_url_rejection_reason(base, 1, "https://evil.com/media/federation/1/abc.jpg"),
             Some("Invalid attachment URL")
         );
         assert_eq!(

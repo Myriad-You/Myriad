@@ -19,8 +19,9 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
 
     let csp = if is_production {
         // PRODUCTION: Get allowed API origins from env (fallback to default)
-        let allowed_api_origins =
-            env::var("CSP_CONNECT_SRC").unwrap_or_else(|_| "'self' https:".to_string());
+        // wss/stun/turn: Shengwang realtime talk (Agora RTC) plus any other WebRTC.
+        let allowed_api_origins = env::var("CSP_CONNECT_SRC")
+            .unwrap_or_else(|_| "'self' https: wss: stun: turn:".to_string());
 
         // PRODUCTION: Strict CSP for executable content, relaxed for assets
         format!(
@@ -93,12 +94,12 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
         "strict-origin-when-cross-origin".parse().unwrap(),
     );
 
-    // Permissions-Policy: 允许本站天气等使用定位；麦克风/摄像头仍禁用。
-    // 文档级策略由 proxy（补齐）+ frontend serve.json 共同保证；此处覆盖 API 响应。
-    // 字符串须与 proxy PERMISSIONS_POLICY / frontend serve.json 保持一致。
+    // Permissions-Policy: 本站可定位（天气）和用麦克风（听/说）；摄像头仍禁用。
+    // 文档级策略由 proxy（补齐）+ Astro dev middleware 共同保证；此处覆盖 API 响应。
+    // 字符串须与 proxy PERMISSIONS_POLICY / frontend DOCUMENT_PERMISSIONS_POLICY 保持一致。
     headers.insert(
         "Permissions-Policy".parse::<header::HeaderName>().unwrap(),
-        "geolocation=(self), microphone=(), camera=()"
+        "geolocation=(self), microphone=(self), camera=()"
             .parse()
             .unwrap(),
     );

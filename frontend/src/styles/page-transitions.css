@@ -36,20 +36,6 @@ body {
   overflow-x: clip;
 }
 
-/* CSS 变量 */
-:root {
-  --scrollbar-width: 6px;
-  --scrollbar-track-color: rgb(0 0 0 / 10%);
-  --scrollbar-thumb-color: rgb(0 0 0 / 30%);
-  --scrollbar-thumb-hover-color: rgb(0 0 0 / 50%);
-}
-
-html.dark {
-  --scrollbar-track-color: rgb(255 255 255 / 10%);
-  --scrollbar-thumb-color: rgb(255 255 255 / 30%);
-  --scrollbar-thumb-hover-color: rgb(255 255 255 / 50%);
-}
-
 /* ========================================
    页面切换过渡优化 - 防止闪屏
    ======================================== */

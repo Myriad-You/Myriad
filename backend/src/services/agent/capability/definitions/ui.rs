@@ -52,7 +52,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "music.status".to_string(),
         name: "音乐播放状态".to_string(),
-        description: "向浏览器请求当前播放器状态（状态只存在于前端，不在后端编造）".to_string(),
+        description: "读取当前播放器状态（请求可带上前端快照，供后续步骤 xxxFrom）".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -62,6 +62,10 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
+                "available": { "type": "boolean" },
+                "isPlaying": { "type": "boolean" },
+                "isEnabled": { "type": "boolean" },
+                "currentSong": { "type": "object" },
                 "frontendAction": { "type": "object" }
             }
         }),
@@ -81,7 +85,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
         input_schema: json!({
             "type": "object",
             "properties": {
-                "playlistId": { "type": "string", "description": "歌单 ID" },
+                "playlistId": { "type": "string", "description": "歌单 ID（也可用 playlist_id）" },
+                "playlist_id": { "type": "string", "description": "playlistId 的别名" },
                 "source": {
                     "type": "string",
                     "enum": ["netease", "qq"],
@@ -99,8 +104,10 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "success": { "type": "boolean" },
-                "playlistName": { "type": "string" },
-                "songCount": { "type": "integer" },
+                "playlistId": { "type": "string" },
+                "source": { "type": "string" },
+                "autoPlay": { "type": "boolean" },
+                "message": { "type": "string" },
                 "frontendAction": { "type": "object" }
             }
         }),
@@ -130,7 +137,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "pageName": { "type": "string", "description": "页面名称" },
                 "pageType": { 
                     "type": "string", 
-                    "enum": ["home", "platform", "brew", "tapp", "report", "settings", "profile", "other"],
+                    "enum": ["home", "library", "platform", "brew", "tapp", "report", "settings", "profile", "other"],
                     "description": "页面类型"
                 },
                 "context": {
@@ -198,7 +205,6 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "success": { "type": "boolean" },
-                "previousPath": { "type": "string" },
                 "currentPath": { "type": "string" },
                 "frontendAction": {
                     "type": "object",
@@ -210,7 +216,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: false,
         estimated_duration_ms: Some(100),
         requires_confirmation: false,
-        risk_level: RiskLevel::Low,
+        risk_level: RiskLevel::None,
         confirmation_message: None,
     });
 
@@ -226,8 +232,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "action": { 
                     "type": "string", 
-                    "enum": ["click", "hover", "focus", "scroll", "select", "toggle", "expand", "collapse"],
-                    "description": "交互动作类型" 
+                    "enum": ["click", "hover", "focus", "scroll", "select", "toggle", "expand", "collapse", "type", "input"],
+                    "description": "交互动作类型。type/input 向输入框写入 value"
                 },
                 "target": { 
                     "type": "object",
@@ -241,9 +247,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
                         "index": { "type": "integer", "description": "如果匹配多个元素，选择第几个（0-based）" }
                     }
                 },
-                "value": { 
-                    "type": "string", 
-                    "description": "用于 select/toggle 等需要值的操作" 
+                "value": {
+                    "description": "select/toggle 的值，或 type/input 要写入的文本"
                 },
                 "scrollOptions": {
                     "type": "object",
@@ -268,16 +273,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "success": { "type": "boolean" },
-                "elementFound": { "type": "boolean" },
-                "elementInfo": {
-                    "type": "object",
-                    "properties": {
-                        "tagName": { "type": "string" },
-                        "text": { "type": "string" },
-                        "classes": { "type": "array" },
-                        "rect": { "type": "object" }
-                    }
-                },
+                "queued": { "type": "boolean", "description": "已交给前端；不表示元素已点到" },
+                "action": { "type": "string" },
+                "target": { "type": "object" },
                 "frontendAction": {
                     "type": "object",
                     "description": "前端执行的交互指令"
@@ -305,15 +303,23 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "userIntent": {
                     "type": "string",
-                    "description": "用户想要执行的操作描述"
+                    "description": "用户想要执行的操作描述（也可用 query）"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "userIntent 的别名"
                 },
                 "currentPath": {
                     "type": "string",
                     "description": "当前页面路径"
                 },
+                "context": {
+                    "type": "object",
+                    "description": "页面快照（请求级 page_context 会自动注入；也可用 pageSnapshot）"
+                },
                 "pageSnapshot": {
                     "type": "object",
-                    "description": "页面快照信息（由前端提供）",
+                    "description": "页面快照信息（由前端提供；handler 读 context / pageSnapshot）",
                     "properties": {
                         "visibleElements": { "type": "array" },
                         "activeElement": { "type": "object" },
@@ -323,7 +329,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "autoExecute": {
                     "type": "boolean",
                     "default": false,
-                    "description": "是否自动执行生成的操作"
+                    "description": "是否把计划变成 frontendActions。点击/输入还需要 ui:interact 授予，否则只发 navigate"
                 }
             },
             "required": ["userIntent"]
@@ -331,22 +337,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "understanding": {
-                    "type": "object",
-                    "properties": {
-                        "pagePurpose": { "type": "string" },
-                        "currentState": { "type": "string" },
-                        "availableActions": { "type": "array" }
-                    }
-                },
-                "plan": {
-                    "type": "object",
-                    "properties": {
-                        "canFulfill": { "type": "boolean" },
-                        "explanation": { "type": "string" },
-                        "steps": { "type": "array" }
-                    }
-                },
+                "query": { "type": "string" },
+                "plan": { "type": "object" },
+                "understood": { "type": "boolean" },
                 "frontendAction": { "type": "object" }
             }
         }),
@@ -541,8 +534,10 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "success": { "type": "boolean" },
+                "target": { "type": "string" },
                 "targetId": { "type": "string" },
-                "targetName": { "type": "string" }
+                "contentId": { "type": "string" },
+                "title": { "type": "string" }
             }
         }),
         required_permissions: vec!["content:write".to_string()],

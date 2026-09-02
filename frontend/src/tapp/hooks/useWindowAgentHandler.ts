@@ -6,17 +6,16 @@
  */
 
 import type { FrontendAction, WindowTarget } from '../../services/agent'
-import { useEffect } from 'react'
+import type { WindowRef } from './windowAgentTarget'
 
+import { useEffect } from 'react'
 import {
   registerActionHandler,
   unregisterActionHandler,
 } from '../../services/agent'
+import { resolveCloseWindowIds, resolveWindowTarget } from './windowAgentTarget'
 
-export interface WindowRef {
-  windowId: string
-  tappId: string
-}
+export type { WindowRef }
 
 interface UseWindowAgentHandlerOptions {
   /** 当前所有窗口的 ref（避免 useEffect 依赖频繁变化） */
@@ -35,24 +34,6 @@ interface UseWindowAgentHandlerOptions {
   closeWindow: (windowId: string) => void
   /** 聚焦窗口 */
   focusWindow: (windowId: string) => void
-}
-
-function resolveWindowTarget(
-  target: WindowTarget,
-  windowsRef: React.RefObject<WindowRef[]>,
-  activeWindowIdRef: React.RefObject<string | null>,
-): string | null {
-  if (target.windowId) {
-    return target.windowId
-  }
-  if (target.tappId) {
-    const win = windowsRef.current?.find((w) => w.tappId === target.tappId)
-    return win?.windowId || null
-  }
-  if (target.position === 'active') {
-    return activeWindowIdRef.current
-  }
-  return null
 }
 
 /**
@@ -88,13 +69,15 @@ export function useWindowAgentHandler({
     const closeWin = async (action: FrontendAction): Promise<unknown> => {
       const target = action.target as WindowTarget | undefined
       if (!target) return false
-      const windowId = resolveWindowTarget(
+      const windowIds = resolveCloseWindowIds(
         target,
-        windowsRef,
-        activeWindowIdRef,
+        windowsRef.current ?? [],
+        activeWindowIdRef.current,
       )
-      if (!windowId) return false
-      closeWindow(windowId)
+      if (windowIds.length === 0) return false
+      for (const windowId of windowIds) {
+        closeWindow(windowId)
+      }
       return true
     }
 
@@ -103,8 +86,8 @@ export function useWindowAgentHandler({
       if (!target) return false
       const windowId = resolveWindowTarget(
         target,
-        windowsRef,
-        activeWindowIdRef,
+        windowsRef.current ?? [],
+        activeWindowIdRef.current,
       )
       if (!windowId) return false
       focusWindow(windowId)
@@ -120,6 +103,7 @@ export function useWindowAgentHandler({
     }
 
     const queryWindows = async (): Promise<unknown> => ({
+      available: true,
       windows: windowsRef.current ?? [],
       activeWindowId: activeWindowIdRef.current,
       windowCount: windowsRef.current?.length ?? 0,

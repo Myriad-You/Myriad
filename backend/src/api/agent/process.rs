@@ -53,6 +53,29 @@ pub(crate) fn agent_stream_error_code(error: &str, fallback: &str) -> String {
     }
 }
 
+pub(crate) fn completed_turn_intention_status(
+    response: &ApiResponse,
+) -> crate::services::agent::consciousness::IntentStatus {
+    use crate::services::agent::consciousness::IntentStatus;
+    match response.response_type.as_str() {
+        "confirmation_required" => IntentStatus::Waiting,
+        "answer" | "task_completed"
+            if response.success
+                && response
+                    .task
+                    .as_ref()
+                    .is_none_or(|task| task.status == "completed")
+                && !response.data.as_ref().is_some_and(|data| {
+                    data.get("blocked").and_then(Value::as_bool) == Some(true)
+                        || data.get("unsupported").and_then(Value::as_bool) == Some(true)
+                }) =>
+        {
+            IntentStatus::Completed
+        }
+        _ => IntentStatus::Failed,
+    }
+}
+
 // API 端点
 
 /// 处理自然语言请求
@@ -64,6 +87,24 @@ pub async fn process(
 ) -> Result<Json<ApiResponse>, HttpError> {
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     validate_input(&req.input)?;
+    let interaction_mode = req
+        .context
+        .as_ref()
+        .and_then(|context| context.mode)
+        .unwrap_or_default();
+    let source_intent_id = req
+        .context
+        .as_ref()
+        .and_then(|context| context.intention_id.clone());
+    if source_intent_id.is_some()
+        && interaction_mode != crate::services::agent::AgentInteractionMode::Work
+    {
+        return Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "An accepted intention must enter Work mode" })),
+        )));
+    }
+    validate_intention_work_request(&db, source_intent_id.as_deref(), user_id, &req.input).await?;
 
     tracing::info!(
         user_id = user_id,
@@ -76,17 +117,23 @@ pub async fn process(
         .as_ref()
         .and_then(|c| c.session_id.as_deref())
         .map(str::to_string);
-    let session_id = ensure_session(&db, client_session_id.as_deref(), user_id)
+    let session_id = ensure_session(&db, client_session_id.as_deref(), user_id, interaction_mode)
         .await
         .map_err(|error| {
             tracing::error!(%error, "[Agent API] Failed to ensure session");
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": error })),
+                Json(json!({ "error": "Could not prepare Agent session" })),
             ))
         })?;
     let lane_key = LaneQueue::make_lane_key(user_id, Some(&session_id));
-    let conversation_history = load_session_history(&db, &session_id, 20).await;
+    let conversation_history = load_session_history(
+        &db,
+        &session_id,
+        20,
+        interaction_mode == crate::services::agent::AgentInteractionMode::Chat,
+    )
+    .await;
     if let Err(error) = persist_user_message(&db, &session_id, &req.input).await {
         tracing::warn!(%error, "[Agent API] Failed to persist user message");
     }
@@ -118,6 +165,13 @@ pub async fn process(
             ..Default::default()
         });
     }
+    let autonomy_cap =
+        autonomy_cap_for_intention(&db, source_intent_id.as_deref(), user_id).await?;
+    if let Some(ref mut ctx) = user_request.context {
+        // User-accepted Work must not inherit a client-supplied ceiling.
+        // Only autonomy-accepted intentions keep a server-computed cap.
+        ctx.autonomy_permission_cap = autonomy_cap;
+    }
 
     // 获取 Lane Queue 执行许可（同一用户串行，全局并发上限 4）
     let _guard = LANE_QUEUE
@@ -131,12 +185,51 @@ pub async fn process(
             HttpError::from((StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e }))))
         })?;
 
+    begin_intention_work(
+        &db,
+        source_intent_id.as_deref(),
+        user_id,
+        Some(session_id.clone()),
+        None,
+    )
+    .await?;
+
     // 创建 Agent 并处理请求
     let agent = Agent::new(db.clone()).await;
-    let response = agent
-        .process(user_request)
-        .await
-        .map_err(agent_turn_error)?;
+    let response = match agent.process(user_request).await {
+        Ok(response) => response,
+        Err(error) => {
+            advance_intention_work(
+                &db,
+                source_intent_id.as_deref(),
+                user_id,
+                crate::services::agent::consciousness::IntentStatus::Failed,
+                Some(error.clone()),
+            )
+            .await;
+            return Err(agent_turn_error(error));
+        }
+    };
+    let intention_status = if response.is_successful_outcome() {
+        crate::services::agent::consciousness::IntentStatus::Completed
+    } else if response
+        .task
+        .as_ref()
+        .is_some_and(|task| task.status == crate::services::agent::TaskStatus::WaitingForInput)
+        || response.confirmation.is_some()
+    {
+        crate::services::agent::consciousness::IntentStatus::Waiting
+    } else {
+        crate::services::agent::consciousness::IntentStatus::Failed
+    };
+    advance_intention_work(
+        &db,
+        source_intent_id.as_deref(),
+        user_id,
+        intention_status,
+        Some(response.message.clone()),
+    )
+    .await;
 
     let mut api_response: ApiResponse = response.into();
     let metadata = json!({
@@ -170,6 +263,24 @@ pub async fn process_stream(
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, HttpError> {
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     validate_input(&req.input)?;
+    let interaction_mode = req
+        .context
+        .as_ref()
+        .and_then(|context| context.mode)
+        .unwrap_or_default();
+    let source_intent_id = req
+        .context
+        .as_ref()
+        .and_then(|context| context.intention_id.clone());
+    if source_intent_id.is_some()
+        && interaction_mode != crate::services::agent::AgentInteractionMode::Work
+    {
+        return Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "An accepted intention must enter Work mode" })),
+        )));
+    }
+    validate_intention_work_request(&db, source_intent_id.as_deref(), user_id, &req.input).await?;
 
     tracing::info!(
         user_id = user_id,
@@ -184,20 +295,37 @@ pub async fn process_stream(
         .map(|s| s.to_string());
 
     // 确保会话存在（自动创建或验证已有会话）
-    let session_id = match ensure_session(&db, client_session_id.as_deref(), user_id).await {
-        Ok(sid) => sid,
-        Err(e) => {
-            tracing::warn!("[Agent API] Failed to ensure session: {}", e);
-            // 不阻塞主流程，降级为无会话模式
-            String::new()
-        }
-    };
+    let session_id =
+        match ensure_session(&db, client_session_id.as_deref(), user_id, interaction_mode).await {
+            Ok(sid) => sid,
+            Err(e) => {
+                tracing::warn!("[Agent API] Failed to ensure session: {}", e);
+                // Accepted autonomous proposals need a durable Work identity;
+                // running one without a session would make crash recovery
+                // impossible. Ordinary requests keep the established
+                // sessionless fallback.
+                if source_intent_id.is_some() {
+                    return Err(HttpError::from((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": "Could not prepare durable Work session" })),
+                    )));
+                }
+                // 不阻塞主流程，降级为无会话模式
+                String::new()
+            }
+        };
 
     let has_session = !session_id.is_empty();
 
     // 从数据库加载会话历史（替代前端传入的 conversation_history）
     let conversation_history = if has_session {
-        let history = load_session_history(&db, &session_id, 20).await;
+        let history = load_session_history(
+            &db,
+            &session_id,
+            20,
+            interaction_mode == crate::services::agent::AgentInteractionMode::Chat,
+        )
+        .await;
         if !history.is_empty() {
             tracing::info!(
                 session_id = %session_id,
@@ -248,12 +376,27 @@ pub async fn process_stream(
         }
         user_request.context = Some(new_ctx);
     }
+    let autonomy_cap =
+        autonomy_cap_for_intention(&db, source_intent_id.as_deref(), user_id).await?;
+    if let Some(ref mut ctx) = user_request.context {
+        // User-accepted Work must not inherit a client-supplied ceiling.
+        // Only autonomy-accepted intentions keep a server-computed cap.
+        ctx.autonomy_permission_cap = autonomy_cap;
+    }
 
     // 后端 run 独立于本次 HTTP 连接；前端只订阅事件。
     // 刻意不在 SSE 断连时取消任务：刷新 / reattach 依赖 run 继续存活；
     // 用户中断走 cancelTask API + is_cancelled 协作取消。
     let run = create_run(user_id, has_session.then_some(session_id.clone())).await;
     let run_id_for_meta = run.run_id().to_string();
+    begin_intention_work(
+        &db,
+        source_intent_id.as_deref(),
+        user_id,
+        has_session.then_some(session_id.clone()),
+        Some(run_id_for_meta.clone()),
+    )
+    .await?;
     // 注入 run_id，供确认手持（confirmation）复用同一 run hub / 通知身份
     if let Some(ref mut ctx) = user_request.context {
         ctx.run_id = Some(run_id_for_meta.clone());
@@ -262,7 +405,7 @@ pub async fn process_stream(
     // Agent/executor 继续使用有背压的 mpsc；独立转发器负责写入 run hub。
     // On TaskCreated, persist runId/taskId into session history so mid-run
     // panel refresh can reattach (criterion 4) before wait/final complete.
-    let (tx, rx) = tokio::sync::mpsc::channel::<ProgressEvent>(32);
+    let (tx, rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
     let run_for_forwarder = run.clone();
     let session_for_identity = session_id.clone();
     let db_for_identity = db.clone();
@@ -321,6 +464,19 @@ pub async fn process_stream(
     let db_clone = db.clone();
     let session_id_clone = session_id.clone();
     let queue = LANE_QUEUE.clone();
+    let source_intent_id_for_work = source_intent_id.clone();
+    let is_chat = interaction_mode == crate::services::agent::AgentInteractionMode::Chat;
+    // Claim before the spawn so the previous Chat run is cancelled even while
+    // this request waits for a lane permit. Work never claims this slot.
+    let chat_claim = if is_chat {
+        Some(crate::services::agent::turn::claim_chat_turn(user_id, &session_id).await)
+    } else {
+        None
+    };
+    let (chat_cancel, chat_slot_id) = match chat_claim {
+        Some((rx, slot_id)) => (Some(rx), Some(slot_id)),
+        None => (None, None),
+    };
     // tx 会被移动到 spawn 中，确保 channel 在任务完成前不会关闭
     tokio::spawn(async move {
         // 获取 Lane Queue 执行许可（同一用户串行，全局并发上限 4）
@@ -348,6 +504,14 @@ pub async fn process_stream(
         {
             Ok(guard) => Some(guard),
             Err(e) => {
+                advance_intention_work(
+                    &db_clone,
+                    source_intent_id_for_work.as_deref(),
+                    user_id,
+                    crate::services::agent::consciousness::IntentStatus::Failed,
+                    Some(e.clone()),
+                )
+                .await;
                 let _ = tx
                     .send(AgentProgressEvent::Error {
                         task_id: None,
@@ -355,6 +519,14 @@ pub async fn process_stream(
                         code: "QUEUE_FULL".to_string(),
                     })
                     .await;
+                if let Some(slot_id) = chat_slot_id {
+                    crate::services::agent::turn::finish_chat_turn(
+                        user_id,
+                        &session_id_clone,
+                        slot_id,
+                    )
+                    .await;
+                }
                 return;
             }
         };
@@ -371,7 +543,39 @@ pub async fn process_stream(
         }
 
         // 使用带进度回调的处理方法
-        match agent.process_with_progress(user_request, tx.clone()).await {
+        // New Chat replaces the previous Chat run. Work is never registered here,
+        // so a Chat send cannot cancel background Work. Dropping this future
+        // does not run on SSE disconnect — only claim_chat_turn fires.
+        let turn_result = if let Some(cancelled) = chat_cancel {
+            tokio::select! {
+                biased;
+                result = agent.process_with_progress(user_request, tx.clone()) => result,
+                _ = cancelled => {
+                    // Dropping process_with_progress skips its idle mark.
+                    crate::services::agent::merope::mark_activity(
+                        &db_clone,
+                        user_id,
+                        "idle",
+                    )
+                    .await;
+                    let _ = tx
+                        .send(crate::services::agent::turn::superseded_turn_event())
+                        .await;
+                    if let Some(slot_id) = chat_slot_id {
+                        crate::services::agent::turn::finish_chat_turn(
+                            user_id,
+                            &session_id_clone,
+                            slot_id,
+                        )
+                        .await;
+                    }
+                    return;
+                }
+            }
+        } else {
+            agent.process_with_progress(user_request, tx.clone()).await
+        };
+        match turn_result {
             Ok(response) => {
                 let api_response: ApiResponse = response.into();
                 let task_id = api_response
@@ -389,6 +593,14 @@ pub async fn process_stream(
                     .unwrap_or(false);
 
                 if is_waiting && !task_id.is_empty() {
+                    advance_intention_work(
+                        &db_clone,
+                        source_intent_id_for_work.as_deref(),
+                        user_id,
+                        crate::services::agent::consciousness::IntentStatus::Waiting,
+                        Some(api_response.message.clone()),
+                    )
+                    .await;
                     // 任务需要用户回答。前端已通过 waiting_for_input SSE 事件收到问题。
                     // 释放全局 lane 许可，避免无限等待占满 Semaphore(max=4)。
                     // resume 执行在 answer_stream 中重新获取许可。
@@ -423,280 +635,53 @@ pub async fn process_stream(
                         .await;
                     }
 
-                    loop {
-                        let (done_tx, done_rx) =
-                            tokio::sync::oneshot::channel::<serde_json::Value>();
-                        {
-                            let mut map = WAITING_TASKS.write().await;
-                            map.insert(
-                                task_id.clone(),
-                                WaitingTaskCtx {
-                                    user_id, // process_stream 的 user_id 在外层 spawn 中可用
-                                    progress_tx: tx.clone(),
-                                    done_tx,
-                                    session_id: session_id_clone.clone(),
-                                },
-                            );
-                        }
-                        tracing::info!(task_id = %task_id, "[Agent API] Task waiting for user input, keeping run alive");
-
-                        // 本副本回答通过 oneshot 即时返回；跨副本回答没有本地
-                        // WaitingTaskCtx，因此每 2 秒从权威数据库刷新一次。
-                        match tokio::time::timeout(tokio::time::Duration::from_secs(2), done_rx)
-                            .await
-                        {
-                            Ok(Ok(response_value)) => {
-                                // 检查任务是否仍在等待用户输入（多轮提问）
-                                let still_waiting = response_value
-                                    .pointer("/task/status")
-                                    .and_then(|s| s.as_str())
-                                    == Some("waiting_for_input");
-
-                                if still_waiting {
-                                    // 仍有新问题需要用户回答，持久化中间状态后继续等待
-                                    // 必须带 top-level runId/taskId（与首次 wait 一致），否则
-                                    // 多轮后最新消息缺少 run 身份，刷新无法 re-subscribe。
-                                    if !session_id_clone.is_empty() {
-                                        let msg = response_value
-                                            .get("message")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("需要更多信息");
-                                        let metadata = session_metadata_with_run_identity(
-                                            Some(response_value.clone()),
-                                            &run_id_for_meta,
-                                            &task_id,
-                                        );
-                                        let _ = persist_assistant_message(
-                                            &db_clone,
-                                            &session_id_clone,
-                                            Some(&task_id),
-                                            msg,
-                                            Some(metadata),
-                                        )
-                                        .await;
-                                    }
-                                    tracing::info!(
-                                        task_id = %task_id,
-                                        "[Agent API] Task still waiting after answer, looping for next round"
-                                    );
-                                    continue;
-                                }
-
-                                // 任务真正完成
-                                tracing::info!(
-                                    "[Agent API] Answer result received, sending TaskCompleted"
-                                );
-                                let task_success = response_value
-                                    .get("success")
-                                    .and_then(|v| v.as_bool())
-                                    .unwrap_or(true);
-
-                                // 持久化最终结果（同样带 runId/taskId）
-                                if !session_id_clone.is_empty() {
-                                    let final_msg = response_value
-                                        .get("message")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("The task finished");
-                                    let metadata = session_metadata_with_run_identity(
-                                        Some(response_value.clone()),
-                                        &run_id_for_meta,
-                                        &task_id,
-                                    );
-                                    let _ = persist_assistant_message(
-                                        &db_clone,
-                                        &session_id_clone,
-                                        Some(&task_id),
-                                        final_msg,
-                                        Some(metadata),
-                                    )
-                                    .await;
-                                }
-
-                                if let Err(e) = tx
-                                    .send(AgentProgressEvent::TaskCompleted {
-                                        task_id: task_id.clone(),
-                                        success: task_success,
-                                        response: Box::new(response_value),
-                                    })
-                                    .await
-                                {
-                                    tracing::error!(
-                                        task_id = %task_id,
-                                        error = %e,
-                                        "[Agent API] Failed to publish TaskCompleted to run hub"
-                                    );
-                                }
-                                break;
-                            }
-                            Ok(Err(_)) => {
-                                // done_tx 被丢弃：必须发布终态，否则 re-subscribe 会永久挂起
-                                tracing::warn!(
-                                    task_id = %task_id,
-                                    "[Agent API] Answer sender dropped unexpectedly; terminalizing run"
-                                );
-                                let _ = take_waiting_task(&task_id, user_id).await;
-                                let _ = tx.send(wait_loop_channel_dropped_event(&task_id)).await;
-                                break;
-                            }
-                            Err(_) => {
-                                tracing::debug!(task_id = %task_id, "[Agent API] Polling persisted waiting task state");
-                                let _ = take_waiting_task(&task_id, user_id).await;
-
-                                // 强制查数据库，不能让本副本的 waiting 缓存遮蔽
-                                // 另一副本已写入的完成/失败状态。
-                                let current_task =
-                                    crate::services::agent::executor::refresh_task_for_user(
-                                        &task_id, user_id,
-                                    )
-                                    .await;
-
-                                // 问题过期：干净退出，释放 run，避免永久轮询
-                                if let Some(task) = current_task.as_ref() {
-                                    if task.status
-                                        == crate::services::agent::types::TaskStatus::WaitingForInput
-                                    {
-                                        let expired = task
-                                            .pending_question
-                                            .as_ref()
-                                            .is_some_and(|q| q.is_expired(chrono::Utc::now()));
-                                        if expired {
-                                            tracing::warn!(
-                                                task_id = %task_id,
-                                                "[Agent API] Waiting question expired; closing wait loop"
-                                            );
-                                            let response_value = json!({
-                                                "success": false,
-                                                "message": "等待用户输入已超时",
-                                                "streamTerminal": true,
-                                                "task": {
-                                                    "taskId": task_id.clone(),
-                                                    "status": "failed"
-                                                }
-                                            });
-                                            let _ = tx
-                                                .send(AgentProgressEvent::TaskCompleted {
-                                                    task_id: task_id.clone(),
-                                                    success: false,
-                                                    response: Box::new(response_value),
-                                                })
-                                                .await;
-                                            // 标记任务失败，避免幽灵 waiting
-                                            if let Some(mut t) = crate::services::agent::executor::get_task_for_user(
-                                                &task_id, user_id,
-                                            )
-                                            .await
-                                            {
-                                                t.status = crate::services::agent::types::TaskStatus::Failed;
-                                                t.error = Some("等待用户输入已超时".into());
-                                                t.completed_at = Some(chrono::Utc::now());
-                                                t.pending_question = None;
-                                                {
-                                                    let mut store =
-                                                        crate::services::agent::executor::TASK_STORE
-                                                            .write()
-                                                            .await;
-                                                    store.store(user_id, t.clone());
-                                                }
-                                                crate::services::agent::executor::persist_task_async(
-                                                    user_id, t,
-                                                );
-                                            }
-                                            break;
-                                        }
-                                    }
-                                }
-
-                                if current_task.as_ref().is_some_and(|task| {
-                                    matches!(
-                                        task.status,
-                                        crate::services::agent::types::TaskStatus::Pending
-                                            | crate::services::agent::types::TaskStatus::Running
-                                            | crate::services::agent::types::TaskStatus::WaitingForInput
-                                            | crate::services::agent::types::TaskStatus::Paused
-                                    )
-                                }) {
-                                    // 等待输入不是失败或完成。继续保持后端 run 与回答入口，
-                                    // 下一轮重新注册 oneshot；前端是否在线不影响任务状态。
-                                    tracing::info!(
-                                        task_id = %task_id,
-                                        "[Agent API] Task still waiting for input; keeping run alive"
-                                    );
-                                    continue;
-                                }
-
-                                let (response_value, task_success) =
-                                    if let Some(task) = current_task {
-                                        let task_success = task.status
-                                            == crate::services::agent::types::TaskStatus::Completed;
-                                        let message = task.error.clone().unwrap_or_else(|| {
-                                            if task_success {
-                                                "The task finished".to_string()
-                                            } else {
-                                                "Processing failed".to_string()
-                                            }
-                                        });
-                                        (
-                                            json!({
-                                                "success": task_success,
-                                                "message": message,
-                                                "task": task,
-                                            }),
-                                            task_success,
-                                        )
-                                    } else {
-                                        (
-                                            json!({
-                                                "success": false,
-                                                "message": "任务状态已不可用",
-                                                "task": {
-                                                    "taskId": task_id.clone(),
-                                                    "status": "failed"
-                                                }
-                                            }),
-                                            false,
-                                        )
-                                    };
-
-                                if let Err(e) = tx
-                                    .send(AgentProgressEvent::TaskCompleted {
-                                        task_id: task_id.clone(),
-                                        success: task_success,
-                                        response: Box::new(response_value),
-                                    })
-                                    .await
-                                {
-                                    tracing::error!(
-                                        task_id = %task_id,
-                                        error = %e,
-                                        "[Agent API] Failed to send timeout TaskCompleted"
-                                    );
-                                }
-                                break;
-                            }
-                        }
-                    }
+                    spawn_restored_wait_loop(
+                        user_id,
+                        task_id.clone(),
+                        session_id_clone.clone(),
+                        run_id_for_meta.clone(),
+                        tx.clone(),
+                        Some(db_clone.clone()),
+                        source_intent_id_for_work.clone(),
+                    )
+                    .await;
                 } else {
                     // 非 waiting 路径：正常流程结束时 guard 会在 spawn 结束时 drop
                     let _ = lane_guard.take();
                     // 正常流程：立即发送 TaskCompleted
 
-                    // 持久化 assistant 消息（含 runId/taskId，供会话恢复）
+                    let is_confirmation = api_response.confirmation.is_some()
+                        || api_response.response_type == "confirmation_required";
+                    let parked_task_id = api_response
+                        .confirmation
+                        .as_ref()
+                        .map(|c| format!("confirmation:{}", c.confirmation_id))
+                        .filter(|_| is_confirmation)
+                        .unwrap_or_else(|| task_id.clone());
                     if !session_id_clone.is_empty() {
-                        let metadata = json!({
-                            "suggestions": &api_response.suggestions,
-                            "dataDisplay": &api_response.data_display,
-                            "frontendAction": &api_response.frontend_action,
-                            "data": &api_response.data,
-                            "runId": run_id_for_meta,
-                            "taskId": if task_id.is_empty() { Value::Null } else { json!(task_id) },
-                        });
+                        let metadata = if is_confirmation {
+                            work_turn_session_metadata(
+                                &api_response,
+                                &run_id_for_meta,
+                                &parked_task_id,
+                            )
+                        } else {
+                            json!({
+                                "suggestions": &api_response.suggestions,
+                                "dataDisplay": &api_response.data_display,
+                                "frontendAction": &api_response.frontend_action,
+                                "data": &api_response.data,
+                                "runId": run_id_for_meta,
+                                "taskId": if task_id.is_empty() { Value::Null } else { json!(task_id) },
+                            })
+                        };
                         if let Err(e) = persist_assistant_message(
                             &db_clone,
                             &session_id_clone,
-                            if task_id.is_empty() {
+                            if parked_task_id.is_empty() {
                                 None
                             } else {
-                                Some(&task_id)
+                                Some(&parked_task_id)
                             },
                             &api_response.message,
                             Some(metadata),
@@ -709,9 +694,20 @@ pub async fn process_stream(
                             );
                         }
                     }
-
-                    let response_value = serde_json::to_value(&api_response)
-                        .unwrap_or_else(|_| json!({"error": "serialization failed"}));
+                    let response_value = if is_confirmation {
+                        park_confirmation_run(&api_response, &parked_task_id)
+                    } else {
+                        serde_json::to_value(&api_response)
+                            .unwrap_or_else(|_| json!({"error": "serialization failed"}))
+                    };
+                    advance_intention_work(
+                        &db_clone,
+                        source_intent_id_for_work.as_deref(),
+                        user_id,
+                        completed_turn_intention_status(&api_response),
+                        Some(api_response.message.clone()),
+                    )
+                    .await;
 
                     tracing::info!("[Agent API] Sending TaskCompleted event");
                     let send_result = tx
@@ -729,6 +725,14 @@ pub async fn process_stream(
                 }
             }
             Err(e) => {
+                advance_intention_work(
+                    &db_clone,
+                    source_intent_id_for_work.as_deref(),
+                    user_id,
+                    crate::services::agent::consciousness::IntentStatus::Failed,
+                    Some(e.clone()),
+                )
+                .await;
                 // A turn reserves AI quota before it runs, so an exhausted
                 // budget arrives here alongside real faults. It is neither an
                 // error to log at ERROR nor a "处理失败" for the transcript.
@@ -763,6 +767,10 @@ pub async fn process_stream(
                     })
                     .await;
             }
+        }
+        if let Some(slot_id) = chat_slot_id {
+            crate::services::agent::turn::finish_chat_turn(user_id, &session_id_clone, slot_id)
+                .await;
         }
         // tx 在这里被 drop，channel 关闭，SSE 流结束
     });
@@ -964,8 +972,8 @@ pub async fn list_capabilities(
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
     let user_id = parse_user_id(&claims)?;
-    let is_admin = crate::services::agent::user_is_current_admin(&db, user_id).await;
-    let capabilities = crate::services::agent::get_capabilities_summary_for_user(is_admin).await;
+    let capabilities =
+        crate::services::agent::get_capabilities_summary_for_user(&db, user_id).await;
 
     Ok(Json(json!({
         "success": true,
@@ -1030,6 +1038,45 @@ pub struct AnswerQuestionRequest {
     pub answer: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrontendAckRequest {
+    pub step_id: String,
+    #[serde(default)]
+    pub music_status: Option<Value>,
+    #[serde(default)]
+    pub window_state: Option<Value>,
+}
+
+/// Live snapshot from the browser after query_windows / music_get_status ran.
+/// POST /api/agent/tasks/{task_id}/frontend-ack
+pub async fn frontend_step_ack(
+    State(_db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(task_id): Path<String>,
+    Json(req): Json<FrontendAckRequest>,
+) -> Result<Json<Value>, HttpError> {
+    let user_id = parse_user_id_with_agent_access(&claims, &_db).await?;
+    if crate::services::agent::executor::get_task_for_user(&task_id, user_id)
+        .await
+        .is_none()
+    {
+        return Err(HttpError::from((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Task not found" })),
+        )));
+    }
+    let accepted = crate::services::agent::executor::submit_frontend_ack(
+        &task_id,
+        &req.step_id,
+        json!({
+            "musicStatus": req.music_status,
+            "windowState": req.window_state,
+        }),
+    );
+    Ok(Json(json!({ "success": true, "accepted": accepted })))
+}
+
 /// 回答任务中的问题
 /// POST /api/agent/tasks/{task_id}/answer
 ///
@@ -1084,7 +1131,7 @@ pub async fn answer_task_question_stream(
         "[Agent API] Answering task question (SSE stream mode)"
     );
 
-    let (tx, rx) = tokio::sync::mpsc::channel::<ProgressEvent>(32);
+    let (tx, rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
 
     let db_clone = db.clone();
     tokio::spawn(async move {
@@ -1288,70 +1335,6 @@ pub async fn clarify(
     Ok(Json(response.into()))
 }
 
-/// 确认敏感操作
-/// POST /api/agent/confirm
-pub async fn confirm_operation(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-    Json(req): Json<ConfirmRequest>,
-) -> Result<Json<ApiResponse>, HttpError> {
-    let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
-
-    if req.confirmed {
-        return Err(HttpError::from((
-            StatusCode::CONFLICT,
-            Json(json!({
-                "error": "Confirmed operations must use /api/agent/confirm/stream",
-                "code": "confirmation_stream_required"
-            })),
-        )));
-    }
-
-    tracing::info!(
-        confirmation_id = %req.confirmation_id,
-        confirmed = req.confirmed,
-        user_id = user_id,
-        "[Agent API] Processing confirmation"
-    );
-
-    let confirmation = crate::services::agent::types::UserConfirmation {
-        confirmation_id: req.confirmation_id,
-        confirmed: req.confirmed,
-        user_note: req.note,
-        user_id,
-    };
-
-    let agent = Agent::new(db).await;
-    let lane_key = agent
-        .confirmation_lane_key(&confirmation.confirmation_id, user_id)
-        .await
-        .map_err(|error| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": error })),
-            ))
-        })?
-        .unwrap_or_else(|| LaneQueue::make_lane_key(user_id, None));
-    let _guard = LANE_QUEUE
-        .acquire_timeout(
-            &lane_key,
-            std::time::Duration::from_secs(LaneQueue::DEFAULT_ACQUIRE_TIMEOUT_SECS),
-        )
-        .await
-        .map_err(|error| {
-            HttpError::from((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "error": error })),
-            ))
-        })?;
-    let response = agent
-        .process_confirmation(confirmation)
-        .await
-        .map_err(agent_turn_error)?;
-
-    Ok(Json(response.into()))
-}
-
 /// 确认敏感操作并通过可重连 run stream 执行续跑。
 /// POST /api/agent/confirm/stream
 pub async fn confirm_operation_stream(
@@ -1387,8 +1370,13 @@ pub async fn confirm_operation_stream(
         .as_ref()
         .and_then(|ctx| ctx.run_id.clone())
         .filter(|s| !s.is_empty());
+    let source_intent_id = resume_ctx
+        .as_ref()
+        .and_then(|ctx| ctx.source_intent_id.clone())
+        .filter(|id| !id.is_empty());
     let lane_key = resume_ctx
-        .and_then(|ctx| ctx.lane_key)
+        .as_ref()
+        .and_then(|ctx| ctx.lane_key.clone())
         .unwrap_or_else(|| LaneQueue::make_lane_key(user_id, session_id.as_deref()));
 
     // Prefer the original process run so notifications/UI stay on one identity.
@@ -1402,9 +1390,10 @@ pub async fn confirm_operation_stream(
     };
     let run_for_task = run.clone();
     let db_clone = db.clone();
+    let confirmed = req.confirmed;
     tokio::spawn(async move {
         // Agent/executor progress events share the same run hub as the SSE subscriber.
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(32);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(256);
         let run_for_forwarder = run_for_task.clone();
         tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
@@ -1441,6 +1430,19 @@ pub async fn confirm_operation_stream(
                 .await;
         }
 
+        advance_intention_work(
+            &db_clone,
+            source_intent_id.as_deref(),
+            user_id,
+            if confirmed {
+                crate::services::agent::consciousness::IntentStatus::Running
+            } else {
+                crate::services::agent::consciousness::IntentStatus::Abandoned
+            },
+            None,
+        )
+        .await;
+
         match agent.process_confirmation(confirmation).await {
             Ok(response) => {
                 let api_response: ApiResponse = response.into();
@@ -1455,17 +1457,31 @@ pub async fn confirm_operation_stream(
                     .as_ref()
                     .map(|t| t.status == "waiting_for_input")
                     .unwrap_or(false);
+                if confirmed {
+                    advance_intention_work(
+                        &db_clone,
+                        source_intent_id.as_deref(),
+                        user_id,
+                        if is_waiting {
+                            crate::services::agent::consciousness::IntentStatus::Waiting
+                        } else if success {
+                            crate::services::agent::consciousness::IntentStatus::Completed
+                        } else {
+                            crate::services::agent::consciousness::IntentStatus::Failed
+                        },
+                        Some(api_response.message.clone()),
+                    )
+                    .await;
+                }
 
                 // Persist confirmation result (or missing-param question) into the
                 // original session history so refresh keeps the full thread.
                 if let Some(ref sid) = session_id {
-                    let metadata = json!({
-                        "suggestions": &api_response.suggestions,
-                        "dataDisplay": &api_response.data_display,
-                        "frontendAction": &api_response.frontend_action,
-                        "data": &api_response.data,
-                        "confirmationResume": true,
-                    });
+                    let mut metadata =
+                        work_turn_session_metadata(&api_response, run_for_task.run_id(), &task_id);
+                    if let Some(object) = metadata.as_object_mut() {
+                        object.insert("confirmationResume".into(), json!(true));
+                    }
                     if let Err(e) = persist_assistant_message(
                         &db_clone,
                         sid,
@@ -1502,187 +1518,16 @@ pub async fn confirm_operation_stream(
                         })
                         .await;
 
-                    // Keep run alive and register WAITING_TASKS so subsequent
-                    // answers (and final reply) stay on this session.
-                    loop {
-                        let (done_tx, done_rx) =
-                            tokio::sync::oneshot::channel::<serde_json::Value>();
-                        {
-                            let mut map = WAITING_TASKS.write().await;
-                            map.insert(
-                                task_id.clone(),
-                                WaitingTaskCtx {
-                                    user_id,
-                                    progress_tx: tx.clone(),
-                                    done_tx,
-                                    session_id: session_id.clone().unwrap_or_default(),
-                                },
-                            );
-                        }
-                        tracing::info!(
-                            task_id = %task_id,
-                            session_id = ?session_id,
-                            "[Agent API] Confirmation resume waiting for user input"
-                        );
-
-                        match tokio::time::timeout(tokio::time::Duration::from_secs(2), done_rx)
-                            .await
-                        {
-                            Ok(Ok(response_value)) => {
-                                let still_waiting = response_value
-                                    .pointer("/task/status")
-                                    .and_then(|s| s.as_str())
-                                    == Some("waiting_for_input");
-
-                                if still_waiting {
-                                    if let Some(ref sid) = session_id {
-                                        let msg = response_value
-                                            .get("message")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("需要更多信息");
-                                        let run_id = run_for_task.run_id();
-                                        let metadata = session_metadata_with_run_identity(
-                                            Some(response_value.clone()),
-                                            run_id,
-                                            &task_id,
-                                        );
-                                        let _ = persist_assistant_message(
-                                            &db_clone,
-                                            sid,
-                                            Some(&task_id),
-                                            msg,
-                                            Some(metadata),
-                                        )
-                                        .await;
-                                    }
-                                    continue;
-                                }
-
-                                if let Some(ref sid) = session_id {
-                                    let msg = response_value
-                                        .get("message")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("");
-                                    if !msg.is_empty() {
-                                        let run_id = run_for_task.run_id();
-                                        let metadata = session_metadata_with_run_identity(
-                                            Some(response_value.clone()),
-                                            run_id,
-                                            &task_id,
-                                        );
-                                        let _ = persist_assistant_message(
-                                            &db_clone,
-                                            sid,
-                                            Some(&task_id),
-                                            msg,
-                                            Some(metadata),
-                                        )
-                                        .await;
-                                    }
-                                }
-
-                                let task_success = response_value
-                                    .get("success")
-                                    .and_then(|v| v.as_bool())
-                                    .unwrap_or(true);
-                                let _ = tx
-                                    .send(AgentProgressEvent::TaskCompleted {
-                                        task_id: task_id.clone(),
-                                        success: task_success,
-                                        response: Box::new(response_value),
-                                    })
-                                    .await;
-                                break;
-                            }
-                            Ok(Err(_)) => {
-                                tracing::warn!(
-                                    task_id = %task_id,
-                                    "[Agent API] Confirmation answer sender dropped; terminalizing run"
-                                );
-                                let _ = take_waiting_task(&task_id, user_id).await;
-                                let _ = tx.send(wait_loop_channel_dropped_event(&task_id)).await;
-                                break;
-                            }
-                            Err(_) => {
-                                let _ = take_waiting_task(&task_id, user_id).await;
-                                let current_task =
-                                    crate::services::agent::executor::refresh_task_for_user(
-                                        &task_id, user_id,
-                                    )
-                                    .await;
-                                if current_task.as_ref().is_some_and(|task| {
-                                    matches!(
-                                        task.status,
-                                        crate::services::agent::types::TaskStatus::Pending
-                                            | crate::services::agent::types::TaskStatus::Running
-                                            | crate::services::agent::types::TaskStatus::WaitingForInput
-                                            | crate::services::agent::types::TaskStatus::Paused
-                                    )
-                                }) {
-                                    continue;
-                                }
-
-                                let (response_value, task_success) =
-                                    if let Some(task) = current_task {
-                                        let task_success = task.status
-                                            == crate::services::agent::types::TaskStatus::Completed;
-                                        let message = task.error.clone().unwrap_or_else(|| {
-                                            if task_success {
-                                                "The task finished".to_string()
-                                            } else {
-                                                "Processing failed".to_string()
-                                            }
-                                        });
-                                        (
-                                            json!({
-                                                "success": task_success,
-                                                "message": message,
-                                                "task": task,
-                                            }),
-                                            task_success,
-                                        )
-                                    } else {
-                                        (
-                                            json!({
-                                                "success": false,
-                                                "message": "任务状态已不可用",
-                                                "task": {
-                                                    "taskId": task_id.clone(),
-                                                    "status": "failed"
-                                                }
-                                            }),
-                                            false,
-                                        )
-                                    };
-
-                                if let Some(ref sid) = session_id {
-                                    let msg = response_value
-                                        .get("message")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("");
-                                    if !msg.is_empty() {
-                                        let _ = persist_assistant_message(
-                                            &db_clone,
-                                            sid,
-                                            Some(&task_id),
-                                            msg,
-                                            Some(response_value.clone()),
-                                        )
-                                        .await;
-                                    }
-                                }
-
-                                let _ = tx
-                                    .send(AgentProgressEvent::TaskCompleted {
-                                        task_id: task_id.clone(),
-                                        success: task_success,
-                                        response: Box::new(response_value),
-                                    })
-                                    .await;
-                                break;
-                            }
-                        }
-                    }
+                    spawn_restored_wait_loop(
+                        user_id,
+                        task_id.clone(),
+                        session_id.clone().unwrap_or_default(),
+                        run_for_task.run_id().to_string(),
+                        tx.clone(),
+                        Some(db_clone.clone()),
+                        source_intent_id.clone(),
+                    )
+                    .await;
                 } else {
                     let mut response_value = serde_json::to_value(api_response).unwrap_or_else(
                         |_| json!({ "success": false, "message": "Serialization failed" }),
@@ -1703,6 +1548,14 @@ pub async fn confirm_operation_stream(
                 }
             }
             Err(error) => {
+                advance_intention_work(
+                    &db_clone,
+                    source_intent_id.as_deref(),
+                    user_id,
+                    crate::services::agent::consciousness::IntentStatus::Failed,
+                    Some(error.clone()),
+                )
+                .await;
                 if let Some(ref sid) = session_id {
                     let _ = persist_assistant_message(
                         &db_clone,
@@ -1749,7 +1602,27 @@ pub async fn health() -> Json<Value> {
 
 #[cfg(test)]
 mod quota_error_tests {
-    use super::{agent_stream_error_code, quota_code};
+    use super::{
+        agent_stream_error_code, completed_turn_intention_status, quota_code, ApiResponse,
+    };
+    use crate::services::agent::consciousness::IntentStatus;
+    use serde_json::json;
+
+    fn response(response_type: &str) -> ApiResponse {
+        ApiResponse {
+            success: true,
+            response_type: response_type.into(),
+            message: String::new(),
+            data: None,
+            data_display: None,
+            suggestions: vec![],
+            task: None,
+            confirmation: None,
+            frontend_action: None,
+            performance: None,
+            session_id: None,
+        }
+    }
     use crate::services::ai_quota::AiQuotaError;
 
     #[test]
@@ -1805,5 +1678,27 @@ mod quota_error_tests {
         assert_eq!(quota_code("AI_DAILY_CALL_LIMIT"), "AI_DAILY_CALL_LIMIT");
         assert_eq!(quota_code(""), "AI_QUOTA_EXCEEDED");
         assert_eq!(quota_code(": leading colon"), "AI_QUOTA_EXCEEDED");
+    }
+
+    #[test]
+    fn confirmation_is_waiting_even_when_transport_succeeded() {
+        assert_eq!(
+            completed_turn_intention_status(&response("confirmation_required")),
+            IntentStatus::Waiting
+        );
+        assert_eq!(
+            completed_turn_intention_status(&response("answer")),
+            IntentStatus::Completed
+        );
+        assert_eq!(
+            completed_turn_intention_status(&response("clarification")),
+            IntentStatus::Failed
+        );
+        let mut blocked = response("answer");
+        blocked.data = Some(json!({ "blocked": true }));
+        assert_eq!(
+            completed_turn_intention_status(&blocked),
+            IntentStatus::Failed
+        );
     }
 }

@@ -21,6 +21,11 @@ use crate::services::brew_parser::{calculate_reading_stats, FeedParser, ParsedFe
 use crate::services::notion_service::{NotionConfig, NotionService};
 use crate::services::rsshub_service::RsshubService;
 
+fn brew_store_failed(context: &'static str, error: impl std::fmt::Display) -> String {
+    tracing::error!(%error, context, "brew store failed");
+    format!("Failed to {context}")
+}
+
 // 调度器常量
 
 /// 每轮 tick 最多处理的订阅源数量
@@ -152,7 +157,10 @@ impl BrewSchedulerEngine {
             .limit(MAX_SOURCES_PER_TICK)
             .all(db)
             .await
-            .map_err(|e| format!("Failed to query sources: {}", e))?;
+            .map_err(|error| {
+                tracing::error!(%error, "failed to query brew sources");
+                "Failed to query sources".to_string()
+            })?;
 
         // 过滤出真正到了更新间隔的订阅源
         let due_sources: Vec<_> = all_due
@@ -265,10 +273,10 @@ impl BrewSchedulerEngine {
             brew_sources::FeedType::RssHub => {
                 Self::fetch_rsshub_source(&rsshub_service, &source).await
             }
-            _ => parser
-                .fetch_and_parse(&source.url)
-                .await
-                .map_err(|e| e.to_string()),
+            _ => parser.fetch_and_parse(&source.url).await.map_err(|error| {
+                tracing::warn!(%error, "brew fetch failed");
+                error.user_message()
+            }),
         };
 
         match fetch_result {
@@ -296,7 +304,7 @@ impl BrewSchedulerEngine {
                 let updated_source = active
                     .update(db)
                     .await
-                    .map_err(|e| format!("Failed to update source: {}", e))?;
+                    .map_err(|error| brew_store_failed("update source", error))?;
 
                 let new_count =
                     Self::save_items(db, &updated_source, &feed, notification_tx).await?;
@@ -317,7 +325,7 @@ impl BrewSchedulerEngine {
                     e
                 );
 
-                active.last_error = Set(Some("Failed to fetch feed".to_string()));
+                active.last_error = Set(Some(e.clone()));
                 active.error_count = Set(source.error_count + 1);
 
                 if source.error_count + 1 >= MAX_ERROR_COUNT {
@@ -335,7 +343,7 @@ impl BrewSchedulerEngine {
                                     source.user_id,
                                     source.id,
                                     &source.name,
-                                    "Failed to fetch feed",
+                                    &e,
                                 )
                                 .await;
                         }
@@ -345,7 +353,7 @@ impl BrewSchedulerEngine {
                 active
                     .update(db)
                     .await
-                    .map_err(|e| format!("Failed to update source after error: {}", e))?;
+                    .map_err(|error| brew_store_failed("update source", error))?;
                 Ok(0)
             }
         }
@@ -404,7 +412,7 @@ impl BrewSchedulerEngine {
             .into_tuple::<String>()
             .all(db)
             .await
-            .map_err(|e| format!("Failed to check existing items: {}", e))?
+            .map_err(|error| brew_store_failed("check existing items", error))?
             .into_iter()
             .collect();
 
@@ -498,7 +506,8 @@ impl BrewSchedulerEngine {
                     Vec::new()
                 }
                 Err(e) => {
-                    return Err(format!("Failed to batch insert items: {e}"));
+                    tracing::error!(%e, source_id = source.id, "failed to batch insert brew items");
+                    return Err("Failed to batch insert items".to_string());
                 }
             };
             let titles: Vec<String> = inserted.iter().map(|m| m.title.clone()).take(5).collect();
@@ -513,7 +522,7 @@ impl BrewSchedulerEngine {
             source_active
                 .update(db)
                 .await
-                .map_err(|e| format!("Failed to update source counts: {}", e))?;
+                .map_err(|error| brew_store_failed("update source counts", error))?;
 
             let notification = NewItemsNotification {
                 msg_type: "brew:new_items".to_string(),
@@ -574,10 +583,10 @@ impl BrewSchedulerEngine {
             sort,
         };
 
-        notion_service
-            .fetch(&config)
-            .await
-            .map_err(|e| e.to_string())
+        notion_service.fetch(&config).await.map_err(|error| {
+            tracing::warn!(%error, "notion fetch failed");
+            error.to_string()
+        })
     }
 
     /// 抓取 RSSHub 订阅源（带故障转移）
@@ -603,7 +612,7 @@ impl BrewSchedulerEngine {
         let source = brew_sources::Entity::find_by_id(source_id)
             .one(&self.db)
             .await
-            .map_err(|e| format!("Failed to find source: {}", e))?
+            .map_err(|error| brew_store_failed("find source", error))?
             .ok_or_else(|| "Source not found".to_string())?;
 
         // 手动刷新也保持为无操作，且不写入 last_fetched_at/last_error。
@@ -627,7 +636,10 @@ impl BrewSchedulerEngine {
                 .parser
                 .fetch_and_parse(&source.url)
                 .await
-                .map_err(|e| e.to_string()),
+                .map_err(|error| {
+                    tracing::warn!(%error, "brew fetch failed");
+                    error.user_message()
+                }),
         };
 
         match fetch_result {
@@ -652,7 +664,7 @@ impl BrewSchedulerEngine {
                 let updated_source = active
                     .update(&self.db)
                     .await
-                    .map_err(|e| format!("Failed to update source: {}", e))?;
+                    .map_err(|error| brew_store_failed("update source", error))?;
 
                 let new_count =
                     Self::save_items(&self.db, &updated_source, &feed, &self.notification_tx)
@@ -676,12 +688,12 @@ impl BrewSchedulerEngine {
                 Ok(new_count)
             }
             Err(e) => {
-                active.last_error = Set(Some("Failed to fetch feed".to_string()));
+                active.last_error = Set(Some(e.clone()));
                 active.error_count = Set(source.error_count + 1);
                 active
                     .update(&self.db)
                     .await
-                    .map_err(|ee| format!("Failed to update source: {}", ee))?;
+                    .map_err(|error| brew_store_failed("update source", error))?;
 
                 Err(e)
             }
@@ -697,7 +709,10 @@ impl BrewSchedulerEngine {
             .limit(MAX_SOURCES_PER_TICK)
             .all(&self.db)
             .await
-            .map_err(|e| format!("Failed to query sources: {e}"))?;
+            .map_err(|error| {
+                tracing::error!(%error, "failed to query brew sources");
+                "Failed to query sources".to_string()
+            })?;
 
         let attempted = sources.len();
         let mut refreshed = 0usize;

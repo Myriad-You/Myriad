@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "baselineExpressions": ["withdrawn", "subdued", "steady", "warm", "tense"],
+  "postures": ["closed", "neutral", "open"],
+  "cueIntents": [
+    "greet",
+    "respond",
+    "question",
+    "delight",
+    "emphasize",
+    "listen",
+    "notify",
+    "think",
+    "dizzy",
+    "cry",
+    "angry",
+    "speechless",
+    "maniac",
+    "silly",
+    "lovestruck"
+  ],
+  "cuePriorities": {
+    "greet": 2,
+    "respond": 1,
+    "question": 2,
+    "delight": 3,
+    "emphasize": 2,
+    "listen": 1,
+    "notify": 3,
+    "think": 2,
+    "dizzy": 3,
+    "cry": 3,
+    "angry": 3,
+    "speechless": 2,
+    "maniac": 3,
+    "silly": 3,
+    "lovestruck": 3
+  },
+  "interruptModes": ["replace", "queue", "if-lower"]
+}

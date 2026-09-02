@@ -2,35 +2,9 @@
  *   pnpm exec tsx --test src/tapp/runtime/sessionUserFallback.test.ts
  */
 
-import type { SessionUserSnapshot } from './sessionUserFallback.ts'
-
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
-import {
-  fetchSessionUserSnapshot,
-  roleFromSessionSnapshot,
-} from './sessionUserFallback.ts'
-
-describe('roleFromSessionSnapshot', () => {
-  it('returns guest for null', () => {
-    assert.equal(roleFromSessionSnapshot(null), 'guest')
-  })
-
-  it('returns user/admin from snapshot', () => {
-    const user: SessionUserSnapshot = {
-      id: 'user_1',
-      username: 'alice',
-      isAdmin: false,
-      role: 'user',
-      authenticated: true,
-    }
-    assert.equal(roleFromSessionSnapshot(user), 'user')
-    assert.equal(
-      roleFromSessionSnapshot({ ...user, isAdmin: true, role: 'admin' }),
-      'admin',
-    )
-  })
-})
+import { fetchSessionUserSnapshot } from './sessionUserFallback.ts'
 
 describe('fetchSessionUserSnapshot guest contract', () => {
   const originalFetch = globalThis.fetch

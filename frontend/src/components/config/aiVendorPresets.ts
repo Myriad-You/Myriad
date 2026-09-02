@@ -5,8 +5,9 @@ export type AiVendorKind =
   | 'gemini'
   | 'volcengine'
   | 'tencent'
+  | 'agora'
 
-export type AiVendorCapability = 'text' | 'image' | 'speech'
+export type AiVendorCapability = 'text' | 'image' | 'speech' | 'realtime'
 
 export interface AiVendorSource {
   slug: string
@@ -19,6 +20,7 @@ export interface AiVendorSource {
   secret_id?: string | null
   secret_key?: string | null
   region?: string | null
+  app_id?: string | null
 }
 
 export interface AiVendorPreset {
@@ -240,7 +242,18 @@ export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
     display_name: 'MiniMax',
     base_url: 'https://api.minimaxi.com/v1',
     docs_url: 'https://platform.minimaxi.com/document/',
-    capabilities: ['text'],
+    capabilities: ['text', 'speech'],
+    defaultTtsModel: 'speech-2.8-turbo',
+    defaultVoice: 'female-shaonv',
+  },
+  {
+    id: 'agora',
+    defaultSlug: 'agora',
+    kind: 'agora',
+    display_name: 'Shengwang / Agora',
+    base_url: 'https://api.agora.io/cn',
+    docs_url: 'https://www.shengwang.cn/ConversationalAI/',
+    capabilities: ['realtime'],
   },
   {
     id: 'ollama',
@@ -341,6 +354,64 @@ export function findVendorPreset(source: {
   return undefined
 }
 
+export function isAgoraSource(source: {
+  kind?: string
+  slug?: string
+  preset?: string | null
+}): boolean {
+  const preset = findVendorPreset(source)
+  if (preset?.id === 'agora') return true
+  const kind = source.kind?.trim().toLowerCase() ?? ''
+  if (kind === 'agora') return true
+  const slug = source.slug?.trim().toLowerCase() ?? ''
+  return slug === 'agora' || slug.startsWith('agora-')
+}
+
+export function isMiniMaxSpeechSource(source: {
+  kind?: string
+  slug?: string
+  preset?: string | null
+  base_url?: string
+}): boolean {
+  const preset = findVendorPreset(source)
+  if (preset?.id === 'minimax') return true
+  const kind = source.kind?.trim().toLowerCase() ?? ''
+  if (kind === 'minimax') return true
+  const slug = source.slug?.trim().toLowerCase() ?? ''
+  if (slug === 'minimax' || slug.startsWith('minimax-')) return true
+  const host = source.base_url?.trim().toLowerCase() ?? ''
+  return (
+    host.includes('minimaxi.com') ||
+    host.includes('minimax.io') ||
+    host.includes('minimax.chat')
+  )
+}
+
+export function speechProviderKindFromSource(
+  source:
+    | {
+        kind?: string
+        slug?: string
+        preset?: string | null
+        base_url?: string
+      }
+    | undefined,
+  fallback: string,
+): string {
+  if (
+    isMiniMaxSpeechSource(
+      source ?? { kind: fallback, slug: fallback, preset: fallback },
+    )
+  ) {
+    return 'minimax'
+  }
+  const kind = source?.kind || fallback
+  if (kind === 'tencent') return 'tencent'
+  if (kind === 'openrouter') return 'openrouter'
+  if (kind === 'gemini') return 'gemini'
+  return 'openai'
+}
+
 export function vendorSupports(
   kindOrSource:
     | string
@@ -363,6 +434,8 @@ export function vendorSupports(
       return capability === 'text' || capability === 'image'
     case 'tencent':
       return capability === 'speech'
+    case 'agora':
+      return capability === 'realtime'
     default:
       return false
   }
@@ -418,6 +491,7 @@ export function sourceFromPreset(
     secret_id: '',
     secret_key: '',
     region: preset.kind === 'tencent' ? 'ap-guangzhou' : '',
+    app_id: '',
   }
 }
 

@@ -150,19 +150,24 @@ pub fn validate_config(mut config: McpServersConfig) -> Result<McpServersConfig,
 
 /// Atomically write config JSON (pretty) to `path`.
 pub async fn save_config(path: &Path, config: &McpServersConfig) -> Result<(), String> {
-    let json =
-        serde_json::to_string_pretty(config).map_err(|e| format!("serialize mcp config: {e}"))?;
+    let json = serde_json::to_string_pretty(config).map_err(|e| {
+        tracing::error!(error = %e, "serialize mcp config");
+        "Failed to save MCP config".to_string()
+    })?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    tokio::fs::create_dir_all(parent)
-        .await
-        .map_err(|e| format!("create mcp config dir: {e}"))?;
+    tokio::fs::create_dir_all(parent).await.map_err(|e| {
+        tracing::error!(error = %e, "create mcp config dir");
+        "Failed to save MCP config".to_string()
+    })?;
     let tmp = path.with_extension("json.tmp");
-    tokio::fs::write(&tmp, json.as_bytes())
-        .await
-        .map_err(|e| format!("write mcp config temp: {e}"))?;
-    tokio::fs::rename(&tmp, path)
-        .await
-        .map_err(|e| format!("replace mcp config: {e}"))?;
+    tokio::fs::write(&tmp, json.as_bytes()).await.map_err(|e| {
+        tracing::error!(error = %e, "write mcp config temp");
+        "Failed to save MCP config".to_string()
+    })?;
+    tokio::fs::rename(&tmp, path).await.map_err(|e| {
+        tracing::error!(error = %e, "replace mcp config");
+        "Failed to save MCP config".to_string()
+    })?;
     Ok(())
 }
 

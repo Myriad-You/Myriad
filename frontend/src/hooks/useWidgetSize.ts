@@ -188,16 +188,3 @@ export function useWidgetSize(
     containerRef,
   }
 }
-
-export function useWidgetScale(widgetSize?: WidgetSize): number {
-  const { scale } = useWidgetSize(widgetSize)
-  return scale
-}
-
-export function useWidgetMode(widgetSize?: WidgetSize): {
-  isCompact: boolean
-  isMini: boolean
-} {
-  const { isCompact, isMini } = useWidgetSize(widgetSize)
-  return { isCompact, isMini }
-}

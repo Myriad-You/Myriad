@@ -10,6 +10,7 @@ import type {
 import type { ThemeKey } from '../types'
 import { useCallback, useRef, useState } from 'react'
 import * as brewApi from '../../../../services/brewApi'
+import { userFacingError } from '../../../../utils/userFacingError'
 
 export interface UseCommentsOptions {
   itemId: number
@@ -146,11 +147,12 @@ export function useComments({
       }
     } catch (err) {
       console.error('Failed to load comments:', err)
+      showToastMessage(userFacingError(err, t.errors.commentLoadFailed))
     } finally {
       setCommentsLoading(false)
       commentsLoadingRef.current = false
     }
-  }, [isAuthenticated, itemId])
+  }, [isAuthenticated, itemId, showToastMessage, t.errors.commentLoadFailed])
 
   // 提交评论
   const submitComment = useCallback(async () => {
@@ -190,7 +192,7 @@ export function useComments({
       }
     } catch (err) {
       console.error('Failed to submit comment:', err)
-      showToastMessage(t.brew.addCommentFailed)
+      showToastMessage(userFacingError(err, t.brew.addCommentFailed))
     } finally {
       setCommentSubmitting(false)
     }
@@ -217,6 +219,7 @@ export function useComments({
         }
       } catch (err) {
         console.error('Failed to delete comment:', err)
+        showToastMessage(userFacingError(err, t.errors?.commentDeleteFailed))
       }
     },
     [comments.length, showToastMessage, t],
@@ -234,8 +237,9 @@ export function useComments({
       }
     } catch (err) {
       console.error('Failed to load replies:', err)
+      showToastMessage(userFacingError(err, t.errors.commentRepliesLoadFailed))
     }
-  }, [])
+  }, [showToastMessage, t.errors.commentRepliesLoadFailed])
 
   // 展开/收起回复
   const toggleReplies = useCallback(

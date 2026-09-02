@@ -3,15 +3,24 @@ import type {
   PerformanceBaseline,
   PerformanceCue,
   PerformanceDirective,
+  RigMotionStyle,
 } from '../../services/agent/types'
+import {
+  PERFORMANCE_BASELINE_EXPRESSIONS,
+  PERFORMANCE_CUE_INTENTS,
+  PERFORMANCE_INTERRUPT_MODES,
+  PERFORMANCE_POSTURES,
+} from './performanceContract'
 
-export const MEROPE_PERFORMANCE_EVENT = 'arael-merope-performance'
-export const MEROPE_STATE_EVENT = 'arael-merope-state'
+export const MEROPE_PERFORMANCE_EVENT = 'merope-performance'
+export const MEROPE_STATE_EVENT = 'merope-state'
 
 export interface MeropePerformanceEventDetail {
   text: string
   source: 'reply' | 'proactive' | 'interaction' | 'preview'
   messageId?: string
+  generation?: number
+  motionIntentId?: string
   performance?: PerformanceDirective
 }
 
@@ -20,16 +29,13 @@ export interface MeropeStateEventDetail {
   activity: string
 }
 
-export function dispatchMeropePerformance(
-  detail: unknown,
-): void {
+export function dispatchMeropePerformance(detail: unknown): void {
   const sanitized = meropePerformanceEventDetail(detail)
   if (!sanitized || typeof window === 'undefined') return
   window.dispatchEvent(
-    new CustomEvent<MeropePerformanceEventDetail>(
-      MEROPE_PERFORMANCE_EVENT,
-      { detail: sanitized },
-    ),
+    new CustomEvent<MeropePerformanceEventDetail>(MEROPE_PERFORMANCE_EVENT, {
+      detail: sanitized,
+    }),
   )
 }
 
@@ -37,7 +43,8 @@ export function meropePerformanceEventDetail(
   value: unknown,
 ): MeropePerformanceEventDetail | null {
   if (!isRecord(value)) return null
-  const text = typeof value.text === 'string' ? value.text.trim().slice(0, 2_000) : ''
+  const text =
+    typeof value.text === 'string' ? value.text.trim().slice(0, 2_000) : ''
   const performance = sanitizePerformanceDirective(value.performance)
   if (!text && !performance) return null
   const source = ['reply', 'proactive', 'interaction', 'preview'].includes(
@@ -45,12 +52,26 @@ export function meropePerformanceEventDetail(
   )
     ? (value.source as MeropePerformanceEventDetail['source'])
     : 'reply'
+  const messageId =
+    typeof value.messageId === 'string'
+      ? value.messageId.trim().slice(0, 160)
+      : ''
+  const generation =
+    typeof value.generation === 'number' &&
+    Number.isFinite(value.generation) &&
+    value.generation > 0
+      ? Math.min(1_000_000_000, Math.trunc(value.generation))
+      : 0
+  const motionIntentId =
+    typeof value.motionIntentId === 'string'
+      ? value.motionIntentId.trim().slice(0, 160)
+      : ''
   return {
     text,
     source,
-    ...(typeof value.messageId === 'string'
-      ? { messageId: value.messageId.slice(0, 160) }
-      : {}),
+    ...(messageId ? { messageId } : {}),
+    ...(generation ? { generation } : {}),
+    ...(motionIntentId ? { motionIntentId } : {}),
     ...(performance ? { performance } : {}),
   }
 }
@@ -70,60 +91,121 @@ export function meropeStateEventDetail(
 ): MeropeStateEventDetail | null {
   if (!isRecord(value) || !isRecord(value.mood)) return null
   const mood = value.mood
-  const bands = ['floor', 'low', 'normal', 'high'] as const
+  const bandBefore = moodBandName(mood.bandBefore)
+  const bandAfter = moodBandName(mood.bandAfter)
   const numbers = [mood.before, mood.after, mood.delta, mood.revision]
   if (
-    !numbers.every((number) => typeof number === 'number' && Number.isFinite(number)) ||
-    !bands.includes(mood.bandBefore as (typeof bands)[number]) ||
-    !bands.includes(mood.bandAfter as (typeof bands)[number])
+    !numbers.every(
+      (number) => typeof number === 'number' && Number.isFinite(number),
+    ) ||
+    !bandBefore ||
+    !bandAfter
   ) {
     return null
   }
+  const arousalBefore = optionalArousal(mood.arousalBefore)
+  const arousalAfter = optionalArousal(mood.arousalAfter)
   return {
     mood: {
       before: clamp(mood.before as number, 0, 100),
       after: clamp(mood.after as number, 0, 100),
-      bandBefore: mood.bandBefore as MoodTransition['bandBefore'],
-      bandAfter: mood.bandAfter as MoodTransition['bandAfter'],
+      ...(arousalBefore !== undefined ? { arousalBefore } : {}),
+      ...(arousalAfter !== undefined ? { arousalAfter } : {}),
+      bandBefore,
+      bandAfter,
       delta: clamp(mood.delta as number, -10, 10),
-      cause: typeof mood.cause === 'string' ? mood.cause.slice(0, 80) : 'unknown',
+      cause:
+        typeof mood.cause === 'string' ? mood.cause.slice(0, 80) : 'unknown',
       revision: Math.max(0, Math.trunc(mood.revision as number)),
     },
-    activity: typeof value.activity === 'string' ? value.activity.slice(0, 32) : 'idle',
+    activity:
+      typeof value.activity === 'string' ? value.activity.slice(0, 32) : 'idle',
   }
+}
+
+function moodBandName(value: unknown): MoodTransition['bandBefore'] | null {
+  switch (value) {
+    case 'floor':
+      return 'floor'
+    case 'sad':
+    case 'low':
+      return 'sad'
+    case 'tense':
+      return 'tense'
+    case 'calm':
+    case 'normal':
+      return 'calm'
+    case 'excited':
+    case 'high':
+      return 'excited'
+    default:
+      return null
+  }
+}
+
+function optionalArousal(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return clamp(value, 0, 100)
 }
 
 export function sanitizePerformanceDirective(
   value: unknown,
 ): PerformanceDirective | null {
   if (!isRecord(value) || !isRecord(value.plan)) return null
-  const phases = ['reaction', 'delivery', 'outcome', 'proactive', 'mood'] as const
+  const phases = [
+    'reaction',
+    'delivery',
+    'outcome',
+    'proactive',
+    'mood',
+  ] as const
   if (!phases.includes(value.phase as (typeof phases)[number])) return null
-  if (typeof value.moodRevision !== 'number' || !Number.isFinite(value.moodRevision)) return null
+  if (
+    typeof value.moodRevision !== 'number' ||
+    !Number.isFinite(value.moodRevision)
+  ) {
+    return null
+  }
+  const motionStyle = sanitizeMotionStyle(value.motionStyle)
+  if (!motionStyle) return null
   const baseline = sanitizeBaseline(value.plan.baseline)
   const cues = Array.isArray(value.plan.cues)
-    ? value.plan.cues.slice(0, 3).map(sanitizeCue).filter((cue): cue is PerformanceCue => cue !== null)
+    ? value.plan.cues
+        .slice(0, 3)
+        .map(sanitizeCue)
+        .filter((cue): cue is PerformanceCue => cue !== null)
     : []
   if (!baseline && cues.length === 0) return null
   return {
     phase: value.phase as PerformanceDirective['phase'],
     moodRevision: Math.max(0, Math.trunc(value.moodRevision)),
+    motionStyle,
     plan: { ...(baseline ? { baseline } : {}), cues },
   }
 }
 
+function sanitizeMotionStyle(value: unknown): RigMotionStyle | null {
+  return value === 'restrained' || value === 'even' || value === 'open'
+    ? value
+    : null
+}
+
 function sanitizeBaseline(value: unknown): PerformanceBaseline | null {
   if (!isRecord(value)) return null
-  const expressions = ['withdrawn', 'subdued', 'steady', 'warm'] as const
-  const postures = ['closed', 'neutral', 'open'] as const
   if (
-    !expressions.includes(value.expression as (typeof expressions)[number]) ||
-    !postures.includes(value.posture as (typeof postures)[number]) ||
+    !PERFORMANCE_BASELINE_EXPRESSIONS.includes(
+      value.expression as PerformanceBaseline['expression'],
+    ) ||
+    !PERFORMANCE_POSTURES.includes(
+      value.posture as PerformanceBaseline['posture'],
+    ) ||
     typeof value.motionEnergy !== 'number' ||
     !Number.isFinite(value.motionEnergy) ||
     typeof value.attention !== 'number' ||
     !Number.isFinite(value.attention)
-  ) return null
+  ) {
+    return null
+  }
   return {
     expression: value.expression as PerformanceBaseline['expression'],
     posture: value.posture as PerformanceBaseline['posture'],
@@ -134,14 +216,30 @@ function sanitizeBaseline(value: unknown): PerformanceBaseline | null {
 
 function sanitizeCue(value: unknown): PerformanceCue | null {
   if (!isRecord(value)) return null
-  const intents = ['greet', 'respond', 'question', 'delight', 'emphasize', 'listen', 'notify'] as const
-  const interrupts = ['replace', 'queue', 'if-lower'] as const
   if (
-    !intents.includes(value.intent as (typeof intents)[number]) ||
-    !interrupts.includes(value.interrupt as (typeof interrupts)[number])
-  ) return null
-  const numericKeys = ['atMs', 'intensity', 'tempo', 'fadeInMs', 'fadeOutMs'] as const
-  if (!numericKeys.every((key) => typeof value[key] === 'number' && Number.isFinite(value[key]))) return null
+    !PERFORMANCE_CUE_INTENTS.includes(
+      value.intent as PerformanceCue['intent'],
+    ) ||
+    !PERFORMANCE_INTERRUPT_MODES.includes(
+      value.interrupt as PerformanceCue['interrupt'],
+    )
+  ) {
+    return null
+  }
+  const numericKeys = [
+    'atMs',
+    'intensity',
+    'tempo',
+    'fadeInMs',
+    'fadeOutMs',
+  ] as const
+  if (
+    !numericKeys.every(
+      (key) => typeof value[key] === 'number' && Number.isFinite(value[key]),
+    )
+  ) {
+    return null
+  }
   return {
     intent: value.intent as PerformanceCue['intent'],
     atMs: Math.trunc(clamp(value.atMs as number, 0, 5_000)),

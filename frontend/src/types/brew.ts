@@ -29,17 +29,6 @@ export interface AddSourceInput {
 }
 
 // RSSHub 实例配置
-export interface RSSHubInstance {
-  /** 实例名称 */
-  name: string
-  /** 实例 URL（如 https://rsshub.app） */
-  url: string
-  /** 访问密钥（可选，部分私有实例需要） */
-  accessKey?: string
-  /** 是否为默认实例 */
-  isDefault?: boolean
-  enabled?: boolean
-}
 
 // RSSHub 通用查询参数（适用于大多数路由）
 export interface RSSHubQueryParams {

@@ -96,12 +96,6 @@
   }
 }
 
-@keyframes as-store-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes as-store-label-swap {
   from {
     opacity: 0;
@@ -212,11 +206,6 @@
 .as-store[data-store-anim='on'] .as-store-configuration__confirm-card {
   animation: as-store-fade-up
     calc(0.28s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
-}
-
-/* Optional spin host (Spinner already has global spin; use for FaSync when needed) */
-.as-store[data-store-anim='on'] .as-store__spin {
-  animation: as-store-spin calc(0.75s * var(--as-dur-scale, 1)) linear infinite;
 }
 
 /* Section titles on catalog remount */
@@ -904,19 +893,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   letter-spacing: -0.025em;
 }
 
-.as-store__section-meta {
-  color: var(--as-secondary);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.as-store__section-meta-row {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem 0.65rem;
-}
-
 /*
  * Discover home only — looser title rhythm.
  * Category / installed / all-apps / search keep the base rules above.
@@ -944,15 +920,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
 
 .as-store__scroll-pad--discover .as-store__section-title {
   line-height: 1.25;
-}
-
-.as-store__scroll-pad--discover .as-store__section-meta,
-.as-store__scroll-pad--discover .as-store__section-meta-row {
-  line-height: 1.25;
-}
-
-.as-store__scroll-pad--discover .as-store__section-meta-row {
-  gap: 0.5rem 0.75rem;
 }
 
 .as-store__see-all {
@@ -1250,13 +1217,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   border-radius: 22%;
 }
 
-/*
- * Self-contained app icons (bitmap / full-color SVG): fill the squircle
- * directly — no tinted shell. Soft outer depth only (no material inset).
- */
-.as-store-row__icon--standalone,
-.as-detail__icon--standalone,
-.as-detail__preview-placeholder-icon--standalone,
 .as-store-row__icon.tapp-icon-badge--standalone,
 .as-detail__icon.tapp-icon-badge--standalone,
 .as-detail__preview-placeholder-icon.tapp-icon-badge--standalone {
@@ -1266,21 +1226,10 @@ html[data-perf-mode='exlight'] .as-store__chrome {
     0 5px 13px rgb(0 0 0 / 12%) !important;
 }
 
-.as-detail__icon--standalone,
 .as-detail__icon.tapp-icon-badge--standalone {
   box-shadow:
     0 2px 4px rgb(0 0 0 / 7%),
     0 10px 22px rgb(0 0 0 / 14%) !important;
-}
-
-.as-store-row__icon-media {
-  position: relative;
-  z-index: 1;
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: inherit;
 }
 
 .as-store-row__body {
@@ -2658,7 +2607,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
 
   .as-detail__block--info .info-action-card {
     /* Tighter card padding on phone-width store surfaces */
-    --iac-pad: 0.65rem;
   }
 
   .as-store-configuration {

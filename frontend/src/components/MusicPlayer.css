@@ -12,9 +12,7 @@
   /* 使用动态颜色变量，未设置时回退到默认粉紫 */
   --music-base-primary: var(--music-primary, #ec4899);
   --music-base-secondary: var(--music-secondary, #a855f7);
-  --music-base-accent: var(--music-accent, #fbbf24);
   --music-base-light: var(--music-light, #f9a8d4);
-  --music-base-dark: var(--music-dark, #831843);
 
   /* 外容器与内部圆角矩形（封面等）共用，避免内外圆角不一致 */
   --music-radius: 0.875rem;
@@ -443,19 +441,6 @@ html.dark .music-temp-stop-btn.music-view-switch-btn:hover {
 
 html[data-perf-mode='exlight'] .music-temp-stop-btn.music-view-switch-btn {
   animation: none;
-}
-
-@keyframes music-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-
-  50% {
-    transform: scale(1.2);
-    opacity: 1;
-  }
 }
 
 /* 兼容旧结构的 song-info 补充（主样式在上方 .music-info-right 区块） */
@@ -2646,8 +2631,6 @@ html.dark .music-vip-badge.trial {
   color: #fff;
   box-shadow: none;
 }
-
-
 
 /* 确保歌名不会因为VIP标识而溢�? */
 .music-playlist-name,

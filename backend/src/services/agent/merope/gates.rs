@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-const CHAT_ACTIVE_SECS: i64 = 90;
+use crate::services::agent::presence_window::PRESENCE_WINDOW_SECS;
 
 pub fn is_chatting(
     last_active_at: Option<DateTime<Utc>>,
@@ -10,7 +10,7 @@ pub fn is_chatting(
     if has_open_run {
         return true;
     }
-    last_active_at.is_some_and(|at| (now - at).num_seconds() < CHAT_ACTIVE_SECS)
+    last_active_at.is_some_and(|at| (now - at).num_seconds() < PRESENCE_WINDOW_SECS)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +28,7 @@ const VALUABLE: &[&str] = &[
     "brew.source_error",
     "platform.sync.failed",
     "agent.merope.platform_activity",
+    "agent.merope.report_ready",
 ];
 
 pub fn is_valuable_event(event_key: &str) -> bool {
@@ -118,6 +119,14 @@ mod tests {
     fn platform_sync_failure_is_valuable() {
         assert!(is_valuable_event("platform.sync.failed"));
         let decision = decide_ingest("platform.sync.failed", false, false, false);
+        assert!(decision.notify);
+    }
+
+    #[test]
+    fn report_ready_is_valuable() {
+        assert!(is_valuable_event("agent.merope.report_ready"));
+        let decision = decide_ingest("agent.merope.report_ready", false, false, false);
+        assert!(decision.allow_model);
         assert!(decision.notify);
     }
 

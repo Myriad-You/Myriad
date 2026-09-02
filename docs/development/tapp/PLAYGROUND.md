@@ -167,6 +167,7 @@ Agent 不会声称把所有文档永久放进模型上下文。每轮先从仓�
 | Runtime Grant | **不签发** | 按可见安装与当前角色签发 |
 | `Tapp.storage` | 当前**标签页内存**；预览需声明 `storage:read` / `storage:write` | 当前用户私有存储 |
 | 主题、语言、确认、全屏 | 可用（受限 preview handlers） | 按 Manifest 权限 |
+| `Tapp.persona.get` | 固定样例名片，不打真实 API | 站点公开名片 |
 | 平台、网络、AI、宿主媒体、事件 Broker | 禁用或返回明确错误 | 按 Manifest / 角色 / 后端策略 |
 | **Federation**（Feed、Note/媒体、Channel/Room/Ring 等） | **不可用**（无 Grant、无 FederationBridge） | 按 `federation:*` + Runtime Grant |
 | 对访客可见 | 否 | 仅管理员公开安装可见 |

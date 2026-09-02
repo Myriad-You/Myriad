@@ -6,7 +6,13 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub mod contract_rules;
+pub mod headers;
 pub mod manifest;
+pub mod paths;
+pub mod permission;
+pub mod storage;
+pub mod urls;
+pub mod validate;
 
 #[cfg(feature = "tapp-contract-schema")]
 fn string_map<'a>(values: &'a [(&'a str, &'a str)]) -> BTreeMap<&'a str, &'a str> {
@@ -139,6 +145,8 @@ pub fn export_tapp_contract() -> Value {
             "assetDirectory": contract_rules::ASSET_DIRECTORY,
             "pageLayerDirectory": contract_rules::PAGE_LAYER_DIRECTORY,
             "widgetLayerDirectory": contract_rules::WIDGET_LAYER_DIRECTORY,
+            "hostWidgetCss": contract_rules::HOST_WIDGET_CSS,
+            "hostPageCss": contract_rules::HOST_PAGE_CSS,
             "manifestResourceFields": string_map(contract_rules::MANIFEST_RESOURCE_FIELDS),
             "agentSchemaFields": contract_rules::AGENT_SCHEMA_FIELDS,
             "urlFields": contract_rules::URL_FIELDS,
@@ -187,6 +195,65 @@ pub fn export_tapp_contract() -> Value {
             "namedValue": contract_rules::NAMED_VALUE_PATTERN,
             "storageKey": contract_rules::STORAGE_KEY_PATTERN,
             "themeColor": contract_rules::THEME_COLOR_PATTERN
-        }
+        },
+        "permissionLevels": permission::permission_levels(),
+        "replacementHints": permission::replacement_hints(),
+        "requiresAuthenticatedSubject": permission::requires_authenticated_subject_names()
     })
+}
+
+#[cfg(all(test, feature = "tapp-contract-schema"))]
+mod export_catalog_tests {
+    use super::export_tapp_contract;
+    use crate::permission::{
+        permission_levels, replacement_hints, requires_authenticated_subject_names,
+    };
+
+    #[test]
+    fn export_tapp_contract_includes_catalog_facts() {
+        let exported = export_tapp_contract();
+        let levels = exported["permissionLevels"]
+            .as_object()
+            .expect("permissionLevels");
+        for (name, level) in permission_levels() {
+            assert_eq!(
+                levels
+                    .get(name)
+                    .and_then(|value| value.as_str())
+                    .expect(name),
+                level
+            );
+        }
+        assert_eq!(levels.len(), permission_levels().len());
+
+        let hints = exported["replacementHints"]
+            .as_object()
+            .expect("replacementHints");
+        for (name, hint) in replacement_hints() {
+            assert_eq!(
+                hints
+                    .get(name)
+                    .and_then(|value| value.as_str())
+                    .expect(name),
+                hint
+            );
+        }
+
+        let authenticated = exported["requiresAuthenticatedSubject"]
+            .as_array()
+            .expect("requiresAuthenticatedSubject")
+            .iter()
+            .map(|value| value.as_str().expect("name"))
+            .collect::<Vec<_>>();
+        assert_eq!(authenticated, requires_authenticated_subject_names());
+
+        assert_eq!(
+            exported["rules"]["hostWidgetCss"].as_str(),
+            Some(crate::contract_rules::HOST_WIDGET_CSS)
+        );
+        assert_eq!(
+            exported["rules"]["hostPageCss"].as_str(),
+            Some(crate::contract_rules::HOST_PAGE_CSS)
+        );
+    }
 }

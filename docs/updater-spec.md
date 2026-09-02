@@ -102,7 +102,7 @@ updater 唯一权威数据源。完整 JSON Schema 见 [release/release-schema.j
     "requires_full_backup": true
   },
   "updater": {
-    "min_updater_version": "v0.3.0",
+    "min_updater_version": "v0.4.0",
     "self_update_required": false
   },
   "postgres": {
@@ -266,9 +266,9 @@ networks:
 `.env` 必须包含：
 
 ```
-MYRIAD_TAG=v1.2.3
-PROXY_TAG=v1.0.0
-UPDATER_TAG=v0.3.0
+MYRIAD_TAG=v0.4.0
+PROXY_TAG=v0.4.0
+UPDATER_TAG=v0.4.0
 UPDATER_IMAGE_REF=docker.io/somekawahitomi/myriad-updater@sha256:<64hex>
 DOCKER_GUARD_IMAGE=docker.io/somekawahitomi/myriad-updater@sha256:<64hex>
 COMPOSE_PROJECT_NAME=myriad

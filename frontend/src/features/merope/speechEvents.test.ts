@@ -84,3 +84,32 @@ test('rejects malformed articulation before it reaches the rig', () => {
     },
   )
 })
+
+test('bounds future prosody anchors before they enter the motion runtime', () => {
+  assert.deepEqual(
+    meropeSpeechEventDetail({
+      phase: 'prosody',
+      messageId: 'msg-1',
+      utteranceId: 'audio-1',
+      source: 'reply',
+      prosody: {
+        utteranceId: 'forged',
+        startedAtMs: 120,
+        durationMs: 99_000,
+        accents: [{ offsetMs: -20, intensity: 4 }],
+      },
+    }),
+    {
+      phase: 'prosody',
+      messageId: 'msg-1',
+      utteranceId: 'audio-1',
+      source: 'reply',
+      prosody: {
+        utteranceId: 'audio-1',
+        startedAtMs: 120,
+        durationMs: 30_000,
+        accents: [{ offsetMs: 0, intensity: 1 }],
+      },
+    },
+  )
+})

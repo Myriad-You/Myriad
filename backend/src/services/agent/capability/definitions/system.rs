@@ -394,21 +394,29 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "image.cache".to_string(),
         name: "图片缓存".to_string(),
-        description: "缓存外部图片到本地".to_string(),
+        description: "缓存外部图片到本地；无 url 时 action=status 查询 / action=clear 清理"
+            .to_string(),
         category: CapabilityCategory::SystemOp,
-        supported_actions: vec![IntentAction::Create],
+        supported_actions: vec![IntentAction::Create, IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "url": { "type": "string" }
-            },
-            "required": ["url"]
+                "url": { "type": "string", "description": "要缓存的外部图片 URL" },
+                "action": {
+                    "type": "string",
+                    "enum": ["status", "clear"],
+                    "description": "无 url 时：查询或清理本地图片缓存"
+                }
+            }
         }),
         output_schema: json!({
             "type": "object",
             "properties": {
                 "localPath": { "type": "string" },
-                "cached": { "type": "boolean" }
+                "cached": { "type": "boolean" },
+                "url": { "type": "string" },
+                "total_files": { "type": "integer" },
+                "cleared_directories": { "type": "integer" }
             }
         }),
         required_permissions: vec!["cache:write".to_string()],

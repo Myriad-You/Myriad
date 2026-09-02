@@ -370,9 +370,7 @@ mod tests {
         assert!(!locked.contains("official card"));
         assert!(!locked.contains("wish card"));
         assert_eq!(
-            locked
-                .matches(myriad_merope::MEROPE_VISUAL_SCHOOL)
-                .count(),
+            locked.matches(myriad_merope::MEROPE_VISUAL_SCHOOL).count(),
             1
         );
     }

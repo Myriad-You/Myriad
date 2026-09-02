@@ -128,8 +128,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "databaseId": { "type": "string" },
-                "filter": { "type": "object" },
-                "sort": { "type": "object" }
+                "filter": { "type": "object" }
             },
             "required": ["databaseId"]
         }),
@@ -220,7 +219,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
+                "originalUrl": { "type": "string" },
                 "proxyUrl": { "type": "string" },
+                "platform": { "type": "string" },
                 "cached": { "type": "boolean" }
             }
         }),
@@ -240,16 +241,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
         input_schema: json!({
             "type": "object",
             "properties": {
-                "city": { "type": "string" }
+                "city": { "type": "string", "description": "城市名（也可用 location / q）" },
+                "location": { "type": "string", "description": "city 的别名" }
             },
             "required": ["city"]
         }),
         output_schema: json!({
             "type": "object",
             "properties": {
-                "temperature": { "type": "number" },
+                "city": { "type": "string" },
+                "temperature": { "type": "string" },
                 "weather": { "type": "string" },
-                "humidity": { "type": "number" }
+                "humidity": { "type": "string" }
             }
         }),
         required_permissions: vec!["weather:read".to_string()],
@@ -395,8 +398,10 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
+                "platform": { "type": "string" },
                 "history": { "type": "array" },
-                "changes": { "type": "array" }
+                "limit": { "type": "integer" },
+                "note": { "type": "string" }
             }
         }),
         required_permissions: vec!["metadata:read".to_string()],

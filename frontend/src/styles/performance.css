@@ -23,18 +23,6 @@
   backface-visibility: hidden;
 }
 
-/* 滚动容器优化 */
-[data-scroll-optimized='true'] {
-  /* 启用原生惯性滚动 */
-  -webkit-overflow-scrolling: touch;
-
-  /* 提示浏览器该区域会滚动 */
-  will-change: scroll-position;
-
-  /* 防止触摸操作被阻止 */
-  touch-action: pan-y;
-}
-
 /* 横向滚动容器 */
 
 /* ============================================
@@ -143,6 +131,7 @@ img[loading='lazy'] {
 /* light + exlight：关掉 Tailwind 毛玻璃工具类 */
 html[data-perf-mode='light'] [class*='backdrop-blur'],
 html[data-perf-mode='exlight'] [class*='backdrop-blur'] {
+  /* stylelint-disable-next-line property-no-vendor-prefix -- Safari < 16.4 needs the prefix; dropping it keeps the blur on in low-perf mode. */
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
@@ -189,6 +178,7 @@ html[data-perf-mode='exlight'] *,
 html[data-perf-mode='exlight'] *::before,
 html[data-perf-mode='exlight'] *::after,
 html[data-perf-mode='exlight'] ::backdrop {
+  /* stylelint-disable-next-line property-no-vendor-prefix -- Safari < 16.4 needs the prefix; dropping it keeps the blur on in low-perf mode. */
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
@@ -243,8 +233,8 @@ html.dark[data-perf-mode='exlight']:not(
 
 /* 装饰性光晕：exlight 不画（GlowBackground 组件也会 return null） */
 html[data-perf-mode='exlight'] .glow-orb,
-html[data-perf-mode='exlight'] .friend-links-spotlight::before,
-html[data-perf-mode='exlight'] .music-play-btn::before {
+html[data-perf-mode='exlight'] .music-play-btn::before,
+html[data-perf-mode='exlight'] .agent-panel-aurora {
   display: none !important;
 }
 
@@ -267,9 +257,6 @@ html[data-perf-mode='exlight'] .tapp-app-card__icon-pulse,
 html[data-perf-mode='exlight'] .playground-island-aura,
 html[data-perf-mode='exlight'] .playground-text-shimmer,
 html[data-perf-mode='exlight'] .tapp-detail-status-dot.is-running,
-html[data-perf-mode='exlight'] .arael-empty-hero-name,
-html[data-perf-mode='exlight'] .arael-empty-hero-name::after,
-html[data-perf-mode='exlight'] .arael-current-step-text,
 html[data-perf-mode='exlight'] .user-modal-hero-bg,
 html[data-perf-mode='exlight'] .user-modal-avatar-wrapper,
 html[data-perf-mode='exlight'] .user-modal-online-dot,
@@ -282,23 +269,11 @@ html[data-perf-mode='exlight'] .as-detail__progress-bar > i::after {
   animation: none !important;
 }
 
-html[data-perf-mode='exlight'] .playground-text-shimmer,
-html[data-perf-mode='exlight'] .arael-empty-hero-name {
+html[data-perf-mode='exlight'] .playground-text-shimmer {
   background-image: none;
   background-clip: border-box;
   color: var(--color-primary, #10b981);
   -webkit-text-fill-color: var(--color-primary, #10b981);
-}
-
-html[data-perf-mode='exlight'] .arael-empty-hero-name::after {
-  display: none;
-}
-
-html[data-perf-mode='exlight'] .arael-current-step-text {
-  background-image: none;
-  background-clip: border-box;
-  color: var(--text-muted, #9ca3af);
-  -webkit-text-fill-color: var(--text-muted, #9ca3af);
 }
 
 /*
@@ -321,16 +296,9 @@ html[data-perf-mode='exlight'] .updater-hero,
 html[data-perf-mode='exlight'] .updater-progress,
 html[data-perf-mode='exlight'] .updater-channel-card,
 html[data-perf-mode='exlight'] .updater-commit-list,
-html[data-perf-mode='exlight'] .updater-snapshot-item,
-html[data-perf-mode='exlight'] .updater-transport-option,
 html[data-perf-mode='exlight'] .updater-panel .updater-infra-grid.is-card .setting-group,
 html[data-perf-mode='exlight'] .field-select-menu,
 html[data-perf-mode='exlight'] .toast-message,
-html[data-perf-mode='exlight'] .arael-panel,
-html[data-perf-mode='exlight'] .arael-input-wrapper,
-html[data-perf-mode='exlight'] .arael-favorite-capsule,
-html[data-perf-mode='exlight'] .arael-voice-btn,
-html[data-perf-mode='exlight'] .arael-sessions-search,
 html[data-perf-mode='exlight'] .modal-content,
 html[data-perf-mode='exlight'] .user-modal,
 html[data-perf-mode='exlight'] .user-modal-login-only,
@@ -360,16 +328,9 @@ html.dark[data-perf-mode='exlight'] .updater-hero,
 html.dark[data-perf-mode='exlight'] .updater-progress,
 html.dark[data-perf-mode='exlight'] .updater-channel-card,
 html.dark[data-perf-mode='exlight'] .updater-commit-list,
-html.dark[data-perf-mode='exlight'] .updater-snapshot-item,
-html.dark[data-perf-mode='exlight'] .updater-transport-option,
 html.dark[data-perf-mode='exlight'] .updater-panel .updater-infra-grid.is-card .setting-group,
 html.dark[data-perf-mode='exlight'] .field-select-menu,
 html.dark[data-perf-mode='exlight'] .toast-message,
-html.dark[data-perf-mode='exlight'] .arael-panel,
-html.dark[data-perf-mode='exlight'] .arael-input-wrapper,
-html.dark[data-perf-mode='exlight'] .arael-favorite-capsule,
-html.dark[data-perf-mode='exlight'] .arael-voice-btn,
-html.dark[data-perf-mode='exlight'] .arael-sessions-search,
 html.dark[data-perf-mode='exlight'] .modal-content,
 html.dark[data-perf-mode='exlight'] .user-modal,
 html.dark[data-perf-mode='exlight'] .user-modal-login-only,
@@ -489,16 +450,6 @@ html[data-perf-mode='exlight']:not([data-surface]) .glass-solid {
 /* Georgia 字体（用于引用等装饰性文字） */
 .font-georgia {
   font-family: Georgia, serif;
-}
-
-/* 主题色文本 */
-.text-primary-color {
-  color: var(--color-primary);
-}
-
-/* 强调色文本 */
-.text-accent-color {
-  color: var(--color-accent);
 }
 
 /* 热力图单元格优化 */

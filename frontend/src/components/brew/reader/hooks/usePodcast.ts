@@ -10,7 +10,6 @@ import type {
   VoiceInfo,
 } from '../../../../services/speechApi'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { userFacingError } from '../../../../utils/userFacingError'
 import * as brewliaApi from '../../../../services/brewliaApi'
 import { PodcastPlayer } from '../../../../services/brewliaApi'
 import {
@@ -22,6 +21,7 @@ import {
   getVoiceList,
   saveTTSSettings,
 } from '../../../../services/speechApi'
+import { userFacingError } from '../../../../utils/userFacingError'
 
 export interface UsePodcastOptions {
   itemId: number

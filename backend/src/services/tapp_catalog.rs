@@ -75,10 +75,6 @@ pub struct TappDetail {
     pub visibility: String,
 }
 
-fn default_tapp_visibility() -> String {
-    crate::services::tapp_ownership::TAPP_VISIBILITY_ALL.to_string()
-}
-
 /// Catalog namespace flags for a row.
 ///
 /// - Site-owner / public install → `(is_temporary=false, is_admin_tapp=true)`

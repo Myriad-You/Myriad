@@ -23,6 +23,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useI18n } from '../../contexts/I18nContext'
 import * as brewApi from '../../services/brewApi'
+import { userFacingError } from '../../utils/userFacingError'
 // 磁贴墙（localStorage flag 后面走这条路；旧网格在 PR 9 清退）
 import BrewTileWall from './BrewTileWall'
 // 卡片组件
@@ -486,7 +487,7 @@ export default function BrewSourceGrid({
             try {
               const { showToast } = await import('../../utils/toastManager')
               showToast({
-                message: t.common.error || 'Failed to save sort order',
+                message: userFacingError(err, t.errors.brewSourceSaveFailed),
                 type: 'error',
               })
             } catch {
@@ -599,11 +600,20 @@ export default function BrewSourceGrid({
       onSourcesChange?.()
     } catch (err) {
       console.error('Failed to delete sources:', err)
+      try {
+        const { showToast } = await import('../../utils/toastManager')
+        showToast({
+          message: userFacingError(err, t.errors.brewSourceDeleteFailed),
+          type: 'error',
+        })
+      } catch {
+        /* toast optional */
+      }
     } finally {
       setDeletingIds([])
       setIsDeleting(false)
     }
-  }, [selectedIds, onSourcesChange])
+  }, [selectedIds, onSourcesChange, t.errors.brewSourceDeleteFailed])
 
   // 批量刷新全部订阅
   const handleBatchRefresh = useCallback(async () => {
@@ -621,10 +631,19 @@ export default function BrewSourceGrid({
       )
     } catch (err) {
       console.error('Failed to refresh sources:', err)
+      try {
+        const { showToast } = await import('../../utils/toastManager')
+        showToast({
+          message: userFacingError(err, t.errors.brewRefreshFailed),
+          type: 'error',
+        })
+      } catch {
+        /* toast optional */
+      }
     } finally {
       setIsRefreshing(false)
     }
-  }, [filteredSources, onRefreshSource])
+  }, [filteredSources, onRefreshSource, t.errors.brewRefreshFailed])
 
   // 全部订阅标记已读
   const [_isMarkingAllRead, setIsMarkingAllRead] = useState(false)
@@ -639,10 +658,19 @@ export default function BrewSourceGrid({
       onSourcesChange?.()
     } catch (err) {
       console.error('Failed to mark all sources read:', err)
+      try {
+        const { showToast } = await import('../../utils/toastManager')
+        showToast({
+          message: userFacingError(err, t.errors.readingStateFailed),
+          type: 'error',
+        })
+      } catch {
+        /* toast optional */
+      }
     } finally {
       setIsMarkingAllRead(false)
     }
-  }, [isAuthenticated, category, onSourcesChange])
+  }, [isAuthenticated, category, onSourcesChange, t.errors.readingStateFailed])
 
   // Resize 状态
   const [resizingSource, setResizingSource] = useState<{
@@ -737,12 +765,20 @@ export default function BrewSourceGrid({
           await brewApi.updateSource(source.id, { card_size: finalSize })
         } catch (err) {
           console.error('Failed to save card size:', err)
-          // 失败时回滚
           const rollbackSource: BrewSource = {
             ...source,
             card_size: resizingSource.startSize,
           }
           onSourceUpdate?.(rollbackSource)
+          try {
+            const { showToast } = await import('../../utils/toastManager')
+            showToast({
+              message: userFacingError(err, t.errors.brewSourceSaveFailed),
+              type: 'error',
+            })
+          } catch {
+            /* toast optional */
+          }
         }
       }
 

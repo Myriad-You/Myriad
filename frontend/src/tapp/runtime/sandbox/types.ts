@@ -36,39 +36,6 @@ export interface SafeInsets {
   left?: number
 }
 
-/** 沙箱 HTML 生成选项 */
-export interface SandboxHTMLOptions {
-  mode: SandboxMode
-  widgetId?: string
-  widgetProps?: WidgetRenderProps
-  safeInsets?: SafeInsets
-}
-
-/** 处理器响应 */
-export interface HandlerResponse<T = unknown> {
-  success: boolean
-  data?: T
-  error?: string
-  code?: string
-}
-
-/** 消息载荷 */
-export interface MessagePayload {
-  api?: string
-  method?: string
-  args?: unknown[]
-}
-
-/** Bridge 消息 */
-export interface BridgeMessage {
-  type: string
-  id: string
-  action: string
-  payload: MessagePayload
-  source?: string
-  timestamp: number
-}
-
 /** 动画配置引用类型（与 useAnimationLevel 对齐） */
 export interface AnimationConfigRef {
   level: 'exlight' | 'light' | 'standard'

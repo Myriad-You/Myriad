@@ -143,18 +143,18 @@ mod tests {
         let digest = format!("sha256:{}", "0".repeat(64));
         serde_json::to_vec(&json!({
             "schema_version": 1,
-            "version": "v0.2.1",
+            "version": "v0.4.0",
             "channel": "stable",
             "released_at": "2026-07-15T00:00:00Z",
             "images": {
-                "backend": { "ref": "example/backend:v0.2.1", "digest": digest },
-                "frontend": { "ref": "example/frontend:v0.2.1", "digest": format!("sha256:{}", "1".repeat(64)) }
+                "backend": { "ref": "example/backend:v0.4.0", "digest": digest },
+                "frontend": { "ref": "example/frontend:v0.4.0", "digest": format!("sha256:{}", "1".repeat(64)) }
             },
             "env": { "required": [], "new": [], "removed": [] },
             "migrations": { "irreversible": false, "estimated_seconds": 30 },
-            "updater": { "min_updater_version": "v0.2.1" },
+            "updater": { "min_updater_version": "v0.4.0" },
             "postgres": postgres,
-            "notes_url": "https://example.com/releases/v0.2.1"
+            "notes_url": "https://example.com/releases/v0.4.0"
         }))
         .expect("manifest fixture serializes")
     }

@@ -47,6 +47,7 @@ import {
   updateReportSettings,
 } from '../../../utils/reportSettings'
 import { clearLibraryDataCache } from '../../../utils/requestDedup'
+import { userFacingError } from '../../../utils/userFacingError'
 import {
   DEFAULT_FEDERATION_POLICY,
 
@@ -198,10 +199,11 @@ export function useConfigSideDrafts(
       }
     } catch (error) {
       console.error('Failed to load permissions:', error)
+      showMessage(userFacingError(error, t.config.loadConfigFailed), 'error')
     } finally {
       setPermissionLoading(false)
     }
-  }, [])
+  }, [showMessage, t.config.loadConfigFailed])
 
   const loadNotificationSettings = useCallback(async () => {
     try {
@@ -214,7 +216,7 @@ export function useConfigSideDrafts(
       setNotificationEvents(response.catalog.events)
     } catch (error) {
       console.error('Failed to load notification settings:', error)
-      showMessage(t.config.loadConfigFailed, 'error')
+      showMessage(userFacingError(error, t.config.loadConfigFailed), 'error')
     } finally {
       setNotificationLoading(false)
     }
@@ -229,8 +231,9 @@ export function useConfigSideDrafts(
       setSavedFederationPolicy(draft)
     } catch (error) {
       console.error('Failed to load federation trust policy:', error)
+      showMessage(userFacingError(error, t.config.loadConfigFailed), 'error')
     }
-  }, [isAdmin])
+  }, [isAdmin, showMessage, t.config.loadConfigFailed])
 
   const updateFederationPolicy = useCallback(
     (patch: Partial<FederationPolicyDraft>) => {
@@ -247,7 +250,7 @@ export function useConfigSideDrafts(
       setSavedOAuthSettings(cloneOAuthSettings(loaded))
     } catch (error) {
       console.error('Failed to load OAuth settings:', error)
-      showMessage(t.config.loadConfigFailed, 'error')
+      showMessage(userFacingError(error, t.config.loadConfigFailed), 'error')
     } finally {
       setOAuthLoading(false)
     }
@@ -272,8 +275,11 @@ export function useConfigSideDrafts(
       const preferences = await fetchModuleVisibilityPreferences()
       setSavedModuleVisibilityPreferences(preferences)
       setModuleVisibilityDraft(preferences)
-    } catch {
-      showMessage(t.config.moduleVisibilityLoadFailed, 'error')
+    } catch (error) {
+      showMessage(
+        userFacingError(error, t.config.moduleVisibilityLoadFailed),
+        'error',
+      )
     }
   }, [showMessage, t.config.moduleVisibilityLoadFailed])
 
@@ -284,8 +290,8 @@ export function useConfigSideDrafts(
       const config = await fetchHitokotoConfig({ force: true })
       setSavedHitokotoConfig(config)
       setHitokotoDraft(config)
-    } catch {
-      showMessage(t.config.hitokotoLoadFailed, 'error')
+    } catch (error) {
+      showMessage(userFacingError(error, t.config.hitokotoLoadFailed), 'error')
     }
   }, [showMessage, t.config.hitokotoLoadFailed])
 
@@ -294,8 +300,11 @@ export function useConfigSideDrafts(
       const settings = await fetchReportSettings()
       setSavedReportSettings(settings)
       setReportSettingsDraft(settings)
-    } catch {
-      showMessage(t.config.reportSettingsLoadFailed, 'error')
+    } catch (error) {
+      showMessage(
+        userFacingError(error, t.config.reportSettingsLoadFailed),
+        'error',
+      )
     }
   }, [showMessage, t.config.reportSettingsLoadFailed])
 

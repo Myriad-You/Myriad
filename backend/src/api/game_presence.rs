@@ -1360,10 +1360,10 @@ async fn http_get_json_with_header(
         req = req.header(*k, *v);
     }
 
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request failed: {e}"))?;
+    let resp = req.send().await.map_err(|error| {
+        tracing::error!(%error, "game presence HTTP request failed");
+        "HTTP request failed".to_string()
+    })?;
 
     let status = resp.status();
     if status.as_u16() == 404 {
@@ -1374,15 +1374,14 @@ async fn http_get_json_with_header(
     }
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!(
-            "Upstream HTTP {status}: {}",
-            body.chars().take(200).collect::<String>()
-        ));
+        tracing::error!(%status, body = %body.chars().take(200).collect::<String>(), "game presence upstream failed");
+        return Err("Upstream request failed".to_string());
     }
 
-    resp.json::<Value>()
-        .await
-        .map_err(|e| format!("JSON parse failed: {e}"))
+    resp.json::<Value>().await.map_err(|error| {
+        tracing::error!(%error, "game presence JSON parse failed");
+        "JSON parse failed".to_string()
+    })
 }
 
 fn urlencoding_simple(s: &str) -> String {

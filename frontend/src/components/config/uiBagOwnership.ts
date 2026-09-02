@@ -80,11 +80,12 @@ export const ADVANCED_RESET_KEYS: readonly string[] = Object.freeze([
 ])
 
 /**
- * AI 页：Agent 人设总开关。字段仍存在 ui bag 里，但控件挂在 Lite / Pro 旁边——
- * 开口走 Lite、设定引导走 Pro，前提和开关不该分在两页。
+ * AI 页：Agent 人设总开关与开口朗读开关。字段仍存在 ui bag 里，但控件挂在
+ * Lite / Pro 旁边——开口走 Lite、设定引导走 Pro，前提和开关不该分在两页。
  */
 export const AI_UI_RESET_KEYS: readonly string[] = Object.freeze([
   'merope_enabled',
+  'merope_speech_enabled',
 ])
 
 /** 全量重置时允许写入的 bag key（不含 base_url） */
@@ -180,6 +181,42 @@ export function configChangesNeedRuntimeReload(
     next.ui_config?.config_fields,
     prev.ui_config?.config_fields,
     RUNTIME_RELOAD_UI_BAG_KEYS,
+  )
+}
+
+/** 人设总开关变更 → 清公开配置缓存并通知现场名牌。开口朗读不改对外名。 */
+export const PERSONA_PUBLIC_NAME_UI_BAG_KEYS: readonly string[] = Object.freeze([
+  'merope_enabled',
+])
+
+export function configChangesNeedPersonaPublicNameRefresh(
+  next: {
+    ui_config?: { config_fields?: Array<{ key: string; value: string }> }
+  },
+  prev: {
+    ui_config?: { config_fields?: Array<{ key: string; value: string }> }
+  },
+): boolean {
+  return bagKeysChanged(
+    next.ui_config?.config_fields,
+    prev.ui_config?.config_fields,
+    PERSONA_PUBLIC_NAME_UI_BAG_KEYS,
+  )
+}
+
+/** Agent 人设 / 开口朗读 bag 变更 → 丢掉语音状态缓存并重新探测。 */
+export function configChangesNeedSpeechPipelineReload(
+  next: {
+    ui_config?: { config_fields?: Array<{ key: string; value: string }> }
+  },
+  prev: {
+    ui_config?: { config_fields?: Array<{ key: string; value: string }> }
+  },
+): boolean {
+  return bagKeysChanged(
+    next.ui_config?.config_fields,
+    prev.ui_config?.config_fields,
+    AI_UI_RESET_KEYS,
   )
 }
 

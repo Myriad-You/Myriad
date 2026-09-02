@@ -1,0 +1,6 @@
+{
+  "min_from_version": "v0.4.0",
+  "updater": {
+    "min_updater_version": "v0.4.0"
+  }
+}

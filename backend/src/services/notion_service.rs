@@ -49,6 +49,54 @@ impl std::fmt::Display for NotionError {
 
 impl std::error::Error for NotionError {}
 
+fn notion_request_failed(error: reqwest::Error) -> NotionError {
+    tracing::warn!(%error, "Notion request failed");
+    if let Some(status) = error.status() {
+        return NotionError::ApiError(format!("HTTP {}", status.as_u16()));
+    }
+    NotionError::ApiError(
+        crate::services::agent::external_pure::classify_outbound_fetch(
+            "Failed to reach Notion",
+            &error.to_string(),
+        ),
+    )
+}
+
+fn notion_http_failed(status: reqwest::StatusCode, body: &str) -> NotionError {
+    tracing::warn!(%status, body, "Notion HTTP error");
+    let code = status.as_u16();
+    match extract_notion_message(body) {
+        Some(message) => NotionError::ApiError(format!("HTTP {code}: {message}")),
+        None => NotionError::ApiError(format!("HTTP {code}")),
+    }
+}
+
+fn notion_parse_failed(error: impl std::fmt::Display) -> NotionError {
+    tracing::warn!(%error, "Failed to parse Notion response");
+    NotionError::ParseError("Failed to parse Notion response".to_string())
+}
+
+fn extract_notion_message(body: &str) -> Option<String> {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        let message = value.get("message").and_then(|item| item.as_str())?.trim();
+        if message.is_empty() || message.len() > 160 {
+            return None;
+        }
+        return Some(message.to_string());
+    }
+    if trimmed.starts_with('{') || trimmed.contains("<html") {
+        return None;
+    }
+    if trimmed.len() > 160 {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
 /// Notion 订阅配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NotionConfig {
@@ -185,21 +233,15 @@ impl NotionService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| NotionError::ApiError(format!("Request failed: {}", e)))?;
+            .map_err(notion_request_failed)?;
 
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(NotionError::ApiError(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(notion_http_failed(status, &error_text));
         }
 
-        let data: Value = response
-            .json()
-            .await
-            .map_err(|e| NotionError::ParseError(format!("JSON parse error: {}", e)))?;
+        let data: Value = response.json().await.map_err(notion_parse_failed)?;
 
         // 获取数据库信息
         let db_info = self.fetch_database_info(config).await?;
@@ -236,21 +278,15 @@ impl NotionService {
             .header("Notion-Version", NOTION_API_VERSION)
             .send()
             .await
-            .map_err(|e| NotionError::ApiError(format!("Request failed: {}", e)))?;
+            .map_err(notion_request_failed)?;
 
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(NotionError::ApiError(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(notion_http_failed(status, &error_text));
         }
 
-        let data: Value = response
-            .json()
-            .await
-            .map_err(|e| NotionError::ParseError(format!("JSON parse error: {}", e)))?;
+        let data: Value = response.json().await.map_err(notion_parse_failed)?;
 
         // 提取标题
         let title = data["title"]
@@ -917,7 +953,7 @@ impl NotionService {
                 .header("Notion-Version", NOTION_API_VERSION)
                 .send()
                 .await
-                .map_err(|e| NotionError::ApiError(format!("Request failed: {}", e)))?;
+                .map_err(notion_request_failed)?;
 
             if !response.status().is_success() {
                 return Err(NotionError::ApiError(
@@ -925,10 +961,7 @@ impl NotionService {
                 ));
             }
 
-            let data: Value = response
-                .json()
-                .await
-                .map_err(|e| NotionError::ParseError(format!("JSON parse error: {}", e)))?;
+            let data: Value = response.json().await.map_err(notion_parse_failed)?;
 
             let blocks = data["results"]
                 .as_array()
@@ -1715,21 +1748,15 @@ impl NotionService {
             .header("Notion-Version", NOTION_API_VERSION)
             .send()
             .await
-            .map_err(|e| NotionError::ApiError(format!("Request failed: {}", e)))?;
+            .map_err(notion_request_failed)?;
 
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(NotionError::ApiError(format!(
-                "HTTP {}: {}",
-                status, error_text
-            )));
+            return Err(notion_http_failed(status, &error_text));
         }
 
-        let page: Value = response
-            .json()
-            .await
-            .map_err(|e| NotionError::ParseError(format!("JSON parse error: {}", e)))?;
+        let page: Value = response.json().await.map_err(notion_parse_failed)?;
 
         // 解析页面为单个文章
         let item = self
@@ -1832,6 +1859,22 @@ fn extract_notion_id_from_url(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_notion_message_keeps_official_phrase_and_drops_json() {
+        assert_eq!(
+            extract_notion_message(
+                r#"{"object":"error","status":401,"code":"unauthorized","message":"API token is invalid."}"#
+            )
+            .as_deref(),
+            Some("API token is invalid.")
+        );
+        assert_eq!(
+            extract_notion_message(r#"{"object":"error","status":500}"#),
+            None
+        );
+        assert_eq!(extract_notion_message("<html>nope</html>"), None);
+    }
 
     #[test]
     fn test_parse_notion_url() {

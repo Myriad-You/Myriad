@@ -14,6 +14,18 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
+import { pickMusicContextState } from '../utils/musicPlayerState'
+import {
+  applyPublishedMusicState,
+  bindPublishedMusicState,
+  setCurrentSongSnapshot,
+} from './currentSong'
+
+export {
+  applyPublishedMusicState,
+  getCurrentSong,
+  subscribeCurrentSong,
+} from './currentSong'
 
 /**
  * 全局音乐播放器状态管理 - 使用 React Context 实现实时状态同步
@@ -70,6 +82,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (typeof window !== 'undefined') {
       const globalState = (window as any).__musicPlayerState
       if (globalState) {
+        applyPublishedMusicState(globalState)
         setState({
           currentSong: globalState.currentSong || null,
           isEnabled: globalState.isEnabled || false,
@@ -99,49 +112,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         | undefined
       if (!detail) return
 
-      setState((prev) => {
-        const next = { ...prev }
-        if ('currentSong' in detail) {
-          next.currentSong = (detail.currentSong as Song | null) ?? null
-        }
-        if ('isEnabled' in detail) next.isEnabled = Boolean(detail.isEnabled)
-        if ('isPlaying' in detail) next.isPlaying = Boolean(detail.isPlaying)
-        if ('musicColor' in detail) {
-          next.musicColor = String(detail.musicColor || '#ef4444')
-        }
-        if ('isTempPlay' in detail) {
-          next.isTempPlay = Boolean(detail.isTempPlay)
-        }
-        if ('currentSongIndex' in detail) {
-          next.currentSongIndex = Number(detail.currentSongIndex) || 0
-        }
-        if ('playlistLength' in detail) {
-          next.playlistLength = Number(detail.playlistLength) || 0
-        }
-        if ('playlist' in detail) {
-          next.playlist = (detail.playlist as Song[]) || []
-        }
-        if ('lyrics' in detail) {
-          next.lyrics = (detail.lyrics as LyricLine[]) || []
-        }
-        if ('verbatimLyrics' in detail) {
-          next.verbatimLyrics = (detail.verbatimLyrics as WordLyricLine[]) || []
-        }
-        if ('hasVerbatimLyrics' in detail) {
-          next.hasVerbatimLyrics = Boolean(detail.hasVerbatimLyrics)
-        }
-        if ('verbatimLyricsSource' in detail) {
-          next.verbatimLyricsSource = (detail.verbatimLyricsSource ||
-            '') as VerbatimLyricsSource
-        }
-        if ('currentLyricIndex' in detail) {
-          next.currentLyricIndex =
-            typeof detail.currentLyricIndex === 'number'
-              ? detail.currentLyricIndex
-              : -1
-        }
-        return next
-      })
+      applyPublishedMusicState(detail)
+      setState((prev) => ({
+        ...prev,
+        ...(pickMusicContextState(detail) as Partial<MusicPlayerState>),
+      }))
     }
 
     window.addEventListener('music-player-state-change', handleMusicStateChange)
@@ -242,6 +217,7 @@ function subscribeMusicState(listener: () => void) {
     const currentState = (window as any).__musicPlayerState
     if (currentState) {
       globalMusicState = { ...globalMusicState, ...currentState }
+      setCurrentSongSnapshot(globalMusicState.currentSong)
     }
   }
   attachMusicEventListener()
@@ -284,6 +260,7 @@ function updateGlobalMusicState(newState: Partial<MusicPlayerState>) {
 
   if (!changed) return
   globalMusicState = next
+  setCurrentSongSnapshot(next.currentSong)
   emitMusicStateChange()
 }
 
@@ -293,36 +270,7 @@ function handleGlobalMusicStateChange(event: Event) {
     | undefined
   if (!detail) return
   // 只吸收 Context 关心的字段，忽略 currentTime / musicColors 等宿主专属字段
-  const patch: Partial<MusicPlayerState> = {}
-  if ('currentSong' in detail)
-    patch.currentSong = (detail.currentSong as Song | null) ?? null
-  if ('isEnabled' in detail) patch.isEnabled = Boolean(detail.isEnabled)
-  if ('isPlaying' in detail) patch.isPlaying = Boolean(detail.isPlaying)
-  if ('musicColor' in detail)
-    patch.musicColor = String(detail.musicColor || '#ef4444')
-  if ('isTempPlay' in detail) patch.isTempPlay = Boolean(detail.isTempPlay)
-  if ('currentSongIndex' in detail)
-    patch.currentSongIndex = Number(detail.currentSongIndex) || 0
-  if ('playlistLength' in detail)
-    patch.playlistLength = Number(detail.playlistLength) || 0
-  if ('playlist' in detail)
-    patch.playlist = (detail.playlist as Song[]) || []
-  if ('lyrics' in detail)
-    patch.lyrics = (detail.lyrics as LyricLine[]) || []
-  if ('verbatimLyrics' in detail)
-    patch.verbatimLyrics = (detail.verbatimLyrics as WordLyricLine[]) || []
-  if ('hasVerbatimLyrics' in detail)
-    patch.hasVerbatimLyrics = Boolean(detail.hasVerbatimLyrics)
-  if ('verbatimLyricsSource' in detail) {
-    patch.verbatimLyricsSource = (detail.verbatimLyricsSource ||
-      '') as VerbatimLyricsSource
-}
-  if ('currentLyricIndex' in detail) {
-    patch.currentLyricIndex =
-      typeof detail.currentLyricIndex === 'number'
-        ? detail.currentLyricIndex
-        : -1
-}
+  const patch = pickMusicContextState(detail) as Partial<MusicPlayerState>
   updateGlobalMusicState(patch)
 }
 
@@ -355,7 +303,10 @@ if (typeof window !== 'undefined') {
   const initialState = (window as any).__musicPlayerState
   if (initialState) {
     globalMusicState = { ...globalMusicState, ...initialState }
+    applyPublishedMusicState(initialState)
   }
+  bindPublishedMusicState()
+  attachMusicEventListener()
 }
 
 // 降级方案：基于 useSyncExternalStore 的实现（高性能版本）

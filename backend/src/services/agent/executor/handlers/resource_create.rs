@@ -43,6 +43,11 @@ pub async fn execute(
     }
 }
 
+fn persist_resource_error(kind: &str, error: impl std::fmt::Display) -> String {
+    tracing::error!(%error, kind, "Failed to save agent resource");
+    format!("Failed to save {kind}")
+}
+
 // Tapp 生成
 
 async fn persist_agent_tapp(
@@ -79,26 +84,37 @@ async fn persist_agent_tapp(
     let page_path = tapp_dir.join(&page_entry);
     let manifest_path = tapp_dir.join("manifest.json");
     if let Some(parent) = code_path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| format!("Failed to create Tapp directory: {e}"))?;
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            tracing::error!(error = %e, "Failed to create Tapp directory");
+            "Failed to create Tapp directory".to_string()
+        })?;
     }
     if let Some(parent) = page_path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| format!("Failed to create Tapp directory: {e}"))?;
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            tracing::error!(error = %e, "Failed to create Tapp directory");
+            "Failed to create Tapp directory".to_string()
+        })?;
     }
-    tokio::fs::write(&code_path, code)
-        .await
-        .map_err(|e| format!("Failed to write Tapp core: {e}"))?;
+    tokio::fs::write(&code_path, code).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to write Tapp core");
+        "Failed to write Tapp core".to_string()
+    })?;
     tokio::fs::write(&page_path, page_source)
         .await
-        .map_err(|e| format!("Failed to write Tapp page entry: {e}"))?;
-    let manifest_json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| format!("Failed to serialize Tapp manifest: {e}"))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to write Tapp page entry");
+            "Failed to write Tapp page entry".to_string()
+        })?;
+    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+        tracing::error!(error = %e, "Failed to serialize Tapp manifest");
+        "Failed to serialize Tapp manifest".to_string()
+    })?;
     tokio::fs::write(&manifest_path, manifest_json)
         .await
-        .map_err(|e| format!("Failed to write Tapp manifest: {e}"))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to write Tapp manifest");
+            "Failed to write Tapp manifest".to_string()
+        })?;
 
     let version = manifest
         .get("version")
@@ -137,7 +153,8 @@ async fn persist_agent_tapp(
     };
     if let Err(error) = new_tapp.insert(ctx.db).await {
         let _ = tokio::fs::remove_dir_all(&tapp_dir).await;
-        return Err(format!("Failed to persist Tapp: {error}"));
+        tracing::error!(%error, "Failed to persist Tapp");
+        return Err("Failed to persist Tapp".to_string());
     }
 
     Ok(now)
@@ -194,10 +211,10 @@ async fn execute_tapp_generate(
 }}"#
     );
 
-    let result = analyzer
-        .analyze(&prompt)
-        .await
-        .map_err(|e| format!("Tapp generation failed: {e}"))?;
+    let result = analyzer.analyze(&prompt).await.map_err(|e| {
+        tracing::error!(error = %e, "Tapp generation failed");
+        "Tapp generation failed".to_string()
+    })?;
     let parsed =
         parse_generated_tapp_json(&result).unwrap_or_else(|| generated_tapp_fallback(&result));
 
@@ -350,7 +367,7 @@ async fn execute_report_create(
     new_record
         .insert(ctx.db)
         .await
-        .map_err(|e| format!("Failed to save report: {}", e))?;
+        .map_err(|error| persist_resource_error("report", error))?;
 
     tracing::info!(report_id = %report_id, title = %title, "[ReportCreate] Report persisted");
 
@@ -365,7 +382,8 @@ async fn execute_report_create(
             "params": {
                 "reportId": report_id,
                 "title": title,
-                "format": format
+                "format": format,
+                "content": content
             },
             "timestamp": now.timestamp_millis()
         }
@@ -412,7 +430,7 @@ async fn execute_reminder_create(
     new_record
         .insert(ctx.db)
         .await
-        .map_err(|e| format!("Failed to save reminder: {}", e))?;
+        .map_err(|error| persist_resource_error("reminder", error))?;
 
     Ok(json!({
         "success": true,
@@ -466,7 +484,7 @@ async fn execute_note_create(
     new_record
         .insert(ctx.db)
         .await
-        .map_err(|e| format!("Failed to save note: {}", e))?;
+        .map_err(|error| persist_resource_error("note", error))?;
 
     Ok(json!({
         "success": true,
@@ -558,7 +576,7 @@ async fn execute_bookmark_save(
     new_record
         .insert(ctx.db)
         .await
-        .map_err(|e| format!("Failed to save bookmark: {}", e))?;
+        .map_err(|error| persist_resource_error("bookmark", error))?;
 
     Ok(json!({
         "success": true,

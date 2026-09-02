@@ -242,14 +242,6 @@ export {
 } from './useVisibilityPause'
 
 /**
- * 重置页面动画状态
- * 用于路由切换时调用
- */
-export function resetPageAnimationState() {
-  // 通过 coordinator 处理，它会在 startPageTransition 时清理
-}
-
-/**
  * 配置协调器
  */
 export function configureAnimationCoordinator(

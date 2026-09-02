@@ -20,11 +20,13 @@ import { useNavigate } from 'react-router-dom'
 import { useAnimationPreference } from '../contexts/AnimationPreferenceContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
+import { agentFace } from '../features/merope/agentFaceChannel'
 import {
-  dispatchMeropePerformance,
-  dispatchMeropeState,
-} from '../features/merope/performanceEvents'
-import { dispatchMeropeSpeechUtterance } from '../features/merope/speechEvents'
+  deliverWorkNotificationFace,
+  faceSpeechGate,
+  notificationCarriesMeropeSpeech,
+} from '../features/merope/faceSpeechArbitration'
+import { setForegroundSurface } from '../features/merope/perception/surface'
 import { batchRead, batchWrite, observeResize } from '../hooks/animation'
 import {
   isReducedAnimation,
@@ -40,6 +42,7 @@ import {
   notificationSourceFor,
   notificationToastType,
   shouldDeliverNotification,
+  shouldEmitNotificationToast,
 } from '../services/notificationDelivery'
 import {
   getGreeting,
@@ -60,6 +63,7 @@ import {
 import { loadResource } from '../utils/resourceLoader'
 import { useThemeMode } from '../utils/themeSubscriber'
 import { showToast } from '../utils/toastManager'
+import { getAgentPanelVisible } from './agent-panel/agentPanelVisible'
 import {
   initialPanelState,
   isPanelMorphing,
@@ -274,19 +278,18 @@ const GlobalControlPanel: React.FC = () => {
   /** 新通知到达：按统一投递策略分发到面板之外的展示位置。 */
   const handleNewNotification = useCallback(
     (n: AppNotification) => {
-      if (n.metadata?.performance) {
-        dispatchMeropeState(n.metadata.merope_state)
-        dispatchMeropePerformance({
-          text: n.body,
-          source: 'proactive',
-          messageId: n.id,
-          performance: n.metadata.performance,
-        })
-        dispatchMeropeSpeechUtterance({
-          text: n.body,
-          source: 'proactive',
-          messageId: n.id,
-          utteranceId: `proactive-${n.id}`,
+      const metadata = n.metadata
+      if (
+        notificationCarriesMeropeSpeech(metadata) &&
+        (shouldDeliverNotification(notificationPreferences, n, 'island') ||
+          shouldDeliverNotification(notificationPreferences, n, 'toast') ||
+          shouldDeliverNotification(notificationPreferences, n, 'panel'))
+      ) {
+        deliverWorkNotificationFace(agentFace, faceSpeechGate, {
+          id: n.id,
+          body: n.body,
+          performance: metadata.performance,
+          meropeState: metadata.merope_state,
         })
       }
       const source = notificationSourceFor(n)
@@ -322,7 +325,13 @@ const GlobalControlPanel: React.FC = () => {
 
       // 2. 所有允许投递到 Toast 的通知都走同一全局容器。
       // 通知优先级只决定视觉类型，不再决定通知是否展示。
-      if (shouldDeliverNotification(notificationPreferences, n, 'toast')) {
+      if (
+        shouldEmitNotificationToast(
+          notificationPreferences,
+          n,
+          getAgentPanelVisible(),
+        )
+      ) {
         const showInPanel = shouldDeliverNotification(
           notificationPreferences,
           n,
@@ -1267,6 +1276,7 @@ const GlobalControlPanel: React.FC = () => {
     // 会被 handleTogglePanel 误判成再关一次，面板打不开。
     isExpandedRef.current = false
     dispatchPanel({ type: 'close' })
+    setForegroundSurface('none')
   }, [])
 
   const handleTogglePanel = useCallback(
@@ -1275,6 +1285,9 @@ const GlobalControlPanel: React.FC = () => {
         handleClosePanel()
       } else {
         expandPanel(tab)
+        setForegroundSurface(
+          tab === 'notifications' ? 'notification' : 'control_panel',
+        )
         void import('../utils/analyticsEvents').then(
           ({ trackProductEvent, AnalyticsEvents }) => {
             trackProductEvent(AnalyticsEvents.CONTROL_PANEL_OPEN, {
@@ -1332,7 +1345,7 @@ const GlobalControlPanel: React.FC = () => {
     [handleClosePanel],
   )
 
-  const handleOpenAraelManage = useCallback(
+  const handleOpenAgentManage = useCallback(
     (tab?: 'heartbeat' | 'skills' | 'memory') => {
       handleClosePanel()
       window.dispatchEvent(
@@ -1784,8 +1797,10 @@ const GlobalControlPanel: React.FC = () => {
                   role="tab"
                   aria-selected={panelTab === 'control'}
                   className={`notif-tab ${panelTab === 'control' ? 'active' : ''}`}
-                  onClick={() =>
-                    dispatchPanel({ type: 'selectTab', tab: 'control' })}
+                  onClick={() => {
+                    dispatchPanel({ type: 'selectTab', tab: 'control' })
+                    setForegroundSurface('control_panel')
+                  }}
                 >
                   {t.notificationCenter.tabControl}
                 </button>
@@ -1796,6 +1811,7 @@ const GlobalControlPanel: React.FC = () => {
                   className={`notif-tab ${panelTab === 'notifications' ? 'active' : ''}`}
                   onClick={() => {
                     dispatchPanel({ type: 'selectTab', tab: 'notifications' })
+                    setForegroundSurface('notification')
                     void import('../utils/analyticsEvents').then(
                       ({ trackProductEvent, AnalyticsEvents }) => {
                         trackProductEvent(AnalyticsEvents.NOTIFICATION_OPEN, {
@@ -2085,7 +2101,7 @@ const GlobalControlPanel: React.FC = () => {
                       fill
                       onOpenSession={handleOpenNotifSession}
                       onNavigate={handleNavigateFromPanel}
-                      onOpenAraelManage={handleOpenAraelManage}
+                      onOpenAgentManage={handleOpenAgentManage}
                       browserNotificationsEnabled={
                         notificationPreferences.delivery.browser
                       }

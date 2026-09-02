@@ -86,8 +86,10 @@ pub fn normalize_backend_actions(
             object.insert("action".to_string(), action_type);
         }
 
-        serde_json::from_value::<BackendActionWrapper>(value.clone())
-            .map_err(|e| format!("Invalid backend action: {e}"))?;
+        serde_json::from_value::<BackendActionWrapper>(value.clone()).map_err(|error| {
+            tracing::error!(%error, "invalid backend action");
+            "Invalid backend action".to_string()
+        })?;
         normalized.push(value);
     }
 
@@ -105,8 +107,11 @@ pub fn backend_action_permissions(
 
     let mut permissions = Vec::new();
     for value in actions {
-        let wrapper: BackendActionWrapper = serde_json::from_value(value.clone())
-            .map_err(|e| format!("Invalid backend action: {e}"))?;
+        let wrapper: BackendActionWrapper =
+            serde_json::from_value(value.clone()).map_err(|error| {
+                tracing::error!(%error, "invalid backend action");
+                "Invalid backend action".to_string()
+            })?;
         let permission = match wrapper.action {
             BackendAction::PlatformSync { .. } => Some(TappPermission::PlatformWrite),
             BackendAction::StorageSet { .. } | BackendAction::StorageDelete { .. } => {
@@ -138,8 +143,11 @@ pub fn validate_backend_action_declarations(
         return Ok(None);
     };
     let uses_ai_generate = actions.iter().try_fold(false, |uses_ai, value| {
-        let wrapper: BackendActionWrapper = serde_json::from_value(value.clone())
-            .map_err(|error| format!("Invalid backend action: {error}"))?;
+        let wrapper: BackendActionWrapper =
+            serde_json::from_value(value.clone()).map_err(|error| {
+                tracing::error!(%error, "invalid backend action");
+                "Invalid backend action".to_string()
+            })?;
         Ok::<_, String>(uses_ai || matches!(wrapper.action, BackendAction::AiGenerate { .. }))
     })?;
     if !uses_ai_generate {
@@ -238,7 +246,10 @@ pub async fn register_frontend_connection(
         MAX_SCHEDULER_CONNECTIONS_PER_SUBJECT,
     )
     .await
-    .map_err(|error| format!("Failed to register scheduler connection: {error}"))?;
+    .map_err(|error| {
+        tracing::error!(%error, "failed to register scheduler connection");
+        "Failed to register scheduler connection".to_string()
+    })?;
     if inserted {
         Ok(())
     } else {
@@ -255,7 +266,10 @@ pub async fn unregister_frontend_connection(
     shared_registry::delete(db, SCHEDULER_PRESENCE_NAMESPACE, connection_id)
         .await
         .map(|_| ())
-        .map_err(|error| format!("Failed to unregister scheduler connection: {error}"))
+        .map_err(|error| {
+            tracing::error!(%error, "failed to unregister scheduler connection");
+            "Failed to unregister scheduler connection".to_string()
+        })
 }
 
 pub async fn drain_frontend_messages(
@@ -269,7 +283,10 @@ pub async fn drain_frontend_messages(
         SCHEDULER_MAILBOX_BATCH_SIZE,
     )
     .await
-    .map_err(|error| format!("Failed to drain scheduler mailbox: {error}"))
+    .map_err(|error| {
+        tracing::error!(%error, "failed to drain scheduler mailbox");
+        "Failed to drain scheduler mailbox".to_string()
+    })
 }
 
 pub async fn requeue_frontend_message(
@@ -285,7 +302,10 @@ pub async fn requeue_frontend_message(
         Utc::now().timestamp() + SCHEDULER_MESSAGE_TTL_SECONDS,
     )
     .await
-    .map_err(|error| format!("Failed to requeue scheduler message: {error}"))?;
+    .map_err(|error| {
+        tracing::error!(%error, "failed to requeue scheduler message");
+        "Failed to requeue scheduler message".to_string()
+    })?;
     SCHEDULER_REQUEUED.fetch_add(1, Ordering::Relaxed);
     Ok(())
 }
@@ -294,13 +314,19 @@ pub async fn active_frontend_subject_count(db: &DatabaseConnection) -> Result<us
     shared_registry::list_subject_ids(db, SCHEDULER_PRESENCE_NAMESPACE)
         .await
         .map(|subjects| subjects.len())
-        .map_err(|error| format!("Failed to count scheduler subjects: {error}"))
+        .map_err(|error| {
+            tracing::error!(%error, "failed to count scheduler subjects");
+            "Failed to count scheduler subjects".to_string()
+        })
 }
 
 pub async fn scheduler_mailbox_depth(db: &DatabaseConnection) -> Result<i64, String> {
     shared_registry::mailbox_depth(db, SCHEDULER_MAILBOX_CHANNEL)
         .await
-        .map_err(|error| format!("Failed to count scheduler mailbox: {error}"))
+        .map_err(|error| {
+            tracing::error!(%error, "failed to count scheduler mailbox");
+            "Failed to count scheduler mailbox".to_string()
+        })
 }
 
 /// 调度引擎

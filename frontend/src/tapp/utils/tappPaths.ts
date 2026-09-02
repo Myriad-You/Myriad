@@ -27,8 +27,3 @@ export function tappRunMultiPath(): string {
 export function tappDetailPath(tappId: string): string {
   return `/tapp/detail/${encodeURIComponent(tappId)}`
 }
-
-/** Store path. Prefer multi via tappRunPath(HOST_PANEL_STORE_ID, { multi: true }). */
-export function tappStorePath(): string {
-  return TAPP_STORE_PATH
-}

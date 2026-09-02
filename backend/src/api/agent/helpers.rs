@@ -23,6 +23,7 @@ pub(crate) fn build_request_context(ctx: ProcessContext) -> RequestContext {
     });
 
     RequestContext {
+        interaction_mode: ctx.mode.unwrap_or_default(),
         current_route: ctx.current_route,
         active_platforms: ctx.active_platforms.unwrap_or_default(),
         preferences: None,
@@ -31,6 +32,12 @@ pub(crate) fn build_request_context(ctx: ProcessContext) -> RequestContext {
         custom_data: ctx.custom_data,
         lane_key: None, // 由 API 层在调用处注入
         run_id: None,   // 由 process_stream 在 create_run 后注入
+        source_intent_id: ctx.intention_id,
+        autonomy_permission_cap: ctx.autonomy_permission_cap,
+        rig_state: ctx
+            .rig_state
+            .as_ref()
+            .and_then(myriad_merope::sanitize_rig_state),
     }
 }
 
@@ -141,4 +148,63 @@ pub(crate) fn validate_input(input: &str) -> Result<(), HttpError> {
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod agent_entry_gate_tests {
+    /// 取 `fn <name>(` 之后的一段源码，够覆盖签名和开头几行。
+    fn head_of(source: &str, name: &str) -> String {
+        let at = source
+            .find(&format!("fn {name}("))
+            .unwrap_or_else(|| panic!("{name} not found"));
+        source[at..].chars().take(700).collect()
+    }
+
+    /// 能把一轮 Work 提交进 Agent 的 HTTP 入口，必须走带可见性判定的解析。
+    ///
+    /// `interrupt_session` 曾经只解析 user_id，而它提交的请求 `context: None`
+    /// 落进 Agent 就是 Work——模块可见性关成 admin 也拦不住它。
+    #[test]
+    fn every_work_entry_checks_module_visibility() {
+        let cases: [(&str, &str, &str); 6] = [
+            ("process.rs", include_str!("process.rs"), "process"),
+            ("process.rs", include_str!("process.rs"), "process_stream"),
+            ("process.rs", include_str!("process.rs"), "clarify"),
+            ("presets.rs", include_str!("presets.rs"), "execute_preset"),
+            (
+                "heartbeat_mcp.rs",
+                include_str!("heartbeat_mcp.rs"),
+                "interrupt_session",
+            ),
+            (
+                "intentions.rs",
+                include_str!("intentions.rs"),
+                "accept_intention",
+            ),
+        ];
+        for (file, source, name) in cases {
+            let head = head_of(source, name);
+            assert!(
+                head.contains("parse_user_id_with_agent_access"),
+                "{file}::{name} 是 Work 入口，却没有过模块可见性这道门"
+            );
+        }
+    }
+
+    /// 能力过滤是按人给的，不是按档给的：非管理员照常进 Work，
+    /// 每一步能不能落地由 `get_user_permissions` 说了算。
+    #[test]
+    fn work_entries_do_not_gate_on_role() {
+        for (file, source) in [
+            ("process.rs", include_str!("process.rs")),
+            ("presets.rs", include_str!("presets.rs")),
+            ("intentions.rs", include_str!("intentions.rs")),
+            ("heartbeat_mcp.rs", include_str!("heartbeat_mcp.rs")),
+        ] {
+            assert!(
+                !source.contains("interaction_mode_allowed"),
+                "{file} 不该按身份分运行时路径；能力过滤在 get_user_permissions"
+            );
+        }
+    }
 }

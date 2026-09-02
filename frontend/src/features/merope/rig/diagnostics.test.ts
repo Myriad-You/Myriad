@@ -1,74 +1,7 @@
 import type { MeropeRigManifest } from './types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-  anime25DAbandonsCapability,
-  diagnoseRig,
-  rigCapabilityRegressions,
-} from './diagnostics'
-
-test('replacement regression gate reports only lost current capabilities', () => {
-  const capabilities = {
-    facial: true,
-    lipSync: true,
-    gaze: true,
-    secondaryMotion: true,
-    facialVariants: true,
-    deformableSkinning: true,
-    outfitAware: true,
-    collisionAware: true,
-    presentationCoverage: true,
-  }
-  const current = { score: 100, issues: [], capabilities }
-  const candidate = {
-    score: 80,
-    issues: [],
-    capabilities: {
-      ...capabilities,
-      gaze: false,
-      secondaryMotion: false,
-      deformableSkinning: false,
-    },
-  }
-  assert.deepEqual(rigCapabilityRegressions(current, candidate), [
-    'gaze',
-    'secondaryMotion',
-    'deformableSkinning',
-  ])
-  assert.deepEqual(rigCapabilityRegressions(candidate, current), [])
-})
-
-test('Anime2.5DRig replacement preserves FaceRig capability gates', () => {
-  assert.equal(anime25DAbandonsCapability('presentationCoverage'), false)
-  assert.equal(anime25DAbandonsCapability('collisionAware'), true)
-  assert.equal(anime25DAbandonsCapability('gaze'), false)
-  const current = {
-    profile: 'face-rig' as const,
-    score: 100,
-    issues: [],
-    capabilities: {
-      facial: true,
-      lipSync: true,
-      gaze: true,
-      secondaryMotion: true,
-      facialVariants: true,
-      deformableSkinning: true,
-      outfitAware: true,
-      collisionAware: true,
-      presentationCoverage: true,
-    },
-  }
-  const candidate = {
-    ...current,
-    profile: 'anime25d' as const,
-    capabilities: {
-      ...current.capabilities,
-      gaze: false,
-      collisionAware: false,
-    },
-  }
-  assert.deepEqual(rigCapabilityRegressions(current, candidate), ['gaze'])
-})
+import { anime25DFacialVariantsComplete, diagnoseRig } from './diagnostics'
 
 test('Anime2.5DRig diagnostics do not score retired limb gates', () => {
   const report = diagnoseRig({
@@ -86,20 +19,69 @@ test('Anime2.5DRig diagnostics do not score retired limb gates', () => {
       { id: 'a25d-face' },
       { id: 'a25d-eye-left-open', slot: 'eye-left', variant: 'open' },
       { id: 'a25d-eye-left-closed', slot: 'eye-left', variant: 'closed' },
+      { id: 'a25d-eye-left-dizzy', slot: 'eye-left', variant: 'dizzy' },
+      { id: 'a25d-eye-left-squeeze', slot: 'eye-left', variant: 'squeeze' },
+      { id: 'a25d-eye-left-cry', slot: 'eye-left', variant: 'cry' },
+      { id: 'a25d-eye-left-silly', slot: 'eye-left', variant: 'silly' },
       { id: 'a25d-eye-right-open', slot: 'eye-right', variant: 'open' },
       { id: 'a25d-eye-right-closed', slot: 'eye-right', variant: 'closed' },
+      { id: 'a25d-eye-right-dizzy', slot: 'eye-right', variant: 'dizzy' },
+      {
+        id: 'a25d-eye-right-squeeze',
+        slot: 'eye-right',
+        variant: 'squeeze',
+      },
+      { id: 'a25d-eye-right-cry', slot: 'eye-right', variant: 'cry' },
+      { id: 'a25d-eye-right-silly', slot: 'eye-right', variant: 'silly' },
       { id: 'a25d-mouth-open', slot: 'mouth', variant: 'open' },
       { id: 'a25d-mouth-close', slot: 'mouth', variant: 'closed' },
+      { id: 'a25d-mouth-wide', slot: 'mouth', variant: 'wide' },
+      { id: 'a25d-mouth-round', slot: 'mouth', variant: 'round' },
+      { id: 'a25d-mouth-narrow', slot: 'mouth', variant: 'narrow' },
+      { id: 'a25d-mouth-cry', slot: 'mouth', variant: 'cry' },
+      { id: 'a25d-mouth-maniac', slot: 'mouth', variant: 'maniac' },
+      { id: 'a25d-mouth-silly', slot: 'mouth', variant: 'silly' },
+      { id: 'a25d-lovestruck-heart-left' },
+      { id: 'a25d-lovestruck-heart-right' },
+      { id: 'a25d-lovestruck-face-effect' },
+      { id: 'a25d-lovestruck-drool' },
     ],
   } as unknown as MeropeRigManifest)
   assert.equal(report.profile, 'anime25d')
   assert.equal(report.capabilities.facialVariants, true)
   assert.equal(
     report.issues.some((item) =>
-      [
-        'missing-spatial-profile',
-        'incomplete-presentation-coverage',
-      ].includes(item.code),
+      ['missing-spatial-profile', 'incomplete-presentation-coverage'].includes(
+        item.code,
+      ),
+    ),
+    false,
+  )
+})
+
+test('Anime2.5D facial diagnostics reject a count-complete but semantically incomplete set', () => {
+  const parts = [
+    ...(
+      ['open', 'closed', 'dizzy', 'squeeze', 'cry', 'silly'] as const
+    ).flatMap((variant) => [
+      { id: `a25d-eye-left-${variant}`, slot: 'eye-left', variant },
+      { id: `a25d-eye-right-${variant}`, slot: 'eye-right', variant },
+    ]),
+    ...(
+      ['closed', 'open', 'wide', 'round', 'narrow', 'cry', 'maniac'] as const
+    ).map((variant) => ({
+      id: `a25d-mouth-${variant}`,
+      slot: 'mouth',
+      variant,
+    })),
+    { id: 'a25d-lovestruck-heart-left' },
+    { id: 'a25d-lovestruck-heart-right' },
+    { id: 'a25d-lovestruck-face-effect' },
+    { id: 'a25d-lovestruck-drool' },
+  ]
+  assert.equal(
+    anime25DFacialVariantsComplete(
+      parts as unknown as MeropeRigManifest['parts'],
     ),
     false,
   )

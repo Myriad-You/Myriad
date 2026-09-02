@@ -523,6 +523,7 @@ pub fn collect_library_source_options(
     options
 }
 
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub fn apply_library_source_preferences(
     items: Vec<LibraryItem>,
     preferences: &LibrarySourcePreferences,

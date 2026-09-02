@@ -198,6 +198,7 @@ fn auth_cache_get(user_id: i32) -> Option<Option<AuthSnapshot>> {
     Some(entry.snapshot)
 }
 
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 fn auth_cache_put(user_id: i32, snapshot: Option<AuthSnapshot>) {
     let mut guard = match auth_cache().lock() {
         Ok(guard) => guard,
@@ -642,19 +643,6 @@ async fn load_auth_snapshot(
     }
 }
 
-/// Load `users.token_version` for a durable user id.
-///
-/// Kept as a narrow compatibility helper for callers that only need the epoch;
-/// internally it still uses the combined auth snapshot query/cache.
-pub async fn load_token_version(
-    db: &DatabaseConnection,
-    user_id: i32,
-) -> Result<Option<i64>, sea_orm::DbErr> {
-    Ok(load_auth_snapshot(db, user_id)
-        .await?
-        .map(|snapshot| snapshot.token_version))
-}
-
 /// Pure session-epoch check used by auth middleware and unit tests.
 ///
 /// - Missing user (`None`) → revoked (deleted account)
@@ -728,17 +716,6 @@ fn apply_current_roles(mut claims: Claims, snapshot: AuthSnapshot) -> Claims {
         claims.is_owner = false;
     }
     claims
-}
-
-/// Fail closed when JWT session epoch does not match the user row.
-///
-/// The underlying miss query also loads current roles so the main auth path
-/// can avoid a second database round-trip.
-pub async fn ensure_session_epoch(
-    claims: &Claims,
-    db: &DatabaseConnection,
-) -> Result<(), Box<Response>> {
-    validated_auth_snapshot(claims, db).await.map(|_| ())
 }
 
 fn unauthorized_session_response() -> Box<Response> {

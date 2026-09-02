@@ -8,27 +8,12 @@
 //! - prepend step id formatting
 //! - multi-attempt error message assembly
 
-use crate::services::agent::executor_utils_pure::truncate_str;
 use crate::services::agent::types::{RecipeStep, RetryConfig as StepRetryConfig};
 
-/// Max sleep between retries (ms).
-pub const RETRY_DELAY_CAP_MS: u64 = 30_000;
-/// Floor for configured per-step delay_ms.
-pub const RETRY_BASE_DELAY_FLOOR_MS: u64 = 100;
-/// Default base delay when step.retry is absent.
-pub const RETRY_DEFAULT_BASE_DELAY_MS: u64 = 500;
-
-/// Whether the executor should attempt another retry.
-///
-/// `retry_count` is the number of failures so far (1 after first failure).
-pub fn should_retry_step(
-    retry_count: u32,
-    max_attempts: u32,
-    global_budget: u32,
-    analysis_retryable: bool,
-) -> bool {
-    retry_count < max_attempts && global_budget > 0 && analysis_retryable
-}
+pub use myriad_agent_rules::{
+    compute_retry_delay_ms, format_retry_final_error, prepend_step_id, should_retry_step,
+    RETRY_BASE_DELAY_FLOOR_MS, RETRY_DEFAULT_BASE_DELAY_MS, RETRY_DELAY_CAP_MS,
+};
 
 /// Base delay and whether exponential backoff is enabled for a step.
 pub fn step_retry_delay_config(step: &RecipeStep) -> (u64, bool) {
@@ -43,25 +28,6 @@ pub fn step_retry_delay_config(step: &RecipeStep) -> (u64, bool) {
         .map(|r: &StepRetryConfig| r.exponential_backoff)
         .unwrap_or(true);
     (base_delay, use_backoff)
-}
-
-/// Compute sleep delay after `retry_count` failures (1-based failure index).
-///
-/// Exponential: `base * 2^(retry_count-1)` when backoff is on; then multiply by
-/// analyzer `delay_multiplier` and cap at [`RETRY_DELAY_CAP_MS`].
-pub fn compute_retry_delay_ms(
-    base_delay: u64,
-    use_backoff: bool,
-    retry_count: u32,
-    delay_multiplier: f64,
-) -> u64 {
-    let delay = if use_backoff {
-        base_delay.saturating_mul(2u64.saturating_pow(retry_count.saturating_sub(1)))
-    } else {
-        base_delay
-    };
-    let adjusted = (delay as f64 * delay_multiplier) as u64;
-    adjusted.min(RETRY_DELAY_CAP_MS)
 }
 
 /// Default max attempts for a step (shared by serial / DAG / resume paths).
@@ -82,29 +48,6 @@ pub fn default_max_retries(step: &RecipeStep) -> u32 {
                 1
             }
         })
-}
-
-/// Build a deterministic prepend step id for analyzer-suggested capabilities.
-pub fn prepend_step_id(parent_step_id: &str, retry_count: u32) -> String {
-    format!("{parent_step_id}_prepend_{retry_count}")
-}
-
-/// Assemble final error text when multiple attempts failed.
-pub fn format_retry_final_error(retry_errors: &[String], last_error: &str) -> String {
-    if retry_errors.len() > 1 {
-        let previous: Vec<_> = retry_errors[..retry_errors.len() - 1]
-            .iter()
-            .map(|e| truncate_str(e, 120).to_string())
-            .collect();
-        format!(
-            "{} (previous {} attempts: {})",
-            last_error,
-            previous.len(),
-            previous.join("; ")
-        )
-    } else {
-        last_error.to_string()
-    }
 }
 
 #[cfg(test)]

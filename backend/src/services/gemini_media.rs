@@ -241,12 +241,15 @@ async fn post_generate_content(
         .map_err(|error| GeminiMediaError::Provider(error.to_string()))?;
     if !status.is_success() {
         let body: String = String::from_utf8_lossy(&bytes).chars().take(600).collect();
-        return Err(GeminiMediaError::Provider(format!(
-            "Gemini API returned HTTP {status}: {body}"
-        )));
+        tracing::error!(%status, body = %body, "Gemini API request failed");
+        return Err(GeminiMediaError::Provider(
+            "Gemini API request failed".to_string(),
+        ));
     }
-    serde_json::from_slice(&bytes)
-        .map_err(|error| GeminiMediaError::InvalidResponse(format!("invalid Gemini JSON: {error}")))
+    serde_json::from_slice(&bytes).map_err(|error| {
+        tracing::error!(%error, "invalid Gemini JSON");
+        GeminiMediaError::InvalidResponse("invalid Gemini JSON".to_string())
+    })
 }
 
 fn first_inline_bytes(value: &Value, kind_prefix: &str) -> Option<(Vec<u8>, String)> {

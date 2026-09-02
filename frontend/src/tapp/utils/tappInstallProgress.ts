@@ -25,13 +25,6 @@ export function isLargeTappInstall(estimatedBytes?: number | null): boolean {
   return (estimatedBytes ?? 0) >= LARGE_TAPP_INSTALL_BYTES
 }
 
-export function formatInstallBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '0 B'
-  if (bytes < 1024) return `${Math.round(bytes)} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 /** Clamp percent into 0–100 integer. */
 export function clampInstallPercent(n: number): number {
   if (!Number.isFinite(n)) return 0

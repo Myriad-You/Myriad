@@ -383,8 +383,3 @@ export function evaluateHighHardware(
     }
   }
 }
-
-/** 同步评估当前环境是否高硬件 */
-export function evaluateCurrentHardwareTier(): HardwareTierResult {
-  return evaluateHighHardware(collectHardwareSignals())
-}

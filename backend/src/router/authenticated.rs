@@ -198,8 +198,8 @@ pub(super) fn build_authenticated_router(
         // Provider operations are admin-only; content-addressed GLB assets
         // remain public so guest home scenes can render them.
         .nest(
-            "/api/merope/3d",
-            api::merope_3d::create_routes(app_state.clone()),
+            "/api/model3d",
+            api::model3d::create_routes(app_state.clone()),
         )
         .nest(
             "/api/merope/rig",

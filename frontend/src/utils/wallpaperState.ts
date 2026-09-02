@@ -301,35 +301,3 @@ export function resyncWallpaperBlur(): void {
 }
 
 // 便捷导出函数（向后兼容）
-
-/**
- * 获取当前活跃的壁纸URL
- * @deprecated 请使用 wallpaperState.getActiveUrl()
- */
-export function getActiveWallpaperUrl(): string | null {
-  return wallpaperState.getActiveUrl()
-}
-
-/**
- * 获取壁纸应用时间戳
- * @deprecated 请使用 wallpaperState.getAppliedTimestamp()
- */
-export function getWallpaperApplyTimestamp(): number {
-  return wallpaperState.getAppliedTimestamp()
-}
-
-/**
- * 验证给定URL是否与当前活跃壁纸一致
- * @deprecated 请使用 wallpaperState.isUrlActive()
- */
-export function isWallpaperUrlActive(url: string): boolean {
-  return wallpaperState.isUrlActive(url)
-}
-
-/**
- * 获取DOM中当前显示的壁纸URL
- * @deprecated 请使用 extractBackgroundUrl()
- */
-export function getDOMWallpaperUrl(): string | null {
-  return extractBackgroundUrl()
-}

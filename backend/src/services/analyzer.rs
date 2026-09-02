@@ -2,6 +2,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::time::Duration;
 
 use crate::services::http_client::{GeminiApiUrl, ProxyConfig};
@@ -237,6 +238,143 @@ fn extract_openai_completion_text(response: &OpenAIResponse) -> Result<String> {
     Err(anyhow::anyhow!(
         "OpenAI-compatible API returned empty message content"
     ))
+}
+
+/// One piece of a streamed completion: the visible reply, or the hidden chain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StreamDelta {
+    Text(String),
+    Reasoning(String),
+}
+
+fn json_token(value: &serde_json::Value) -> Option<&str> {
+    value.as_str().filter(|s| !s.is_empty())
+}
+
+/// OpenAI-compatible chat.completion.chunk → text / reasoning deltas.
+///
+/// Grok / DeepSeek / OpenRouter put the thinking trace on `delta.reasoning_content`
+/// (sometimes `delta.reasoning`). The visible answer stays on `delta.content`.
+fn reasoning_text_from_value(value: &serde_json::Value) -> Option<String> {
+    if let Some(text) = json_token(value) {
+        return Some(text.to_string());
+    }
+    if let Some(obj) = value.as_object() {
+        if let Some(text) = json_token(&obj["content"]).or_else(|| json_token(&obj["text"])) {
+            return Some(text.to_string());
+        }
+    }
+    None
+}
+
+pub fn openai_stream_deltas(json: &serde_json::Value) -> Vec<StreamDelta> {
+    if let Some(kind) = json.get("type").and_then(|v| v.as_str()) {
+        if kind == "response.reasoning_text.delta"
+            || kind == "response.reasoning_summary_text.delta"
+        {
+            if let Some(text) = reasoning_text_from_value(&json["delta"]) {
+                return vec![StreamDelta::Reasoning(text)];
+            }
+        }
+        if kind == "response.output_text.delta" {
+            if let Some(text) = json_token(&json["delta"]) {
+                return vec![StreamDelta::Text(text.to_string())];
+            }
+        }
+    }
+
+    let Some(delta) = json.pointer("/choices/0/delta") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+
+    if let Some(text) = reasoning_text_from_value(&delta["reasoning_content"])
+        .or_else(|| reasoning_text_from_value(&delta["reasoning"]))
+    {
+        out.push(StreamDelta::Reasoning(text));
+    } else if let Some(details) = delta.get("reasoning_details").and_then(|v| v.as_array()) {
+        let mut joined = String::new();
+        for item in details {
+            if let Some(text) = json_token(&item["text"]).or_else(|| json_token(&item["content"])) {
+                joined.push_str(text);
+            }
+        }
+        if !joined.is_empty() {
+            out.push(StreamDelta::Reasoning(joined));
+        }
+    }
+
+    if let Some(text) = json_token(&delta["content"]) {
+        out.push(StreamDelta::Text(text.to_string()));
+    }
+    out
+}
+
+async fn consume_openai_sse<F, Fut>(
+    mut response: reqwest::Response,
+    mut on_delta: F,
+) -> Result<String>
+where
+    F: FnMut(StreamDelta) -> Fut + Send,
+    Fut: Future<Output = bool> + Send,
+{
+    let mut full_text = String::new();
+    let mut buffer = String::new();
+    loop {
+        let chunk = response.chunk().await.context("Stream read error")?;
+        match chunk {
+            Some(bytes) => buffer.push_str(&String::from_utf8_lossy(&bytes)),
+            None => break,
+        }
+        while let Some(pos) = buffer.find('\n') {
+            let line = buffer[..pos].trim().to_string();
+            buffer = buffer[pos + 1..].to_string();
+            if line.is_empty() {
+                continue;
+            }
+            let Some(data) = line.strip_prefix("data: ") else {
+                continue;
+            };
+            if data.trim() == "[DONE]" {
+                return Ok(full_text);
+            }
+            let Ok(json) = serde_json::from_str::<serde_json::Value>(data) else {
+                continue;
+            };
+            for delta in openai_stream_deltas(&json) {
+                if let StreamDelta::Text(ref content) = delta {
+                    full_text.push_str(content);
+                }
+                if !on_delta(delta).await {
+                    return Ok(full_text);
+                }
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+    Ok(full_text)
+}
+
+/// Gemini SSE chunk → text / thought-part deltas.
+pub fn gemini_stream_deltas(json: &serde_json::Value) -> Vec<StreamDelta> {
+    let Some(parts) = json
+        .pointer("/candidates/0/content/parts")
+        .and_then(|v| v.as_array())
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for part in parts {
+        let Some(text) = json_token(&part["text"]) else {
+            continue;
+        };
+        if part.get("thought").and_then(|v| v.as_bool()) == Some(true) {
+            out.push(StreamDelta::Reasoning(text.to_string()));
+        } else {
+            out.push(StreamDelta::Text(text.to_string()));
+        }
+    }
+    out
 }
 
 // AI Provider Enum
@@ -873,6 +1011,115 @@ impl AiAnalyzer {
         result
     }
 
+    /// Structured JSON, but reasoning deltas are pushed live.
+    ///
+    /// Planner used to wait for the whole `analyze_json` body, then dump one
+    /// `reasoning` field — that is why the bubble saw a single package.
+    /// OpenAI-compatible providers that reject `stream` + `response_format`
+    /// fall back to the blocking call.
+    pub async fn analyze_json_streaming<F, Fut>(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&serde_json::Value>,
+        on_delta: F,
+    ) -> Result<String>
+    where
+        F: FnMut(StreamDelta) -> Fut + Send,
+        Fut: Future<Output = bool> + Send,
+    {
+        if self.provider != AiProvider::OpenAI {
+            return self.analyze_json(system, prompt, schema_name, schema).await;
+        }
+
+        let input_chars = system.len() + prompt.len();
+        let streamed = self
+            .analyze_json_streaming_openai(system, prompt, schema_name, schema, on_delta)
+            .await;
+        match streamed {
+            Ok(text) => {
+                let result = Ok(text);
+                self.note_ledger(input_chars, &result, "structured-stream")
+                    .await;
+                result
+            }
+            Err(failure) if failure.rejected_request() => {
+                tracing::warn!(
+                    model = %self.model,
+                    "[AiAnalyzer] Streaming structured output rejected; falling back"
+                );
+                self.analyze_json(system, prompt, schema_name, schema).await
+            }
+            Err(failure) => Err(failure.error),
+        }
+    }
+
+    async fn analyze_json_streaming_openai<F, Fut>(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&serde_json::Value>,
+        on_delta: F,
+    ) -> std::result::Result<String, ProviderCallFailure>
+    where
+        F: FnMut(StreamDelta) -> Fut + Send,
+        Fut: Future<Output = bool> + Send,
+    {
+        let mode = JsonMode::Structured(schema);
+        let mut messages = Vec::with_capacity(2);
+        if !system.trim().is_empty() {
+            messages.push(OpenAIMessage {
+                role: "system".to_string(),
+                content: system.to_string(),
+            });
+        }
+        messages.push(OpenAIMessage {
+            role: "user".to_string(),
+            content: mode.decorate_prompt(prompt),
+        });
+
+        let mut request_body = serde_json::to_value(OpenAIRequest {
+            model: self.model.clone(),
+            messages,
+            response_format: mode.openai_response_format(schema_name),
+        })
+        .map_err(|e| ProviderCallFailure::transport(e.into()))?;
+        if let Some(obj) = request_body.as_object_mut() {
+            obj.insert("stream".to_string(), serde_json::json!(true));
+        }
+
+        let url = openai_chat_completions_url(self.base_url.as_deref());
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| ProviderCallFailure::transport(e.into()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = Self::read_limited_error_text(response).await;
+            return Err(ProviderCallFailure::http(
+                status,
+                anyhow::anyhow!(format_openai_compatible_http_error(
+                    status,
+                    &url,
+                    &self.model,
+                    &error_text,
+                )),
+            ));
+        }
+
+        consume_openai_sse(response, on_delta)
+            .await
+            .map_err(ProviderCallFailure::transport)
+    }
+
     async fn analyze_json_inner(
         &self,
         system: &str,
@@ -1008,23 +1255,43 @@ impl AiAnalyzer {
     // pub async fn generate_summary(&self, profiles: Vec<serde_json::Value>) -> Result<String>
     // pub async fn extract_skills(&self, profile_data: &serde_json::Value) -> Result<Vec<String>>
 
-    /// 流式分析（逐 token 返回）
+    /// 流式分析（逐 token 返回可见回复）
     ///
-    /// 通过 `on_token` 回调逐步返回文本片段，适用于需要实时展示 AI 回复的场景。
+    /// 只把 `content` 交给回调。思考链走 [`Self::analyze_stream_parts`]。
     /// 回调返回 `false` 可提前终止流。
-    pub async fn analyze_stream<F>(&self, prompt: &str, on_token: F) -> Result<String>
+    pub async fn analyze_stream<F>(&self, prompt: &str, mut on_token: F) -> Result<String>
     where
         F: FnMut(&str) -> bool + Send,
     {
+        self.analyze_stream_parts(prompt, |delta| {
+            let keep = match &delta {
+                StreamDelta::Text(text) => on_token(text),
+                StreamDelta::Reasoning(_) => true,
+            };
+            async move { keep }
+        })
+        .await
+    }
+
+    /// 流式分析，思考链和正文分开回调。返回值仍只是可见回复。
+    ///
+    /// 回调是 async：调用方必须 `send().await` 把这一截交给 SSE，
+    /// 不能 `try_send` 塞进有界队列再一次性倒出去。
+    pub async fn analyze_stream_parts<F, Fut>(&self, prompt: &str, on_delta: F) -> Result<String>
+    where
+        F: FnMut(StreamDelta) -> Fut + Send,
+        Fut: Future<Output = bool> + Send,
+    {
         let input_chars = prompt.len();
-        let result = self.analyze_stream_inner(prompt, on_token).await;
+        let result = self.analyze_stream_inner(prompt, on_delta).await;
         self.note_ledger(input_chars, &result, "stream").await;
         result
     }
 
-    async fn analyze_stream_inner<F>(&self, prompt: &str, mut on_token: F) -> Result<String>
+    async fn analyze_stream_inner<F, Fut>(&self, prompt: &str, mut on_delta: F) -> Result<String>
     where
-        F: FnMut(&str) -> bool + Send,
+        F: FnMut(StreamDelta) -> Fut + Send,
+        Fut: Future<Output = bool> + Send,
     {
         let mut full_text = String::new();
         match self.provider {
@@ -1081,14 +1348,14 @@ impl AiAnalyzer {
                             let line = line.trim();
                             if let Some(data) = line.strip_prefix("data: ") {
                                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                                    if let Some(text) = json
-                                        .pointer("/candidates/0/content/parts/0/text")
-                                        .and_then(|v| v.as_str())
-                                    {
-                                        full_text.push_str(text);
-                                        if !on_token(text) {
+                                    for delta in gemini_stream_deltas(&json) {
+                                        if let StreamDelta::Text(ref content) = delta {
+                                            full_text.push_str(content);
+                                        }
+                                        if !on_delta(delta).await {
                                             return Ok(full_text);
                                         }
+                                        tokio::task::yield_now().await;
                                     }
                                 }
                             }
@@ -1115,7 +1382,7 @@ impl AiAnalyzer {
 
                 let url = openai_chat_completions_url(self.base_url.as_deref());
 
-                let mut response = self
+                let response = self
                     .client
                     .post(&url)
                     .header("Authorization", format!("Bearer {}", self.api_key))
@@ -1141,40 +1408,7 @@ impl AiAnalyzer {
                     )));
                 }
 
-                let mut buffer = String::new();
-
-                loop {
-                    let chunk = response.chunk().await.context("Stream read error")?;
-                    match chunk {
-                        Some(bytes) => buffer.push_str(&String::from_utf8_lossy(&bytes)),
-                        None => break,
-                    }
-
-                    while let Some(pos) = buffer.find('\n') {
-                        let line = buffer[..pos].trim().to_string();
-                        buffer = buffer[pos + 1..].to_string();
-
-                        if line.is_empty() {
-                            continue;
-                        }
-                        if let Some(data) = line.strip_prefix("data: ") {
-                            if data.trim() == "[DONE]" {
-                                break;
-                            }
-                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                                if let Some(content) = json
-                                    .pointer("/choices/0/delta/content")
-                                    .and_then(|v| v.as_str())
-                                {
-                                    full_text.push_str(content);
-                                    if !on_token(content) {
-                                        return Ok(full_text);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                return consume_openai_sse(response, on_delta).await;
             }
         }
 
@@ -1186,9 +1420,10 @@ impl AiAnalyzer {
 mod tests {
     use super::{
         extract_openai_completion_text, flatten_messages_for_gemini,
-        format_openai_compatible_http_error, gemini_response_schema, openai_chat_completions_url,
-        require_analyze_prompt, ChatMessage, GeminiContent, GeminiPart, GeminiRequest, JsonMode,
-        OpenAIMessage, OpenAIRequest, OpenAIResponse, ProviderCallFailure,
+        format_openai_compatible_http_error, gemini_response_schema, gemini_stream_deltas,
+        openai_chat_completions_url, openai_stream_deltas, require_analyze_prompt, ChatMessage,
+        GeminiContent, GeminiPart, GeminiRequest, JsonMode, OpenAIMessage, OpenAIRequest,
+        OpenAIResponse, ProviderCallFailure, StreamDelta,
     };
     use serde_json::json;
 
@@ -1505,5 +1740,97 @@ mod tests {
         let parsed: OpenAIResponse = serde_json::from_str(raw).expect("deserialize");
         let text = extract_openai_completion_text(&parsed).expect("content");
         assert_eq!(text, "visible payload");
+    }
+
+    #[test]
+    fn openai_stream_reads_reasoning_content_separately_from_answer() {
+        let chunk = json!({
+            "choices": [{
+                "delta": {
+                    "reasoning_content": "let me count",
+                    "content": "4"
+                }
+            }]
+        });
+        assert_eq!(
+            openai_stream_deltas(&chunk),
+            vec![
+                StreamDelta::Reasoning("let me count".to_string()),
+                StreamDelta::Text("4".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn openai_stream_reads_reasoning_object_and_responses_events() {
+        let object = json!({
+            "choices": [{ "delta": { "reasoning": { "content": "energy first" } } }]
+        });
+        assert_eq!(
+            openai_stream_deltas(&object),
+            vec![StreamDelta::Reasoning("energy first".to_string())]
+        );
+
+        let responses = json!({
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "then impact speed"
+        });
+        assert_eq!(
+            openai_stream_deltas(&responses),
+            vec![StreamDelta::Reasoning("then impact speed".to_string())]
+        );
+    }
+
+    #[test]
+    fn openai_stream_reads_reasoning_alias_and_skips_empty() {
+        let reasoning_only = json!({
+            "choices": [{ "delta": { "reasoning": "scratch" } }]
+        });
+        assert_eq!(
+            openai_stream_deltas(&reasoning_only),
+            vec![StreamDelta::Reasoning("scratch".to_string())]
+        );
+
+        let empty = json!({ "choices": [{ "delta": { "content": "" } }] });
+        assert!(openai_stream_deltas(&empty).is_empty());
+    }
+
+    #[test]
+    fn openai_stream_joins_reasoning_details() {
+        let chunk = json!({
+            "choices": [{
+                "delta": {
+                    "reasoning_details": [
+                        { "text": "step " },
+                        { "content": "two" }
+                    ]
+                }
+            }]
+        });
+        assert_eq!(
+            openai_stream_deltas(&chunk),
+            vec![StreamDelta::Reasoning("step two".to_string())]
+        );
+    }
+
+    #[test]
+    fn gemini_stream_marks_thought_parts_as_reasoning() {
+        let chunk = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [
+                        { "text": "thinking aloud", "thought": true },
+                        { "text": "hello" }
+                    ]
+                }
+            }]
+        });
+        assert_eq!(
+            gemini_stream_deltas(&chunk),
+            vec![
+                StreamDelta::Reasoning("thinking aloud".to_string()),
+                StreamDelta::Text("hello".to_string()),
+            ]
+        );
     }
 }

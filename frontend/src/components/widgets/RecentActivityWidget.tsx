@@ -800,14 +800,17 @@ export const RecentActivityWidget = memo(
     const compact = config.size === '2x2'
     const [activities, setActivities] = useState<Activity[]>([])
     const [loading, setLoading] = useState(true)
+    const [failed, setFailed] = useState(false)
 
     const refresh = useCallback(async (force = false) => {
       try {
         const data = await requestActivities(force)
         setActivities(data.slice(0, ACTIVITY_LOAD_LIMIT))
+        setFailed(false)
       } catch (error) {
         if (error instanceof Error && error.name !== 'AbortError') {
           console.error('Failed to fetch recent activities:', error)
+          setFailed(true)
         }
       } finally {
         setLoading(false)
@@ -955,7 +958,7 @@ export const RecentActivityWidget = memo(
           {!loading && visibleActivities.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center text-[10px] text-gray-500 dark:text-gray-400">
               <div className="mb-1.5 text-xl opacity-35">◌</div>
-              {t.common.noResults}
+              {failed ? t.recentActivity.loadFailed : t.common.noResults}
             </div>
           ) : (
             <div

@@ -15,14 +15,9 @@
 //!   planner can reference a concrete field (`"dataFrom": "search.results"`).
 //! - [`check_output_contract`] runs after a step completes.
 //!
-//! **Runtime is report-only.** `Executor::report_output_contract` logs whatever
-//! this module returns and never fails the step: the declarations are not
-//! uniformly trustworthy yet, and the wrong party is as often the *schema* as
-//! the handler — `output_schema` was read by no code before this, so a
-//! declaration typo would take out a working feature. The real gate is CI: the
-//! sample-output table in this module's tests asserts that covered capabilities
-//! produce no [`ContractViolation::Breach`]. Once the registry is calibrated,
-//! enforcement can move back into the executor.
+//! **Runtime:** [`ContractViolation::Breach`] fails the step. [`ContractViolation::Drift`]
+//! is still log-only. CI sample-output table asserts covered capabilities
+//! produce no Breach.
 //!
 //! The two severities therefore describe *confidence*, not runtime behaviour:
 //!
@@ -30,11 +25,8 @@
 //!   JSON type, a `required` field is missing, or an enum/range bound is
 //!   exceeded. Unambiguous: one side is definitely wrong, so CI rejects it.
 //! - [`ContractViolation::Drift`] — the handler returned an object sharing no
-//!   key at all with the declared properties. A static audit of the registry
-//!   found ~10 capabilities whose declaration never matched its handler
-//!   (`bilibili.user`, `github.repos`, `steam.user`, `tapp.generate`, …),
-//!   so this stays a logged signal rather than a gate.
-//!   Correcting those declarations is follow-up work.
+//!   key at all with the declared properties. Logged only, not a step failure:
+//!   remaining mismatches belong in the registry, not as a runtime abort.
 
 use serde_json::Value;
 
@@ -270,12 +262,7 @@ mod tests {
 
     /// Sample outputs mirroring what each handler actually returns on success.
     ///
-    /// This table is the enforcement point. The runtime only logs violations,
-    /// because the registry's declarations were written before anything read
-    /// them and are not uniformly trustworthy — a wrong *declaration* would
-    /// otherwise fail a working handler. Checking real shapes here catches the
-    /// drift in CI instead, and is what has to be clean before the runtime check
-    /// can be promoted to fatal.
+    /// Runtime now fails on Breach. This table keeps sampled handlers honest in CI.
     ///
     /// Add a row when you add a capability. Two rows for a handler that returns
     /// different shapes on different branches.

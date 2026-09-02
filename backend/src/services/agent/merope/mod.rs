@@ -1,8 +1,10 @@
 //! Merope: site persona, per-addressee state, hidden proactive speech.
 
+pub mod chat_remember;
 pub mod gates;
 pub mod ingest;
 pub mod motion;
+pub mod motion_local;
 pub mod onboarding_ai;
 pub mod onboarding_prompts;
 pub mod report_dna;
@@ -10,17 +12,23 @@ pub mod speaking_prompts;
 pub mod state;
 pub mod store;
 
+pub use chat_remember::spawn_chat_remember;
 pub use ingest::{
     allow_existing_notify, is_enabled, spawn as spawn_ingest, spawn_diary, spawn_presence,
+    tick_speak_intents,
 };
-pub use motion::{direct_motion, MotionContext, MotionPhase, PerformanceDirective};
+pub use motion::{
+    direct_motion, local_directive, refine_motion, resolve_round_motion_style, MotionContext,
+    MotionPhase, PerformanceDirective,
+};
+pub use myriad_merope::RigStateSummary;
 pub use store::{
     acquire_portrait_generation, clear_persona_on, complete_portrait_generation,
-    get_or_create_state, get_persona, get_persona_on, insert_diary, insert_proactive, latest_diary,
-    list_diary, normalize_persona_fields, portrait_generation_is_pending, recent_proactive,
-    release_portrait_generation, save_departure_mood, save_mood, set_activity, set_dnd_schedule,
-    set_do_not_disturb, upsert_persona_on, JsonDocumentUpdate, PersonaContractUpdate,
-    PortraitUpdate,
+    generation_inputs_changed, get_or_create_state, get_persona, get_persona_on, insert_diary,
+    insert_proactive, latest_diary, list_diary_from_sources, list_remembered,
+    normalize_persona_fields, portrait_generation_is_pending, promote_activity, recent_proactive,
+    release_portrait_generation, set_activity, set_dnd_schedule, set_do_not_disturb, update_affect,
+    upsert_persona_on, JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate,
 };
 
 /// Logged-in users only. Guests use negative ids; heartbeat is `SYSTEM_USER_ID` (0).
@@ -35,7 +43,15 @@ pub async fn mark_activity(db: &sea_orm::DatabaseConnection, user_id: i32, activ
     if !is_enabled().await {
         return;
     }
-    let _ = set_activity(db, user_id, activity).await;
+    let executing = crate::services::agent::run_hub::user_executing_run_count(user_id).await;
+    if activity == "idle" && executing > 1 {
+        return;
+    }
+    if executing > 1 {
+        let _ = promote_activity(db, user_id, activity).await;
+    } else {
+        let _ = set_activity(db, user_id, activity).await;
+    }
 }
 
 use crate::models::entities::agent_persona;
@@ -116,54 +132,39 @@ pub async fn note_user_turn(
     {
         return None;
     }
-    let state = get_or_create_state(db, user_id).await.ok()?;
-    let previous = state.mood;
-    let gap_hours = state
-        .last_user_message_at
-        .map(|at| (chrono::Utc::now() - at.with_timezone(&chrono::Utc)).num_minutes() as f64 / 60.0)
-        .unwrap_or(24.0);
-    let first_today = state.last_user_message_at.is_none_or(|at| {
-        at.with_timezone(&chrono::Utc).date_naive() != chrono::Utc::now().date_naive()
-    });
     let (praised, scolded) = detect_mood_cue(text);
-    let next = apply_user_utterance(
-        state.mood,
-        utterance_index,
-        praised,
-        scolded,
-        first_today,
-        gap_hours,
-    );
-    let saved = save_mood(db, user_id, next, true).await.ok()?;
+    let (previous, saved) = update_affect(db, user_id, true, |affect| {
+        apply_user_utterance(affect, utterance_index, praised, scolded);
+    })
+    .await
+    .ok()?;
+    let after = store::affect_from_state(&saved);
     if !praised && !scolded && text.chars().count() >= CHAT_DIARY_MIN_CHARS {
         spawn_mood_hint(user_id, text);
     }
-    if !is_extremely_low(state.mood) && is_extremely_low(next) {
-        spawn_ingest(user_id, "agent.merope.mood_floor", "跟这个人的心情掉到了极低");
+    if !is_extremely_low(previous.mood) && is_extremely_low(after.mood) {
+        spawn_ingest(
+            user_id,
+            "agent.merope.mood_floor",
+            "跟这个人的心情掉到了极低",
+        );
     }
     let cause = if scolded {
         "user_scold"
     } else if praised {
         "user_praise"
-    } else if first_today {
-        "first_turn_today"
-    } else if gap_hours >= 12.0 {
-        "return_after_gap"
     } else {
         "user_turn"
     };
-    Some(MoodTransition {
-        before: previous,
-        after: saved.mood,
-        band_before: mood_band(previous).to_string(),
-        band_after: mood_band(saved.mood).to_string(),
-        delta: saved.mood - previous,
-        cause: cause.to_string(),
-        revision: saved
+    Some(MoodTransition::from_affect(
+        &previous,
+        &store::affect_from_state(&saved),
+        cause,
+        saved
             .updated_at
             .with_timezone(&chrono::Utc)
             .timestamp_millis(),
-    })
+    ))
 }
 
 /// After planning, so this turn is not already sitting in the diary the model just read.
@@ -175,32 +176,6 @@ pub async fn note_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, tex
         return;
     }
     maybe_write_chat_diary(db, user_id, text).await;
-}
-
-pub async fn maybe_apply_departure(db: &sea_orm::DatabaseConnection, user_id: i32) {
-    if !is_logged_in_addressee(user_id) {
-        return;
-    }
-    if !is_enabled().await {
-        return;
-    }
-    let Ok(state) = get_or_create_state(db, user_id).await else {
-        return;
-    };
-    let Some(last) = state.last_user_message_at else {
-        return;
-    };
-    let now = chrono::Utc::now();
-    let last = last.with_timezone(&chrono::Utc);
-    let silent = (now - last).num_seconds();
-    let since_departure = state
-        .last_departure_at
-        .map(|at| (at.with_timezone(&chrono::Utc) - last).num_seconds());
-    if !should_apply_departure(Some(silent), since_departure) {
-        return;
-    }
-    let next = apply_departure(state.mood);
-    let _ = save_departure_mood(db, user_id, next).await;
 }
 
 fn spawn_mood_hint(user_id: i32, text: impl Into<String>) {
@@ -219,7 +194,7 @@ fn spawn_mood_hint(user_id: i32, text: impl Into<String>) {
             "merope",
             "mood_hint",
             analyzer.analyze_with_system(
-                "只输出一个 -2 到 2 的整数，表示这句话对心情的微调。不要解释，不要输出别的字。",
+                "只输出两个 -2 到 2 的整数，空格分隔：效价 唤醒。不要解释，不要输出别的字。",
                 &text,
             ),
         )
@@ -227,20 +202,19 @@ fn spawn_mood_hint(user_id: i32, text: impl Into<String>) {
         else {
             return;
         };
-        let Some(hint) = parse_mood_hint(&raw) else {
+        let Some((valence, arousal)) = parse_appraisal_hint(&raw) else {
             return;
         };
-        if hint == 0.0 {
+        if valence == 0 && arousal == 0 {
             return;
         }
         let Ok(db) = crate::services::tapp_registry::database().await else {
             return;
         };
-        let Ok(state) = get_or_create_state(&db, user_id).await else {
-            return;
-        };
-        let next = apply_mood_hint(state.mood, hint);
-        let _ = save_mood(&db, user_id, next, false).await;
+        let _ = update_affect(&db, user_id, false, |affect| {
+            apply_mood_hint(affect, valence, arousal);
+        })
+        .await;
     });
 }
 
@@ -256,7 +230,7 @@ pub fn should_write_chat_diary(text: &str, last_chat_age_minutes: Option<i64>) -
 }
 
 async fn maybe_write_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, text: &str) {
-    let last_age = match latest_diary(db, user_id, Some("chat")).await {
+    let last_age = match latest_diary(db, user_id, store::DIARY_SOURCE_CHAT).await {
         Ok(Some(last)) => {
             Some((chrono::Utc::now() - last.created_at.with_timezone(&chrono::Utc)).num_minutes())
         }
@@ -267,7 +241,7 @@ async fn maybe_write_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, 
         return;
     }
     let summary = crate::services::agent::merope::ingest::compact_summary(text);
-    let _ = insert_diary(db, user_id, &summary, "chat").await;
+    let _ = insert_diary(db, user_id, &summary, store::DIARY_SOURCE_CHAT).await;
 }
 
 /// Public face: 人设 off → Agent (product). Empty 人设 name → Arael.
@@ -320,12 +294,17 @@ pub async fn resolve_addressee_label(db: &sea_orm::DatabaseConnection, user_id: 
 }
 
 pub use speaking_prompts::{
-    addressee_speaking_section, format_activity_section, format_diary_section, format_mood_section,
-    format_persona, guest_speaking_section, mood_tone_instruction,
+    addressee_speaking_section, format_activity_section, format_mood_section, format_persona,
+    format_recent_section, format_remembered_section, guest_speaking_section,
+    mood_tone_instruction, rank_remembered,
 };
 
 /// Prompt sections for whoever this turn is speaking to. Empty when Merope is off.
 pub async fn speaking_prompt(user_id: i32) -> Vec<String> {
+    speaking_prompt_with_query(user_id, None).await
+}
+
+pub async fn speaking_prompt_with_query(user_id: i32, query: Option<&str>) -> Vec<String> {
     if !is_enabled().await {
         return Vec::new();
     }
@@ -340,29 +319,57 @@ pub async fn speaking_prompt(user_id: i32) -> Vec<String> {
             user_id, None, None,
         ))];
     };
-    speaking_prompt_from_db(&db, user_id).await
+    speaking_prompt_from_db(&db, user_id, query).await
 }
 
-async fn speaking_prompt_from_db(db: &sea_orm::DatabaseConnection, user_id: i32) -> Vec<String> {
+const REMEMBERED_PROMPT_LIMIT: usize = 8;
+const REMEMBERED_CANDIDATE_LIMIT: u64 = 32;
+const RECENT_LEDGER_LIMIT: u64 = 4;
+/// Chat diary only. Event diary reaches speaking via Remember, not this ledger.
+const RECENT_SPEAKING_DIARY_SOURCES: &[&str] = &[store::DIARY_SOURCE_CHAT];
+
+async fn speaking_prompt_from_db(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+    query: Option<&str>,
+) -> Vec<String> {
     let addressee = resolve_addressee_label(db, user_id).await;
     let mut sections = vec![addressee_speaking_section(&addressee)];
     let Ok(state) = get_or_create_state(db, user_id).await else {
         return sections;
     };
-    if let Ok(notes) = list_diary(db, user_id, 8).await {
+    if let Ok(notes) = list_remembered(db, user_id, REMEMBERED_CANDIDATE_LIMIT).await {
+        let facts: Vec<String> = notes
+            .into_iter()
+            .map(|note| ingest::compact_summary(&note.content))
+            .filter(|content| !content.is_empty())
+            .collect();
+        let ranked = rank_remembered(&facts, query, REMEMBERED_PROMPT_LIMIT);
+        if let Some(block) = format_remembered_section(&ranked) {
+            sections.push(block);
+        }
+    }
+    if let Ok(notes) = list_diary_from_sources(
+        db,
+        user_id,
+        RECENT_SPEAKING_DIARY_SOURCES,
+        RECENT_LEDGER_LIMIT,
+    )
+    .await
+    {
         let contents: Vec<String> = notes
             .into_iter()
             .map(|note| ingest::compact_summary(&note.content))
             .filter(|content| !content.is_empty())
             .collect();
-        if let Some(block) = format_diary_section(&contents) {
+        if let Some(block) = format_recent_section(&contents) {
             sections.push(block);
         }
     }
     if let Some(block) = format_activity_section(current_activity(&state)) {
         sections.push(block);
     }
-    sections.push(format_mood_section(state.mood));
+    sections.push(format_mood_section(state.mood, state.arousal));
     sections
 }
 
@@ -376,15 +383,20 @@ pub fn has_custom_persona(persona: &agent_persona::Model) -> bool {
 
 pub use gates::{decide_ingest, is_chatting, is_valuable_event, IngestDecision};
 pub use state::{
-    apply_departure, apply_mood_hint, apply_task_outcome, apply_user_utterance, clamp_mood,
-    detect_mood_cue, effective_activity, is_extremely_low, mood_band, parse_mood_hint,
-    should_apply_departure, MoodTransition, ACTIVITY_STALE_SECS, MOOD_FLOOR,
+    apply_mood_hint, apply_task_outcome, apply_user_utterance, clamp_mood, detect_mood_cue,
+    effective_activity, is_extremely_low, mood_band, parse_appraisal_hint, Affect, AffectBaseline,
+    MoodTransition, ACTIVITY_STALE_SECS, DEFAULT_AROUSAL, DEFAULT_MOOD, MOOD_FLOOR, ORIGIN,
 };
 
 /// The activity to act on, with a stale one read as idle.
 pub fn current_activity(state: &crate::models::entities::agent_addressee_state::Model) -> &str {
-    let age = (chrono::Utc::now() - state.updated_at.with_timezone(&chrono::Utc)).num_seconds();
+    let age =
+        (chrono::Utc::now() - state.activity_updated_at.with_timezone(&chrono::Utc)).num_seconds();
     effective_activity(&state.activity, age)
+}
+
+pub fn activity_is_busy(activity: &str) -> bool {
+    matches!(activity, "thinking" | "talking" | "working")
 }
 
 pub fn parse_clock_minute(raw: &str) -> Option<i32> {
@@ -436,7 +448,15 @@ pub fn effective_do_not_disturb(
 
 #[cfg(test)]
 mod tests {
-    use super::{minute_in_window, parse_clock_minute, should_write_chat_diary};
+    use super::{activity_is_busy, minute_in_window, parse_clock_minute, should_write_chat_diary};
+
+    #[test]
+    fn every_live_agent_activity_blocks_proactive_speech() {
+        assert!(activity_is_busy("thinking"));
+        assert!(activity_is_busy("talking"));
+        assert!(activity_is_busy("working"));
+        assert!(!activity_is_busy("idle"));
+    }
 
     #[test]
     fn chat_diary_skips_short_and_recent_turns() {
@@ -497,7 +517,9 @@ mod tests {
             name: "瞳".into(),
             ..blank.clone()
         };
-        assert_eq!(super::format_persona(&named).as_deref(), Some("你是瞳。"));
+        let named_text = super::format_persona(&named).unwrap();
+        assert!(named_text.starts_with("你是瞳。"));
+        assert!(named_text.contains(super::speaking_prompts::PERSONA_SPEAKING_CONTRACT));
         assert!(super::has_custom_persona(&named));
     }
 
@@ -507,7 +529,8 @@ mod tests {
             crate::services::agent::merope::store::normalize_persona_fields("  瞳  ", "  认真  ");
         assert_eq!(name, "瞳");
         assert_eq!(personality, "认真");
-        let (empty, _) = crate::services::agent::merope::store::normalize_persona_fields(" \t ", "");
+        let (empty, _) =
+            crate::services::agent::merope::store::normalize_persona_fields(" \t ", "");
         assert!(empty.is_empty());
     }
 
@@ -516,22 +539,78 @@ mod tests {
         assert!(super::refuse_new_task_message(Some(10.0)).is_some());
         assert!(super::refuse_new_task_message(Some(10.1)).is_none());
         assert!(super::refuse_new_task_message(None).is_none());
-        assert!(super::mood_tone_instruction(70.0).contains("不要念出心情数字"));
-        assert!(super::mood_tone_instruction(8.0).contains("极低"));
-        assert!(super::mood_tone_instruction(30.0).contains("偏低"));
-        assert!(super::mood_tone_instruction(90.0).contains("轻松"));
-        let section = super::format_mood_section(72.4);
+        assert!(super::speaking_prompts::PERSONA_SPEAKING_CONTRACT.contains("不要念心情"));
+        assert!(super::mood_tone_instruction(8.0, 48.0).contains("极低"));
+        assert!(super::mood_tone_instruction(30.0, 40.0).contains("偏低"));
+        assert!(super::mood_tone_instruction(30.0, 70.0).contains("烦躁"));
+        assert!(super::mood_tone_instruction(90.0, 48.0).contains("平常语气"));
+        assert!(super::mood_tone_instruction(90.0, 70.0).contains("轻松"));
+        let section = super::format_mood_section(72.4, 48.0);
         assert!(!section.contains("72/100"));
-        assert!(section.contains("不要念出心情数字"));
+        assert!(!section.contains("72.4"));
     }
 
     #[test]
     fn diary_section_skips_empty_and_compacts() {
-        assert!(super::format_diary_section(&[]).is_none());
-        let block = super::format_diary_section(&["今天晚上想打会独立游戏".into()]).unwrap();
-        assert!(block.contains("## 关于这个人的日记"));
-        assert!(block.contains("不要当众报流水账"));
-        assert!(block.contains("- 今天晚上想打会独立游戏"));
+        assert!(super::format_recent_section(&[]).is_none());
+        let block = super::format_remembered_section(&["今天晚上想打独立游戏".into()]).unwrap();
+        assert!(block.contains("## 关于这个人"));
+        assert!(block.contains("你留下的事实"));
+        assert!(block.contains("- 今天晚上想打独立游戏"));
+        assert!(super::format_recent_section(&["Steam 解锁了成就".into()])
+            .unwrap()
+            .contains("## 最近"));
+    }
+
+    #[test]
+    fn speaking_recent_omits_event_diary_and_keeps_remembered() {
+        assert_eq!(
+            super::RECENT_SPEAKING_DIARY_SOURCES,
+            &[super::store::DIARY_SOURCE_CHAT]
+        );
+        assert!(!super::RECENT_SPEAKING_DIARY_SOURCES.contains(&super::store::DIARY_SOURCE_EVENT));
+        let remembered = super::format_remembered_section(&["晚上想打独立游戏".into()]).unwrap();
+        let event_line = "正在收尾一篇文章，还差最后一段";
+        let prompt = super::speaking_prompt_plain(&[remembered]);
+        assert!(prompt.contains("## 关于这个人"));
+        assert!(prompt.contains("晚上想打独立游戏"));
+        assert!(!prompt.contains(event_line));
+        let recent_src = include_str!("mod.rs")
+            .split("async fn speaking_prompt_from_db")
+            .nth(1)
+            .and_then(|rest| rest.split("pub fn speaking_prompt_plain").next())
+            .unwrap();
+        assert!(recent_src.contains("RECENT_SPEAKING_DIARY_SOURCES"));
+        assert!(recent_src.contains("format_remembered_section"));
+        assert!(!recent_src.contains("DIARY_SOURCE_EVENT"));
+    }
+
+    /// One diary table is safe only while every read names its source.
+    ///
+    /// `remember` holds facts the user stated; `event` and `chat` hold
+    /// summaries the platform wrote about them. An unscoped "latest row" would
+    /// let one arrive where the other is expected, which is the only way the
+    /// shared table could actually hurt — so the query cannot express it.
+    #[test]
+    fn every_diary_read_names_its_source() {
+        let store = include_str!("store.rs");
+        assert!(
+            !store.contains("source: Option<&str>"),
+            "latest_diary accepts an unscoped read again"
+        );
+        for signature in [
+            "pub async fn latest_diary(",
+            "pub async fn list_diary_from_sources(",
+        ] {
+            let body = store
+                .split(signature)
+                .nth(1)
+                .unwrap_or_else(|| panic!("{signature} is gone"));
+            assert!(
+                body.contains("Column::Source"),
+                "{signature} no longer filters by source"
+            );
+        }
     }
 
     #[test]
@@ -541,12 +620,12 @@ mod tests {
         assert_eq!(
             super::speaking_prompt_plain(&[
                 super::addressee_speaking_section("瞳"),
-                super::format_mood_section(70.0)
+                super::format_mood_section(70.0, 48.0)
             ]),
             format!(
                 "{}\n\n{}",
                 super::addressee_speaking_section("瞳"),
-                super::format_mood_section(70.0)
+                super::format_mood_section(70.0, 48.0)
             )
         );
     }

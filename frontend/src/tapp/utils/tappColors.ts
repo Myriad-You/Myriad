@@ -29,9 +29,6 @@ export const CATEGORY_COLORS: Record<
   data: { fromHex: '#14b8a6', toHex: '#06b6d4' },
 }
 
-/** @deprecated Material shell no longer uses Tailwind gradient utility classes. */
-export const DEFAULT_TAPP_BG = 'tapp-icon-shell--fill'
-
 /** 图标样式返回类型（默认 material 方案） */
 export interface IconStyle {
   /** Shell fill class (`tapp-icon-shell--fill`) or empty when standalone */
@@ -217,25 +214,6 @@ export function getTappIconStyle(source: TappIconStyleSource): IconStyle {
     material: true,
   }
 }
-
-/**
- * @deprecated Use getTappIconStyle().className — material fill class only
- * (pair with style CSS vars from getTappIconStyle).
- */
-export function getTappIconGradient(source: TappIconStyleSource): string {
-  return getTappIconStyle(source).className || DEFAULT_TAPP_BG
-}
-
-/**
- * @deprecated Use getTappIconStyle({ category }).className
- */
-export function getCategoryGradient(category: string | undefined): string {
-  return getTappIconStyle({ category }).className || DEFAULT_TAPP_BG
-}
-
-/** 默认强调色（DOM 可用 CSS 变量） */
-export const DEFAULT_TAPP_ACCENT =
-  'var(--bg-accent, var(--color-primary, #6366f1))'
 
 /** SVG data-URI / canvas 等无法解析 CSS 变量时的实色回退 */
 export const DEFAULT_TAPP_ACCENT_HEX = '#6366f1'

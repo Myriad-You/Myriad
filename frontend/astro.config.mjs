@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 )
-const APP_VERSION = pkg.version || '0.3.23'
+const APP_VERSION = pkg.version || '0.4.0'
 
 /**
  * 自定义 Vite 插件：SPA 路由回退
@@ -24,7 +24,7 @@ const APP_VERSION = pkg.version || '0.3.23'
  */
 /** Align with proxy/backend: document-level geolocation for weather. */
 const DOCUMENT_PERMISSIONS_POLICY =
-  'geolocation=(self), microphone=(), camera=()'
+  'geolocation=(self), microphone=(self), camera=()'
 
 function spaFallbackPlugin() {
   return {
@@ -135,6 +135,21 @@ function isAgentPersonaGenerationPath(urlPath) {
     path === '/api/agent/persona/draft' ||
     path === '/api/agent/persona/name' ||
     path === '/api/agent/persona/visual-design'
+  )
+}
+
+/**
+ * Agent live progress. Must pipe even if the browser forgot Accept:
+ * text/event-stream — the buffering proxy collects the whole run (30s cap)
+ * and dumps thinking + answer as one body.
+ */
+function isAgentSsePath(urlPath) {
+  const path = requestPathname(urlPath)
+  return (
+    path === '/api/agent/process/stream' ||
+    path === '/api/agent/confirm/stream' ||
+    /^\/api\/agent\/runs\/[^/]+\/stream$/.test(path) ||
+    /^\/api\/agent\/tasks\/[^/]+\/answer\/stream$/.test(path)
   )
 }
 
@@ -451,9 +466,13 @@ function backendDevProxyPlugin() {
           // GET /transfers/{id}/content (or a long-lived EventSource) hits the
           // ordinary timeout / memory path and turns a healthy stream into 502.
           const streamResponse =
-            headers.get('accept')?.toLowerCase().includes('text/event-stream') ||
+            headers
+              .get('accept')
+              ?.toLowerCase()
+              .includes('text/event-stream') ||
             originalUrl.startsWith('/api/tapp-playground/generate-stream') ||
-            isFederationTransferContentPath(originalUrl)
+            isFederationTransferContentPath(originalUrl) ||
+            isAgentSsePath(originalUrl)
 
           if (streamResponse) {
             await proxyBackendRequestStreaming(
@@ -595,7 +614,9 @@ function deferNonCriticalCssIntegration() {
         const stripCss = new Set()
 
         for (const rule of DEFER) {
-          const matchedCss = cssFiles.filter((f) => f.startsWith(rule.cssPrefix))
+          const matchedCss = cssFiles.filter((f) =>
+            f.startsWith(rule.cssPrefix),
+          )
           for (const cssName of matchedCss) {
             stripCss.add(cssName)
             const href = `/assets/${cssName}`
@@ -615,7 +636,13 @@ function deferNonCriticalCssIntegration() {
           const jsPath = path.join(assetsDir, jsName)
           const original = readFileSync(jsPath, 'utf8')
           // 避免重复注入
-          if (hrefs.every((h) => original.includes(h) && original.includes('createElement("link")'))) {
+          if (
+            hrefs.every(
+              (h) =>
+                original.includes(h) &&
+                original.includes('createElement("link")'),
+            )
+          ) {
             // 可能已有 vite 注入；仍确保我们的幂等片段存在
           }
           const banner = hrefs.map(cssInjectorSnippet).join('')
@@ -626,9 +653,9 @@ function deferNonCriticalCssIntegration() {
 
         // 从所有 HTML 去掉对应 <link rel="stylesheet">
         const stripRe = new RegExp(
-          `<link[^>]+href="/assets/(${[...stripCss].map((s) =>
-            s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-          ).join('|')})"[^>]*>`,
+          `<link[^>]+href="/assets/(${[...stripCss]
+            .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .join('|')})"[^>]*>`,
           'g',
         )
 
@@ -794,6 +821,11 @@ export default defineConfig({
         'react-dom/client',
         'react-router-dom',
       ],
+      // UMD bundle; Vite prebundle rewrites break createClient.
+      exclude: ['agora-rtc-sdk-ng'],
+    },
+    ssr: {
+      external: ['agora-rtc-sdk-ng'],
     },
     plugins: [
       tailwindcss(), // Tailwind CSS v4 Vite plugin

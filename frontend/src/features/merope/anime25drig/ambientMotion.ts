@@ -51,9 +51,8 @@ export class AmbientMotionController {
     if (enabled !== this.enabled) {
       this.enabled = enabled
       if (enabled) {
-        // Re-enabling starts from neutral observation instead of immediately
-        // snapping to a new pose.
-        this.nextPoseAt = now + this.randomRange(0.8, 1.8)
+        // Let the current rest (or leftover pose) finish, then glance again.
+        this.nextPoseAt = now + this.randomRange(0.32, 0.85)
       } else {
         this.beginTransition(now, ZERO_POSE, {
           eyeDuration: 0.3,

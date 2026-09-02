@@ -223,9 +223,10 @@ pub fn normalize_text_result(
     };
     if let Some(schema) = schema {
         validate_inline_json_value(schema, &value).map_err(|error| {
+            tracing::error!(%error, "AI output failed schema validation");
             AiTaskLogicError::new(
                 "AI_OUTPUT_SCHEMA_MISMATCH",
-                format!("Model response failed output schema validation: {error}"),
+                "Model response failed output schema validation",
             )
         })?;
     }

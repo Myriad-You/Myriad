@@ -637,6 +637,7 @@ html.dark[data-perf-mode='exlight'] .tapp-launchpad-stage {
 }
 
 html[data-perf-mode='exlight'] .tapp-launchpad-search {
+  /* stylelint-disable-next-line property-no-vendor-prefix -- Safari < 16.4 needs the prefix; dropping it keeps the blur on in low-perf mode. */
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   background: var(--bg-card);

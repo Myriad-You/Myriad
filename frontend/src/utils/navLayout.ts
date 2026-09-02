@@ -159,9 +159,6 @@ function ensureSubscribed(): void {
 /** Fired on `.nav-container` after bottom↔rail chrome crossfade settles. */
 export const NAV_CHROME_SETTLED_EVENT = 'navChromeSettled'
 
-/** data-nav-switch values while island crossfades between layouts */
-export type NavChromeSwitchPhase = 'out' | 'in'
-
 /**
  * Subscribe to nav layout changes (resize, orientation, pointer class).
  * Returns unsubscribe. Safe to call on the server (no-op).

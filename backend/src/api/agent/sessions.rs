@@ -2,6 +2,33 @@
 use super::*;
 use crate::error::HttpError;
 
+fn session_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {
+    tracing::error!(%error, context, "agent session store failed");
+    HttpError::from((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": format!("Failed to {context}") })),
+    ))
+}
+
+fn session_store_failed(context: &'static str, error: impl std::fmt::Display) -> String {
+    tracing::error!(%error, context, "agent session store failed");
+    format!("Failed to {context}")
+}
+
+fn session_mode(context: Option<&Value>) -> crate::services::agent::AgentInteractionMode {
+    match context
+        .and_then(|value| value.get("mode"))
+        .and_then(Value::as_str)
+    {
+        Some("chat") => crate::services::agent::AgentInteractionMode::Chat,
+        _ => crate::services::agent::AgentInteractionMode::Work,
+    }
+}
+
+fn session_context(mode: crate::services::agent::AgentInteractionMode) -> Value {
+    json!({ "mode": mode.as_str() })
+}
+
 // 会话管理 API
 
 /// 创建会话
@@ -18,7 +45,9 @@ pub async fn create_session(
         id: Set(session_id.clone()),
         user_id: Set(user_id),
         title: Set(None),
-        context: Set(None),
+        context: Set(Some(session_context(
+            crate::services::agent::AgentInteractionMode::Work,
+        ))),
         message_count: Set(0),
         archived: Set(false),
         created_at: Set(now),
@@ -28,12 +57,7 @@ pub async fn create_session(
     agent_sessions::Entity::insert(session)
         .exec(&db)
         .await
-        .map_err(|e| {
-            HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
-                tracing::error!("Failed to create session: {}", e);
-                Json(json!({"error": "Database error", "code": "database_error"}))
-            }))
-        })?;
+        .map_err(|error| session_store_http("create session", error))?;
 
     Ok(Json(json!({
         "id": session_id,
@@ -78,12 +102,7 @@ pub async fn list_sessions(
         .paginate(&db, query.limit)
         .fetch_page(query.page.saturating_sub(1))
         .await
-        .map_err(|e| {
-            HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
-                tracing::error!("Failed to list sessions: {}", e);
-                Json(json!({"error": "Database error", "code": "database_error"}))
-            }))
-        })?;
+        .map_err(|error| session_store_http("list sessions", error))?;
 
     let sessions_json: Vec<Value> = sessions
         .into_iter()
@@ -94,6 +113,7 @@ pub async fn list_sessions(
                 "messageCount": s.message_count,
                 "lastActiveAt": s.last_active_at.to_rfc3339(),
                 "createdAt": s.created_at.to_rfc3339(),
+                "mode": session_mode(s.context.as_ref()).as_str(),
             })
         })
         .collect();
@@ -116,12 +136,7 @@ pub async fn get_session_messages(
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?;
+        .map_err(|error| session_store_http("find session", error))?;
 
     if session.is_none() {
         return Err(HttpError::from((
@@ -136,12 +151,7 @@ pub async fn get_session_messages(
         .paginate(&db, query.limit)
         .fetch_page(query.page.saturating_sub(1))
         .await
-        .map_err(|e| {
-            HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
-                tracing::error!("Failed to list messages: {}", e);
-                Json(json!({"error": "Database error", "code": "database_error"}))
-            }))
-        })?;
+        .map_err(|error| session_store_http("load session messages", error))?;
 
     let messages_json: Vec<Value> = messages
         .into_iter()
@@ -174,12 +184,7 @@ pub async fn archive_session(
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?;
+        .map_err(|error| session_store_http("find session", error))?;
 
     if session.is_none() {
         return Err(HttpError::from((
@@ -190,12 +195,10 @@ pub async fn archive_session(
 
     let mut active: agent_sessions::ActiveModel = session.unwrap().into();
     active.archived = Set(true);
-    active.update(&db).await.map_err(|e| {
-        HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
-            tracing::error!("Failed to archive session: {}", e);
-            Json(json!({"error": "Database error", "code": "database_error"}))
-        }))
-    })?;
+    active
+        .update(&db)
+        .await
+        .map_err(|error| session_store_http("archive session", error))?;
 
     Ok(Json(json!({"success": true})))
 }
@@ -220,12 +223,7 @@ pub async fn update_session(
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?;
+        .map_err(|error| session_store_http("find session", error))?;
 
     if session.is_none() {
         return Err(HttpError::from((
@@ -238,12 +236,10 @@ pub async fn update_session(
     if let Some(title) = req.title {
         active.title = Set(Some(title));
     }
-    let updated = active.update(&db).await.map_err(|e| {
-        HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, {
-            tracing::error!("Failed to update session: {}", e);
-            Json(json!({"error": "Database error", "code": "database_error"}))
-        }))
-    })?;
+    let updated = active
+        .update(&db)
+        .await
+        .map_err(|error| session_store_http("update session", error))?;
 
     Ok(Json(json!({
         "id": updated.id,
@@ -267,12 +263,7 @@ pub async fn generate_session_title(
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|_e| {
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error", "code": "database_error"})),
-            ))
-        })?;
+        .map_err(|error| session_store_http("find session", error))?;
 
     if session.is_none() {
         return Err(HttpError::from((
@@ -393,10 +384,7 @@ pub(crate) async fn persist_user_message(
     agent_messages::Entity::insert(msg)
         .exec(db)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to persist user message: {}", e);
-            "Database error".to_string()
-        })?;
+        .map_err(|error| session_store_failed("save user message", error))?;
     Ok(())
 }
 
@@ -420,10 +408,7 @@ pub(crate) async fn persist_assistant_message(
     agent_messages::Entity::insert(msg)
         .exec(db)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to persist assistant message: {}", e);
-            "Database error".to_string()
-        })?;
+        .map_err(|error| session_store_failed("save assistant message", error))?;
 
     // 更新会话消息计数和最后活跃时间
     if let Ok(Some(session)) = agent_sessions::Entity::find_by_id(session_id).one(db).await {
@@ -443,14 +428,16 @@ pub(crate) async fn persist_assistant_message(
     Ok(())
 }
 
-/// 加载会话历史消息作为对话上下文
+/// 加载会话历史消息作为对话上下文。
+///
+/// Chat (`for_chat`) 只保留对白；Work 仍可把任务元数据、确认卡和前端动作
+/// 追加进 planner 可见内容。
 pub(crate) async fn load_session_history(
     db: &DatabaseConnection,
     session_id: &str,
     max_messages: u64,
+    for_chat: bool,
 ) -> Vec<crate::services::agent::ConversationMessage> {
-    use crate::services::agent::ConversationMessage;
-
     let messages = agent_messages::Entity::find()
         .filter(agent_messages::Column::SessionId.eq(session_id))
         .order_by_desc(agent_messages::Column::CreatedAt)
@@ -459,46 +446,17 @@ pub(crate) async fn load_session_history(
         .await
         .unwrap_or_default();
 
-    // 反转为时间正序，assistant 消息附带 metadata 摘要
     messages
         .into_iter()
         .rev()
-        .map(|m| {
-            let mut content = m.content.clone();
-            // 将 metadata 中的关键信息追加到 assistant 内容，让 planner 了解上轮输出
-            if m.role == "assistant" {
-                if let Some(ref meta) = m.metadata {
-                    let mut extras = Vec::new();
-                    if let Some(data) = meta.get("data") {
-                        if !data.is_null() {
-                            // 截取摘要，避免过长
-                            let s = data.to_string();
-                            if s.len() > 2 && s != "null" {
-                                let truncated: String = s.chars().take(500).collect();
-                                extras.push(format!("[输出数据: {}]", truncated));
-                            }
-                        }
-                    }
-                    if let Some(dd) = meta.get("dataDisplay") {
-                        if let Some(display_type) = dd.get("type").and_then(|v| v.as_str()) {
-                            extras.push(format!("[展示类型: {}]", display_type));
-                        }
-                    }
-                    if let Some(fa) = meta.get("frontendAction") {
-                        if let Some(action) = fa.get("action").and_then(|v| v.as_str()) {
-                            extras.push(format!("[前端动作: {}]", action));
-                        }
-                    }
-                    if !extras.is_empty() {
-                        content.push_str(&format!("\n{}", extras.join(" ")));
-                    }
-                }
-            }
-            ConversationMessage {
-                role: m.role,
-                content,
-                created_at: Some(m.created_at.to_rfc3339()),
-            }
+        .map(|message| {
+            crate::services::agent::chat_prompt::reconstruct_conversation_message(
+                message.role,
+                message.content,
+                Some(message.created_at.to_rfc3339()),
+                message.metadata.as_ref(),
+                for_chat,
+            )
         })
         .collect()
 }
@@ -508,20 +466,25 @@ pub(crate) async fn ensure_session(
     db: &DatabaseConnection,
     session_id: Option<&str>,
     user_id: i32,
+    mode: crate::services::agent::AgentInteractionMode,
 ) -> Result<String, String> {
     if let Some(sid) = session_id {
         // 验证会话存在且属于当前用户
-        if agent_sessions::Entity::find_by_id(sid)
+        if let Some(session) = agent_sessions::Entity::find_by_id(sid)
             .filter(agent_sessions::Column::UserId.eq(user_id))
             .one(db)
             .await
-            .map_err(|e| {
-                tracing::error!("DB error: {}", e);
-                "Database error".to_string()
-            })?
-            .is_some()
+            .map_err(|error| session_store_failed("find session", error))?
         {
-            return Ok(sid.to_string());
+            if session_mode(session.context.as_ref()) == mode {
+                return Ok(sid.to_string());
+            }
+            tracing::info!(
+                session_id = sid,
+                requested_mode = mode.as_str(),
+                stored_mode = session_mode(session.context.as_ref()).as_str(),
+                "[Agent API] Session mode mismatch; creating an isolated session"
+            );
         }
     }
 
@@ -532,7 +495,7 @@ pub(crate) async fn ensure_session(
         id: Set(new_id.clone()),
         user_id: Set(user_id),
         title: Set(None),
-        context: Set(None),
+        context: Set(Some(session_context(mode))),
         message_count: Set(0),
         archived: Set(false),
         created_at: Set(now),
@@ -541,10 +504,26 @@ pub(crate) async fn ensure_session(
     agent_sessions::Entity::insert(session)
         .exec(db)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to create session: {}", e);
-            "Database error".to_string()
-        })?;
+        .map_err(|error| session_store_failed("create session", error))?;
 
     Ok(new_id)
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+    use crate::services::agent::AgentInteractionMode;
+
+    #[test]
+    fn legacy_session_context_is_work() {
+        assert_eq!(session_mode(None), AgentInteractionMode::Work);
+        assert_eq!(session_mode(Some(&json!({}))), AgentInteractionMode::Work);
+    }
+
+    #[test]
+    fn session_context_preserves_chat_mode() {
+        let context = session_context(AgentInteractionMode::Chat);
+        assert_eq!(context, json!({ "mode": "chat" }));
+        assert_eq!(session_mode(Some(&context)), AgentInteractionMode::Chat);
+    }
 }

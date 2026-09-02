@@ -1,8 +1,8 @@
 import type {
   ClothingStyle,
-  PersonaGender,
   OnboardingHeaderChrome,
   OnboardingStep,
+  PersonaGender,
   StructuredPersona,
   UpperBodyVisualIdentity,
 } from './onboardingTypes'

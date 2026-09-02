@@ -11,6 +11,53 @@ use super::{
     skill_evolution, types,
 };
 
+fn request_rig_state(request: &UserRequest) -> Option<myriad_merope::RigStateSummary> {
+    request
+        .context
+        .as_ref()
+        .and_then(|context| context.rig_state.clone())
+}
+
+async fn round_motion_style(
+    request: &UserRequest,
+    mood: Option<&crate::services::agent::merope::MoodTransition>,
+) -> String {
+    let Some(mood) = mood else {
+        return request_rig_state(request)
+            .map(|summary| summary.motion_style)
+            .filter(|style| myriad_merope::RIG_STATE_MOTION_STYLES.contains(&style.as_str()))
+            .unwrap_or_else(|| "even".to_string());
+    };
+    crate::services::agent::merope::resolve_round_motion_style(
+        request_rig_state(request).as_ref(),
+        mood.after.round() as i32,
+        mood.arousal_after.round() as i32,
+    )
+    .await
+}
+
+fn motion_context(
+    request: &UserRequest,
+    user_id: i32,
+    phase: crate::services::agent::merope::MotionPhase,
+    mood: crate::services::agent::merope::MoodTransition,
+    motion_style: String,
+    response_text: Option<String>,
+    task_success: Option<bool>,
+) -> crate::services::agent::merope::MotionContext {
+    crate::services::agent::merope::MotionContext {
+        user_id,
+        phase,
+        mood,
+        activity: phase.activity().to_string(),
+        user_text: request.raw_input.clone(),
+        response_text,
+        task_success,
+        rig_state: request_rig_state(request),
+        motion_style,
+    }
+}
+
 fn utterance_index_in_session(request: &UserRequest) -> u32 {
     request
         .context
@@ -70,7 +117,11 @@ impl Agent {
             "[Agent] Processing request"
         );
 
-        crate::services::agent::merope::mark_activity(&self.db, user_id, "talking").await;
+        crate::services::agent::consciousness::remember_live_presence(
+            user_id,
+            crate::services::agent::consciousness::live_presence_from_request(&request),
+        );
+        crate::services::agent::merope::mark_activity(&self.db, user_id, "thinking").await;
         let mood_transition = crate::services::agent::merope::note_user_turn(
             &self.db,
             user_id,
@@ -79,23 +130,48 @@ impl Agent {
         )
         .await;
         let mood_before = mood_transition.as_ref().map(|transition| transition.before);
-        if let Some(mood) = mood_transition.clone() {
-            spawn_motion_directive(
-                crate::services::agent::merope::MotionContext {
-                    user_id,
-                    phase: crate::services::agent::merope::MotionPhase::Reaction,
-                    mood,
-                    activity: "talking".to_string(),
-                    user_text: request.raw_input.clone(),
-                    response_text: None,
-                    task_success: None,
-                },
-                None,
+        let round_motion_style = round_motion_style(&request, mood_transition.as_ref()).await;
+
+        if request.context.as_ref().is_some_and(|context| {
+            context.interaction_mode == crate::services::agent::AgentInteractionMode::Chat
+        }) {
+            crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
+                .await;
+            let reply = match self.strict_lite_chat_response(&request).await {
+                Ok(reply) => reply,
+                Err(error) => {
+                    crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
+                    return Err(error);
+                }
+            };
+            crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
+            crate::services::agent::merope::spawn_chat_remember(
+                user_id,
+                request.raw_input.clone(),
+                reply.clone(),
             );
+            return attach_motion_to_result(
+                Ok(AgentResponse {
+                    response_type: AgentResponseType::Answer,
+                    message: reply.clone(),
+                    data: Some(json!({ "reply": reply, "type": "chat", "mode": "chat" })),
+                    data_display: None,
+                    suggestions: vec![],
+                    task: None,
+                    confirmation: None,
+                    frontend_action: None,
+                    performance: None,
+                }),
+                &request,
+                mood_transition.clone(),
+                &round_motion_style,
+            )
+            .await;
         }
 
-        // 1. Planner 规划
-        let planner_output = match self.planner.plan(&request).await {
+        // 1. Planner 规划（索引按授予权限过滤，避免规划到执行层必拒的能力）
+        let granted = crate::services::agent::get_user_permissions(&self.db, user_id).await;
+        let planner_output = match self.planner.plan_for(&request, &granted).await {
             Ok(output) => output,
             Err(error) => {
                 crate::services::agent::merope::note_chat_diary(
@@ -108,7 +184,8 @@ impl Agent {
                 return Err(error);
             }
         };
-        crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input).await;
+        crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
+            .await;
 
         tracing::debug!(
             status = ?planner_output.status,
@@ -136,10 +213,9 @@ impl Agent {
                 };
                 return attach_motion_to_result(
                     Ok(response),
-                    user_id,
-                    &request.raw_input,
+                    &request,
                     mood_transition.clone(),
-                    None,
+                    &round_motion_style,
                 )
                 .await;
             }
@@ -170,10 +246,9 @@ impl Agent {
                 };
                 return attach_motion_to_result(
                     Ok(response),
-                    user_id,
-                    &request.raw_input,
+                    &request,
                     mood_transition.clone(),
-                    None,
+                    &round_motion_style,
                 )
                 .await;
             }
@@ -204,10 +279,9 @@ impl Agent {
                 };
                 return attach_motion_to_result(
                     Ok(response),
-                    user_id,
-                    &request.raw_input,
+                    &request,
                     mood_transition.clone(),
-                    None,
+                    &round_motion_style,
                 )
                 .await;
             }
@@ -222,10 +296,9 @@ impl Agent {
                 {
                     return attach_motion_to_result(
                         Ok(response),
-                        user_id,
-                        &request.raw_input,
+                        &request,
                         mood_transition.clone(),
-                        None,
+                        &round_motion_style,
                     )
                     .await;
                 }
@@ -276,16 +349,19 @@ impl Agent {
                     crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
                     return attach_motion_to_result(
                         Ok(blocked),
-                        user_id,
-                        &request.raw_input,
+                        &request,
                         mood_transition.clone(),
-                        None,
+                        &round_motion_style,
                     )
                     .await;
                 }
                 None => {
                     let session_id = request.context.as_ref().and_then(|c| c.session_id.clone());
                     let run_id = request.context.as_ref().and_then(|c| c.run_id.clone());
+                    let source_intent_id = request
+                        .context
+                        .as_ref()
+                        .and_then(|c| c.source_intent_id.clone());
                     crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
                     let response = self
                         .request_confirmation_v2(
@@ -295,14 +371,14 @@ impl Agent {
                             sensitive_steps,
                             session_id,
                             run_id,
+                            source_intent_id,
                         )
                         .await;
                     return attach_motion_to_result(
                         response,
-                        user_id,
-                        &request.raw_input,
+                        &request,
                         mood_transition.clone(),
-                        None,
+                        &round_motion_style,
                     )
                     .await;
                 }
@@ -318,10 +394,9 @@ impl Agent {
                 crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
                 return attach_motion_to_result(
                     Ok(missing_response),
-                    user_id,
-                    &request.raw_input,
+                    &request,
                     mood_transition.clone(),
-                    None,
+                    &round_motion_style,
                 )
                 .await;
             }
@@ -413,14 +488,7 @@ impl Agent {
             frontend_action,
             performance: None,
         };
-        attach_motion_to_result(
-            Ok(response),
-            user_id,
-            &request.raw_input,
-            mood_transition,
-            None,
-        )
-        .await
+        attach_motion_to_result(Ok(response), &request, mood_transition, &round_motion_style).await
     }
 
     /// 处理用户请求（带实时进度回调）
@@ -453,11 +521,20 @@ impl Agent {
         tracing::info!(
             user_id = user_id,
             input = %request.raw_input,
+            mode = request
+                .context
+                .as_ref()
+                .map(|context| context.interaction_mode.as_str())
+                .unwrap_or("work"),
             has_history = request.context.as_ref().and_then(|c| c.conversation_history.as_ref()).is_some(),
             "[Agent] Processing request with progress tracking"
         );
 
-        crate::services::agent::merope::mark_activity(&self.db, user_id, "talking").await;
+        crate::services::agent::consciousness::remember_live_presence(
+            user_id,
+            crate::services::agent::consciousness::live_presence_from_request(&request),
+        );
+        crate::services::agent::merope::mark_activity(&self.db, user_id, "thinking").await;
         let mood_transition = crate::services::agent::merope::note_user_turn(
             &self.db,
             user_id,
@@ -466,26 +543,136 @@ impl Agent {
         )
         .await;
         let mood_before = mood_transition.as_ref().map(|transition| transition.before);
+        let round_motion_style = round_motion_style(&request, mood_transition.as_ref()).await;
+        // Refinements are scoped to this turn. Dropping the guards aborts any
+        // Lite call that has outlived the meaning of its reaction.
+        let mut motion_refinements = Vec::new();
 
         if let Some(mood) = mood_transition.clone() {
             let _ = progress_tx
                 .send(AgentProgressEvent::MeropeStateChanged {
                     mood: mood.clone(),
-                    activity: "talking".to_string(),
+                    activity: "thinking".to_string(),
                 })
                 .await;
-            spawn_motion_directive(
-                crate::services::agent::merope::MotionContext {
+        }
+
+        // Chat 是独立的人设对话路径。在 Planner 之前分流才能保证：
+        // 1. 不消耗 Pro；2. 即使输入像操作指令，也不会生成 Recipe/Tool Call。
+        if request.context.as_ref().is_some_and(|context| {
+            context.interaction_mode == crate::services::agent::AgentInteractionMode::Chat
+        }) {
+            let _ = progress_tx
+                .send(AgentProgressEvent::Progress {
+                    progress: 5,
+                    completed_steps: 0,
+                    total_steps: 1,
+                    message: response_agent::understanding_request(),
+                })
+                .await;
+
+            crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
+                .await;
+
+            // The floor ships immediately. Lite is armed now but only starts
+            // after the reply model emits its first visible token, so it cannot
+            // compete with reasoning or time-to-first-token.
+            let mut motion_start_tx = None;
+            if let Some(mood) = mood_transition.clone() {
+                let reaction_context = motion_context(
+                    &request,
                     user_id,
-                    phase: crate::services::agent::merope::MotionPhase::Reaction,
+                    crate::services::agent::merope::MotionPhase::Reaction,
                     mood,
-                    activity: "talking".to_string(),
-                    user_text: request.raw_input.clone(),
-                    response_text: None,
-                    task_success: None,
-                },
-                Some(progress_tx.clone()),
+                    round_motion_style.clone(),
+                    None,
+                    None,
+                );
+                publish_local_motion(&reaction_context, &progress_tx).await;
+                let (start_tx, start_rx) = tokio::sync::mpsc::channel(1);
+                motion_start_tx = Some(start_tx);
+                motion_refinements.push(spawn_motion_refinement(
+                    reaction_context,
+                    progress_tx.clone(),
+                    Some(start_rx),
+                ));
+            }
+
+            let reply = match self
+                .stream_strict_lite_chat_response(&request, &progress_tx, motion_start_tx)
+                .await
+            {
+                Ok(reply) => reply,
+                Err(error) => {
+                    crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
+                    return Err(error);
+                }
+            };
+
+            // A reaction that did not land while the reply was being formed is
+            // stale. Cancel it before the delivery beat can be superseded.
+            motion_refinements.clear();
+            if let Some(mood) = mood_transition.clone() {
+                let delivery_context = motion_context(
+                    &request,
+                    user_id,
+                    crate::services::agent::merope::MotionPhase::Delivery,
+                    mood,
+                    round_motion_style.clone(),
+                    Some(reply.clone()),
+                    None,
+                );
+                publish_local_motion(&delivery_context, &progress_tx).await;
+            }
+            // Close the text stream only after the delivery beat is visible to
+            // the client. This aligns it with TTS enqueue without delaying text.
+            response_agent::finish_stream(&progress_tx).await;
+            crate::services::agent::merope::spawn_chat_remember(
+                user_id,
+                request.raw_input.clone(),
+                reply.clone(),
             );
+            let performance = None;
+
+            crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
+            let _ = progress_tx
+                .send(AgentProgressEvent::Progress {
+                    progress: 100,
+                    completed_steps: 1,
+                    total_steps: 1,
+                    message: response_agent::done_status(),
+                })
+                .await;
+
+            return Ok(AgentResponse {
+                response_type: AgentResponseType::Answer,
+                message: reply.clone(),
+                data: Some(json!({ "reply": reply, "type": "chat", "mode": "chat" })),
+                data_display: None,
+                suggestions: vec![],
+                task: None,
+                confirmation: None,
+                frontend_action: None,
+                performance,
+            });
+        }
+
+        if let Some(mood) = mood_transition.clone() {
+            let reaction_context = motion_context(
+                &request,
+                user_id,
+                crate::services::agent::merope::MotionPhase::Reaction,
+                mood,
+                round_motion_style.clone(),
+                None,
+                None,
+            );
+            publish_local_motion(&reaction_context, &progress_tx).await;
+            motion_refinements.push(spawn_motion_refinement(
+                reaction_context,
+                progress_tx.clone(),
+                None,
+            ));
         }
 
         // 1. Planner 规划（Pro AI 单次调用）
@@ -498,7 +685,12 @@ impl Agent {
             })
             .await;
 
-        let planner_output = match self.planner.plan(&request).await {
+        let granted = crate::services::agent::get_user_permissions(&self.db, user_id).await;
+        let planner_output = match self
+            .planner
+            .plan_with_progress_for(&request, &progress_tx, &granted)
+            .await
+        {
             Ok(output) => output,
             Err(error) => {
                 crate::services::agent::merope::note_chat_diary(
@@ -511,7 +703,8 @@ impl Agent {
                 return Err(error);
             }
         };
-        crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input).await;
+        crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
+            .await;
 
         tracing::debug!(
             status = ?planner_output.status,
@@ -593,33 +786,31 @@ impl Agent {
         // 2. 根据状态分流
         match planner_output.status {
             PlannerStatus::Chat => {
+                // Planner time was the useful window for the reaction. Never
+                // let an unfinished reaction cross into the spoken reply.
+                motion_refinements.clear();
                 let planner_reply = planner_output
                     .chat_reply
                     .unwrap_or_else(response_agent::greeting);
-
-                let delivery = mood_transition.clone().map(|mood| {
-                    spawn_motion_directive(
-                        crate::services::agent::merope::MotionContext {
-                            user_id,
-                            phase: crate::services::agent::merope::MotionPhase::Delivery,
-                            mood,
-                            activity: "talking".to_string(),
-                            user_text: request.raw_input.clone(),
-                            response_text: Some(planner_reply.clone()),
-                            task_success: None,
-                        },
-                        Some(progress_tx.clone()),
-                    )
-                });
 
                 // 尝试真正的流式 AI 回复（token-by-token from model）
                 let reply = self
                     .stream_chat_response(&request, &planner_reply, &progress_tx)
                     .await;
-                let performance = match delivery {
-                    Some(handle) => handle.await.ok().flatten(),
-                    None => None,
-                };
+                if let Some(mood) = mood_transition.clone() {
+                    let delivery_context = motion_context(
+                        &request,
+                        user_id,
+                        crate::services::agent::merope::MotionPhase::Delivery,
+                        mood,
+                        round_motion_style.clone(),
+                        Some(reply.clone()),
+                        None,
+                    );
+                    publish_local_motion(&delivery_context, &progress_tx).await;
+                }
+                response_agent::finish_stream(&progress_tx).await;
+                let performance = None;
                 crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
 
                 let _ = progress_tx
@@ -672,10 +863,9 @@ impl Agent {
                 };
                 return attach_motion_to_result(
                     Ok(response),
-                    user_id,
-                    &request.raw_input,
+                    &request,
                     mood_transition.clone(),
-                    Some(progress_tx.clone()),
+                    &round_motion_style,
                 )
                 .await;
             }
@@ -706,10 +896,9 @@ impl Agent {
                 };
                 return attach_motion_to_result(
                     Ok(response),
-                    user_id,
-                    &request.raw_input,
+                    &request,
                     mood_transition.clone(),
-                    Some(progress_tx.clone()),
+                    &round_motion_style,
                 )
                 .await;
             }
@@ -724,10 +913,9 @@ impl Agent {
                 {
                     return attach_motion_to_result(
                         Ok(response),
-                        user_id,
-                        &request.raw_input,
+                        &request,
                         mood_transition.clone(),
-                        Some(progress_tx.clone()),
+                        &round_motion_style,
                     )
                     .await;
                 }
@@ -740,7 +928,11 @@ impl Agent {
                     let msg = format!(
                         "我对这个请求的理解置信度较低（{:.0}%），可能会误解你的意图。{}能再详细描述一下你想要做什么吗？",
                         planner_output.confidence * 100.0,
-                        planner_output.reasoning.as_deref().map(|r| format!("我的理解是：{}。", r)).unwrap_or_default()
+                        planner_output
+                            .reasoning
+                            .as_deref()
+                            .map(|r| format!("我的理解是：{}。", r))
+                            .unwrap_or_default()
                     );
                     Self::stream_text_as_tokens(&progress_tx, &msg).await;
                     crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
@@ -760,10 +952,9 @@ impl Agent {
                     };
                     return attach_motion_to_result(
                         Ok(response),
-                        user_id,
-                        &request.raw_input,
+                        &request,
                         mood_transition.clone(),
-                        Some(progress_tx.clone()),
+                        &round_motion_style,
                     )
                     .await;
                 }
@@ -852,16 +1043,19 @@ impl Agent {
                     crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
                     return attach_motion_to_result(
                         Ok(blocked),
-                        user_id,
-                        &request.raw_input,
+                        &request,
                         mood_transition.clone(),
-                        Some(progress_tx.clone()),
+                        &round_motion_style,
                     )
                     .await;
                 }
                 None => {
                     let session_id = request.context.as_ref().and_then(|c| c.session_id.clone());
                     let run_id = request.context.as_ref().and_then(|c| c.run_id.clone());
+                    let source_intent_id = request
+                        .context
+                        .as_ref()
+                        .and_then(|c| c.source_intent_id.clone());
                     crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
                     let response = self
                         .request_confirmation_v2(
@@ -871,14 +1065,14 @@ impl Agent {
                             sensitive_steps,
                             session_id,
                             run_id,
+                            source_intent_id,
                         )
                         .await;
                     return attach_motion_to_result(
                         response,
-                        user_id,
-                        &request.raw_input,
+                        &request,
                         mood_transition.clone(),
-                        Some(progress_tx.clone()),
+                        &round_motion_style,
                     )
                     .await;
                 }
@@ -899,10 +1093,9 @@ impl Agent {
                 crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
                 return attach_motion_to_result(
                     Ok(missing_response),
-                    user_id,
-                    &request.raw_input,
+                    &request,
                     mood_transition.clone(),
-                    Some(progress_tx.clone()),
+                    &round_motion_style,
                 )
                 .await;
             }
@@ -934,10 +1127,9 @@ impl Agent {
                 .await;
             return attach_motion_to_result(
                 result,
-                user_id,
-                &request.raw_input,
+                &request,
                 mood_transition.clone(),
-                Some(progress_tx.clone()),
+                &round_motion_style,
             )
             .await;
         }
@@ -1040,14 +1232,7 @@ impl Agent {
             .await;
         }
 
-        attach_motion_to_result(
-            result,
-            user_id,
-            &request.raw_input,
-            mood_transition,
-            Some(progress_tx),
-        )
-        .await
+        attach_motion_to_result(result, &request, mood_transition, &round_motion_style).await
     }
 
     /// 执行配方（带进度回调和升级）— 使用 Planner
@@ -1126,8 +1311,12 @@ impl Agent {
                 })
                 .await;
 
-            // 使用 Planner.replan
-            match self.planner.replan(original_request, &hint).await {
+            let granted = crate::services::agent::get_user_permissions(&self.db, user_id).await;
+            match self
+                .planner
+                .replan_with_progress_for(original_request, &hint, &progress_tx, &granted)
+                .await
+            {
                 Ok(replan_output)
                     if replan_output.status == PlannerStatus::Plan
                         && !replan_output.steps.is_empty() =>
@@ -1484,6 +1673,15 @@ impl Agent {
         );
 
         Self::validate_saved_recipe(&recipe)?;
+        let granted = crate::services::agent::get_user_permissions(&self.db, user_id).await;
+        for step in &recipe.steps {
+            crate::services::agent::planner::capability_allowed_for_grants(
+                &step.capability_id,
+                &step.params,
+                &granted,
+            )
+            .await?;
+        }
 
         if let Some(response) = self
             .mood_refuse_response(
@@ -1517,6 +1715,7 @@ impl Agent {
                             user_id,
                             sensitive_steps,
                             session_id,
+                            None,
                             None,
                         )
                         .await;
@@ -1797,18 +1996,6 @@ impl Agent {
         })
     }
 
-    /// 处理用户确认
-    pub async fn confirmation_lane_key(
-        &self,
-        confirmation_id: &str,
-        user_id: i32,
-    ) -> Result<Option<String>, String> {
-        Ok(self
-            .confirmation_resume_context(confirmation_id, user_id)
-            .await?
-            .and_then(|ctx| ctx.lane_key))
-    }
-
     /// Peek confirmation resume context without consuming the pending entry.
     pub async fn confirmation_resume_context(
         &self,
@@ -1821,7 +2008,10 @@ impl Agent {
             confirmation_id,
         )
         .await
-        .map_err(|error| format!("Failed to load confirmation: {error}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to load confirmation");
+            "Failed to load confirmation".to_string()
+        })?;
         Ok(pending
             .filter(|pending| pending.user_id == user_id)
             .map(|pending| ConfirmationResumeContext {
@@ -1835,6 +2025,7 @@ impl Agent {
                         .and_then(session_id_from_lane_key)
                 }),
                 run_id: pending.run_id.clone(),
+                source_intent_id: pending.source_intent_id.clone(),
             }))
     }
 }
@@ -1851,29 +2042,50 @@ fn turn_task_id(request: &UserRequest) -> String {
         .unwrap_or_else(|| format!("turn_{}", request.timestamp.timestamp_millis()))
 }
 
-fn spawn_motion_directive(
+struct MotionRefinementGuard(tokio::task::JoinHandle<()>);
+
+impl Drop for MotionRefinementGuard {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+async fn publish_local_motion(
+    context: &crate::services::agent::merope::MotionContext,
+    progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+) {
+    if let Some(performance) = crate::services::agent::merope::local_directive(context) {
+        let _ = progress_tx
+            .send(AgentProgressEvent::PerformancePlan { performance })
+            .await;
+    }
+}
+
+/** Refines an already-published floor, optionally after the first text delta. */
+fn spawn_motion_refinement(
     context: crate::services::agent::merope::MotionContext,
-    progress_tx: Option<tokio::sync::mpsc::Sender<AgentProgressEvent>>,
-) -> tokio::task::JoinHandle<Option<crate::services::agent::merope::PerformanceDirective>> {
-    tokio::spawn(async move {
-        let performance = crate::services::agent::merope::direct_motion(context).await;
-        if let (Some(tx), Some(performance)) = (progress_tx, performance.as_ref()) {
-            let _ = tx
-                .send(AgentProgressEvent::PerformancePlan {
-                    performance: performance.clone(),
-                })
+    progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    mut start_rx: Option<tokio::sync::mpsc::Receiver<()>>,
+) -> MotionRefinementGuard {
+    MotionRefinementGuard(tokio::spawn(async move {
+        if let Some(start_rx) = start_rx.as_mut() {
+            if start_rx.recv().await.is_none() {
+                return;
+            }
+        }
+        if let Some(performance) = crate::services::agent::merope::refine_motion(context).await {
+            let _ = progress_tx
+                .send(AgentProgressEvent::PerformancePlan { performance })
                 .await;
         }
-        performance
-    })
+    }))
 }
 
 async fn attach_motion_to_result(
     result: Result<AgentResponse, String>,
-    user_id: i32,
-    user_text: &str,
+    request: &UserRequest,
     mood: Option<crate::services::agent::merope::MoodTransition>,
-    progress_tx: Option<tokio::sync::mpsc::Sender<AgentProgressEvent>>,
+    motion_style: &str,
 ) -> Result<AgentResponse, String> {
     let mut response = result?;
     let Some(mood) = mood else {
@@ -1889,18 +2101,17 @@ async fn attach_motion_to_result(
     } else {
         crate::services::agent::merope::MotionPhase::Delivery
     };
-    let handle = spawn_motion_directive(
-        crate::services::agent::merope::MotionContext {
-            user_id,
-            phase,
-            mood,
-            activity: "talking".to_string(),
-            user_text: user_text.to_string(),
-            response_text: Some(response.message.clone()),
-            task_success,
-        },
-        progress_tx,
+    let context = motion_context(
+        request,
+        request.user_id,
+        phase,
+        mood,
+        motion_style.to_string(),
+        Some(response.message.clone()),
+        task_success,
     );
-    response.performance = handle.await.ok().flatten();
+    // The body carries the floor so a non-streaming client still gets acting;
+    // awaiting Lite here used to put its whole timeout in front of the reply.
+    response.performance = crate::services::agent::merope::local_directive(&context);
     Ok(response)
 }

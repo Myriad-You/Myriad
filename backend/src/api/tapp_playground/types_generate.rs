@@ -1067,8 +1067,11 @@ async fn run_playground_generation_inner(
 }
 
 fn parse_agent_plan(raw: &str) -> Result<PlaygroundAgentPlan, String> {
-    let plan: PlaygroundAgentPlan = serde_json::from_str(extract_json_object(raw)?)
-        .map_err(|error| format!("invalid agent plan JSON: {error}"))?;
+    let plan: PlaygroundAgentPlan =
+        serde_json::from_str(extract_json_object(raw)?).map_err(|error| {
+            tracing::error!(%error, "invalid agent plan JSON");
+            "invalid agent plan".to_string()
+        })?;
     if plan.queries.is_empty() || plan.queries.len() > MAX_AGENT_QUERIES {
         return Err(format!(
             "agent plan must contain 1-{MAX_AGENT_QUERIES} queries"
@@ -1455,11 +1458,15 @@ fn parse_and_validate_model_output(raw: &str) -> Result<(PlaygroundModelOutput, 
         return Err("model response is too large".to_string());
     }
     let json_text = extract_json_object(raw)?;
-    let mut value: Value = serde_json::from_str(json_text)
-        .map_err(|error| format!("invalid JSON project: {error}"))?;
+    let mut value: Value = serde_json::from_str(json_text).map_err(|error| {
+        tracing::error!(%error, "invalid JSON project");
+        "invalid JSON project".to_string()
+    })?;
     let normalized_aliases = normalize_known_generator_aliases(&mut value);
-    let output: PlaygroundModelOutput =
-        serde_json::from_value(value).map_err(|error| format!("invalid JSON project: {error}"))?;
+    let output: PlaygroundModelOutput = serde_json::from_value(value).map_err(|error| {
+        tracing::error!(%error, "invalid JSON project");
+        "invalid JSON project".to_string()
+    })?;
     if output.explanation.trim().is_empty()
         || output.explanation.chars().count() > USER_TEXT_MAX_CHARS
     {

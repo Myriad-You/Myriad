@@ -400,14 +400,17 @@ impl AgentTurnBudget {
 /// Agent 在配额与成本账里的 bucket key（与 `AiLedgerAttribution.tapp_id` 一致）
 pub(crate) const AGENT_LEDGER_TAPP_ID: &str = "__agent__";
 
-/// 获取系统能力摘要
-pub async fn get_capabilities_summary() -> serde_json::Value {
-    capability::get_capability_summary().await
-}
-
-/// Discovery list filtered by admin (hides system:admin caps for non-admin).
-pub async fn get_capabilities_summary_for_user(is_admin: bool) -> serde_json::Value {
-    capability::get_capability_summary_filtered(is_admin).await
+/// Discovery list filtered by the same grant set the planner uses.
+pub async fn get_capabilities_summary_for_user(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i32,
+) -> serde_json::Value {
+    if user_is_current_admin(db, user_id).await {
+        capability::get_capability_summary_filtered(None).await
+    } else {
+        let granted = get_user_permissions(db, user_id).await;
+        capability::get_capability_summary_filtered(Some(&granted)).await
+    }
 }
 
 /// Query the current database role. Agent recipes can execute long after a
@@ -498,17 +501,42 @@ fn permissions_for_usage_mode(mode: AgentUsageMode) -> std::collections::HashSet
                 perms.insert((*p).to_string());
             }
             if mode == AgentUsageMode::Elevated {
-                // 扩展：出站 + 调度 + 仅自己的 Tapp；报告生成仅管理员
+                // 扩展：出站 + 调度 + 仅自己的 Tapp；报告生成 / 共享库管理仅管理员
                 for p in &[
                     "http:fetch",
                     "web:scrape",
                     "tapp:write",
+                    "tapp:interact",
                     "weather:read",
                     "metadata:read",
                     "proxy:read",
                     "scheduler:read",
                     "scheduler:write",
                     "3d:generate",
+                    "ai:generate",
+                    "speech:tts",
+                    "music:control",
+                    "music:read",
+                    "storage:write",
+                    "content:write",
+                    "reminder:write",
+                    "note:write",
+                    "bookmark:write",
+                    "mcp:execute",
+                    "notion:read",
+                    "rsshub:read",
+                    "profile:read",
+                    "random:read",
+                    "search:read",
+                    "filter:read",
+                    "compare:read",
+                    "icon:read",
+                    "prompt:write",
+                    "router:read",
+                    "router:write",
+                    "ui:read",
+                    "ui:interact",
+                    "page:read",
                 ] {
                     perms.insert((*p).to_string());
                 }
@@ -574,10 +602,98 @@ fn agent_perm_to_tapp(perm: &str) -> Option<crate::services::permission_service:
         "http:fetch" | "web:scrape" | "proxy:read" => Some(TappPermission::NetworkFetch),
         "scheduler:read" | "scheduler:write" => Some(TappPermission::SchedulerRegister),
         // 个人 Tapp 写：用 storage:write 表达「可持久化自己的内容」，非 manage 全站
-        "tapp:write" => Some(TappPermission::StorageWrite),
-        // system:read 无 Tapp 对应，见 retain 特例
+        "tapp:write" | "tapp:interact" | "storage:write" | "content:write" | "reminder:write"
+        | "note:write" | "bookmark:write" => Some(TappPermission::StorageWrite),
+        "speech:tts" => Some(TappPermission::SpeechTts),
+        "music:control" => Some(TappPermission::MediaControl),
+        "music:read" => Some(TappPermission::MediaRead),
+        "mcp:execute" | "notion:read" => Some(TappPermission::NetworkFetch),
+        "profile:read" | "random:read" | "search:read" | "filter:read" | "compare:read"
+        | "icon:read" | "rsshub:read" => Some(TappPermission::PlatformRead),
+        "prompt:write" => Some(TappPermission::AiGenerate),
+        "platform:write" => Some(TappPermission::PlatformWrite),
+        "brew:admin" => Some(TappPermission::BrewManage),
+        // system:read / 宿主 UI 无 Tapp 对应，见 retain 特例
         _ => None,
     }
+}
+
+/// Agent 权限串没有 Tapp 对应：登录用户只要进了候选集就可以用。
+///
+/// 宿主 SPA 导航/读页/点页面是 Agent 作为用户操作本站，不是 Tapp 沙箱能力。
+fn host_agent_permission(perm: &str) -> bool {
+    matches!(
+        perm,
+        "system:read" | "router:read" | "router:write" | "ui:read" | "ui:interact" | "page:read"
+    )
+}
+
+/// Whether the Agent grant set would let `scheduler.create` extra Tapp checks pass.
+///
+/// Basic Tapp entries (`storage:read`, `ui:notification`) succeed at execute for
+/// any logged-in user, so they are treated as covered. Privileged / elevated
+/// extras must appear in the grant set (same mapping as `agent_perm_to_tapp`).
+pub(crate) fn granted_covers_tapp_permission(
+    granted: &std::collections::HashSet<String>,
+    permission: crate::services::permission_service::TappPermission,
+) -> bool {
+    use crate::services::permission_service::TappPermission;
+    match permission {
+        TappPermission::SchedulerRegister => {
+            granted.contains("scheduler:write") || granted.contains("scheduler:read")
+        }
+        TappPermission::PlatformWrite => granted.contains("platform:write"),
+        TappPermission::StorageWrite => [
+            "storage:write",
+            "tapp:write",
+            "tapp:interact",
+            "content:write",
+            "reminder:write",
+            "note:write",
+            "bookmark:write",
+        ]
+        .iter()
+        .any(|perm| granted.contains(*perm)),
+        TappPermission::StorageRead | TappPermission::UiNotification => true,
+        TappPermission::AiGenerate => {
+            granted.contains("ai:generate")
+                || granted.contains("ai:search")
+                || granted.contains("prompt:write")
+        }
+        TappPermission::NetworkFetch => [
+            "http:fetch",
+            "web:scrape",
+            "proxy:read",
+            "mcp:execute",
+            "notion:read",
+        ]
+        .iter()
+        .any(|perm| granted.contains(*perm)),
+        _ => false,
+    }
+}
+
+/// Plan-time mirror of `scheduler.create`'s extra Tapp checks on `backendActions`.
+pub(crate) fn scheduler_create_actions_within_grants(
+    params: &std::collections::HashMap<String, serde_json::Value>,
+    granted: &std::collections::HashSet<String>,
+) -> Result<(), String> {
+    use crate::services::agent::system_op_pure::extract_raw_backend_actions;
+    use crate::services::tapp_scheduler::{backend_action_permissions, normalize_backend_actions};
+
+    let Some(raw) = extract_raw_backend_actions(params) else {
+        return Ok(());
+    };
+    let normalized = normalize_backend_actions(Some(raw))?;
+    for permission in backend_action_permissions(&normalized)? {
+        if !granted_covers_tapp_permission(granted, permission) {
+            return Err(format!(
+                "capability 'scheduler.create' is not available for scheduled action: {}",
+                permission.as_str()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// 获取用户在 Agent 系统中的权限集
@@ -614,8 +730,8 @@ pub async fn get_user_permissions(
     // 强制与 Tapp 对齐
     let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
     perms.retain(|p| {
-        if p == "system:read" {
-            return true; // Agent 内部只读元信息，无 Tapp 对应
+        if host_agent_permission(p) {
+            return true;
         }
         match agent_perm_to_tapp(p) {
             Some(tp) => TappPermissionService::check(&config, UserRole::User, tp),
@@ -1047,8 +1163,14 @@ mod tests {
         assert!(elevated.contains("tapp:write"));
         assert!(elevated.contains("scheduler:read"));
         assert!(elevated.contains("3d:generate"));
+        assert!(elevated.contains("ai:generate"));
+        assert!(elevated.contains("speech:tts"));
+        assert!(elevated.contains("music:control"));
+        assert!(elevated.contains("router:write"));
+        assert!(elevated.contains("mcp:execute"));
         assert!(!elevated.contains("brew:manage"));
         assert!(!elevated.contains("report:write"));
+        assert!(!elevated.contains("system:admin"));
 
         let max = max_user_agent_permissions();
         assert_eq!(max, elevated);
@@ -1083,7 +1205,60 @@ mod tests {
             Some(TappPermission::ReportWrite)
         );
         assert_eq!(agent_perm_to_tapp("system:read"), None); // 特例：不经 Tapp
+        assert_eq!(agent_perm_to_tapp("router:write"), None);
+        assert_eq!(
+            agent_perm_to_tapp("speech:tts"),
+            Some(TappPermission::SpeechTts)
+        );
+        assert_eq!(
+            agent_perm_to_tapp("music:control"),
+            Some(TappPermission::MediaControl)
+        );
+        assert_eq!(
+            agent_perm_to_tapp("content:write"),
+            Some(TappPermission::StorageWrite)
+        );
+        assert_eq!(
+            agent_perm_to_tapp("mcp:execute"),
+            Some(TappPermission::NetworkFetch)
+        );
         assert_eq!(agent_perm_to_tapp("unknown:perm"), None);
+        assert!(host_agent_permission("router:write"));
+        assert!(!host_agent_permission("speech:tts"));
+        use std::collections::HashSet;
+        let elevated = permissions_for_usage_mode(AgentUsageMode::Elevated);
+        assert!(granted_covers_tapp_permission(
+            &elevated,
+            TappPermission::NetworkFetch
+        ));
+        assert!(granted_covers_tapp_permission(
+            &elevated,
+            TappPermission::StorageWrite
+        ));
+        assert!(!granted_covers_tapp_permission(
+            &elevated,
+            TappPermission::PlatformWrite
+        ));
+        assert!(granted_covers_tapp_permission(
+            &elevated,
+            TappPermission::StorageRead
+        ));
+
+        let mut fetch_only = HashSet::new();
+        fetch_only.insert("http:fetch".to_string());
+        let mut fetch_params = std::collections::HashMap::new();
+        fetch_params.insert(
+            "backendActions".to_string(),
+            json!([{ "type": "fetch", "url": "https://example.com" }]),
+        );
+        assert!(scheduler_create_actions_within_grants(&fetch_params, &fetch_only).is_ok());
+        assert!(scheduler_create_actions_within_grants(&fetch_params, &HashSet::new()).is_err());
+        let mut sync_params = std::collections::HashMap::new();
+        sync_params.insert(
+            "backendActions".to_string(),
+            json!([{ "type": "platform.sync", "platform": "steam" }]),
+        );
+        assert!(scheduler_create_actions_within_grants(&sync_params, &elevated).is_err());
     }
 
     #[test]

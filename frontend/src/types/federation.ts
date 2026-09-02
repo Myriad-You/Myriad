@@ -220,9 +220,6 @@ export interface PublishedListResponse {
 
 // 视图状态
 
-export type FederationTab =
-  'timeline' | 'following' | 'followers' | 'published' | 'rings' | 'profile'
-
 // Channel 通信
 
 export interface CreateChannelRequest {
@@ -336,26 +333,6 @@ export interface DeliveryQueueItem {
 export interface DeliveryListResponse {
   items: DeliveryQueueItem[]
   total: number
-}
-
-/** WebSocket 消息类型 */
-export interface WsMessage {
-  type:
-    | 'connected'
-    | 'message'
-    | 'typing'
-    | 'channel_closed'
-    | 'lagged'
-    | 'pong'
-    | 'error'
-  channel_id?: string
-  room_id?: string
-  message?: MessageItem | RoomMessageItem
-  actor?: string
-  is_typing?: boolean
-  missed?: number
-  error?: unknown
-  event?: string
 }
 
 // Room 多方通信

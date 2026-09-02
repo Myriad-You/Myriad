@@ -24,15 +24,6 @@ let knownAuthState: KnownAuthState = null
 
 const listeners = new Set<(state: KnownAuthState) => void>()
 
-/**
- * 读取当前已知的认证状态。
- *
- * 调用方必须把 `null` 当作「放行」处理，不要当作未登录。
- */
-export function getKnownAuthState(): KnownAuthState {
-  return knownAuthState
-}
-
 /** 是否**确定**为未登录访客（`null` 一律返回 false，即不确定就不算访客） */
 export function isKnownGuest(): boolean {
   return knownAuthState === false
@@ -55,14 +46,4 @@ export function resetKnownAuthState(): void {
   if (knownAuthState === null) return
   knownAuthState = null
   for (const listener of listeners) listener(null)
-}
-
-/** 订阅变化；返回取消订阅函数 */
-export function subscribeAuthState(
-  listener: (state: KnownAuthState) => void,
-): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
 }

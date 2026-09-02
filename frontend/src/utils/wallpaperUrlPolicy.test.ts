@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   isBlockedWallpaperHost,
-  isSafeWallpaperUrl,
   sanitizeWallpaperUrl,
 } from './wallpaperUrlPolicy'
 
@@ -81,11 +80,5 @@ describe('sanitizeWallpaperUrl', () => {
       sanitizeWallpaperUrl('https://user:pass@cdn.example.com/a.jpg'),
       null,
     )
-  })
-
-  it('isSafeWallpaperUrl mirrors sanitize', () => {
-    assert.equal(isSafeWallpaperUrl('https://x.com/a.jpg'), true)
-    assert.equal(isSafeWallpaperUrl('javascript:x'), false)
-    assert.equal(isSafeWallpaperUrl(''), false)
   })
 })

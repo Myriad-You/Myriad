@@ -12,6 +12,7 @@ import type { NotificationSourceKey } from '../services/notificationPreferencesA
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../contexts/I18nContext'
+import { currentCopy } from '../i18n/localeCopy'
 import { federationApi } from '../services/federationApi'
 import { notificationSourceFor } from '../services/notificationDelivery'
 import { getGreeting } from '../utils/dynamicContent'
@@ -59,7 +60,7 @@ async function runFederationInviteAction(
     typeof n.metadata?.channel_id === 'string' ? n.metadata.channel_id : ''
 
   if (kind === 'room_invite' || (roomId && !channelId)) {
-    if (!roomId) throw new Error('Missing room_id')
+    if (!roomId) throw new Error(currentCopy().errors.inviteInvalid)
     if (actionId === 'accept') {
       await federationApi.acceptRoomInvite(roomId)
       return
@@ -70,7 +71,7 @@ async function runFederationInviteAction(
     }
   }
   if (kind === 'channel_invite' || channelId) {
-    if (!channelId) throw new Error('Missing channel_id')
+    if (!channelId) throw new Error(currentCopy().errors.inviteInvalid)
     if (actionId === 'accept') {
       await federationApi.acceptChannel(channelId)
       return
@@ -80,7 +81,7 @@ async function runFederationInviteAction(
       return
     }
   }
-  throw new Error(`Unsupported invite action: ${actionId}`)
+  throw new Error(currentCopy().errors.agentUnsupported)
 }
 
 /** Apple 风格胶囊按钮基础样式 */
@@ -98,12 +99,12 @@ type NotifTarget =
       taskId?: string
     }
   | { kind: 'route'; path: string }
-  | { kind: 'arael_manage'; tab?: 'heartbeat' | 'skills' | 'memory' }
+  | { kind: 'agent_manage'; tab?: 'heartbeat' | 'skills' | 'memory' }
   | null
 
 /** 解析点击落点：任务类通知带 session_id 时跳回对应 Agent 会话（可带 run/task 以 reattach） */
 function resolveTarget(n: AppNotification): NotifTarget {
-  if (n.metadata?.action === 'open_arael') {
+  if (n.metadata?.action === 'open_agent') {
     const sid =
       typeof n.metadata?.session_id === 'string' ? n.metadata.session_id : ''
     const runId =
@@ -132,13 +133,13 @@ function resolveTarget(n: AppNotification): NotifTarget {
   if (typeof route === 'string' && route.startsWith('/')) {
     return { kind: 'route', path: route }
   }
-  if (n.metadata?.action === 'open_arael_manage') {
+  if (n.metadata?.action === 'open_agent_manage') {
     const rawTab = n.metadata?.tab
     const tab =
       rawTab === 'skills' || rawTab === 'memory' || rawTab === 'heartbeat'
         ? rawTab
         : undefined
-    return { kind: 'arael_manage', tab }
+    return { kind: 'agent_manage', tab }
   }
   return null
 }
@@ -155,7 +156,7 @@ interface Props {
   /** 打开普通应用路由（如 Brew 新内容） */
   onNavigate?: (path: string) => void
   /** 打开 Agent 管理面板（Heartbeat / Skills 通知；可选初始 tab） */
-  onOpenAraelManage?: (tab?: 'heartbeat' | 'skills' | 'memory') => void
+  onOpenAgentManage?: (tab?: 'heartbeat' | 'skills' | 'memory') => void
   /** 当前用户是否允许浏览器系统通知。 */
   browserNotificationsEnabled?: boolean
 }
@@ -165,7 +166,7 @@ function NotificationPanelList({
   fill,
   onOpenSession,
   onNavigate,
-  onOpenAraelManage,
+  onOpenAgentManage,
   browserNotificationsEnabled = true,
 }: Props) {
   const { t, format, locale } = useI18n()
@@ -243,14 +244,14 @@ function NotificationPanelList({
         onNavigate(target.path)
         return
       }
-      if (target?.kind === 'arael_manage' && onOpenAraelManage) {
-        onOpenAraelManage(target.tab)
+      if (target?.kind === 'agent_manage' && onOpenAgentManage) {
+        onOpenAgentManage(target.tab)
         return
       }
       // 无落点：展开/收起详情
       setExpandedId((prev) => (prev === n.id ? null : n.id))
     },
-    [onOpenSession, onNavigate, onOpenAraelManage],
+    [onOpenSession, onNavigate, onOpenAgentManage],
   )
 
   const handleInviteAction = useCallback(
@@ -270,7 +271,7 @@ function NotificationPanelList({
         }
       } catch (err) {
         setActionError(
-          userFacingError(err, t.errors.notificationActionFailed),
+          userFacingError(err, t.errors.inviteInvalid),
         )
       } finally {
         setActionBusyId(null)

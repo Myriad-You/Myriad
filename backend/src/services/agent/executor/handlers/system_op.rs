@@ -9,8 +9,9 @@ use crate::models::entities::tapp_scheduled_tasks::{
     ExecutionTarget, MissedPolicy, ScheduleType, TaskScope,
 };
 use crate::services::agent::executor::utils::{
-    is_valid_platform as validate_platform_name, VALID_PLATFORMS,
+    is_valid_platform, is_valid_platform as validate_platform_name, VALID_PLATFORMS,
 };
+use crate::services::agent::external_pure::first_string_param;
 use crate::services::agent::system_op_pure::{
     extract_raw_backend_actions, heartbeat_task_id, heartbeat_update_has_fields,
     parse_brew_schedule_action, parse_execution_target, parse_schedule_type, AgentExecutionTarget,
@@ -18,6 +19,7 @@ use crate::services::agent::system_op_pure::{
 };
 use crate::services::background_processor::BACKGROUND_PROCESSOR;
 use crate::services::brew_scheduler::get_brew_scheduler;
+use crate::services::image_cache::ImageCacheService;
 use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
 use crate::services::tapp_data_transform::{
     apply_pipeline, items_from_agent_input, parse_pipeline_steps_lenient, DataTransformError,
@@ -682,11 +684,20 @@ async fn execute_rsshub_healthcheck(
 // 图片缓存
 
 async fn execute_image_cache(params: &HashMap<String, Value>) -> Result<Value, String> {
+    if let Some(url) = first_string_param(params, &["url"]) {
+        let local_path = ImageCacheService::new().cache_image(&url).await?;
+        return Ok(json!({
+            "localPath": local_path,
+            "cached": true,
+            "url": url
+        }));
+    }
+
     let action = params
         .get("action")
         .and_then(|v| v.as_str())
         .unwrap_or("status");
-    let cache_dir = std::path::Path::new("cache/images");
+    let cache_dir = crate::services::data_paths::paths().cache_images.clone();
 
     match action {
         "status" => {
@@ -694,7 +705,7 @@ async fn execute_image_cache(params: &HashMap<String, Value>) -> Result<Value, S
             let mut total_size = 0u64;
 
             if cache_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(cache_dir) {
+                if let Ok(entries) = std::fs::read_dir(&cache_dir) {
                     for entry in entries.flatten() {
                         if entry.path().is_dir() {
                             if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
@@ -720,7 +731,7 @@ async fn execute_image_cache(params: &HashMap<String, Value>) -> Result<Value, S
         "clear" => {
             let mut cleared = 0u64;
             if cache_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(cache_dir) {
+                if let Ok(entries) = std::fs::read_dir(&cache_dir) {
                     for entry in entries.flatten() {
                         if entry.path().is_dir() && std::fs::remove_dir_all(entry.path()).is_ok() {
                             cleared += 1;
@@ -744,19 +755,30 @@ async fn execute_export_data(params: &HashMap<String, Value>) -> Result<Value, S
         .get("format")
         .and_then(|v| v.as_str())
         .unwrap_or("json");
-    let data_type = params.get("type").and_then(|v| v.as_str()).unwrap_or("all");
+    // Schema required `platform`; the handler used to read only `type` and dump everything.
+    let data_type =
+        first_string_param(params, &["platform", "type"]).unwrap_or_else(|| "all".into());
 
     let mut export_data = json!({});
 
-    if data_type == "all" || data_type == "platforms" {
-        let platforms = VALID_PLATFORMS;
+    let platforms: Vec<&str> = if data_type == "all" || data_type == "platforms" {
+        VALID_PLATFORMS.to_vec()
+    } else if is_valid_platform(&data_type) {
+        vec![data_type.as_str()]
+    } else if data_type == "databases" {
+        Vec::new()
+    } else {
+        return Err(format!("Unknown export platform: {data_type}"));
+    };
+
+    if !platforms.is_empty() {
         let mut platform_data = json!({});
 
-        for platform in platforms {
+        for platform in &platforms {
             let path = format!("cache/platforms/{}_filtered.json", platform);
             if let Ok(content) = tokio::fs::read_to_string(&path).await {
                 if let Ok(data) = serde_json::from_str::<Value>(&content) {
-                    platform_data[platform] = data;
+                    platform_data[*platform] = data;
                 }
             }
         }
@@ -811,19 +833,22 @@ async fn execute_export_data(params: &HashMap<String, Value>) -> Result<Value, S
             "Failed to export data".to_string()
         })?;
 
+    let filename = format!("myriad_export_{}.{}", data_type, format);
     Ok(json!({
         "format": format,
         "data_type": data_type,
         "data": export_data,
+        "content": export_content,
+        "filename": filename,
         "exportId": export_id,
         "exported_at": now.to_rfc3339(),
         "frontendAction": {
             "type": "download_file",
             "params": {
                 "exportId": export_id,
-                "filename": format!("myriad_export_{}.{}", data_type, format),
+                "filename": filename,
                 "format": format,
-                "path": export_path
+                "content": export_content
             },
             "timestamp": now.timestamp_millis()
         }
@@ -911,7 +936,10 @@ async fn execute_brew_schedule(params: &HashMap<String, Value>) -> Result<Value,
                                 "Refreshed {refreshed} sources ({failed} failed), {new_items} new items"
                             )
                         })),
-                        Err(e) => Err(format!("Failed to refresh sources: {e}")),
+                        Err(e) => {
+                            tracing::error!(error = %e, "Failed to refresh sources");
+                            Err("Failed to refresh sources".to_string())
+                        }
                     }
                 }
             } else {

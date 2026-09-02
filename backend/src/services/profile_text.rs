@@ -117,7 +117,10 @@ async fn load_user_text_row(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|e| format!("Failed to load profile text row: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to load profile text row");
+            "Failed to load profile text row".to_string()
+        })?;
 
     Ok(row.map(|row| UserTextRow {
         kind: ProfileTextSourceKind::parse(
@@ -212,7 +215,10 @@ async fn load_identities(
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
-        .map_err(|e| format!("Failed to list identities: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to list identities");
+            "Failed to list identities".to_string()
+        })?;
 
     let mut out = Vec::new();
     for row in rows {
@@ -451,7 +457,10 @@ pub async fn set_profile_text_source(
         ],
     ))
     .await
-    .map_err(|e| format!("Failed to save profile text source: {e}"))?;
+    .map_err(|error| {
+        tracing::error!(%error, "Failed to save profile text source");
+        "Failed to save profile text source".to_string()
+    })?;
 
     resolve_profile_text(db, user_id).await
 }

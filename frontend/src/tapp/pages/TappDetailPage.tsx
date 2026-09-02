@@ -54,13 +54,13 @@ import { Spinner } from '../../components/Spinner'
 import Toast from '../../components/Toast'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
 import { usePageSeo } from '../../hooks/usePageSeo'
 import { sanitizeUrl } from '../../utils/inputSanitizer'
 import {
   canAccessModuleVisibility,
   useModuleVisibilityPreferences,
 } from '../../utils/moduleVisibility'
+import { userFacingError } from '../../utils/userFacingError'
 import { TappIconBadge } from '../components/TappIconBadge'
 import { UninstallConfirmDialog } from '../components/UninstallConfirmDialog'
 import { PERMISSION_CONFIG } from '../constants/permissions'
@@ -179,9 +179,13 @@ export function TappDetailPage() {
         setSettingsValues(values)
       } catch (err) {
         console.error('Failed to load settings:', err)
+        showToastMessage(
+          userFacingError(err, t.tapp.settingsLoadFailed),
+          'error',
+        )
       }
     },
-    [tappId],
+    [tappId, showToastMessage, t.tapp.settingsLoadFailed],
   )
 
   const loadCredentialStatuses = useCallback(async () => {
@@ -208,7 +212,10 @@ export function TappDetailPage() {
         showToastMessage(t.tapp.credentialSaved, 'success')
       } catch (err) {
         console.error('Failed to save Tapp credential:', err)
-        showToastMessage(t.tapp.credentialSaveFailed, 'error')
+        showToastMessage(
+          userFacingError(err, t.tapp.credentialSaveFailed),
+          'error',
+        )
         throw err
       } finally {
         setCredentialSaving(null)
@@ -227,7 +234,10 @@ export function TappDetailPage() {
         showToastMessage(t.tapp.credentialRemoved, 'success')
       } catch (err) {
         console.error('Failed to remove Tapp credential:', err)
-        showToastMessage(t.tapp.credentialRemoveFailed, 'error')
+        showToastMessage(
+          userFacingError(err, t.tapp.credentialRemoveFailed),
+          'error',
+        )
       } finally {
         setCredentialSaving(null)
       }
@@ -247,7 +257,10 @@ export function TappDetailPage() {
         }
       } catch (err) {
         console.error('Failed to save setting:', err)
-        showToastMessage(t.tapp.settingSaveFailed, 'error')
+        showToastMessage(
+          userFacingError(err, t.tapp.settingSaveFailed),
+          'error',
+        )
       } finally {
         setSettingsSaving(null)
       }
@@ -360,11 +373,19 @@ export function TappDetailPage() {
             instance.manifest.credentials?.length && mayManageInstallation
               ? loadCredentialStatuses().catch((err) => {
                   console.error('Failed to load Tapp credential status:', err)
+                  showToastMessage(
+                    userFacingError(err, t.tapp.credentialLoadFailed),
+                    'error',
+                  )
                 })
               : Promise.resolve(),
             mayManageInstallation
               ? loadInboundGuard().catch((err) => {
                   console.error('Failed to load inbound guard:', err)
+                  showToastMessage(
+                    userFacingError(err, t.tapp.inboundGuardLoadFailed),
+                    'error',
+                  )
                 })
               : Promise.resolve(),
           ])
@@ -433,8 +454,23 @@ export function TappDetailPage() {
       }
     } catch (err) {
       console.error('Failed to toggle Tapp:', err)
+      showToastMessage(
+        userFacingError(
+          err,
+          isRunning ? t.tapp.stopAppFailed : t.tapp.startAppFailed,
+        ),
+        'error',
+      )
     }
-  }, [runtime, tappId, isRunning, navigate])
+  }, [
+    runtime,
+    tappId,
+    isRunning,
+    navigate,
+    showToastMessage,
+    t.tapp.stopAppFailed,
+    t.tapp.startAppFailed,
+  ])
 
   const handleUninstall = useCallback(
     (event?: ReactMouseEvent<HTMLButtonElement>) => {
@@ -454,7 +490,10 @@ export function TappDetailPage() {
         goBack()
       } catch (err) {
         console.error('Failed to uninstall Tapp:', err)
-        showToastMessage(t.tapp.uninstallFailed || 'Uninstall failed', 'error')
+        showToastMessage(
+          userFacingError(err, t.tapp.uninstallFailed),
+          'error',
+        )
         throw err
       }
     },
@@ -466,7 +505,7 @@ export function TappDetailPage() {
       await TappApiService.exportTapp(tappId)
     } catch (err) {
       console.error('Failed to export Tapp:', err)
-      showToastMessage(t.tapp.exportFailed || 'Export failed', 'error')
+      showToastMessage(userFacingError(err, t.tapp.exportFailed), 'error')
     }
   }, [tappId, t, showToastMessage])
 
@@ -484,7 +523,10 @@ export function TappDetailPage() {
       } catch (err) {
         console.error('Failed to update visibility:', err)
         setAppVisibility(previous)
-        showToastMessage(t.tapp.appVisibilitySaveFailed, 'error')
+        showToastMessage(
+          userFacingError(err, t.tapp.appVisibilitySaveFailed),
+          'error',
+        )
       } finally {
         setVisibilitySaving(false)
       }
@@ -772,7 +814,7 @@ export function TappDetailPage() {
       : []),
     {
       key: 'ask-arael',
-      label: t.arael.askArael,
+      label: t.agentPanel.askArael,
       onClick: () =>
         window.dispatchEvent(
           new CustomEvent('arael-open-session', {
@@ -1181,7 +1223,10 @@ export function TappDetailPage() {
                     await loadInboundGuard()
                   } catch (err) {
                     console.error('Failed to update inbound guard:', err)
-                    showToastMessage(t.tapp.inboundGuardSaveFailed, 'error')
+                    showToastMessage(
+                      userFacingError(err, t.tapp.inboundGuardSaveFailed),
+                      'error',
+                    )
                   } finally {
                     setInboundGuardBusy(false)
                   }
@@ -1229,7 +1274,10 @@ export function TappDetailPage() {
                           await loadInboundGuard()
                         } catch (err) {
                           console.error('Failed to unblock inbound caller:', err)
-                          showToastMessage(t.tapp.inboundGuardSaveFailed, 'error')
+                          showToastMessage(
+                      userFacingError(err, t.tapp.inboundGuardSaveFailed),
+                      'error',
+                    )
                         } finally {
                           setInboundGuardBusy(false)
                         }

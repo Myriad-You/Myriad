@@ -17,10 +17,15 @@ pub async fn installation_has_owner(db: &DatabaseConnection) -> Result<bool, Str
                 .to_string(),
         ))
         .await
-        .map_err(|error| format!("Failed to read installation claim: {error}"))?
+        .map_err(|error| {
+            tracing::error!(%error, "failed to read installation claim");
+            "Failed to read installation claim".to_string()
+        })?
         .ok_or_else(|| "installation claim query returned no row".to_string())?;
-    row.try_get::<bool>("", "claimed")
-        .map_err(|error| format!("decode installation claim state: {error}"))
+    row.try_get::<bool>("", "claimed").map_err(|error| {
+        tracing::error!(%error, "failed to decode installation claim state");
+        "Failed to read installation claim".to_string()
+    })
 }
 
 pub async fn site_owner_user_id(db: &DatabaseConnection) -> Result<i32, String> {
@@ -44,7 +49,10 @@ pub async fn site_owner_user_id(db: &DatabaseConnection) -> Result<i32, String> 
             "SELECT id FROM users WHERE is_admin = true ORDER BY id ASC LIMIT 1".to_string(),
         ))
         .await
-        .map_err(|error| format!("Failed to resolve site owner: {error}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "failed to resolve site owner");
+            "Failed to resolve site owner".to_string()
+        })?;
     row.and_then(|row| row.try_get::<i32>("", "id").ok())
         .ok_or_else(|| "No administrator is configured as the site owner".to_string())
 }

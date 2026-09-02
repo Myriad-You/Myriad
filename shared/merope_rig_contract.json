@@ -3,7 +3,7 @@
   "rigIrVersion": 4,
   "minSupportedRigIrVersion": 2,
   "characterAsset": {
-    "contractVersion": 3,
+    "contractVersion": 13,
     "portrait": {
       "aspect": {
         "width": 3,
@@ -26,6 +26,15 @@
         "separate-face",
         "independent-eyes",
         "blink",
+        "dizzy-eye-variant",
+        "squeeze-eye-variant",
+        "cry-eye-variant",
+        "silly-eye-variant",
+        "lovestruck-heart-pupils",
+        "lovestruck-face-effects",
+        "cry-mouth-variant",
+        "maniac-mouth-variant",
+        "silly-mouth-variant",
         "mouth-shapes",
         "separate-front-hair",
         "separate-back-hair",
@@ -33,10 +42,7 @@
         "rigid-left-arm-fragment",
         "rigid-right-arm-fragment"
       ],
-      "forbiddenChains": [
-        "shoulder-elbow-wrist-hand",
-        "leg"
-      ]
+      "forbiddenChains": ["shoulder-elbow-wrist-hand", "leg"]
     }
   },
   "semanticBoneRoles": [
@@ -92,12 +98,12 @@
     "eye-left": {
       "fallback": "open",
       "replacesBase": true,
-      "variants": ["open", "closed"]
+      "variants": ["open", "closed", "dizzy", "squeeze", "cry", "silly"]
     },
     "eye-right": {
       "fallback": "open",
       "replacesBase": true,
-      "variants": ["open", "closed"]
+      "variants": ["open", "closed", "dizzy", "squeeze", "cry", "silly"]
     },
     "iris-left": {
       "fallback": "visible",
@@ -120,7 +126,10 @@
         "round",
         "narrow",
         "surprised",
-        "sad"
+        "sad",
+        "cry",
+        "maniac",
+        "silly"
       ]
     }
   },

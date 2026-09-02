@@ -109,14 +109,20 @@ impl OAuthProvider for GithubProvider {
             Some("Myriad-App"),
         )
         .await
-        .map_err(|e| format!("GitHub token endpoint rejected by outbound policy: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "GitHub token endpoint rejected by outbound policy");
+            "GitHub token endpoint rejected by outbound policy".to_string()
+        })?;
         // oauth2 5 bundles AsyncHttpClient only for reqwest 0.12; wrap 0.13 Client.
         let http = ReqwestClient::from(http);
         let token = client
             .exchange_code(AuthorizationCode::new(code.to_string()))
             .request_async(&http)
             .await
-            .map_err(|e| format!("GitHub token exchange failed: {e:?}"))?;
+            .map_err(|error| {
+                tracing::error!(error = ?error, "GitHub token exchange failed");
+                "GitHub token exchange failed".to_string()
+            })?;
 
         Ok(ProviderTokens {
             access_token: token.access_token().secret().clone(),
@@ -140,19 +146,30 @@ impl OAuthProvider for GithubProvider {
             Some("Myriad-App"),
         )
         .await
-        .map_err(|e| format!("GitHub API base rejected by outbound policy: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "GitHub API base rejected by outbound policy");
+            "GitHub API base rejected by outbound policy".to_string()
+        })?;
 
         let resp = http
             .get(endpoint)
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .send()
             .await
-            .map_err(|e| format!("GitHub /user request failed: {e:?}"))?;
+            .map_err(|error| {
+                tracing::error!(error = ?error, "GitHub /user request failed");
+                "GitHub /user request failed".to_string()
+            })?;
         let bytes = crate::services::outbound_security::read_limited_body(resp, 512 * 1024)
             .await
-            .map_err(|e| format!("GitHub /user body rejected: {e}"))?;
-        let user: GitHubUser = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("GitHub /user parse failed: {e:?}"))?;
+            .map_err(|error| {
+                tracing::error!(%error, "GitHub /user body rejected");
+                "GitHub /user body rejected".to_string()
+            })?;
+        let user: GitHubUser = serde_json::from_slice(&bytes).map_err(|error| {
+            tracing::error!(error = ?error, "GitHub /user parse failed");
+            "GitHub /user parse failed".to_string()
+        })?;
 
         let raw = serde_json::json!({
             "id": user.id,

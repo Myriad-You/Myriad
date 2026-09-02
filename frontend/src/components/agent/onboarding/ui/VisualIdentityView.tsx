@@ -4,7 +4,6 @@ import type {
 } from '../onboardingTypes'
 import { LuCheck, LuEdit3, LuX } from '@lib/icons'
 import { useState } from 'react'
-import '../../PersonaOnboarding.css'
 import {
   CHARACTER_VISUAL_KEYS,
   OUTFIT_VISUAL_KEYS,
@@ -13,6 +12,7 @@ import {
   withVisualField,
 } from '../onboardingTypes'
 import { TextArea } from './Field'
+import '../../PersonaOnboarding.css'
 
 interface Props {
   identity: UpperBodyVisualIdentity

@@ -5,7 +5,12 @@ export default antfu(
   {
     formatters: false,
     // Vendored Three IIFE is the runtime source of truth; do not lint minify output.
-    ignores: ['public/tapp-runtime/**'],
+    // Anime2.5DRig 的 rigger/genericparts 是上游原样拷贝（见同目录 NOTICE），
+    // 要能跟上游 diff，就不能让 lint 改它。
+    ignores: [
+      'public/tapp-runtime/**',
+      'src/features/merope/anime25drig/vendor/**',
+    ],
   },
   {
     rules: {

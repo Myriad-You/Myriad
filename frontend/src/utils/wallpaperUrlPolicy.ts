@@ -7,11 +7,6 @@
  *   visitor browsers are not used as intranet probes via resolveImageUrl fetch
  */
 
-/** Empty string is valid (clear wallpaper). */
-export function isEmptyWallpaperUrl(raw: string | null | undefined): boolean {
-  return raw == null || String(raw).trim() === ''
-}
-
 /**
  * Whether a hostname must never be used for wallpaper fetch/apply.
  * Hostname only (no port); case-insensitive.
@@ -173,9 +168,4 @@ export function sanitizeWallpaperUrl(
   // (scheme already blocks javascript:)
 
   return parsed.toString()
-}
-
-/** True when sanitizeWallpaperUrl accepts the value. */
-export function isSafeWallpaperUrl(raw: string | null | undefined): boolean {
-  return sanitizeWallpaperUrl(raw) != null
 }

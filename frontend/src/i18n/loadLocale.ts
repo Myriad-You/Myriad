@@ -50,13 +50,6 @@ export function loadLocale(locale: Locale): Promise<TranslationKeys> {
 }
 
 /**
- * 是否已在内存中（同步）
- */
-export function hasLocaleCached(locale: Locale): boolean {
-  return cache.has(locale)
-}
-
-/**
  * 同步读取已缓存的语言包（未加载返回 null）
  */
 export function getCachedLocale(locale: Locale): TranslationKeys | null {

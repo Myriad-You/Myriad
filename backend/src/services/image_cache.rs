@@ -5,11 +5,25 @@
 //! 此服务会下载并本地缓存这些图片
 
 use sha2::{Digest, Sha256};
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
+
+fn cache_io_error(action: &str, error: std::io::Error) -> String {
+    tracing::error!(%error, action, "image cache io failed");
+    match error.kind() {
+        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => {
+            format!("{action}: storage is not writable")
+        }
+        ErrorKind::StorageFull => format!("{action}: not enough disk space"),
+        ErrorKind::AlreadyExists => format!("{action}: already exists"),
+        ErrorKind::NotFound => format!("{action}: path not found"),
+        _ => format!("{action} failed"),
+    }
+}
 
 /// 最大图片大小 (10MB)
 const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
@@ -106,7 +120,7 @@ impl ImageCacheService {
     async fn ensure_cache_dir(&self) -> Result<(), String> {
         fs::create_dir_all(&self.cache_dir)
             .await
-            .map_err(|e| format!("Failed to create cache directory: {}", e))
+            .map_err(|e| cache_io_error("Failed to create cache directory", e))
     }
 
     /// 获取缓存文件路径
@@ -154,7 +168,7 @@ impl ImageCacheService {
 
         // SSRF 防护：阻止请求内网地址
         if crate::federation::types::is_internal_url(url) {
-            return Err(format!("Blocked SSRF attempt: {}", url));
+            return Err("This address is not allowed".to_string());
         }
 
         let (target_url, client) = crate::services::outbound_security::build_public_http_client(
@@ -166,11 +180,10 @@ impl ImageCacheService {
 
         // 下载图片
         tracing::info!("Caching image from: {}", url);
-        let response = client
-            .get(target_url)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to download image: {}", e))?;
+        let response = client.get(target_url).send().await.map_err(|e| {
+            tracing::warn!(error = %e, "Failed to download image");
+            "Failed to download image".to_string()
+        })?;
 
         if !response.status().is_success() {
             return Err(format!("HTTP error: {}", response.status()));
@@ -191,10 +204,10 @@ impl ImageCacheService {
         }
 
         // 下载数据
-        let data = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read image data: {}", e))?;
+        let data = response.bytes().await.map_err(|e| {
+            tracing::warn!(error = %e, "Failed to read image data");
+            "Failed to read image data".to_string()
+        })?;
 
         // 检查大小
         if data.len() > MAX_IMAGE_SIZE {
@@ -210,17 +223,17 @@ impl ImageCacheService {
         if let Some(parent) = cache_path.parent() {
             fs::create_dir_all(parent)
                 .await
-                .map_err(|e| format!("Failed to create cache subdirectory: {}", e))?;
+                .map_err(|e| cache_io_error("Failed to create cache subdirectory", e))?;
         }
 
         // 写入文件
         let mut file = fs::File::create(&cache_path)
             .await
-            .map_err(|e| format!("Failed to create cache file: {}", e))?;
+            .map_err(|e| cache_io_error("Failed to create cache file", e))?;
 
         file.write_all(&data)
             .await
-            .map_err(|e| format!("Failed to write cache file: {}", e))?;
+            .map_err(|e| cache_io_error("Failed to write cache file", e))?;
 
         let subdir = &filename[..2.min(filename.len())];
         let cached_url = format!("/api/brew/image-cache/{}/{}.{}", subdir, filename, ext);
@@ -261,7 +274,7 @@ impl ImageCacheService {
         if let Some(parent) = cache_path.parent() {
             fs::create_dir_all(parent)
                 .await
-                .map_err(|e| format!("Failed to create cache subdirectory: {}", e))?;
+                .map_err(|e| cache_io_error("Failed to create cache subdirectory", e))?;
         }
         let temporary_path = cache_path.with_extension(format!("{ext}.{}.tmp", Uuid::new_v4()));
         let mut file = fs::OpenOptions::new()
@@ -269,16 +282,16 @@ impl ImageCacheService {
             .create_new(true)
             .open(&temporary_path)
             .await
-            .map_err(|e| format!("Failed to create cache file: {}", e))?;
+            .map_err(|e| cache_io_error("Failed to create cache file", e))?;
         if let Err(error) = file.write_all(bytes).await {
             drop(file);
             let _ = fs::remove_file(&temporary_path).await;
-            return Err(format!("Failed to write cache file: {error}"));
+            return Err(cache_io_error("Failed to write cache file", error));
         }
         if let Err(error) = file.flush().await {
             drop(file);
             let _ = fs::remove_file(&temporary_path).await;
-            return Err(format!("Failed to flush cache file: {error}"));
+            return Err(cache_io_error("Failed to flush cache file", error));
         }
         drop(file);
         let created = match fs::hard_link(&temporary_path, &cache_path).await {
@@ -286,7 +299,7 @@ impl ImageCacheService {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
             Err(error) => {
                 let _ = fs::remove_file(&temporary_path).await;
-                return Err(format!("Failed to publish cache file: {error}"));
+                return Err(cache_io_error("Failed to publish cache file", error));
             }
         };
         let _ = fs::remove_file(&temporary_path).await;
@@ -300,7 +313,7 @@ impl ImageCacheService {
         match fs::remove_file(path).await {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(format!("Failed to remove generated image: {error}")),
+            Err(error) => Err(cache_io_error("Failed to remove generated image", error)),
         }
     }
 
@@ -441,5 +454,23 @@ mod tests {
         assert!(service
             .local_path_for_public_url("/api/brew/image-cache/aa/../passwd.png")
             .is_none());
+    }
+
+    #[test]
+    fn cache_io_error_names_cause_without_os_dump() {
+        let denied = cache_io_error(
+            "Failed to write cache file",
+            std::io::Error::new(ErrorKind::PermissionDenied, "denied (os error 13)"),
+        );
+        assert_eq!(
+            denied,
+            "Failed to write cache file: storage is not writable"
+        );
+        assert!(!denied.contains("os error"));
+        let full = cache_io_error(
+            "Failed to write cache file",
+            std::io::Error::new(ErrorKind::StorageFull, "No space left on device"),
+        );
+        assert_eq!(full, "Failed to write cache file: not enough disk space");
     }
 }

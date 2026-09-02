@@ -1,3 +1,5 @@
+import { isUselessErrorText } from './userFacingError'
+
 export interface MusicErrorFlash {
   key: string
   detail: string
@@ -5,10 +7,9 @@ export interface MusicErrorFlash {
 
 function usefulMusicDetail(message: string): string {
   const detail = message.replace(/\s+/g, ' ').trim()
-  if (!detail) return ''
-  if (/^API Error:\s*\d+$/i.test(detail)) return ''
+  if (!detail || isUselessErrorText(detail)) return ''
+  if (/网易云API|QQ音乐|copyright|地理位置/.test(detail)) return ''
   if (/^\{[\s\S]*\}$/.test(detail)) return ''
-  if (/failed to fetch|networkerror|load failed/i.test(detail)) return ''
   return detail.length > 160 ? `${detail.slice(0, 159)}…` : detail
 }
 

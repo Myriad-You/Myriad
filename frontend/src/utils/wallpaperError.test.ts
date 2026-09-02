@@ -9,10 +9,10 @@ const copy = {
 }
 
 describe('wallpaperUnknownMessage', () => {
-  it('keeps a useful Error message and drops API Error: status', () => {
+  it('maps technical load dumps and drops API Error: status', () => {
     assert.equal(
       wallpaperUnknownMessage(new Error('timeout while decoding'), copy),
-      'timeout while decoding',
+      'load-failed',
     )
     assert.equal(
       wallpaperUnknownMessage(new Error('API Error: 502'), copy),

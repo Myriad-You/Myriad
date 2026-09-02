@@ -89,11 +89,6 @@ export function getPerformanceProfileSync(): PerformanceProfile {
   return detectPerformanceProfile()
 }
 
-export function resetPerformanceProfileCache(): void {
-  hasDetected = false
-  cachedProfile = null
-}
-
 /** Sync hardware flags to <html>（生产仅 OS/高低；reason 仅 DEV） */
 function syncHardwareToDocument(profile: PerformanceProfile) {
   if (typeof document === 'undefined') return

@@ -18,7 +18,6 @@
 
 :root {
   /* 时长：一次交互只在四档里选 */
-  --sm-dur-instant: 90ms; /* 纯颜色翻转、焦点环 */
   --sm-dur-fast: 140ms; /* 悬停、按下、图标 */
   --sm-dur-base: 220ms; /* 控件状态、下拉、开关 */
   --sm-dur-slow: 320ms; /* 区块进入、层级推入、折叠 */
@@ -195,21 +194,6 @@
   }
 }
 
-/* 值发生变化的轻提示（保存成功、字段被远端更新） */
-@keyframes sm-pulse-once {
-  0% {
-    transform: scale(1);
-  }
-
-  45% {
-    transform: scale(var(--sm-scale-pop));
-  }
-
-  100% {
-    transform: scale(1);
-  }
-}
-
 /* ==========================================
    工具类
    ========================================== */
@@ -219,10 +203,6 @@
    永久留在元素上，从而成为固定定位后代（模态遮罩等）的包含块 */
 .sm-enter {
   animation: sm-enter var(--sm-dur-slow) var(--sm-ease-enter) backwards;
-}
-
-.sm-fade-in {
-  animation: sm-fade-in var(--sm-dur-base) var(--sm-ease-standard) backwards;
 }
 
 /* 层级面板：data-nav 决定推入方向，同一套时长 */
@@ -313,14 +293,6 @@ html.dark .sm-pane[data-nav] .platform-card {
   background: var(--cfg-subtle-bg-hover);
 }
 
-.sm-pop-in {
-  animation: sm-pop-in var(--sm-dur-base) var(--sm-ease-enter) backwards;
-}
-
-.sm-rise-in {
-  animation: sm-rise-in var(--sm-dur-slow) var(--sm-ease-spring) backwards;
-}
-
 /* 列表逐个进入：只给前 10 个排延迟，之后一起出（避免长列表拖尾） */
 .sm-stagger > * {
   animation: sm-enter var(--sm-dur-base) var(--sm-ease-enter) backwards;
@@ -360,15 +332,6 @@ html.dark .sm-pane[data-nav] .platform-card {
 
 .sm-stagger > :nth-child(n + 9) {
   animation-delay: calc(var(--sm-stagger) * 8);
-}
-
-/* 按下反馈：松手由 spring 收回 */
-.sm-press {
-  transition: var(--sm-t-transform);
-}
-
-.sm-press:active {
-  transform: scale(var(--sm-scale-press));
 }
 
 /* ==========================================
@@ -421,7 +384,6 @@ html.dark .sm-pane[data-nav] .platform-card {
 
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --sm-dur-instant: 1ms;
     --sm-dur-fast: 1ms;
     --sm-dur-base: 1ms;
     --sm-dur-slow: 1ms;
@@ -437,9 +399,6 @@ html.dark .sm-pane[data-nav] .platform-card {
   }
 
   .sm-enter,
-  .sm-fade-in,
-  .sm-pop-in,
-  .sm-rise-in,
   .sm-stagger > *,
   .sm-pane[data-nav],
   .sm-switch[data-phase] .config-section > * {

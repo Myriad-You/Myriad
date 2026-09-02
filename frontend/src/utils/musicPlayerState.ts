@@ -277,29 +277,42 @@ export function buildTappMediaState(detail: Record<string, unknown>) {
   }
 }
 
-/** Context 订阅层只认这些字段，禁止把 currentTime:0 等事件碎片写回全局态 */
-export const MUSIC_CONTEXT_OWNED_KEYS = [
-  'currentSong',
-  'isEnabled',
-  'isPlaying',
-  'musicColor',
-  'isTempPlay',
-  'currentSongIndex',
-  'playlistLength',
-  'playlist',
-  'lyrics',
-  'verbatimLyrics',
-  'hasVerbatimLyrics',
-  'verbatimLyricsSource',
-  'currentLyricIndex',
-] as const
+/**
+ * Context 订阅层只认这些字段，禁止把 currentTime:0 等事件碎片写回全局态。
+ *
+ * 收敛规则和字段名放在同一张表里：事件从宿主和沙箱两边来，值的类型不保证，
+ * 写回前要统一。这张表以前在 MusicPlayerContext 里手抄了两份，加字段时漏改
+ * 一处的表现是该字段静默不同步 —— 不报错、不崩，只是传不过去。
+ */
+const MUSIC_CONTEXT_COERCERS = {
+  currentSong: (v: unknown) => v ?? null,
+  isEnabled: (v: unknown) => Boolean(v),
+  isPlaying: (v: unknown) => Boolean(v),
+  musicColor: (v: unknown) => String(v || '#ef4444'),
+  isTempPlay: (v: unknown) => Boolean(v),
+  currentSongIndex: (v: unknown) => Number(v) || 0,
+  playlistLength: (v: unknown) => Number(v) || 0,
+  playlist: (v: unknown) => v || [],
+  lyrics: (v: unknown) => v || [],
+  verbatimLyrics: (v: unknown) => v || [],
+  hasVerbatimLyrics: (v: unknown) => Boolean(v),
+  verbatimLyricsSource: (v: unknown) => v || '',
+  currentLyricIndex: (v: unknown) => (typeof v === 'number' ? v : -1),
+} as const
 
+export type MusicContextOwnedKey = keyof typeof MUSIC_CONTEXT_COERCERS
+
+export const MUSIC_CONTEXT_OWNED_KEYS = Object.keys(
+  MUSIC_CONTEXT_COERCERS,
+) as MusicContextOwnedKey[]
+
+/** 挑出 Context 拥有的字段并按上表收敛；未出现的键不会进结果。 */
 export function pickMusicContextState(
   detail: Record<string, unknown>,
-): Partial<Record<(typeof MUSIC_CONTEXT_OWNED_KEYS)[number], unknown>> {
+): Partial<Record<MusicContextOwnedKey, unknown>> {
   const out: Record<string, unknown> = {}
   for (const key of MUSIC_CONTEXT_OWNED_KEYS) {
-    if (key in detail) out[key] = detail[key]
+    if (key in detail) out[key] = MUSIC_CONTEXT_COERCERS[key](detail[key])
   }
   return out
 }

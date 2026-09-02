@@ -26,6 +26,7 @@
 | **存储/全局设置**  | ✅ 完整，含 `getAll`/`usage`                   | ✅ 相同                  |
 | **实例设置 / invalidate** | ✅ `getInstanceSettings` / `updateInstanceSettings` / **`invalidate`** | ❌ **仅 Widget 沙箱**（Page 的 `Tapp.widget` 是 register 系列；headless 无 `Tapp.widget`） |
 | **UI/用户/上下文** | ✅ 主题、通知、语言、角色和运行上下文；**`Tapp.ui.openUrl` / `listOpenUrls`**（需 `ui:openUrl` + `openUrls`） | ✅ 另含 fullscreen/title；同样支持 openUrl |
+| **人设名片**       | ✅ `Tapp.persona.get`（无需权限；只读名字、心情带、同源立绘路径） | ✅ 相同                  |
 | **DOM**            | ✅ 与 Full 共用安全 helper                     | ✅ 相同                  |
 | **包内资源**       | ✅ `Tapp.assets`（list / getUrl / getArrayBuffer / revoke） | ✅ 相同       |
 | **AI**             | ✅ Manifest 声明的 AI Task                     | ✅ 相同                  |

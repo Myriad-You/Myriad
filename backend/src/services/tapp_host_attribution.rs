@@ -51,6 +51,7 @@ pub enum HostDomain {
 }
 
 impl HostDomain {
+    #[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Speech => "speech",
@@ -68,6 +69,7 @@ impl HostDomain {
         }
     }
 
+    #[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
     pub const ALL: [Self; 3] = [Self::Speech, Self::Brew, Self::Federation];
 }
 
@@ -99,6 +101,7 @@ struct HostRouteIndex {
     brew: Vec<CompiledHostRoute>,
     federation: Vec<CompiledHostRoute>,
     /// Full fixture rows (for reverse coverage tests / introspection).
+    #[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
     entries: Vec<HostRouteEntry>,
 }
 
@@ -200,11 +203,13 @@ pub fn federation_permission(method: &str, path: &str) -> Option<TappPermission>
 }
 
 /// Compiled routes for a domain (fixture partition).
+#[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
 pub fn routes_for_domain(domain: HostDomain) -> &'static [CompiledHostRoute] {
     routes_slice(domain)
 }
 
 /// All fixture rows in load order.
+#[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
 pub fn fixture_entries() -> &'static [HostRouteEntry] {
     &HOST_ROUTE_INDEX.entries
 }

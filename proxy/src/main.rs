@@ -39,9 +39,10 @@ use tracing::{info, warn};
 const MAINT_CACHE_TTL: Duration = Duration::from_millis(250);
 
 /// Document-level Permissions-Policy. Must match backend `security.rs` and
-/// frontend `serve.json`: allow first-party geolocation (weather), keep mic/cam off.
+/// frontend Astro `DOCUMENT_PERMISSIONS_POLICY`: first-party geolocation (weather)
+/// and microphone (listen/speak); camera stays off.
 /// Applied on proxy responses when upstream omitted it (static frontend often does).
-const PERMISSIONS_POLICY: &str = "geolocation=(self), microphone=(), camera=()";
+const PERMISSIONS_POLICY: &str = "geolocation=(self), microphone=(self), camera=()";
 
 #[derive(Clone)]
 struct AppState {

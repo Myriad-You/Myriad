@@ -32,13 +32,14 @@ import { Spinner } from '../../components/Spinner'
 import { API_URL as CONFIG_API_URL } from '../../config'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
 // 统一动画调度器
 import { isPageVisible, startPage } from '../../hooks/animation'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 // CSRF 防护
 import { getCSRFToken } from '../../utils/csrf'
 import { getUIConfigDeduped } from '../../utils/requestDedup'
+import { showError } from '../../utils/toastManager'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   HOST_PANEL_STORE_ID,
   isHostPanelId,
@@ -769,6 +770,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   >('all')
   const [launchpadPage, setLaunchpadPage] = useState(0)
   const [savedSchemes, setSavedSchemes] = useState<WindowScheme[]>([])
+  const [schemeLoadFailed, setSchemeLoadFailed] = useState(false)
 
   // 用于防抖的 ref
   const resizeTimeoutRef = useRef<number | null>(null)
@@ -818,10 +820,12 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           const schemes = JSON.parse(data.tapp_window_schemes)
           if (Array.isArray(schemes)) {
             setSavedSchemes(schemes)
+            setSchemeLoadFailed(false)
           }
         }
       } catch (e) {
         console.warn('Failed to load window schemes from cloud:', e)
+        setSchemeLoadFailed(true)
       }
     }
     loadSchemes()
@@ -1254,34 +1258,28 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
 
   // 保存方案到云端
   const saveToCloud = useCallback(async (schemes: WindowScheme[]) => {
-    try {
-      // 获取 CSRF Token
-      const csrfToken = await getCSRFToken(true)
-      if (!csrfToken) {
-        console.warn('Failed to get CSRF token, skipping cloud save')
-        return
-      }
+    const csrfToken = await getCSRFToken(true)
+    if (!csrfToken) {
+      throw new Error('csrf token unavailable')
+    }
 
-      const response = await fetch(
-        `${API_URL}/api/config/tapp-window-schemes`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-          },
-          credentials: 'include',
-          body: JSON.stringify({
-            schemes: JSON.stringify(schemes),
-          }),
+    const response = await fetch(
+      `${API_URL}/api/config/tapp-window-schemes`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
         },
-      )
+        credentials: 'include',
+        body: JSON.stringify({
+          schemes: JSON.stringify(schemes),
+        }),
+      },
+    )
 
-      if (!response.ok) {
-        throw new Error('Failed to save to cloud')
-      }
-    } catch (e) {
-      console.warn('Failed to save window schemes to cloud:', e)
+    if (!response.ok) {
+      throw new Error(`Failed to save window schemes: HTTP ${response.status}`)
     }
   }, [])
 
@@ -1313,13 +1311,23 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     }
 
     const updatedSchemes = [...savedSchemes, newScheme]
-    setSavedSchemes(updatedSchemes)
-
-    await saveToCloud(updatedSchemes)
-
-    setIsSaving(false)
-    setShowSchemeMenu(false)
-  }, [windows, savedSchemes, isSaving, saveToCloud, t.tapp.schemeNamePrefix])
+    try {
+      await saveToCloud(updatedSchemes)
+      setSavedSchemes(updatedSchemes)
+      setShowSchemeMenu(false)
+    } catch (e) {
+      showError(userFacingError(e, t.tapp.schemeSaveFailed))
+    } finally {
+      setIsSaving(false)
+    }
+  }, [
+    windows,
+    savedSchemes,
+    isSaving,
+    saveToCloud,
+    t.tapp.schemeNamePrefix,
+    t.tapp.schemeSaveFailed,
+  ])
 
   // 加载窗口方案
   const loadScheme = useCallback(
@@ -1442,11 +1450,14 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   const deleteScheme = useCallback(
     async (schemeId: string) => {
       const updatedSchemes = savedSchemes.filter((s) => s.id !== schemeId)
-      setSavedSchemes(updatedSchemes)
-
-      await saveToCloud(updatedSchemes)
+      try {
+        await saveToCloud(updatedSchemes)
+        setSavedSchemes(updatedSchemes)
+      } catch (e) {
+        showError(userFacingError(e, t.tapp.schemeSaveFailed))
+      }
     },
-    [savedSchemes, saveToCloud],
+    [savedSchemes, saveToCloud, t.tapp.schemeSaveFailed],
   )
 
   // Dock 快捷槽：最多 MAX_DOCK_APPS；已打开优先。应用面板入口常显，面板内始终列全部。
@@ -1861,12 +1872,14 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                             </div>
                           ))}
                         </div>
-                      ) : windows.length === 0 ? (
+                      ) : schemeLoadFailed || windows.length === 0 ? (
                         <div
                           className="px-4 py-5 text-center text-sm"
                           style={{ color: 'var(--text-muted)' }}
                         >
-                          {t.tapp.noSavedSchemes}
+                          {schemeLoadFailed
+                            ? t.tapp.schemeLoadFailed
+                            : t.tapp.noSavedSchemes}
                         </div>
                       ) : null}
                     </motion.div>

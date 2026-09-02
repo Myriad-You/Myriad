@@ -32,8 +32,8 @@ import {
 } from '@lib/icons'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
 import { federationApi } from '../../services/federationApi'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   AutoHeight,
   FieldSelect,

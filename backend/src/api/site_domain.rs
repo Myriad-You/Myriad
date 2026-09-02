@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 use axum::{extract::State, http::StatusCode, Json};
@@ -341,6 +342,21 @@ pub fn load_durable_site_public_env() {
     }
 }
 
+fn site_env_io_failed(action: &'static str, path: &Path, error: std::io::Error) -> String {
+    tracing::error!(%error, action, path = %path.display(), "site env io failed");
+    let cause = match error.kind() {
+        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => "storage is not writable",
+        ErrorKind::StorageFull => "not enough disk space",
+        ErrorKind::NotFound => "path not found",
+        _ => "",
+    };
+    if cause.is_empty() {
+        format!("{action}: {}", path.display())
+    } else {
+        format!("{action}: {cause} · {}", path.display())
+    }
+}
+
 fn write_and_reload_env(content: &str) -> Result<(), String> {
     let normalized = content.replace("\r\n", "\n");
     let paths = env_write_paths();
@@ -350,7 +366,11 @@ fn write_and_reload_env(content: &str) -> Result<(), String> {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
                 if let Err(e) = fs::create_dir_all(parent) {
-                    last_err = Some(format!("Failed to create {}: {e}", parent.display()));
+                    last_err = Some(site_env_io_failed(
+                        "Failed to create configuration directory",
+                        parent,
+                        e,
+                    ));
                     continue;
                 }
             }
@@ -361,7 +381,7 @@ fn write_and_reload_env(content: &str) -> Result<(), String> {
                 wrote_any = true;
             }
             Err(e) => {
-                last_err = Some(format!("Failed to write {}: {e}", path.display()));
+                last_err = Some(site_env_io_failed("Failed to write configuration", path, e));
             }
         }
     }
@@ -464,14 +484,13 @@ pub async fn change_site_domain(
                 match fs::read(&path) {
                     Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
                     Err(e2) => {
-                        tracing::error!("Failed to read .env: {e2}");
+                        let message = site_env_io_failed("Failed to read configuration", &path, e2);
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(json!({
                                 "success": false,
-                                "error": "Failed to read configuration file",
-                                "code": "config_file_permission",
-                                "message": "Failed to read configuration file",
+                                "error": message,
+                                "code": "config_file_read_failed",
                             })),
                         );
                     }
@@ -510,14 +529,13 @@ pub async fn change_site_domain(
     let cors_value = read_env_key(&updated, "CORS_ORIGINS").unwrap_or_default();
 
     if let Err(e) = write_and_reload_env(&updated) {
-        tracing::error!("{e}");
+        tracing::error!(error = %e, "Failed to write site domain configuration");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "error": "Failed to write configuration file",
+                "error": e,
                 "code": "config_file_permission",
-                "message": "Failed to write configuration file",
             })),
         );
     }
@@ -685,5 +703,34 @@ JWT_SECRET=keep-me
             read_env_key(content, "BASE_URL").as_deref(),
             Some("https://live.example")
         );
+    }
+
+    #[test]
+    fn site_env_io_failed_keeps_path_and_cause_without_os_dump() {
+        use std::io::Error;
+        use std::path::PathBuf;
+
+        let path = PathBuf::from("/data/site_public.env");
+        let full = site_env_io_failed(
+            "Failed to write configuration",
+            &path,
+            Error::from(ErrorKind::StorageFull),
+        );
+        assert_eq!(
+            full,
+            "Failed to write configuration: not enough disk space · /data/site_public.env"
+        );
+        assert!(!full.contains("os error"));
+
+        let denied = site_env_io_failed(
+            "Failed to read configuration",
+            &path,
+            Error::from(ErrorKind::PermissionDenied),
+        );
+        assert_eq!(
+            denied,
+            "Failed to read configuration: storage is not writable · /data/site_public.env"
+        );
+        assert_ne!(full, denied);
     }
 }

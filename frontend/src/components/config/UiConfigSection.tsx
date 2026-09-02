@@ -19,7 +19,6 @@ import React, { useCallback, useMemo, useState } from 'react'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { getCSRFToken } from '../../utils/csrf'
-import { httpStatusMessage, userFacingError } from '../../utils/userFacingError'
 import {
   emptyFooterCustomItem,
   FOOTER_CUSTOM_MAX,
@@ -27,6 +26,7 @@ import {
   parseFooterCustomSlots,
   serializeFooterCustom,
 } from '../../utils/footerCustomLogic'
+import { httpStatusMessage, userFacingError } from '../../utils/userFacingError'
 import {
   CheckboxGroupItem,
   InputItem,

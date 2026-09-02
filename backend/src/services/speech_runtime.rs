@@ -7,6 +7,10 @@ use crate::GLOBAL_DYNAMIC_CONFIG;
 
 use super::gemini_media::{self, GeminiMediaError};
 use super::http_client::ProxyConfig;
+use super::minimax_speech::{
+    is_minimax_vendor, MiniMaxSpeech, MiniMaxSpeechError, DEFAULT_MINIMAX_HOST,
+    DEFAULT_MINIMAX_TTS_MODEL, DEFAULT_MINIMAX_VOICE,
+};
 use super::openai_compatible_speech::{
     openrouter_official_tts_unavailable, OpenAiCompatibleSpeech, OpenAiSpeechError,
 };
@@ -14,7 +18,6 @@ use super::tencent_speech_service::{
     AsrRequest, TencentSpeechError, TencentSpeechService, TtsRequest,
 };
 
-pub const OPENAI_SPEECH_BASE_URL: &str = "https://api.openai.com/v1";
 pub const OPENROUTER_SPEECH_BASE_URL: &str = "https://openrouter.ai/api/v1";
 pub const DEFAULT_OPENAI_STT_MODEL: &str = "gpt-transcribe";
 pub const DEFAULT_OPENAI_TTS_MODEL: &str = "gpt-4o-mini-tts";
@@ -27,6 +30,7 @@ pub enum SpeechProviderKind {
     OpenAi,
     OpenRouter,
     Gemini,
+    MiniMax,
 }
 
 impl SpeechProviderKind {
@@ -36,6 +40,7 @@ impl SpeechProviderKind {
             Self::OpenAi => "openai",
             Self::OpenRouter => "openrouter",
             Self::Gemini => "gemini",
+            Self::MiniMax => "minimax",
         }
     }
 
@@ -44,6 +49,7 @@ impl SpeechProviderKind {
             "openai" | "openai_compatible" => Self::OpenAi,
             "openrouter" => Self::OpenRouter,
             "gemini" => Self::Gemini,
+            "minimax" => Self::MiniMax,
             _ => Self::Tencent,
         }
     }
@@ -77,6 +83,9 @@ pub struct SpeechTestResult {
 pub async fn configured_provider() -> SpeechProviderKind {
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
     if let Some(source) = config.find_vendor_source(&config.speech_source) {
+        if is_minimax_vendor(&source) {
+            return SpeechProviderKind::MiniMax;
+        }
         return SpeechProviderKind::parse(&source.kind);
     }
     SpeechProviderKind::parse(&config.speech_provider)
@@ -143,6 +152,29 @@ pub async fn speech_probe() -> SpeechProbe {
                 error: Some(gemini_message(&e)),
             },
         },
+        SpeechProviderKind::MiniMax => match resolve_minimax_speech().await {
+            Ok(_) => {
+                let asr_enabled = fallback_asr_available().await;
+                SpeechProbe {
+                    provider: provider.as_str().to_string(),
+                    available: true,
+                    tts_enabled: true,
+                    asr_enabled,
+                    error: if asr_enabled {
+                        None
+                    } else {
+                        Some("Listening needs Tencent Cloud, OpenAI, or Gemini".to_string())
+                    },
+                }
+            }
+            Err(e) => SpeechProbe {
+                provider: provider.as_str().to_string(),
+                available: false,
+                tts_enabled: false,
+                asr_enabled: false,
+                error: Some(minimax_message(&e)),
+            },
+        },
     }
 }
 
@@ -185,6 +217,35 @@ pub async fn synthesize_openai_tts(text: &str, codec: &str) -> Result<(Vec<u8>, 
         .map_err(|e| openai_message(&e));
     let provider = configured_provider().await;
     note_tts(provider.as_str(), &resolved.tts_model, text, audio.is_ok()).await;
+    Ok((audio?, resolved.voice))
+}
+
+pub async fn synthesize_minimax_tts(
+    text: &str,
+    codec: &str,
+    sample_rate: i32,
+    speed: Option<f32>,
+    volume: Option<f32>,
+    emotion: Option<&str>,
+) -> Result<(Vec<u8>, String), String> {
+    let resolved = resolve_minimax_speech()
+        .await
+        .map_err(|e| minimax_message(&e))?;
+    let audio = resolved
+        .client
+        .text_to_speech(
+            text,
+            &resolved.tts_model,
+            &resolved.voice,
+            codec,
+            sample_rate,
+            speed,
+            volume,
+            emotion,
+        )
+        .await
+        .map_err(|e| minimax_message(&e));
+    note_tts("minimax", &resolved.tts_model, text, audio.is_ok()).await;
     Ok((audio?, resolved.voice))
 }
 
@@ -248,6 +309,10 @@ pub async fn transcribe_bytes(
             )
             .await
             .map_err(|e| gemini_message(&e));
+            (model, result)
+        }
+        SpeechProviderKind::MiniMax => {
+            let (model, result) = fallback_transcribe_bytes(audio, format, language).await;
             (model, result)
         }
     };
@@ -369,6 +434,12 @@ pub async fn test_speech_roundtrip() -> SpeechTestResult {
             Ok(bytes) => BASE64.encode(bytes),
             Err(e) => return fail(provider, e),
         },
+        SpeechProviderKind::MiniMax => {
+            match synthesize_minimax_tts(phrase, "mp3", 16000, None, None, None).await {
+                Ok((bytes, _)) => BASE64.encode(bytes),
+                Err(e) => return fail(provider, e),
+            }
+        }
     };
 
     let decoded = match BASE64.decode(&tts) {
@@ -455,6 +526,220 @@ async fn resolve_gemini_speech() -> Result<ResolvedGeminiSpeech, GeminiMediaErro
     })
 }
 
+struct ResolvedMiniMaxSpeech {
+    client: MiniMaxSpeech,
+    tts_model: String,
+    voice: String,
+}
+
+async fn resolve_minimax_speech() -> Result<ResolvedMiniMaxSpeech, MiniMaxSpeechError> {
+    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+    let source = if config.speech_source.trim().is_empty() {
+        None
+    } else {
+        config.find_vendor_source(&config.speech_source)
+    };
+    let source = source.filter(|item| is_minimax_vendor(item)).or_else(|| {
+        config
+            .ai_vendor_sources
+            .iter()
+            .find(|item| item.enabled && is_minimax_vendor(item))
+            .cloned()
+    });
+    let api_key = source
+        .as_ref()
+        .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.api_key.as_ref()))
+        .ok_or(MiniMaxSpeechError::ApiKeyNotConfigured)?;
+    let base_url = source
+        .as_ref()
+        .map(|item| item.base_url.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .unwrap_or_else(|| DEFAULT_MINIMAX_HOST.to_string());
+    let tts_model = if config.speech_tts_model.trim().is_empty() {
+        DEFAULT_MINIMAX_TTS_MODEL.to_string()
+    } else {
+        config.speech_tts_model.trim().to_string()
+    };
+    let voice = if config.speech_tts_voice.trim().is_empty() {
+        DEFAULT_MINIMAX_VOICE.to_string()
+    } else {
+        config.speech_tts_voice.trim().to_string()
+    };
+    drop(config);
+    let proxy = ProxyConfig::from_dynamic_config().await;
+    let client = MiniMaxSpeech::new(api_key, base_url, &proxy)?;
+    Ok(ResolvedMiniMaxSpeech {
+        client,
+        tts_model,
+        voice,
+    })
+}
+
+async fn fallback_asr_available() -> bool {
+    TencentSpeechService::from_any_configured().await.is_ok()
+        || fallback_openai_stt().await.is_ok()
+        || fallback_gemini_stt().await.is_ok()
+}
+
+async fn fallback_transcribe_bytes(
+    audio: Vec<u8>,
+    format: &str,
+    language: Option<&str>,
+) -> (String, Result<String, String>) {
+    if let Ok(service) = TencentSpeechService::from_any_configured().await {
+        let engine = match language.unwrap_or("zh") {
+            code if code.starts_with("en") => "16k_en",
+            code if code.starts_with("ja") => "16k_ja",
+            _ => "16k_zh",
+        };
+        let request = AsrRequest {
+            eng_ser_vice_type: engine.to_string(),
+            source_type: 1,
+            voice_format: format.to_string(),
+            data: Some(BASE64.encode(&audio)),
+            data_len: Some(audio.len() as i32),
+            ..Default::default()
+        };
+        let result = service
+            .speech_to_text(request)
+            .await
+            .map(|response| response.result.unwrap_or_default())
+            .map_err(|e| tencent_message(&e));
+        return (engine.to_string(), result);
+    }
+    if let Ok(resolved) = fallback_openai_stt().await {
+        let filename = format!("speech.{format}");
+        let mime = audio_mime(format);
+        let model = resolved.stt_model.clone();
+        let result = resolved
+            .client
+            .speech_to_text(audio, &filename, mime, &resolved.stt_model, language)
+            .await
+            .map_err(|e| openai_message(&e));
+        return (model, result);
+    }
+    if let Ok(resolved) = fallback_gemini_stt().await {
+        let model = resolved.stt_model.clone();
+        let result = gemini_media::speech_to_text(
+            &resolved.base_url,
+            &resolved.api_key,
+            &resolved.stt_model,
+            audio,
+            audio_mime(format),
+            language,
+        )
+        .await
+        .map_err(|e| gemini_message(&e));
+        return (model, result);
+    }
+    (
+        "none".to_string(),
+        Err("Listening needs Tencent Cloud, OpenAI, or Gemini".to_string()),
+    )
+}
+
+struct FallbackOpenAiStt {
+    client: OpenAiCompatibleSpeech,
+    stt_model: String,
+}
+
+async fn fallback_openai_stt() -> Result<FallbackOpenAiStt, OpenAiSpeechError> {
+    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+    let source = config.ai_vendor_sources.iter().find(|item| {
+        item.enabled
+            && !is_minimax_vendor(item)
+            && matches!(
+                item.kind.trim().to_ascii_lowercase().as_str(),
+                "openai" | "openrouter" | "openai_compatible"
+            )
+            && crate::config::DynamicConfig::nonempty_opt(item.api_key.as_ref()).is_some()
+    });
+    let (api_key, base_url, stt_model, referer) = if let Some(source) = source {
+        let kind = SpeechProviderKind::parse(&source.kind);
+        let key =
+            crate::config::DynamicConfig::nonempty_opt(source.api_key.as_ref()).unwrap_or_default();
+        let base = source.base_url.trim().to_string();
+        if kind == SpeechProviderKind::OpenRouter {
+            (
+                key,
+                if base.is_empty() {
+                    OPENROUTER_SPEECH_BASE_URL.to_string()
+                } else {
+                    base
+                },
+                DEFAULT_OPENROUTER_STT_MODEL.to_string(),
+                config.base_url.clone(),
+            )
+        } else {
+            (
+                key,
+                if base.is_empty() {
+                    config.shared_openai_base_url()
+                } else {
+                    base
+                },
+                DEFAULT_OPENAI_STT_MODEL.to_string(),
+                None,
+            )
+        }
+    } else if let Some(key) = config.shared_openai_api_key() {
+        (
+            key,
+            config.shared_openai_base_url(),
+            DEFAULT_OPENAI_STT_MODEL.to_string(),
+            None,
+        )
+    } else if let Some(key) = config.shared_openrouter_api_key() {
+        (
+            key,
+            OPENROUTER_SPEECH_BASE_URL.to_string(),
+            DEFAULT_OPENROUTER_STT_MODEL.to_string(),
+            config.base_url.clone(),
+        )
+    } else {
+        return Err(OpenAiSpeechError::ApiKeyNotConfigured);
+    };
+    drop(config);
+    let proxy = ProxyConfig::from_dynamic_config().await;
+    let client = OpenAiCompatibleSpeech::new(api_key, base_url, &proxy, referer)?;
+    Ok(FallbackOpenAiStt { client, stt_model })
+}
+
+async fn fallback_gemini_stt() -> Result<ResolvedGeminiSpeech, GeminiMediaError> {
+    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+    let api_key = config
+        .ai_vendor_sources
+        .iter()
+        .find(|item| item.enabled && item.kind.trim().eq_ignore_ascii_case("gemini"))
+        .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.api_key.as_ref()))
+        .or_else(|| config.shared_gemini_api_key())
+        .ok_or_else(|| {
+            GeminiMediaError::NotConfigured("Gemini API key is not configured".to_string())
+        })?;
+    let base_url = config
+        .ai_vendor_sources
+        .iter()
+        .find(|item| item.enabled && item.kind.trim().eq_ignore_ascii_case("gemini"))
+        .map(|item| item.base_url.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .or_else(|| {
+            config
+                .gemini_base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "https://generativelanguage.googleapis.com".to_string());
+    Ok(ResolvedGeminiSpeech {
+        api_key,
+        base_url,
+        stt_model: "gemini-3.6-flash".to_string(),
+        tts_model: String::new(),
+        voice: String::new(),
+    })
+}
+
 struct ResolvedOpenAiSpeech {
     client: OpenAiCompatibleSpeech,
     stt_model: String,
@@ -462,25 +747,6 @@ struct ResolvedOpenAiSpeech {
     voice: String,
     tts_available: bool,
     tts_skip_reason: Option<String>,
-}
-
-pub fn selected_speech_source(
-) -> impl std::future::Future<Output = Option<crate::config::AiVendorSource>> {
-    async {
-        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-        let slug = if config.speech_source.trim().is_empty() {
-            match SpeechProviderKind::parse(&config.speech_provider) {
-                SpeechProviderKind::OpenRouter => "openrouter",
-                SpeechProviderKind::OpenAi => "openai",
-                SpeechProviderKind::Gemini => "gemini",
-                SpeechProviderKind::Tencent => "tencent",
-            }
-            .to_string()
-        } else {
-            config.speech_source.clone()
-        };
-        config.find_vendor_source(&slug)
-    }
 }
 
 async fn resolve_openai_speech() -> Result<ResolvedOpenAiSpeech, OpenAiSpeechError> {
@@ -533,7 +799,7 @@ async fn resolve_openai_speech() -> Result<ResolvedOpenAiSpeech, OpenAiSpeechErr
             DEFAULT_OPENAI_TTS_VOICE,
             None,
         ),
-        SpeechProviderKind::Tencent | SpeechProviderKind::Gemini => {
+        SpeechProviderKind::Tencent | SpeechProviderKind::Gemini | SpeechProviderKind::MiniMax => {
             return Err(OpenAiSpeechError::ApiKeyNotConfigured);
         }
     };
@@ -617,6 +883,22 @@ fn openai_message(error: &OpenAiSpeechError) -> String {
     }
 }
 
+fn minimax_message(error: &MiniMaxSpeechError) -> String {
+    match error {
+        MiniMaxSpeechError::ApiKeyNotConfigured => "Speech service is not configured".to_string(),
+        MiniMaxSpeechError::NetworkError(_) => "Speech service is unreachable".to_string(),
+        MiniMaxSpeechError::ApiError { message } => {
+            if message.trim().is_empty() {
+                "Speech service request failed".to_string()
+            } else {
+                message.clone()
+            }
+        }
+        MiniMaxSpeechError::InvalidAudioData(_) => "Invalid audio data".to_string(),
+        MiniMaxSpeechError::TextTooLong => "Speech text is too long".to_string(),
+    }
+}
+
 fn fail(provider: SpeechProviderKind, error: String) -> SpeechTestResult {
     SpeechTestResult {
         success: false,
@@ -648,6 +930,10 @@ mod tests {
         assert_eq!(
             SpeechProviderKind::parse("gemini"),
             SpeechProviderKind::Gemini
+        );
+        assert_eq!(
+            SpeechProviderKind::parse("minimax"),
+            SpeechProviderKind::MiniMax
         );
     }
 

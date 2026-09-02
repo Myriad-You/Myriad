@@ -91,8 +91,10 @@ impl McpServer {
 
         let result = transport.send_request("initialize", Some(params)).await?;
 
-        let init_result: McpInitializeResult = serde_json::from_value(result)
-            .map_err(|e| format!("Invalid initialize response: {}", e))?;
+        let init_result: McpInitializeResult = serde_json::from_value(result).map_err(|error| {
+            tracing::warn!(%error, "Invalid MCP initialize response");
+            "Invalid MCP initialize response".to_string()
+        })?;
 
         tracing::debug!(
             server = %self.config.id,
@@ -119,8 +121,10 @@ impl McpServer {
             tools: Vec<McpToolDef>,
         }
 
-        let tools_result: ToolsListResult = serde_json::from_value(result)
-            .map_err(|e| format!("Invalid tools/list response: {}", e))?;
+        let tools_result: ToolsListResult = serde_json::from_value(result).map_err(|error| {
+            tracing::warn!(%error, "Invalid MCP tools/list response");
+            "Invalid MCP tools/list response".to_string()
+        })?;
 
         tracing::debug!(
             server = %self.config.id,
@@ -140,9 +144,15 @@ impl McpServer {
         arguments: serde_json::Value,
     ) -> Result<String, String> {
         if self.state != ServerState::Ready {
+            let state = match &self.state {
+                ServerState::Stopped => "stopped",
+                ServerState::Starting => "starting",
+                ServerState::Ready => "ready",
+                ServerState::Failed(_) => "failed",
+            };
             return Err(format!(
-                "MCP server '{}' is not ready (state: {:?})",
-                self.config.id, self.state
+                "MCP server '{}' is not ready ({state})",
+                self.config.id
             ));
         }
 
@@ -155,8 +165,10 @@ impl McpServer {
 
         let result = transport.send_request("tools/call", Some(params)).await?;
 
-        let call_result: McpToolCallResult = serde_json::from_value(result)
-            .map_err(|e| format!("Invalid tools/call response: {}", e))?;
+        let call_result: McpToolCallResult = serde_json::from_value(result).map_err(|error| {
+            tracing::warn!(%error, "Invalid MCP tools/call response");
+            "Invalid MCP tools/call response".to_string()
+        })?;
 
         if call_result.is_error {
             let error_text = call_result
@@ -165,7 +177,15 @@ impl McpServer {
                 .filter_map(|c| c.text.as_deref())
                 .collect::<Vec<_>>()
                 .join("\n");
-            return Err(format!("MCP tool error: {}", error_text));
+            let keep = error_text.trim();
+            if keep.is_empty()
+                || keep.starts_with('{')
+                || keep.contains("at line ")
+                || keep.len() > 160
+            {
+                return Err("MCP tool failed".to_string());
+            }
+            return Err(format!("MCP tool failed: {keep}"));
         }
 
         // 提取文本内容

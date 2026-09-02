@@ -426,16 +426,3 @@ html.dark .setting-group-header-toggle:hover .setting-group-chevron {
 .settings-stack > .setting-item {
   margin-bottom: 0;
 }
-
-/* 带边框的分组：内层 → 微透 */
-.setting-group.bordered .setting-group-content {
-  padding: 1rem;
-  background: var(--cfg-subtle-bg);
-  border: 1px solid var(--cfg-subtle-border);
-  border-radius: 0.75rem;
-}
-
-html.dark .setting-group.bordered .setting-group-content {
-  background: var(--cfg-subtle-bg);
-  border-color: var(--cfg-subtle-border);
-}

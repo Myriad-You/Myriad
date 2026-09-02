@@ -1,33 +1,36 @@
+import type {
+  StructuredPersona,
+  UpperBodyVisualIdentity,
+  UpperBodyVisualIdentityKey,
+} from '../../components/agent/onboarding/onboardingTypes'
+import type { AgentPersona } from '../../services/agent/agentApi'
 import type { RigCharacterHandle } from './rig/RigCharacter'
 import type { MeropeRigManifest } from './rig/types'
 import type { MeropeActivity } from './types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  activityKey,
+  ADDRESSEE_UPDATED_EVENT,
+  moodBand,
+} from '../../components/agent/meropeVitals'
+import { generationFailureMessage } from '../../components/agent/onboarding/generationError'
+import {
   flattenPersona,
   parseFlattenedPersona,
   personaFromApi,
   visualIdentityFromProfile,
-  type StructuredPersona,
-  type UpperBodyVisualIdentity,
-  type UpperBodyVisualIdentityKey,
 } from '../../components/agent/onboarding/onboardingTypes'
 import PersonaIdentityView from '../../components/agent/onboarding/ui/PersonaIdentityView'
 import PersonaImportPanel from '../../components/agent/onboarding/ui/PersonaImportPanel'
 import PortraitImportButton from '../../components/agent/onboarding/ui/PortraitImportButton'
 import VisualIdentityView from '../../components/agent/onboarding/ui/VisualIdentityView'
-import {
-  ADDRESSEE_UPDATED_EVENT,
-  activityKey,
-  moodBand,
-} from '../../components/agent/meropeVitals'
 import { SettingsButton, ToggleSwitch } from '../../components/settings'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
 import { agentService } from '../../services/agent'
-import type { AgentPersona } from '../../services/agent/agentApi'
+import { userFacingError } from '../../utils/userFacingError'
 import Anime25DWorkbench from './anime25drig/Anime25DWorkbench'
-import { generationFailureMessage } from '../../components/agent/onboarding/generationError'
+import { isAnime25DPlayback } from './anime25drig/types'
 import {
   decomposeSitePortraitWithSeeThrough,
   generateSitePortrait,
@@ -35,14 +38,10 @@ import {
   getSiteFace,
   updateSeeThroughToken,
 } from './api'
-import {
-  commitRigPsdAsset,
-  preflightRigPsdAsset,
-} from './assets/pipeline'
+import { commitRigPsdAsset, preflightRigPsdAsset } from './assets/pipeline'
 import { notifyFaceUpdated } from './events'
-import { isAnime25DPlayback } from './anime25drig/types'
+import { useRigPreviewMotionLifecycle } from './motion/useRigMotionLifecycle'
 import RigCharacter from './rig/RigCharacter'
-import { useRigSpeechLifecycle } from './useRigSpeechLifecycle'
 import './merope.css'
 import './merope-motion-home.css'
 
@@ -76,19 +75,23 @@ function structuredFromSnapshot(
 
 interface Props {
   mood: number
+  arousal?: number
   activity: string
 }
 
-export default function SiteMotionWorkbench({ mood, activity }: Props) {
+export default function SiteMotionWorkbench({
+  mood,
+  arousal,
+  activity,
+}: Props) {
   const { t } = useI18n()
-  const [rigManifest, setRigManifest] = useState<MeropeRigManifest | null>(
-    null,
-  )
+  const [rigManifest, setRigManifest] = useState<MeropeRigManifest | null>(null)
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null)
   const [generationFingerprint, setGenerationFingerprint] = useState<
     string | null
   >(null)
-  const [seeThroughTokenConfigured, setSeeThroughTokenConfigured] = useState(false)
+  const [seeThroughTokenConfigured, setSeeThroughTokenConfigured] =
+    useState(false)
   const [error, setError] = useState('')
   const [generating, setGenerating] = useState(false)
   const [visualIdentity, setVisualIdentity] =
@@ -104,7 +107,11 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
     useState<StructuredPersona | null>(null)
   const [studioHost, setStudioHost] = useState<HTMLDivElement | null>(null)
   const rigCharacterRef = useRef<RigCharacterHandle>(null)
-  useRigSpeechLifecycle(rigCharacterRef)
+  useRigPreviewMotionLifecycle(rigCharacterRef, {
+    mood,
+    arousal,
+    activity: toMeropeActivity(activity),
+  })
   const o = t.agentPersona.onboarding
   const visualLabels: Record<UpperBodyVisualIdentityKey, string> = {
     faceDesign: o.visualFaceDesign,
@@ -130,15 +137,14 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    void loadFace()
-      .catch((reason) => {
-        if (!cancelled) {
-          setRigManifest(null)
-          setPortraitUrl(null)
-          setGenerationFingerprint(null)
-          setError(userFacingError(reason, t.merope.loadFailed))
-        }
-      })
+    void loadFace().catch((reason) => {
+      if (!cancelled) {
+        setRigManifest(null)
+        setPortraitUrl(null)
+        setGenerationFingerprint(null)
+        setError(userFacingError(reason, t.merope.loadFailed))
+      }
+    })
     return () => {
       cancelled = true
     }
@@ -182,13 +188,13 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
       .catch((reason) => {
         if (!cancelled) {
           setSeeThroughTokenConfigured(false)
-          setError(userFacingError(reason, t.merope.loadFailed))
+          setError(userFacingError(reason, t.merope.seeThroughStatusFailed))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [t.merope.loadFailed])
+  }, [t.merope.seeThroughStatusFailed])
 
   const saveVisualIdentity = useCallback(
     async (next: UpperBodyVisualIdentity) => {
@@ -282,12 +288,12 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
         applyAddressee(await agentService.putAddressee({ doNotDisturb: next }))
       } catch (reason) {
         setDoNotDisturb(previous)
-        setError(userFacingError(reason, t.merope.loadFailed))
+        setError(userFacingError(reason, t.errors.addresseeSaveFailed))
       } finally {
         setDndBusy(false)
       }
     },
-    [applyAddressee, doNotDisturb, t.merope.loadFailed],
+    [applyAddressee, doNotDisturb, t.errors.addresseeSaveFailed],
   )
 
   const saveDndSchedule = useCallback(
@@ -301,12 +307,12 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
           }),
         )
       } catch (reason) {
-        setError(userFacingError(reason, t.merope.loadFailed))
+        setError(userFacingError(reason, t.errors.addresseeSaveFailed))
       } finally {
         setDndBusy(false)
       }
     },
-    [applyAddressee, t.merope.loadFailed],
+    [applyAddressee, t.errors.addresseeSaveFailed],
   )
 
   const generatePortrait = useCallback(async () => {
@@ -378,7 +384,7 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
   }, [])
 
   const decomposeRigPsd = useCallback(async () => {
-    if (!portraitUrl) throw new Error(t.merope.visualFailed)
+    if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
     return decomposeSitePortraitWithSeeThrough({
       sourceMasterAssetId: portraitUrl,
       sourceGenerationFingerprint: generationFingerprint || undefined,
@@ -386,7 +392,7 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
       seed: 42,
       splitArmsAndLegs: true,
     })
-  }, [generationFingerprint, portraitUrl, t.merope.visualFailed])
+  }, [generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait])
 
   const commitRigPsd = useCallback(
     async (
@@ -409,7 +415,7 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
     if (!portraitUrl) return
     try {
       const response = await fetch(portraitUrl)
-      if (!response.ok) throw new Error(t.merope.visualFailed)
+      if (!response.ok) throw new Error(t.merope.portraitDownloadFailed)
       const blob = await response.blob()
       const objectUrl = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -422,12 +428,12 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
     } catch {
       window.open(portraitUrl, '_blank', 'noopener,noreferrer')
     }
-  }, [portraitUrl, t.merope.visualFailed])
+  }, [portraitUrl, t.merope.portraitDownloadFailed])
 
   const motionEnabled = Boolean(
     rigManifest?.anime25dPlayback &&
-      isAnime25DPlayback(rigManifest.anime25dPlayback) &&
-      rigManifest.textures[0]?.url,
+    isAnime25DPlayback(rigManifest.anime25dPlayback) &&
+    rigManifest.textures[0]?.url,
   )
 
   const portraitStage = (
@@ -477,7 +483,7 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
     {
       key: 'mood',
       label: t.merope.overviewMood,
-      value: o.mood[moodBand(mood)],
+      value: o.mood[moodBand(mood, arousal)],
     },
     {
       key: 'activity',
@@ -530,7 +536,7 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
               </div>
             </div>
           ))}
-          <div className="merope-ob-persona-view__row merope-motion-overview__dnd">
+          <div className="merope-ob-persona-view__row">
             <div className="merope-ob-persona-view__copy">
               <dt>{t.merope.overviewDoNotDisturb}</dt>
               <dd>
@@ -587,7 +593,9 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
         appearance="settings"
         name={personaSnapshot?.name.trim() || 'Arael'}
         disabled={generating}
-        onImported={(next) => void saveStructuredPersona(next, { resetVisual: true })}
+        onImported={(next) =>
+          void saveStructuredPersona(next, { resetVisual: true })
+        }
       />
       {structuredPersona ? (
         <PersonaIdentityView
@@ -668,7 +676,7 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
           <RigCharacter
             ref={rigCharacterRef}
             activity={toMeropeActivity(activity)}
-            fallbackUrl={portraitUrl || ''}
+            fallbackUrl={portraitUrl}
             manifest={rigManifest}
             mood={mood}
             manualControl
@@ -680,7 +688,10 @@ export default function SiteMotionWorkbench({ mood, activity }: Props) {
 
   return (
     <div className="merope-motion-page">
-      <aside className="merope-motion-page__stage" aria-label={t.merope.visualTitle}>
+      <aside
+        className="merope-motion-page__stage"
+        aria-label={t.merope.visualTitle}
+      >
         {portraitStage}
       </aside>
       <div className="merope-motion-page__settings">

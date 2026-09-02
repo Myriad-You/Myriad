@@ -440,14 +440,14 @@ jobs:
 
           NOTES_URL="https://github.com/${REPO}/releases/tag/${VERSION}"
 
-          # Compatibility floor: major updater changes landed at v0.3.0.
-          # Do NOT default min_from_version / min_updater_version to $version —
-          # that deadlocks upgrades (current < min_from) and forces self-update
-          # every release. Tighten only via release/overrides/<version>.json
-          # (deep-merged after generation). example.release.json documents the
-          # same policy but is not read at assemble time.
-          MIN_FROM_VERSION="v0.3.0"
-          MIN_UPDATER_VERSION="v0.3.0"
+          # Compatibility floor: v0.4.0. Do NOT default these to $version on
+          # every later tag — that deadlocks upgrades (current < min_from) and
+          # forces self-update every release. Tighten further only via
+          # release/overrides/<version>.json (deep-merged after generation).
+          # example.release.json documents the same policy but is not read at
+          # assemble time.
+          MIN_FROM_VERSION="v0.4.0"
+          MIN_UPDATER_VERSION="v0.4.0"
 
           jq -n \
             --arg version "$VERSION" \

@@ -63,6 +63,7 @@ import {
   registerFileHandlers,
   registerLifecycleHandlers,
   registerMediaHandlers,
+  registerPersonaHandlers,
   registerPlatformHandlers,
   registerReportHandlers,
   registerSchedulerHandlers,
@@ -716,6 +717,7 @@ export const TappWidgetSandbox = memo(
         registerAssetHandlers(bridge, currentTappInstance)
         // Context（含 api.execute）始终需要：声明式 HTTP/API 与公开上下文查询。
         registerContextHandlers(bridge, currentTappInstance)
+        registerPersonaHandlers(bridge)
         // 共享 core 在 Widget 模式同样会执行，必须能声明后台保活需求。
         registerBackgroundHandlers(bridge, currentTappInstance)
 

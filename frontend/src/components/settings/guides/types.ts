@@ -113,6 +113,7 @@ export interface SettingGuidesCatalog {
     lite: SettingGuideEntry
     liteEnable: SettingGuideEntry
     agentPersona: SettingGuideEntry
+    agentPersonaSpeech: SettingGuideEntry
     pro: SettingGuideEntry
     proEnable: SettingGuideEntry
     image: SettingGuideEntry

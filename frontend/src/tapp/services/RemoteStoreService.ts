@@ -10,12 +10,12 @@ import type { TappManifest } from '../types'
 import type { RemoteStoreLocales } from '../utils/storeLocale'
 import type { StorePreviewDescriptor } from '../utils/storePreview'
 import { currentCopy } from '../../i18n/localeCopy'
+import api from '../../lib/api'
 import {
   httpStatusMessage,
   isUselessErrorText,
   userFacingError,
 } from '../../utils/userFacingError'
-import api from '../../lib/api'
 import { TAPP_ICON_TOKENS } from '../constants/icons'
 import { parseStoreLocales } from '../utils/storeLocale'
 import {
@@ -240,9 +240,13 @@ class RemoteStoreServiceImpl {
         this.sourcesLoaded = true
       } catch (error) {
         console.error('[RemoteStore] Failed to load sources from API:', error)
-        // 降级：使用默认官方商店
         this.sources = [OFFICIAL_STORE]
         this.sourcesLoaded = true
+        void import('../../utils/toastManager').then(({ showError }) => {
+          showError(
+            userFacingError(error, currentCopy().tapp.loadRemoteFailed),
+          )
+        })
       } finally {
         this.pruneCacheToSources()
         this.loadingPromise = null
@@ -624,7 +628,7 @@ class RemoteStoreServiceImpl {
         } catch (error) {
           return {
             source,
-            error: userFacingError(error, currentCopy().tapp.unknownError),
+            error: userFacingError(error, currentCopy().tapp.loadRemoteFailed),
           }
         }
       }),
@@ -909,7 +913,10 @@ class RemoteStoreServiceImpl {
       if (!relativePath) {
         if (requiredLabel) {
           throw new Error(
-            `Store index is missing download path for required ${requiredLabel}`,
+            currentCopy().tapp.storeDownloadFailed.replace(
+              '{name}',
+              requiredLabel,
+            ),
           )
         }
         return undefined
@@ -920,7 +927,13 @@ class RemoteStoreServiceImpl {
         if (!response.ok) {
           if (requiredLabel) {
             throw new Error(
-              `Failed to download ${requiredLabel} (${relativePath}): HTTP ${response.status}`,
+              userFacingError(
+                `HTTP ${response.status}`,
+                currentCopy().tapp.storeDownloadFailed.replace(
+                  '{name}',
+                  requiredLabel,
+                ),
+              ),
             )
           }
           return undefined
@@ -930,7 +943,15 @@ class RemoteStoreServiceImpl {
         if (requiredLabel) {
           throw e instanceof Error
             ? e
-            : new Error(`Failed to download ${requiredLabel}: ${String(e)}`)
+            : new Error(
+                userFacingError(
+                  e,
+                  currentCopy().tapp.storeDownloadFailed.replace(
+                    '{name}',
+                    requiredLabel,
+                  ),
+                ),
+              )
         }
         return undefined
       }
@@ -976,7 +997,9 @@ class RemoteStoreServiceImpl {
       app.version.trim() !== manifest.version.trim()
     ) {
       throw new Error(
-        `Store package version mismatch: catalog lists ${app.version} but manifest.json is ${manifest.version}. Refresh the store and retry.`,
+        currentCopy().tapp.storeVersionMismatch
+          .replace('{catalog}', app.version.trim())
+          .replace('{manifest}', manifest.version.trim()),
       )
     }
 
@@ -1175,7 +1198,10 @@ class RemoteStoreServiceImpl {
         const assetPath = declared[i]!
         if (!assetPath.startsWith('assets/')) {
           throw new Error(
-            `Invalid asset path (must be under assets/): ${assetPath}`,
+            userFacingError(
+              assetPath,
+              currentCopy().tapp.installFailed,
+            ),
           )
         }
         const storeRel = storeAssetStorePath(packageRoot, assetPath)
@@ -1186,7 +1212,13 @@ class RemoteStoreServiceImpl {
         )
         if (!response.ok) {
           throw new Error(
-            `Failed to fetch asset ${assetPath}: HTTP ${response.status}`,
+            userFacingError(
+              `HTTP ${response.status}`,
+              currentCopy().tapp.storeDownloadFailed.replace(
+                '{name}',
+                assetPath,
+              ),
+            ),
           )
         }
         const buffer = await response.arrayBuffer()

@@ -11,7 +11,7 @@ import {
 } from '../utils/httpRateLimitToast'
 import { checkRateLimit, RateLimitError } from '../utils/rateLimiter'
 import TokenManager from '../utils/tokenManager'
-import { isUselessErrorText } from '../utils/userFacingError'
+import { isUselessErrorText, userFacingError } from '../utils/userFacingError'
 
 // 智能 API URL 检测（与 config.ts 保持一致）
 // 生产环境使用相对路径（空字符串），开发环境使用 localhost
@@ -63,10 +63,9 @@ function extractApiErrorMessage(
   fallback: string,
 ): string {
   const parsed = parseApiErrorBody(data, 400)
-  if (parsed.message && parsed.message !== 'API Error: 400') {
-    return parsed.message
-  }
-  return fallback
+  const raw =
+    parsed.message && parsed.message !== 'API Error: 400' ? parsed.message : ''
+  return userFacingError(raw, fallback)
 }
 
 /**
@@ -292,7 +291,7 @@ export async function updateConfig(config: any) {
   assertConfigWriteSuccess(
     response.status,
     response.data,
-    'Failed to save configuration',
+    currentCopy().errors.configSaveFailed,
   )
   return response.data
 }
@@ -355,7 +354,7 @@ export async function updatePermissionsConfig(
   assertConfigWriteSuccess(
     response.status,
     response.data,
-    'Failed to save permissions',
+    currentCopy().errors.configSaveFailed,
   )
   return response.data
 }
@@ -366,14 +365,8 @@ export async function reloadSystemConfig() {
   assertConfigWriteSuccess(
     response.status,
     response.data,
-    'Failed to reload configuration',
+    currentCopy().errors.configReloadFailed,
   )
-  return response.data
-}
-
-// Speech
-export async function checkSpeechStatus() {
-  const response = await api.get('/api/speech/status')
   return response.data
 }
 

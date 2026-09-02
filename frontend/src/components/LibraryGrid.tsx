@@ -24,7 +24,6 @@ import {
   useState,
 } from 'react'
 import { useI18n } from '../contexts/I18nContext'
-import { userFacingError } from '../utils/userFacingError'
 import { useMusicLyricsSlice } from '../contexts/MusicPlayerContext'
 import { useLibraryIntersectionObserver } from '../hooks/animation'
 import { softLockWallpaperForLibraryCanvas } from '../hooks/useEvocativeWallpaper'
@@ -63,6 +62,7 @@ import { isMobileNavLayout } from '../utils/navLayout'
 import { proxyImageUrlOr } from '../utils/proxyImageUrl'
 import { getLibraryDataPageDeduped } from '../utils/requestDedup'
 import { showInfo } from '../utils/toastManager'
+import { userFacingError } from '../utils/userFacingError'
 import { LibraryCanvasChrome } from './library/LibraryCanvasChrome'
 import PlatformIcon from './PlatformIcon'
 import { LyricWaveScroll } from './shared/LyricWaveScroll'
@@ -3386,10 +3386,10 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       }
     } catch (err) {
       if (generation !== libraryFetchGenerationRef.current) return
-      setError(userFacingError(err, t.library.emptyLibrary))
+      setError(userFacingError(err, t.library.loadFailed))
       setLoading(false)
     }
-  }, [filter, t.library.emptyLibrary])
+  }, [filter, t.library.loadFailed])
 
   useEffect(() => {
     void fetchLibraryData()
@@ -3442,13 +3442,14 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
         console.error('Failed to load the next library page:', err)
+        setError(userFacingError(err, t.library.loadFailed))
       }
     } finally {
       if (generation === libraryFetchGenerationRef.current) {
         libraryPageLoadingRef.current = false
       }
     }
-  }, [filter])
+  }, [filter, t.library.loadFailed])
 
   loadNextLibraryPageRef.current = loadNextLibraryPage
 

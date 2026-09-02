@@ -84,13 +84,18 @@ CREATE TABLE IF NOT EXISTS agent_persona (
 CREATE TABLE IF NOT EXISTS agent_addressee_state (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     mood DOUBLE PRECISION NOT NULL DEFAULT 70,
+    arousal DOUBLE PRECISION NOT NULL DEFAULT 50,
+    emotion DOUBLE PRECISION NOT NULL DEFAULT 50,
+    emotion_arousal DOUBLE PRECISION NOT NULL DEFAULT 50,
     activity VARCHAR(16) NOT NULL DEFAULT 'idle',
+    activity_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     do_not_disturb BOOLEAN NOT NULL DEFAULT false,
     dnd_start_minute INTEGER,
     dnd_end_minute INTEGER,
     last_user_message_at TIMESTAMPTZ,
     last_proactive_at TIMESTAMPTZ,
-    last_departure_at TIMESTAMPTZ,
+    mood_settled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    emotion_settled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL
 );
 
@@ -135,6 +140,88 @@ CREATE TABLE IF NOT EXISTS heartbeat_claims (
 );
 CREATE INDEX IF NOT EXISTS idx_heartbeat_claims_claimed_at
     ON heartbeat_claims (claimed_at);
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// 近期 Agent 意图账本兜底（`migrations/004` 已 CREATE）。
+pub(crate) async fn ensure_agent_intentions_table(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+CREATE TABLE IF NOT EXISTS agent_intentions (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_event_id VARCHAR(128) NOT NULL,
+    summary TEXT NOT NULL,
+    reason_code VARCHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'proposed',
+    proposal JSONB NOT NULL,
+    work_session_id VARCHAR(64),
+    work_run_id VARCHAR(64),
+    result_summary TEXT,
+    expires_at TIMESTAMPTZ,
+    accept_source VARCHAR(16) NOT NULL DEFAULT 'user',
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_intentions_user_status
+    ON agent_intentions (user_id, status);
+CREATE INDEX IF NOT EXISTS idx_agent_intentions_user_updated
+    ON agent_intentions (user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_intentions_source_event
+    ON agent_intentions (source_event_id);
+ALTER TABLE agent_intentions
+    ADD COLUMN IF NOT EXISTS accept_source VARCHAR(16) NOT NULL DEFAULT 'user';
+"#,
+    )
+    .await?;
+    // Unique (user_id, source_event_id) is a separate statement so a pre-heal
+    // duplicate row cannot roll back accept_source. Keep the oldest row.
+    let removed = db
+        .execute_unprepared(
+            r#"
+DELETE FROM agent_intentions a
+USING agent_intentions b
+WHERE a.user_id = b.user_id
+  AND a.source_event_id = b.source_event_id
+  AND (
+    a.created_at > b.created_at
+    OR (a.created_at = b.created_at AND a.id > b.id)
+  );
+"#,
+        )
+        .await?;
+    if removed.rows_affected() > 0 {
+        tracing::info!(
+            "🧹 Removed {} duplicate agent_intentions row(s) before unique source-event index",
+            removed.rows_affected()
+        );
+    }
+    db.execute_unprepared(
+        r#"
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_intentions_user_source_event
+    ON agent_intentions (user_id, source_event_id);
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// 近期 Agent 个人自主授权账本兜底（`migrations/004` 已 CREATE）。
+pub(crate) async fn ensure_agent_autonomy_grants_table(
+    db: &DatabaseConnection,
+) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+CREATE TABLE IF NOT EXISTS agent_autonomy_grants (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    allowed_permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+    revoked BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
 "#,
     )
     .await?;

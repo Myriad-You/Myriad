@@ -2,6 +2,8 @@
 pub mod activity_event_service;
 pub mod agent;
 pub mod agent_interaction; // Agent ↔ Tapp interaction create surface
+pub mod agora_convo; // Shengwang Conversational AI join/leave
+pub mod agora_rtc_token; // Agora AccessToken2
 pub mod ai;
 pub mod ai_config; // Cached AI provider config (text + image tiers)
 pub mod ai_cost_ledger; // Append-only AI cost ledger writes
@@ -20,7 +22,6 @@ pub mod config_service;
 pub mod content_databases; // Preset anime/game/artist databases
 pub mod data_key; // Config-key / federation private-key envelope
 pub mod data_paths;
-pub mod merope_rig; // Site-wide compiled 2.5D face package
 pub mod enka_assets; // Enka character metadata for Hoyoverse cards
 pub mod fetcher;
 pub mod gemini_media; // Gemini generateContent image + speech
@@ -32,7 +33,9 @@ pub mod json_schema_subset;
 pub mod kugou_service; // Kugou lyrics (KRC) supplement
 pub mod library_items; // Library item pure builders (Bangumi/MAL/preferences)
 pub mod memory_profile; // default vs memory-saver process budgets
+pub mod merope_rig; // Site-wide compiled 2.5D face package
 pub mod metadata_service;
+pub mod minimax_speech; // MiniMax T2A speech synthesis
 pub mod module_visibility; // Module visibility for Agent (no api::config import)
 pub mod netease_service;
 pub mod netease_utils;

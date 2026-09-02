@@ -21,6 +21,8 @@ import {
 import { useTappWidgets } from '../../hooks/useTappWidgets'
 import { getCSRFToken } from '../../utils/csrf'
 import { getUIConfigDeduped } from '../../utils/requestDedup'
+import { showError } from '../../utils/toastManager'
+import { userFacingError } from '../../utils/userFacingError'
 import WidgetGrid from '../WidgetGrid'
 import { getBuiltinWidgets } from '../widgets/builtinWidgets'
 import {
@@ -74,7 +76,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
 
     // Shared built-in catalog (same source as Home)
     const BUILTIN_WIDGETS: WidgetType[] = useMemo(
-      () => getBuiltinWidgets(t.widgets),
+      () => getBuiltinWidgets(t.widgets, 'control-panel'),
       [t.widgets],
     )
 
@@ -133,6 +135,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
               }
             } catch (e) {
               console.error('Failed to parse control panel layout', e)
+              showError(userFacingError(e, t.errors.controlPanelLoadFailed))
             }
           }
           if (data.control_panel_rows) {
@@ -140,6 +143,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           }
         } catch (e) {
           console.error('Failed to load control panel config', e)
+          showError(userFacingError(e, t.errors.controlPanelLoadFailed))
         } finally {
           setIsLoading(false)
         }
@@ -168,9 +172,12 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
         saveTimeoutRef.current = setTimeout(async () => {
           try {
             const csrfToken = await getCSRFToken(true)
-            if (!csrfToken) return
+            if (!csrfToken) {
+              showError(t.errors.csrfUnavailable)
+              return
+            }
 
-            await fetch(`${API_URL}/api/config/control-panel`, {
+            const res = await fetch(`${API_URL}/api/config/control-panel`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -182,12 +189,18 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
                 control_panel_rows: rows,
               }),
             })
+            if (!res.ok) {
+              throw new Error(
+                `Failed to save control panel: HTTP ${res.status}`,
+              )
+            }
           } catch (err) {
             console.error('Failed to save control panel config:', err)
+            showError(userFacingError(err, t.errors.controlPanelSaveFailed))
           }
         }, 500)
       },
-      [isAdmin],
+      [isAdmin, t.errors.controlPanelSaveFailed, t.errors.csrfUnavailable],
     )
 
     const handleWidgetsChange = useCallback(

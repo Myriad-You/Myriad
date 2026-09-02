@@ -209,23 +209,6 @@ html.dark .rsb {
   }
 }
 
-.rsb-go {
-  flex: none;
-  width: 0.875rem;
-  height: 0.875rem;
-  color: var(--rsb-muted);
-  opacity: 0.4;
-  transition:
-    opacity 0.24s var(--rsb-ease),
-    transform 0.24s var(--rsb-ease);
-  transform: translateX(-2px);
-}
-
-.rsb-tip.is-clickable:hover .rsb-go {
-  opacity: 0.85;
-  transform: none;
-}
-
 /* ---------- 动作区（首页状态条那套按钮） ---------- */
 
 .rsb-sep {

@@ -61,7 +61,10 @@ impl Agent {
                 confirmation.user_id,
             )
             .await
-            .map_err(|error| format!("Failed to consume confirmation: {error}"))?;
+            .map_err(|error| {
+                tracing::error!(%error, "Failed to consume confirmation");
+                "Failed to consume confirmation".to_string()
+            })?;
         PENDING_CONFIRMATIONS
             .write()
             .await
@@ -258,6 +261,7 @@ impl Agent {
             recipe.page_context.clone(),
             recipe.conversation_context.clone(),
         );
+        exec_ctx.autonomy_permission_cap = recipe.autonomy_permission_cap.clone();
         exec_ctx.pending_questions = questions;
 
         task_state.set_pending_question(question.clone());
@@ -438,6 +442,7 @@ impl Agent {
         sensitive_steps: Vec<PendingConfirmation>,
         session_id: Option<String>,
         run_id: Option<String>,
+        source_intent_id: Option<String>,
     ) -> Result<AgentResponse, String> {
         let confirmation_id = uuid::Uuid::new_v4().to_string();
 
@@ -475,6 +480,7 @@ impl Agent {
             planner_output: planner_output.clone(),
             session_id: session_id.filter(|s| !s.is_empty()),
             run_id: run_id.filter(|s| !s.is_empty()),
+            source_intent_id: source_intent_id.filter(|id| !id.is_empty()),
         };
         crate::services::tapp_registry::put(
             &self.db,
@@ -490,7 +496,10 @@ impl Agent {
             confirmation_request.expires_at.timestamp(),
         )
         .await
-        .map_err(|error| format!("Failed to persist confirmation: {error}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to persist confirmation");
+            "Failed to persist confirmation".to_string()
+        })?;
         PENDING_CONFIRMATIONS
             .write()
             .await
@@ -550,7 +559,7 @@ impl Agent {
     }
 
     // NOTE: Old execute_recipe / execute_with_escalation / build_response_from_result
-    // removed — escalation is now handled by Planner.replan() in execute_recipe_with_progress_v2
+    // removed — escalation is now handled by Planner.replan_with_progress() in execute_recipe_with_progress_v2
 
     /// 从步骤构建 Recipe
     pub(crate) fn build_recipe_from_steps(
@@ -572,6 +581,32 @@ impl Agent {
             .and_then(|c| c.conversation_history.clone());
 
         let lane_key = request.context.as_ref().and_then(|c| c.lane_key.clone());
+        let autonomy_permission_cap = request
+            .context
+            .as_ref()
+            .and_then(|c| c.autonomy_permission_cap.clone());
+
+        let mut metadata = HashMap::new();
+        if let Some(route) = request
+            .context
+            .as_ref()
+            .and_then(|c| c.current_route.clone())
+            .filter(|route| !route.is_empty())
+        {
+            metadata.insert("current_route".to_string(), json!(route));
+        }
+        if let Some(custom) = request
+            .context
+            .as_ref()
+            .and_then(|c| c.custom_data.as_ref())
+        {
+            if let Some(music) = custom.get("musicStatus").cloned() {
+                metadata.insert("music_status".to_string(), music);
+            }
+            if let Some(windows) = custom.get("windowState").cloned() {
+                metadata.insert("window_state".to_string(), windows);
+            }
+        }
 
         Recipe {
             id: format!("recipe_{}", uuid::Uuid::new_v4()),
@@ -582,10 +617,11 @@ impl Agent {
             expected_output: OutputFormat::Json,
             estimated_duration_ms,
             created_at: chrono::Utc::now(),
-            metadata: HashMap::new(),
+            metadata,
             page_context,
             conversation_context,
             lane_key,
+            autonomy_permission_cap,
         }
     }
 
@@ -930,7 +966,9 @@ impl Agent {
                 AgentResponseType::Answer
             },
             message: if task_state.status == TaskStatus::Failed {
-                response_agent::error_message(task_state.error.as_deref().unwrap_or("Processing failed"))
+                response_agent::error_message(
+                    task_state.error.as_deref().unwrap_or("Processing failed"),
+                )
             } else {
                 response_agent::completion_message()
             },
@@ -1008,7 +1046,9 @@ impl Agent {
                 AgentResponseType::Answer
             },
             message: if task_state.status == TaskStatus::Failed {
-                response_agent::error_message(task_state.error.as_deref().unwrap_or("Processing failed"))
+                response_agent::error_message(
+                    task_state.error.as_deref().unwrap_or("Processing failed"),
+                )
             } else if task_state.status == TaskStatus::WaitingForInput {
                 response_agent::need_more_info()
             } else {
@@ -1038,95 +1078,123 @@ impl Agent {
             Some(a) => a,
             None => {
                 // AI 不可用，回退到模拟流式
-                Self::stream_text_as_tokens(progress_tx, planner_reply).await;
+                Self::stream_text_as_tokens_with_finish(progress_tx, planner_reply, false).await;
                 return planner_reply.to_string();
             }
         };
 
-        // 加载 Agent 人格
+        match self
+            .stream_chat_response_with_analyzer(request, progress_tx, analyzer, None)
+            .await
+        {
+            Ok(reply) => reply,
+            Err(error) => {
+                // Work 路径的兼容降级：Planner 已经产生了可读回复。
+                tracing::warn!(%error, "[Agent] Streaming chat response failed, falling back to planner reply");
+                Self::stream_text_as_tokens_with_finish(progress_tx, planner_reply, false).await;
+                planner_reply.to_string()
+            }
+        }
+    }
+
+    /// Chat 模式的唯一模型入口。严格 Lite 不可用时直接失败，绝不借用
+    /// Standard / Pro，否则“只聊天”会悄悄变成另一条 Work 费用路径。
+    pub(crate) async fn stream_strict_lite_chat_response(
+        &self,
+        request: &UserRequest,
+        progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+        stream_started: Option<tokio::sync::mpsc::Sender<()>>,
+    ) -> Result<String, String> {
+        let analyzer = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(None)
+            .await
+            .ok_or_else(|| "Lite model is not configured for Chat mode".to_string())?;
+        self.stream_chat_response_with_analyzer(request, progress_tx, analyzer, stream_started)
+            .await
+    }
+
+    pub(crate) async fn strict_lite_chat_response(
+        &self,
+        request: &UserRequest,
+    ) -> Result<String, String> {
+        let analyzer = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(None)
+            .await
+            .ok_or_else(|| "Lite model is not configured for Chat mode".to_string())?;
+        let prompt = self.chat_response_prompt(request).await;
+        let response = analyzer
+            .analyze(&prompt)
+            .await
+            .map_err(|error| error.to_string())?;
+        let response = response.trim();
+        if response.is_empty() {
+            Err("Chat model returned an empty response".to_string())
+        } else {
+            Ok(response.to_string())
+        }
+    }
+
+    async fn chat_response_prompt(&self, request: &UserRequest) -> String {
         let soul = crate::services::agent::identity::get_speaking_soul()
             .await
             .unwrap_or_default();
         let soul: String = soul.chars().take(2000).collect();
         let merope_block = crate::services::agent::merope::speaking_prompt_plain(
-            &crate::services::agent::merope::speaking_prompt(request.user_id).await,
+            &crate::services::agent::merope::speaking_prompt_with_query(
+                request.user_id,
+                Some(request.raw_input.as_str()),
+            )
+            .await,
         );
-        let merope_prefix = if merope_block.is_empty() {
-            String::new()
-        } else {
-            format!("{merope_block}\n\n")
-        };
-
-        // 构建对话历史
-        let history_text = request
+        let history = request
             .context
             .as_ref()
-            .and_then(|c| c.conversation_history.as_ref())
-            .map(|history| {
-                let recent: Vec<_> = history
-                    .iter()
-                    .rev()
-                    .take(10)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .collect();
-                recent
-                    .iter()
-                    .map(|msg| format!("{}：{}", msg.role, msg.content))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default();
+            .and_then(|context| context.conversation_history.as_deref())
+            .unwrap_or(&[]);
 
-        let prompt = if history_text.is_empty() {
-            format!(
-                "{soul}\n\n{merope}用户对你说：{input}\n\n\
-                 请以你的角色自然地回复用户。使用用户的语言。保持简短、温暖、自然。\
-                 不要输出任何 JSON 或格式标记，只输出纯文本回复。",
-                soul = soul,
-                merope = merope_prefix,
-                input = request.raw_input,
-            )
-        } else {
-            format!(
-                "{soul}\n\n{merope}以下是对话历史：\n{history}\n\n\
-                 用户最新消息：{input}\n\n\
-                 请以你的角色自然地回复用户。使用用户的语言。保持简短、温暖、自然。\
-                 不要输出任何 JSON 或格式标记，只输出纯文本回复。",
-                soul = soul,
-                merope = merope_prefix,
-                history = history_text,
-                input = request.raw_input,
-            )
-        };
+        let perception = crate::services::agent::chat_prompt::format_perception_block(
+            request
+                .context
+                .as_ref()
+                .and_then(|context| context.custom_data.as_ref())
+                .and_then(|data| data.get("perception")),
+        );
+        crate::services::agent::chat_prompt::build_chat_lite_prompt_with_perception(
+            &soul,
+            &merope_block,
+            history,
+            &request.raw_input,
+            &perception,
+        )
+    }
+
+    async fn stream_chat_response_with_analyzer(
+        &self,
+        request: &UserRequest,
+        progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+        analyzer: crate::services::analyzer::AiAnalyzer,
+        stream_started: Option<tokio::sync::mpsc::Sender<()>>,
+    ) -> Result<String, String> {
+        let prompt = self.chat_response_prompt(request).await;
 
         let tx = progress_tx.clone();
         match analyzer
-            .analyze_stream(&prompt, |token| {
-                let _ = tx.try_send(AgentProgressEvent::SummaryToken {
-                    token: token.to_string(),
-                    done: false,
-                });
-                true
+            .analyze_stream_parts(&prompt, |delta| {
+                let tx = tx.clone();
+                let stream_started = stream_started.clone();
+                async move {
+                    if matches!(&delta, crate::services::analyzer::StreamDelta::Text(_)) {
+                        if let Some(stream_started) = stream_started {
+                            let _ = stream_started.try_send(());
+                        }
+                    }
+                    response_agent::emit_stream_delta(&tx, delta).await;
+                    true
+                }
             })
             .await
         {
-            Ok(full_text) if !full_text.trim().is_empty() => {
-                let _ = tx.try_send(AgentProgressEvent::SummaryToken {
-                    token: String::new(),
-                    done: true,
-                });
-                full_text.trim().to_string()
-            }
-            _ => {
-                // 流式失败，回退到 planner 的回复 + 模拟流式
-                tracing::warn!(
-                    "[Agent] Streaming chat response failed, falling back to planner reply"
-                );
-                Self::stream_text_as_tokens(progress_tx, planner_reply).await;
-                planner_reply.to_string()
-            }
+            Ok(full_text) if !full_text.trim().is_empty() => Ok(full_text.trim().to_string()),
+            Ok(_) => Err("Chat model returned an empty response".to_string()),
+            Err(error) => Err(error.to_string()),
         }
     }
 
@@ -1137,6 +1205,14 @@ impl Agent {
     pub(crate) async fn stream_text_as_tokens(
         tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
         text: &str,
+    ) {
+        Self::stream_text_as_tokens_with_finish(tx, text, true).await;
+    }
+
+    async fn stream_text_as_tokens_with_finish(
+        tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+        text: &str,
+        finish_stream: bool,
     ) {
         // 按自然断点切分（标点、换行）
         let mut chunks = Vec::new();
@@ -1166,13 +1242,9 @@ impl Agent {
             // 极短延迟让前端有时间渲染，避免所有 token 在同一帧到达
             tokio::time::sleep(tokio::time::Duration::from_millis(15)).await;
         }
-        // 发送完成标记
-        let _ = tx
-            .send(AgentProgressEvent::SummaryToken {
-                token: String::new(),
-                done: true,
-            })
-            .await;
+        if finish_stream {
+            response_agent::finish_stream(tx).await;
+        }
     }
 
     /// 提取任务最终结果
@@ -1216,27 +1288,18 @@ impl Agent {
                 }));
         }
 
-        // 关键改进：收集所有步骤中的 frontendAction 和 action
+        // 收集各步真正可执行的前端动作。music.control / page.interact 顶层
+        // 也有字符串 `action`（"play" / "click"），不能当 frontendAction 发出去。
         let mut all_frontend_actions: Vec<Value> = Vec::new();
         for result in &results {
             if let Some(output) = &result.output {
-                // 检查 frontendAction
-                if let Some(action) = output.get("frontendAction") {
-                    all_frontend_actions.push(action.clone());
+                for action in collect_step_frontend_actions(std::iter::once(output)) {
                     tracing::info!(
                         step_id = %result.step_id,
                         action_type = ?action.get("type"),
                         "[Agent] Collected frontendAction from step"
                     );
-                }
-                // 也检查 action 字段（兼容 brew.generateReadingList 等）
-                if let Some(action) = output.get("action") {
-                    all_frontend_actions.push(action.clone());
-                    tracing::info!(
-                        step_id = %result.step_id,
-                        action_type = ?action.get("type"),
-                        "[Agent] Collected action from step"
-                    );
+                    all_frontend_actions.push(action);
                 }
             }
         }
@@ -1333,78 +1396,155 @@ impl Agent {
 
     /// 从执行结果中提取前端动作
     pub(crate) fn extract_frontend_action(&self, result: &Value) -> Option<Value> {
-        // 检查 frontendAction（单个）
-        if let Some(action) = result.get("frontendAction") {
-            if action.get("type").and_then(Value::as_str).is_some() {
-                return Some(action.clone());
+        extract_frontend_action_from_result(result)
+    }
+}
+
+fn typed_frontend_action(value: &Value) -> Option<Value> {
+    match value {
+        Value::Object(map) => map
+            .get("type")
+            .and_then(Value::as_str)
+            .filter(|kind| !kind.is_empty())
+            .map(|_| value.clone()),
+        _ => None,
+    }
+}
+
+/// Collect executable frontend actions from step outputs.
+///
+/// Prefers `frontendAction` when it has a `type`; otherwise accepts `action`
+/// with a `type` (brew.generateReadingList). Skips nulls and bare strings.
+pub(crate) fn collect_step_frontend_actions<'a, I>(outputs: I) -> Vec<Value>
+where
+    I: IntoIterator<Item = &'a Value>,
+{
+    let mut actions = Vec::new();
+    for output in outputs {
+        if let Some(list) = output.get("frontendActions").and_then(Value::as_array) {
+            for item in list {
+                if let Some(action) = typed_frontend_action(item) {
+                    actions.push(action);
+                }
             }
+            continue;
+        }
+        if let Some(action) = output.get("frontendAction").and_then(typed_frontend_action) {
+            actions.push(action);
+        } else if let Some(action) = output.get("action").and_then(typed_frontend_action) {
+            actions.push(action);
+        }
+    }
+    actions
+}
+
+/// Pull a frontend action out of a step/final result.
+///
+/// `tapp.understand` sets `frontendAction: null` on purpose — analysis is not
+/// an executable command. If that key is present we must not fall through to
+/// `plan.steps` and synthesize a `page_interact` / `navigate`.
+pub(crate) fn extract_frontend_action_from_result(result: &Value) -> Option<Value> {
+    if let Some(action) = result.get("frontendAction") {
+        if action.get("type").and_then(Value::as_str).is_some() {
+            return Some(action.clone());
+        }
+        if !action.is_null() {
             tracing::warn!(action = %action, "[Agent] frontendAction is missing type");
         }
+        return None;
+    }
 
-        // 也检查 "action" 字段（兼容 brew.generateReadingList 等返回格式）
-        if let Some(action) = result.get("action") {
-            tracing::debug!(
-                action = %action,
-                "[Agent] Found action in result, attempting to deserialize"
-            );
-            if action.get("type").and_then(Value::as_str).is_some() {
-                let mut final_action = action.clone();
-                if final_action.get("criteria").is_none() {
-                    if let Some(criteria) = result.get("criteria") {
-                        final_action["criteria"] = criteria.clone();
-                    }
-                }
-                return Some(final_action);
-            }
-        }
-
-        // 检查 frontendActions（数组）- 返回第一个
-        if let Some(actions) = result.get("frontendActions").and_then(|v| v.as_array()) {
-            if let Some(first_action) = actions.first() {
-                if first_action.get("type").and_then(Value::as_str).is_some() {
-                    return Some(first_action.clone());
+    if let Some(action) = result.get("action") {
+        if action.get("type").and_then(Value::as_str).is_some() {
+            let mut final_action = action.clone();
+            if final_action.get("criteria").is_none() {
+                if let Some(criteria) = result.get("criteria") {
+                    final_action["criteria"] = criteria.clone();
                 }
             }
+            return Some(final_action);
         }
+    }
 
-        // 检查 plan.steps（AI 分析生成的步骤）- 如果 autoExecute 或需要自动执行
-        if let Some(plan) = result.get("plan") {
-            if let (Some(true), Some(steps)) = (
-                plan.get("canFulfill").and_then(|v| v.as_bool()),
-                plan.get("steps").and_then(|v| v.as_array()),
-            ) {
-                if let Some(first_step) = steps.first() {
-                    let action_type = first_step
-                        .get("actionType")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("click");
-
-                    let timestamp = chrono::Utc::now().timestamp_millis();
-
-                    return match action_type {
-                        "navigate" => {
-                            let path = first_step
-                                .get("path")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string());
-
-                            Some(json!({
-                                "type": "navigate",
-                                "path": path,
-                                "timestamp": timestamp,
-                            }))
-                        }
-                        _ => Some(json!({
-                            "type": "page_interact",
-                            "target": first_step.get("target").cloned(),
-                            "action": action_type,
-                            "timestamp": timestamp,
-                        })),
-                    };
-                }
+    if let Some(actions) = result.get("frontendActions").and_then(|v| v.as_array()) {
+        if let Some(first_action) = actions.first() {
+            if first_action.get("type").and_then(Value::as_str).is_some() {
+                return Some(first_action.clone());
             }
         }
+    }
 
-        None
+    None
+}
+
+#[cfg(test)]
+mod extract_frontend_action_tests {
+    use super::{collect_step_frontend_actions, extract_frontend_action_from_result};
+    use serde_json::json;
+
+    #[test]
+    fn understand_null_frontend_action_does_not_synthesize_clicks() {
+        let result = json!({
+            "frontendAction": null,
+            "plan": {
+                "canFulfill": true,
+                "steps": [{ "actionType": "click", "target": { "text": "保存" } }]
+            }
+        });
+        assert_eq!(extract_frontend_action_from_result(&result), None);
+    }
+
+    #[test]
+    fn typed_frontend_action_is_returned() {
+        let result = json!({
+            "frontendAction": { "type": "navigate", "path": "/library" }
+        });
+        let action = extract_frontend_action_from_result(&result).unwrap();
+        assert_eq!(action["type"], "navigate");
+        assert_eq!(action["path"], "/library");
+    }
+
+    #[test]
+    fn reading_list_action_field_is_still_collected() {
+        let result = json!({
+            "action": { "type": "reading_list", "payload": { "items": [] } },
+            "criteria": "科幻"
+        });
+        let action = extract_frontend_action_from_result(&result).unwrap();
+        assert_eq!(action["type"], "reading_list");
+        assert_eq!(action["criteria"], "科幻");
+    }
+
+    #[test]
+    fn collect_skips_string_action_and_null_frontend_action() {
+        let music = json!({
+            "action": "play",
+            "frontendAction": { "type": "music_control", "action": "play" }
+        });
+        let understand = json!({
+            "frontendAction": null,
+            "plan": { "steps": [] }
+        });
+        let reading = json!({
+            "action": { "type": "reading_list", "payload": { "items": [] } }
+        });
+        let collected = collect_step_frontend_actions([&music, &understand, &reading]);
+        assert_eq!(collected.len(), 2);
+        assert_eq!(collected[0]["type"], "music_control");
+        assert_eq!(collected[1]["type"], "reading_list");
+    }
+
+    #[test]
+    fn collect_prefers_frontend_actions_array() {
+        let plan = json!({
+            "frontendActions": [
+                { "type": "page_interact", "action": "click" },
+                { "type": "navigate", "path": "/library" }
+            ],
+            "frontendAction": { "type": "page_interact", "action": "click" }
+        });
+        let collected = collect_step_frontend_actions([&plan]);
+        assert_eq!(collected.len(), 2);
+        assert_eq!(collected[1]["type"], "navigate");
     }
 }

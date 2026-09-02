@@ -1,12 +1,98 @@
+//! Per-addressee affect: mood (valence) × arousal, with a short-lived emotion layer.
+//!
+//! Silence regresses mood/arousal toward the persona set-point and emotion toward
+//! origin. Conversation stamps settled_at so a live turn does not decay between
+//! utterances. Numbers never belong in the speaking prompt.
+
 pub const MOOD_FLOOR: f64 = 10.0;
-const DEFAULT_MOOD: f64 = 70.0;
+pub const DEFAULT_MOOD: f64 = 70.0;
+pub const DEFAULT_AROUSAL: f64 = 48.0;
+pub const ORIGIN: f64 = 50.0;
+
 const MAX_STEP: f64 = 10.0;
+const TAU_MOOD_H: f64 = 72.0;
+const TAU_AROUSAL_H: f64 = 36.0;
+const TAU_EMOTION_H: f64 = 0.5;
+const PULL: f64 = 0.22;
+const PUSH: f64 = 0.05;
+const DIMINISH_SPAN: f64 = 40.0;
+const EMOTION_PULL_SKIP: f64 = 1.0;
+const LITE_HINT_SCALE: f64 = 16.0;
+
+/// How long a non-idle `activity` is believed. Nothing clears the row if the
+/// process is killed between `working` and `idle`, and `working` is a gate in
+/// `decide_ingest` — without this the addressee would go permanently silent
+/// unless they happen to chat again. Far longer than any single turn.
+pub const ACTIVITY_STALE_SECS: i64 = 30 * 60;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Affect {
+    pub mood: f64,
+    pub arousal: f64,
+    pub emotion: f64,
+    pub emotion_arousal: f64,
+}
+
+impl Affect {
+    pub fn at_rest(base: AffectBaseline) -> Self {
+        Self {
+            mood: clamp(base.mood),
+            arousal: clamp(base.arousal),
+            emotion: ORIGIN,
+            emotion_arousal: ORIGIN,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AffectBaseline {
+    pub mood: f64,
+    pub arousal: f64,
+}
+
+impl Default for AffectBaseline {
+    fn default() -> Self {
+        Self {
+            mood: DEFAULT_MOOD,
+            arousal: DEFAULT_AROUSAL,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Appraisal {
+    pub emotion: f64,
+    pub arousal: f64,
+}
+
+pub const APPRAISAL_PRAISE: Appraisal = Appraisal {
+    emotion: 82.0,
+    arousal: 58.0,
+};
+/// Below `MOOD_FLOOR` so repeated scolding can actually reach 极低.
+/// 22 sat above the floor and made `is_extremely_low` a dead branch.
+pub const APPRAISAL_SCOLD: Appraisal = Appraisal {
+    emotion: 8.0,
+    arousal: 70.0,
+};
+pub const APPRAISAL_TASK_OK: Appraisal = Appraisal {
+    emotion: 80.0,
+    arousal: 60.0,
+};
+pub const APPRAISAL_TASK_FAIL: Appraisal = Appraisal {
+    emotion: 30.0,
+    arousal: 64.0,
+};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoodTransition {
     pub before: f64,
     pub after: f64,
+    #[serde(default = "default_arousal_field")]
+    pub arousal_before: f64,
+    #[serde(default = "default_arousal_field")]
+    pub arousal_after: f64,
     pub band_before: String,
     pub band_after: String,
     pub delta: f64,
@@ -14,91 +100,187 @@ pub struct MoodTransition {
     pub revision: i64,
 }
 
+fn default_arousal_field() -> f64 {
+    DEFAULT_AROUSAL
+}
+
+impl MoodTransition {
+    pub fn from_affect(before: &Affect, after: &Affect, cause: &str, revision: i64) -> Self {
+        Self {
+            before: before.mood,
+            after: after.mood,
+            arousal_before: before.arousal,
+            arousal_after: after.arousal,
+            band_before: mood_band(before.mood, before.arousal).to_string(),
+            band_after: mood_band(after.mood, after.arousal).to_string(),
+            delta: after.mood - before.mood,
+            cause: cause.to_string(),
+            revision,
+        }
+    }
+}
+
 pub fn clamp_mood(value: f64) -> f64 {
+    clamp(value)
+}
+
+pub fn clamp(value: f64) -> f64 {
     if value.is_finite() {
         value.clamp(0.0, 100.0)
     } else {
-        DEFAULT_MOOD
+        ORIGIN
     }
 }
 
 pub fn is_extremely_low(mood: f64) -> bool {
-    clamp_mood(mood) <= MOOD_FLOOR
+    clamp(mood) <= MOOD_FLOOR
 }
 
-pub fn mood_band(mood: f64) -> &'static str {
-    let mood = clamp_mood(mood);
+/// Circumplex band. Floor is valence only; the rest split on 55/55.
+pub fn mood_band(mood: f64, arousal: f64) -> &'static str {
+    let mood = clamp(mood);
+    let arousal = clamp(arousal);
     if mood <= MOOD_FLOOR {
         "floor"
-    } else if mood < 40.0 {
-        "low"
-    } else if mood >= 85.0 {
-        "high"
+    } else if mood < 55.0 && arousal < 55.0 {
+        "sad"
+    } else if mood < 55.0 {
+        "tense"
+    } else if arousal < 55.0 {
+        "calm"
     } else {
-        "normal"
+        "excited"
     }
 }
 
-fn apply_delta(mood: f64, delta: f64) -> f64 {
-    clamp_mood(mood + delta.clamp(-MAX_STEP, MAX_STEP))
+pub fn regress(value: f64, base: f64, dt_hours: f64, tau_hours: f64) -> f64 {
+    if !dt_hours.is_finite() || dt_hours <= 0.0 || !tau_hours.is_finite() || tau_hours <= 0.0 {
+        return clamp(value);
+    }
+    clamp(base + (value - base) * (-dt_hours / tau_hours).exp())
+}
+
+pub fn settle(affect: Affect, base: AffectBaseline, mood_hours: f64, emotion_hours: f64) -> Affect {
+    Affect {
+        mood: regress(affect.mood, base.mood, mood_hours, TAU_MOOD_H),
+        arousal: regress(affect.arousal, base.arousal, mood_hours, TAU_AROUSAL_H),
+        emotion: regress(affect.emotion, ORIGIN, emotion_hours, TAU_EMOTION_H),
+        emotion_arousal: regress(affect.emotion_arousal, ORIGIN, emotion_hours, TAU_EMOTION_H),
+    }
+}
+
+fn diminish(value: f64, delta: f64) -> f64 {
+    if delta == 0.0 {
+        return 0.0;
+    }
+    let headroom = if delta > 0.0 { 100.0 - value } else { value };
+    delta * (headroom / DIMINISH_SPAN).clamp(0.0, 1.0)
+}
+
+pub fn repeat_scale(utterance_index: u32) -> f64 {
+    1.0 / (1.0 + 0.25 * f64::from(utterance_index))
+}
+
+pub fn pull_push(affect: &mut Affect) {
+    if (affect.emotion - ORIGIN).abs() < EMOTION_PULL_SKIP {
+        return;
+    }
+    let dm = diminish(
+        affect.mood,
+        (PULL * (affect.emotion - affect.mood)).clamp(-MAX_STEP, MAX_STEP),
+    );
+    let da = diminish(
+        affect.arousal,
+        (PULL * (affect.emotion_arousal - affect.arousal)).clamp(-MAX_STEP, MAX_STEP),
+    );
+    affect.mood = clamp(affect.mood + dm);
+    affect.arousal = clamp(affect.arousal + da);
+    affect.emotion = clamp(affect.emotion + PUSH * (affect.mood - affect.emotion));
+    affect.emotion_arousal =
+        clamp(affect.emotion_arousal + PUSH * (affect.arousal - affect.emotion_arousal));
+}
+
+pub fn apply_appraisal(affect: &mut Affect, appraisal: Appraisal, scale: f64) {
+    let scale = if scale.is_finite() {
+        scale.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let target_e = ORIGIN + (appraisal.emotion - ORIGIN) * scale;
+    let target_a = ORIGIN + (appraisal.arousal - ORIGIN) * scale;
+    affect.emotion = clamp(target_e);
+    affect.emotion_arousal = clamp(target_a);
+    pull_push(affect);
 }
 
 pub fn apply_user_utterance(
-    mood: f64,
+    affect: &mut Affect,
     utterance_index_in_session: u32,
     praised: bool,
     scolded: bool,
-    first_today: bool,
-    gap_hours: f64,
-) -> f64 {
-    let mut delta = 2.0 - 0.5 * f64::from(utterance_index_in_session);
-    if delta < 0.5 {
-        delta = 0.5;
-    }
-    if praised {
-        delta += 4.0;
-    }
+) {
+    let scale = repeat_scale(utterance_index_in_session);
     if scolded {
-        delta -= 8.0;
+        apply_appraisal(affect, APPRAISAL_SCOLD, scale);
+    } else if praised {
+        apply_appraisal(affect, APPRAISAL_PRAISE, scale);
     }
-    if first_today {
-        delta += 3.0;
+}
+
+pub fn apply_task_outcome(affect: &mut Affect, success: bool) {
+    apply_appraisal(
+        affect,
+        if success {
+            APPRAISAL_TASK_OK
+        } else {
+            APPRAISAL_TASK_FAIL
+        },
+        1.0,
+    );
+}
+
+pub fn parse_appraisal_hint(raw: &str) -> Option<(i32, i32)> {
+    let mut nums = Vec::new();
+    let mut current = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_digit() || ((ch == '-' || ch == '+') && current.is_empty()) {
+            current.push(ch);
+            continue;
+        }
+        if !current.is_empty() {
+            if let Ok(value) = current.parse::<i32>() {
+                nums.push(value);
+            }
+            current.clear();
+            if nums.len() == 2 {
+                break;
+            }
+        }
     }
-    if gap_hours >= 12.0 {
-        delta -= 4.0;
+    if nums.len() < 2 {
+        if let Ok(value) = current.parse::<i32>() {
+            nums.push(value);
+        }
     }
-    apply_delta(mood, delta)
+    if nums.len() < 2 {
+        return None;
+    }
+    Some((nums[0].clamp(-2, 2), nums[1].clamp(-2, 2)))
 }
 
-pub fn apply_task_outcome(mood: f64, success: bool) -> f64 {
-    apply_delta(mood, if success { 4.0 } else { -5.0 })
+pub fn lite_appraisal(valence: i32, arousal: i32) -> Appraisal {
+    Appraisal {
+        emotion: ORIGIN + LITE_HINT_SCALE * f64::from(valence.clamp(-2, 2)),
+        arousal: ORIGIN + LITE_HINT_SCALE * f64::from(arousal.clamp(-2, 2)),
+    }
 }
 
-pub fn apply_departure(mood: f64) -> f64 {
-    apply_delta(mood, -2.0)
+pub fn apply_mood_hint(affect: &mut Affect, valence: i32, arousal: i32) {
+    if valence == 0 && arousal == 0 {
+        return;
+    }
+    apply_appraisal(affect, lite_appraisal(valence, arousal), 1.0);
 }
-
-/// After the chatting window (90s) and before the 12h gap rule.
-///
-/// `departure_after_message_secs` is how long after the last utterance the previous
-/// departure was charged. Non-negative means this silence window already paid, so it
-/// is skipped. This deliberately does not read `updated_at`: activity marks and
-/// proactive stamps touch that constantly, which would silently disable the decay.
-pub fn should_apply_departure(
-    silent_secs: Option<i64>,
-    departure_after_message_secs: Option<i64>,
-) -> bool {
-    let Some(silent) = silent_secs else {
-        return false;
-    };
-    silent >= 90 && silent < 12 * 3600 && departure_after_message_secs.is_none_or(|since| since < 0)
-}
-
-/// How long a non-idle `activity` is believed. Nothing clears the row if the
-/// process is killed between `working` and `idle`, and `working` is a gate in
-/// `decide_ingest` — without this the addressee would go permanently silent
-/// unless they happen to chat again. Far longer than any single turn.
-pub const ACTIVITY_STALE_SECS: i64 = 30 * 60;
 
 /// Reads through a stale activity. `age_secs` comes from `updated_at`, which
 /// other writes also touch, so this can only ever be generous, never early.
@@ -110,88 +292,212 @@ pub fn effective_activity(activity: &str, age_secs: i64) -> &str {
     }
 }
 
-pub fn parse_mood_hint(raw: &str) -> Option<f64> {
-    let trimmed = raw
-        .trim()
-        .trim_matches(|c| c == '"' || c == '“' || c == '”')
-        .split_whitespace()
-        .next()?;
-    let value: f64 = trimmed.parse().ok()?;
-    if !value.is_finite() {
-        return None;
+const INTROVERT: &[&str] = &[
+    "克制",
+    "慢热",
+    "内向",
+    "quiet",
+    "reserved",
+    "shy",
+    "restrained",
+];
+const EXTRAVERT: &[&str] = &[
+    "活泼", "开放", "外向", "bright", "playful", "open", "cheerful",
+];
+
+pub fn persona_affect_baseline(
+    persona_json: Option<&serde_json::Value>,
+    personality: &str,
+) -> AffectBaseline {
+    let temperament = persona_json
+        .and_then(|value| value.get("temperament"))
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    let social = persona_json
+        .and_then(|value| value.get("socialStyle"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let blob = format!("{temperament} {social} {personality}").to_lowercase();
+    let mut base = AffectBaseline::default();
+    if contains_any(&blob, INTROVERT) {
+        base.arousal = 42.0;
+    } else if contains_any(&blob, EXTRAVERT) {
+        base.arousal = 56.0;
     }
-    Some(value.clamp(-2.0, 2.0))
+    base
 }
 
-pub fn apply_mood_hint(mood: f64, hint: f64) -> f64 {
-    apply_delta(mood, hint.clamp(-2.0, 2.0))
+fn contains_any(blob: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| blob.contains(needle))
 }
 
 pub fn detect_mood_cue(text: &str) -> (bool, bool) {
     let lower = text.to_lowercase();
-    let scolded = [
-        "滚",
-        "闭嘴",
-        "滚开",
-        "烦死",
-        "讨厌你",
-        "stupid",
-        "shut up",
-        "fuck you",
-        "去死",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle));
-    if scolded {
+    if cue_hit(
+        &lower,
+        &[
+            "滚",
+            "闭嘴",
+            "滚开",
+            "烦死",
+            "讨厌你",
+            "stupid",
+            "shut up",
+            "fuck you",
+            "去死",
+        ],
+    ) {
         return (false, true);
     }
-    let praised = [
-        "谢谢",
-        "感谢",
-        "辛苦了",
-        "真棒",
-        "太好了",
-        "喜欢你",
-        "thank you",
-        "thanks",
-        "good job",
-        "love you",
+    let praised = cue_hit(
+        &lower,
+        &[
+            "谢谢",
+            "感谢",
+            "辛苦了",
+            "真棒",
+            "太好了",
+            "喜欢你",
+            "thank you",
+            "thanks",
+            "good job",
+            "love you",
+        ],
+    );
+    (praised, false)
+}
+
+fn cue_hit(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| {
+        let mut offset = 0;
+        while offset < haystack.len() {
+            let rest = &haystack[offset..];
+            let Some(pos) = rest.find(needle) else {
+                return false;
+            };
+            let abs = offset + pos;
+            if !negated_before(haystack, abs) {
+                return true;
+            }
+            offset = abs + needle.len();
+            while offset < haystack.len() && !haystack.is_char_boundary(offset) {
+                offset += 1;
+            }
+        }
+        false
+    })
+}
+
+fn negated_before(haystack: &str, index: usize) -> bool {
+    let mut start = index.saturating_sub(12);
+    while start > 0 && !haystack.is_char_boundary(start) {
+        start -= 1;
+    }
+    let window = haystack[start..index].to_lowercase();
+    [
+        "不是", "并非", "不要", "don't", "dont", "never", "不", "没", "别", "not",
     ]
     .iter()
-    .any(|needle| lower.contains(needle));
-    (praised, false)
+    .any(|needle| window.contains(needle))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn rest() -> Affect {
+        Affect::at_rest(AffectBaseline::default())
+    }
+
     #[test]
     fn extreme_low_includes_floor() {
         assert!(is_extremely_low(10.0));
         assert!(!is_extremely_low(10.1));
-        assert_eq!(mood_band(10.0), "floor");
-        assert_eq!(mood_band(39.9), "low");
-        assert_eq!(mood_band(40.0), "normal");
-        assert_eq!(mood_band(85.0), "high");
+        assert_eq!(mood_band(10.0, 48.0), "floor");
+        assert_eq!(mood_band(30.0, 40.0), "sad");
+        assert_eq!(mood_band(30.0, 70.0), "tense");
+        assert_eq!(mood_band(70.0, 48.0), "calm");
+        assert_eq!(mood_band(90.0, 48.0), "calm");
+        assert_eq!(mood_band(90.0, 70.0), "excited");
     }
 
     #[test]
-    fn praise_lifts_and_clamp_holds() {
-        let next = apply_user_utterance(95.0, 0, true, false, true, 0.0);
-        assert!(next <= 100.0);
-        assert!(next > 95.0);
+    fn praise_lifts_mood_from_baseline() {
+        let mut affect = rest();
+        apply_user_utterance(&mut affect, 0, true, false);
+        assert!(affect.mood > DEFAULT_MOOD);
+        assert!(affect.mood <= 100.0);
+        assert!(affect.emotion > ORIGIN);
     }
 
     #[test]
-    fn long_gap_then_talk_does_not_crash() {
-        let next = apply_user_utterance(70.0, 0, false, false, false, 20.0);
-        assert!((next - 68.0).abs() < f64::EPSILON);
+    fn repeated_praise_shrinks() {
+        let mut first = rest();
+        apply_user_utterance(&mut first, 0, true, false);
+        let mut second = rest();
+        apply_user_utterance(&mut second, 1, true, false);
+        assert!(first.mood - DEFAULT_MOOD > second.mood - DEFAULT_MOOD);
+    }
+
+    #[test]
+    fn silence_and_return_do_not_move_mood() {
+        let mut affect = rest();
+        apply_user_utterance(&mut affect, 0, false, false);
+        assert_eq!(affect, rest());
     }
 
     #[test]
     fn task_failure_lowers_mood() {
-        assert_eq!(apply_task_outcome(70.0, false), 65.0);
+        let mut affect = rest();
+        apply_task_outcome(&mut affect, false);
+        assert!(affect.mood < DEFAULT_MOOD);
+    }
+
+    #[test]
+    fn repeated_scold_can_reach_the_mood_floor() {
+        let mut affect = rest();
+        for _ in 0..200 {
+            apply_user_utterance(&mut affect, 0, false, true);
+            if is_extremely_low(affect.mood) {
+                assert_eq!(mood_band(affect.mood, affect.arousal), "floor");
+                return;
+            }
+        }
+        panic!("mood {} never reached the floor", affect.mood);
+    }
+
+    #[test]
+    fn repeated_success_converges_below_the_ceiling() {
+        let mut affect = rest();
+        for _ in 0..10_000 {
+            apply_task_outcome(&mut affect, true);
+        }
+        assert!(affect.mood > DEFAULT_MOOD);
+        assert!(affect.mood < 100.0);
+        let settled = affect.mood;
+        apply_task_outcome(&mut affect, true);
+        assert!((affect.mood - settled).abs() < 0.05);
+    }
+
+    #[test]
+    fn repeated_failure_converges_above_zero() {
+        let mut affect = rest();
+        for _ in 0..10_000 {
+            apply_task_outcome(&mut affect, false);
+        }
+        assert!(affect.mood < DEFAULT_MOOD);
+        assert!(affect.mood > 0.0);
+        assert!(!is_extremely_low(affect.mood));
+        let settled = affect.mood;
+        apply_task_outcome(&mut affect, false);
+        assert!((affect.mood - settled).abs() < 0.05);
     }
 
     #[test]
@@ -199,23 +505,8 @@ mod tests {
         assert_eq!(detect_mood_cue("谢谢你还是滚吧"), (false, true));
         assert_eq!(detect_mood_cue("谢谢你今天帮我"), (true, false));
         assert_eq!(detect_mood_cue("今天天气不错"), (false, false));
-    }
-
-    #[test]
-    fn departure_applies_once_after_chat_window() {
-        assert!(!should_apply_departure(None, None));
-        // Still inside the chat window.
-        assert!(!should_apply_departure(Some(30), None));
-        // Silent long enough and never charged yet.
-        assert!(should_apply_departure(Some(120), None));
-        // Already charged for this silence window.
-        assert!(!should_apply_departure(Some(120), Some(4)));
-        // Last charge predates the newest utterance, so this window is unpaid.
-        assert!(should_apply_departure(Some(120), Some(-30)));
-        // A long turn no longer disables the decay: only a real departure write does.
-        assert!(should_apply_departure(Some(600), Some(-1)));
-        assert!(!should_apply_departure(Some(13 * 3600), None));
-        assert_eq!(apply_departure(70.0), 68.0);
+        assert_eq!(detect_mood_cue("不是讨厌你"), (false, false));
+        assert_eq!(detect_mood_cue("不喜欢你"), (false, false));
     }
 
     #[test]
@@ -225,18 +516,66 @@ mod tests {
             effective_activity("thinking", ACTIVITY_STALE_SECS - 1),
             "thinking"
         );
-        // A process killed mid-task must not gate this person forever.
         assert_eq!(effective_activity("working", ACTIVITY_STALE_SECS), "idle");
         assert_eq!(effective_activity("talking", 10 * 3600), "idle");
         assert_eq!(effective_activity("idle", 10 * 3600), "idle");
     }
 
     #[test]
-    fn mood_hint_parses_small_delta() {
-        assert_eq!(parse_mood_hint(" 1 "), Some(1.0));
-        assert_eq!(parse_mood_hint("\"-2\""), Some(-2.0));
-        assert_eq!(parse_mood_hint("9"), Some(2.0));
-        assert_eq!(parse_mood_hint("nope"), None);
-        assert_eq!(apply_mood_hint(70.0, 1.0), 71.0);
+    fn appraisal_hint_parses_two_ints() {
+        assert_eq!(parse_appraisal_hint(" 1 -1 "), Some((1, -1)));
+        assert_eq!(parse_appraisal_hint("\"2 2\""), Some((2, 2)));
+        assert_eq!(parse_appraisal_hint("9 0"), Some((2, 0)));
+        assert_eq!(parse_appraisal_hint("1"), None);
+        assert_eq!(parse_appraisal_hint("nope"), None);
+        let mut affect = rest();
+        apply_mood_hint(&mut affect, 2, 1);
+        assert!(affect.mood > DEFAULT_MOOD);
+        assert!(affect.arousal > DEFAULT_AROUSAL);
+    }
+
+    #[test]
+    fn origin_emotion_does_not_pull_mood() {
+        let mut affect = rest();
+        affect.emotion = ORIGIN;
+        affect.emotion_arousal = ORIGIN;
+        let before = affect;
+        pull_push(&mut affect);
+        assert_eq!(affect, before);
+    }
+
+    #[test]
+    fn ninety_days_idle_returns_to_persona_set_point() {
+        let mut affect = Affect {
+            mood: 20.0,
+            arousal: 90.0,
+            emotion: 95.0,
+            emotion_arousal: 95.0,
+        };
+        let base = AffectBaseline::default();
+        let dt = 90.0 * 24.0;
+        affect = settle(affect, base, dt, dt);
+        assert!((affect.mood - base.mood).abs() < 0.05);
+        assert!((affect.arousal - base.arousal).abs() < 0.05);
+        assert!((affect.emotion - ORIGIN).abs() < 0.05);
+        assert!((affect.emotion_arousal - ORIGIN).abs() < 0.05);
+    }
+
+    #[test]
+    fn persona_set_point_follows_temperament() {
+        let quiet = persona_affect_baseline(Some(&serde_json::json!({"socialStyle": "内向"})), "");
+        assert!((quiet.arousal - 42.0).abs() < f64::EPSILON);
+        assert!((quiet.mood - DEFAULT_MOOD).abs() < f64::EPSILON);
+        let bright =
+            persona_affect_baseline(Some(&serde_json::json!({"temperament": ["活泼"]})), "");
+        assert!((bright.arousal - 56.0).abs() < f64::EPSILON);
+        assert_eq!(persona_affect_baseline(None, "").arousal, DEFAULT_AROUSAL);
+    }
+
+    #[test]
+    fn lite_hint_maps_onto_the_origin() {
+        let appraisal = lite_appraisal(2, -2);
+        assert!((appraisal.emotion - 82.0).abs() < f64::EPSILON);
+        assert!((appraisal.arousal - 18.0).abs() < f64::EPSILON);
     }
 }

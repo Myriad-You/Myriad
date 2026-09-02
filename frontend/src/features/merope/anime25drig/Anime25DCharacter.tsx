@@ -1,141 +1,138 @@
-import type { PerformanceDirective } from '../../../services/agent/types'
-import type { SpeechArticulation } from '../rig/articulation'
-import type { GazeSource, GazeTarget } from '../rig/motion'
+import type { RigBearing } from '../motion/bearing'
+import type { BehaviorPlan } from '../motion/behavior'
+import type { MotionChannelPolicy } from '../motion/policy'
+import type { RigMotionPort } from '../rig/motionPort'
 import type { MeropeRigManifest } from '../rig/types'
+import type { SingingSpectrumDrive } from '../singing/singingGroove'
+import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'
-import type { Anime25DDebugSnapshot, Anime25DDriver } from './player'
 import type { Anime25DPlayback } from './types'
+import type { Anime25DWorkbenchPort } from './workbenchPort'
 import {
   forwardRef,
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
 } from 'react'
-import {
-  baselineDriverPatch,
-  cueDriverPatch,
-  cueDurationMs,
-  cuePriority,
-} from './performanceMotion'
-import {
-  Anime25DPlayer,
-  DEFAULT_FRONT_HAIR_SWAY,
-  DEFAULT_REAR_HAIR_SWAY,
-  IDENTITY_DRIVER,
-} from './player'
+import { realizeAnime25DBehaviorPlan } from './behaviorRealizer'
+import { activityExpressionDriverPatch } from './expressionPresets'
+import { idleSpeechDriverPatch } from './performanceMotion'
+import { Anime25DPlayer } from './player'
+import { shouldAnimateAnime25D } from './runtimePolicy'
 import {
   speechArticulationDriverPatch,
   speechEnergyDriverPatch,
+  updatedSpeechMouthFormBaseline,
 } from './speechDriver'
 
 interface Props {
   activity: MeropeActivity
-  fallbackUrl: string
   manifest: MeropeRigManifest
   playback: Anime25DPlayback
   atlasUrl: string
   mood: number
-  /** Settings page: ignore live activity/mood so sliders stay in charge. */
+  /** Settings page: sliders own the base pose; live acting stays additive. */
   manualControl?: boolean
+  onPlaybackError?: (error: unknown) => void
 }
 
-export interface Anime25DCharacterHandle {
-  setSpeechActive: (active: boolean) => void
-  setAutoSpeech: (active: boolean) => void
-  setSpeechEnergy: (energy: number | null) => void
-  setSpeechArticulation: (articulation: SpeechArticulation) => void
-  setGazeTarget: (target: GazeTarget | null, source?: GazeSource) => void
-  playMotionPlan: (performance: PerformanceDirective) => void
-  stopMotionPlan: () => void
-  captureFrame: () => string | null
-  setDriver: (partial: Partial<Anime25DDriver>) => void
-  replaceDriver: (driver: Anime25DDriver) => void
-  resetDriver: () => void
-  getDriver: () => Anime25DDriver | null
-  blinkNow: () => void
-  debugSnapshot: () => Anime25DDebugSnapshot | null
-  setMouse: (x: number, y: number, inside: boolean) => void
-}
+export interface Anime25DCharacterHandle
+  extends RigMotionPort, Anime25DWorkbenchPort {}
 
 const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
-  ({ activity, fallbackUrl, manifest, playback, atlasUrl, mood, manualControl = false }, ref) => {
+  (
+    {
+      activity,
+      manifest,
+      playback,
+      atlasUrl,
+      mood,
+      manualControl = false,
+      onPlaybackError,
+    },
+    ref,
+  ) => {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const playerRef = useRef<Anime25DPlayer | null>(null)
     const readyRef = useRef(false)
+    const [ready, setReady] = useState(false)
     const wrapperRef = useRef<HTMLSpanElement>(null)
     const activityRef = useRef(activity)
     const moodRef = useRef(mood)
     const speechActiveRef = useRef(false)
+    const speechProsodyRef = useRef<SpeechProsodyPlan | null>(null)
+    const singingActiveRef = useRef(false)
+    const singingTrackRef = useRef<string | null>(null)
+    const singingSpectrumRef = useRef<SingingSpectrumDrive | null>(null)
+    const motionPolicyRef = useRef<MotionChannelPolicy | null>(null)
+    const speechMouthFormRef = useRef(0)
+    const pendingSpeechTextRef = useRef<
+      Array<{ text: string; locale?: string }>
+    >([])
     const manualRef = useRef(manualControl)
-    const baselineRef = useRef<Partial<Anime25DDriver> | null>(null)
-    const cueTimersRef = useRef<number[]>([])
-    const restoreTimerRef = useRef<number | null>(null)
-    const activePriorityRef = useRef(0)
-    const activeUntilRef = useRef(0)
-    const performanceRevisionRef = useRef(-1)
-    const performancePhaseRankRef = useRef(-1)
-    activityRef.current = activity
-    moodRef.current = mood
+    const bearingRef = useRef<RigBearing | null>(null)
+    const behaviorPlanRef = useRef<BehaviorPlan | null>(null)
     manualRef.current = manualControl || manualRef.current
 
     const applyDriver = (player: Anime25DPlayer) => {
       if (manualRef.current || manualControl) return
       const currentActivity = activityRef.current
-      const smile = Math.max(0, (moodRef.current - 50) / 80)
+      const policy = player.getMotionPolicy()
+      const thinking = currentActivity === 'thinking'
+      const expressionFree =
+        policy.expression === 'idle' || policy.expression === 'mood'
+      const mouthFree = policy.mouth === 'idle'
       player.setTarget({
-        angleX: 0,
-        angleY: 0,
-        angleZ: 0,
-        eyeOpenL: 1,
-        eyeOpenR: 1,
-        eyeX: 0,
-        eyeY: 0,
-        irisScale: 1,
-        brow: 0,
-        mouthForm: smile * 0.28,
-        body: 0,
-        armY: 0,
-        armPos: 0,
-        bust: 2.5,
-        physAmp: DEFAULT_REAR_HAIR_SWAY,
-        soft: 2,
-        fhAmp: DEFAULT_FRONT_HAIR_SWAY,
-        idle: true,
+        thinking,
         blink: true,
-        rand: true,
-        phys: true,
-        ...(baselineRef.current || {
-          mouthForm: smile * 0.28,
-        }),
-        talk: false,
-        mouthOpen: 0,
-        ...(currentActivity === 'thinking'
-          ? { angleY: 0.08, body: 0.4 }
+        ...(expressionFree ? activityExpressionDriverPatch(thinking) : {}),
+        ...(mouthFree
+          ? idleSpeechDriverPatch(moodRef.current, speechActiveRef.current)
           : {}),
       })
+      if (bearingRef.current) player.setBearing(bearingRef.current)
     }
 
-    const clearCueTimers = () => {
-      for (const timer of cueTimersRef.current) window.clearTimeout(timer)
-      cueTimersRef.current = []
-      if (restoreTimerRef.current !== null) {
-        window.clearTimeout(restoreTimerRef.current)
-        restoreTimerRef.current = null
-      }
-      activePriorityRef.current = 0
-      activeUntilRef.current = 0
+    const enterManualControl = () => {
+      if (manualRef.current) return
+      manualRef.current = true
     }
 
     useImperativeHandle(ref, () => ({
+      setBearing(bearing) {
+        bearingRef.current = bearing
+        playerRef.current?.setBearing(bearing)
+      },
       setSpeechActive(active) {
+        if (active && !speechActiveRef.current) {
+          speechMouthFormRef.current =
+            playerRef.current?.getTarget().mouthForm ?? 0
+        }
         speechActiveRef.current = active
         playerRef.current?.setSpeechActive(active)
       },
+      setSinging(active) {
+        singingActiveRef.current = active
+        playerRef.current?.setSinging(active)
+      },
+      setSingingTrack(trackId) {
+        singingTrackRef.current = trackId
+        playerRef.current?.setSingingTrack(trackId)
+      },
+      setSingingSpectrum(drive) {
+        singingSpectrumRef.current = drive
+        playerRef.current?.setSingingSpectrum(drive)
+      },
       setAutoSpeech(active) {
+        if (!active) playerRef.current?.clearSpeechText()
         playerRef.current?.setTarget({
           talk: active,
           mouthOpen: 0,
-          mouthForm: baselineRef.current?.mouthForm ?? 0,
+          mouthWide: 0,
+          mouthRound: 0,
+          mouthNarrow: 0,
+          mouthSeal: 0,
         })
       },
       setSpeechEnergy(energy) {
@@ -145,106 +142,52 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         playerRef.current?.setTarget(
           speechArticulationDriverPatch(
             articulation,
-            baselineRef.current?.mouthForm ?? 0,
+            speechMouthFormRef.current,
           ),
         )
       },
-      setGazeTarget(target) {
-        playerRef.current?.setTarget({
-          angleX: target ? target.x * 0.35 : 0,
-          angleY: target ? target.y * 0.28 : 0,
-        })
+      setSpeechProsody(prosody) {
+        speechProsodyRef.current = prosody
+        playerRef.current?.setSpeechProsody(prosody)
       },
-      playMotionPlan(directive) {
-        if (manualRef.current || manualControl) return
-        const phaseRank = {
-          mood: 0,
-          reaction: 1,
-          delivery: 2,
-          proactive: 2,
-          outcome: 3,
-        }[directive.phase]
-        if (directive.moodRevision < performanceRevisionRef.current) return
-        if (
-          directive.moodRevision === performanceRevisionRef.current &&
-          phaseRank < performancePhaseRankRef.current
-        ) {
-          return
-        }
-        if (directive.moodRevision > performanceRevisionRef.current) {
-          clearCueTimers()
-          performanceRevisionRef.current = directive.moodRevision
-          performancePhaseRankRef.current = -1
-        }
-        performancePhaseRankRef.current = phaseRank
-        if (directive.plan.baseline) {
-          baselineRef.current = baselineDriverPatch(directive.plan.baseline)
-        }
-        if (playerRef.current) applyDriver(playerRef.current)
-
-        for (const cue of directive.plan.cues) {
-          const timer = window.setTimeout(() => {
-            const run = () => {
-              const priority = cuePriority(cue)
-              const now = performance.now()
-              if (cue.interrupt === 'queue' && now < activeUntilRef.current) {
-                const queued = window.setTimeout(run, activeUntilRef.current - now)
-                cueTimersRef.current.push(queued)
-                return
-              }
-              if (cue.interrupt === 'if-lower' && priority <= activePriorityRef.current) return
-              if (restoreTimerRef.current !== null) window.clearTimeout(restoreTimerRef.current)
-              const duration = cueDurationMs(cue)
-              activePriorityRef.current = priority
-              activeUntilRef.current = performance.now() + duration
-              playerRef.current?.setTarget({
-                ...(baselineRef.current || {}),
-                // Authored cues own the pose until their restore timer fires.
-                // Ambient motion eases to neutral instead of competing.
-                rand: false,
-                ...cueDriverPatch(cue),
-              })
-              restoreTimerRef.current = window.setTimeout(() => {
-                activePriorityRef.current = 0
-                activeUntilRef.current = 0
-                restoreTimerRef.current = null
-                if (playerRef.current) applyDriver(playerRef.current)
-              }, duration)
-            }
-            run()
-          }, cue.atMs)
-          cueTimersRef.current.push(timer)
+      enqueueSpeechText(text, locale) {
+        if (playerRef.current) {
+          playerRef.current.enqueueSpeechText(text, locale)
+        } else {
+          pendingSpeechTextRef.current.push({ text, locale })
         }
       },
-      stopMotionPlan() {
-        clearCueTimers()
-        baselineRef.current = null
-        performanceRevisionRef.current = -1
-        performancePhaseRankRef.current = -1
-        if (playerRef.current) applyDriver(playerRef.current)
+      playBehaviorPlan(plan) {
+        const now = performance.now()
+        const realization = realizeAnime25DBehaviorPlan(plan, now)
+        // Restating the whole live set is the entire protocol. The player
+        // reconciles it, so nothing here tracks what has already played.
+        playerRef.current?.setBehaviorMotionUnits(realization.units, now)
+        behaviorPlanRef.current = plan
+        return realization.reports
       },
-      captureFrame() {
-        return playerRef.current?.captureFrame() ?? null
+      stopBehaviorPlan(planId) {
+        if (planId && behaviorPlanRef.current?.id !== planId) return
+        playerRef.current?.clearBehaviorMotionUnits()
+        behaviorPlanRef.current = null
       },
       setDriver(partial) {
-        manualRef.current = true
+        enterManualControl()
+        speechMouthFormRef.current = updatedSpeechMouthFormBaseline(
+          speechMouthFormRef.current,
+          speechActiveRef.current,
+          partial.mouthForm,
+        )
         playerRef.current?.setTarget(partial)
       },
       replaceDriver(driver) {
-        manualRef.current = true
+        enterManualControl()
+        speechMouthFormRef.current = updatedSpeechMouthFormBaseline(
+          speechMouthFormRef.current,
+          speechActiveRef.current,
+          driver.mouthForm,
+        )
         playerRef.current?.replaceTarget(driver)
-      },
-      resetDriver() {
-        clearCueTimers()
-        baselineRef.current = null
-        performanceRevisionRef.current = -1
-        performancePhaseRankRef.current = -1
-        manualRef.current = false
-        playerRef.current?.replaceTarget({ ...IDENTITY_DRIVER })
-        if (playerRef.current) applyDriver(playerRef.current)
-      },
-      getDriver() {
-        return playerRef.current?.getTarget() ?? null
       },
       blinkNow() {
         playerRef.current?.blinkNow()
@@ -252,8 +195,14 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       debugSnapshot() {
         return playerRef.current?.debugSnapshot() ?? null
       },
-      setMouse(x, y, inside) {
-        playerRef.current?.setMouse(x, y, inside)
+      setMotionPolicy(policy) {
+        motionPolicyRef.current = policy
+        playerRef.current?.setMotionPolicy(policy)
+      },
+      setMood(nextMood, nextActivity) {
+        moodRef.current = nextMood
+        activityRef.current = nextActivity
+        if (playerRef.current) applyDriver(playerRef.current)
       },
     }))
 
@@ -261,13 +210,43 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       const canvas = canvasRef.current
       const wrapper = wrapperRef.current
       if (!canvas || !wrapper) return undefined
-      const player = new Anime25DPlayer(canvas, playback, manifest)
+      let player: Anime25DPlayer
+      try {
+        player = new Anime25DPlayer(canvas, playback, manifest)
+      } catch (error) {
+        readyRef.current = false
+        setReady(false)
+        onPlaybackError?.(error)
+        return undefined
+      }
       playerRef.current = player
       player.setSpeechActive(speechActiveRef.current)
+      player.setSpeechProsody(speechProsodyRef.current)
+      player.setSinging(singingActiveRef.current)
+      player.setSingingTrack(singingTrackRef.current)
+      player.setSingingSpectrum(singingSpectrumRef.current)
+      if (motionPolicyRef.current)
+        player.setMotionPolicy(motionPolicyRef.current)
+      for (const chunk of pendingSpeechTextRef.current) {
+        player.enqueueSpeechText(chunk.text, chunk.locale)
+      }
+      pendingSpeechTextRef.current = []
+      player.setBearing(bearingRef.current)
+      if (behaviorPlanRef.current) {
+        const now = performance.now()
+        const realization = realizeAnime25DBehaviorPlan(
+          behaviorPlanRef.current,
+          now,
+        )
+        player.setBehaviorMotionUnits(realization.units, now)
+      }
       applyDriver(player)
       let frame = 0
       let last = performance.now()
       let cancelled = false
+      let atlasReady = false
+      let pageVisible = document.visibilityState !== 'hidden'
+      let inViewport = true
       const onPointerMove = (event: PointerEvent) => {
         const bounds = canvas.getBoundingClientRect()
         if (bounds.width <= 0 || bounds.height <= 0) return
@@ -287,46 +266,82 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         player.resize(rect.width, rect.height, window.devicePixelRatio || 1)
       }
       const tick = (now: number) => {
-        if (cancelled) return
+        frame = 0
+        if (cancelled || !atlasReady || !pageVisible || !inViewport) return
         player.tick((now - last) / 1000)
         last = now
         frame = window.requestAnimationFrame(tick)
       }
+      const syncAnimation = () => {
+        const shouldRun = shouldAnimateAnime25D({
+          atlasReady,
+          pageVisible,
+          inViewport,
+          cancelled,
+        })
+        if (!shouldRun) {
+          if (frame !== 0) window.cancelAnimationFrame(frame)
+          frame = 0
+          return
+        }
+        if (frame !== 0) return
+        last = performance.now()
+        frame = window.requestAnimationFrame(tick)
+      }
+      const onVisibilityChange = () => {
+        pageVisible = document.visibilityState !== 'hidden'
+        syncAnimation()
+      }
       const observer = new ResizeObserver(resize)
       observer.observe(wrapper)
+      const viewportObserver =
+        typeof IntersectionObserver === 'undefined'
+          ? null
+          : new IntersectionObserver((entries) => {
+              inViewport = entries.some((entry) => entry.isIntersecting)
+              syncAnimation()
+            })
+      viewportObserver?.observe(wrapper)
+      document.addEventListener('visibilitychange', onVisibilityChange)
       resize()
-      void player.loadAtlas(atlasUrl).then(() => {
-        if (cancelled) return
-        readyRef.current = true
-        wrapper.classList.add('is-ready')
-        frame = window.requestAnimationFrame(tick)
-      })
+      void player
+        .loadAtlas(atlasUrl)
+        .then(() => {
+          if (cancelled) return
+          atlasReady = true
+          readyRef.current = true
+          setReady(true)
+          syncAnimation()
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return
+          atlasReady = false
+          readyRef.current = false
+          setReady(false)
+          onPlaybackError?.(error)
+        })
       return () => {
         cancelled = true
-        clearCueTimers()
         window.cancelAnimationFrame(frame)
         observer.disconnect()
+        viewportObserver?.disconnect()
+        document.removeEventListener('visibilitychange', onVisibilityChange)
         canvas.removeEventListener('pointermove', onPointerMove)
         canvas.removeEventListener('pointerleave', onPointerLeave)
         player.dispose()
         playerRef.current = null
-        wrapper.classList.remove('is-ready')
+        readyRef.current = false
+        setReady(false)
       }
-    }, [atlasUrl, manifest, playback])
-
-    useEffect(() => {
-      if (manualRef.current || manualControl) return
-      if (playerRef.current) applyDriver(playerRef.current)
-    }, [activity, mood, manualControl])
+    }, [atlasUrl, manifest, onPlaybackError, playback])
 
     return (
       <span
         ref={wrapperRef}
-        className="merope-rig"
+        className={ready ? 'merope-rig is-ready' : 'merope-rig'}
         data-rig-quality="layered-2d"
         data-runtime="Anime2.5DRig"
       >
-        <img src={fallbackUrl} alt="" draggable={false} />
         <canvas ref={canvasRef} aria-hidden />
       </span>
     )

@@ -14,7 +14,6 @@ import type {
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
 import {
   FaEdit,
   FaPlus,
@@ -23,6 +22,7 @@ import {
   LuServer,
 } from '../../lib/icons'
 import { agentService } from '../../services/agent'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   InfoActionCard,
   InputItem,

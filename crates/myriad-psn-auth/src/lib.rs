@@ -96,7 +96,7 @@ access_type=offline&client_id={PSN_CLIENT_ID}\
         .header("Cookie", format!("npsso={npsso}"))
         .send()
         .await
-        .map_err(|e| format!("PSN authorize request failed: {e}"))?;
+        .map_err(|_| "PSN authorize request failed".to_string())?;
 
     // With redirects disabled, Location holds the code.
     let location = resp
@@ -137,7 +137,7 @@ access_type=offline&client_id={PSN_CLIENT_ID}\
         .form(&form)
         .send()
         .await
-        .map_err(|e| format!("PSN token request failed: {e}"))?;
+        .map_err(|_| "PSN token request failed".to_string())?;
 
     if !token_resp.status().is_success() {
         return Err(format!("PSN token exchange HTTP {}", token_resp.status()));
@@ -146,7 +146,7 @@ access_type=offline&client_id={PSN_CLIENT_ID}\
     let token_json: Value = token_resp
         .json()
         .await
-        .map_err(|e| format!("PSN token parse failed: {e}"))?;
+        .map_err(|_| "PSN token parse failed".to_string())?;
 
     token_json
         .get("access_token")

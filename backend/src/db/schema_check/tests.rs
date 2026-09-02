@@ -37,6 +37,8 @@ fn test_recent_month_features_in_expected_schema() {
         "analytics_country_visitor",
         // 004
         "heartbeat_claims",
+        "agent_intentions",
+        "agent_autonomy_grants",
         // 005 扩展
         "federation_content_filters",
         "federation_policy_settings",
@@ -112,6 +114,10 @@ fn test_recent_month_features_in_expected_schema() {
         "idx_analytics_page_daily_day",
         "idx_analytics_country_daily_day",
         "idx_heartbeat_claims_claimed_at",
+        "idx_agent_intentions_user_status",
+        "idx_agent_intentions_user_updated",
+        "idx_agent_intentions_source_event",
+        "idx_agent_intentions_user_source_event",
         "idx_federation_domain_aliases_new",
         "idx_fed_interactions_object_kind",
         "idx_fed_interactions_user_kind_created",

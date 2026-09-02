@@ -191,28 +191,6 @@ export function clearLibraryDataCache(): void {
 }
 
 /**
- * 预热缓存（后台预加载）
- */
-export function prefetchDedup<T>(
-  url: string,
-  fetchFn: () => Promise<T>,
-  options?: DedupOptions,
-): void {
-  // 使用 requestIdleCallback 或 setTimeout 延迟执行
-  const prefetch = () => {
-    dedupedFetch(url, fetchFn, options).catch(() => {
-      // 预热失败静默处理
-    })
-  }
-
-  if ('requestIdleCallback' in window) {
-    ;(window as any).requestIdleCallback(prefetch, { timeout: 5000 })
-  } else {
-    setTimeout(prefetch, 1000)
-  }
-}
-
-/**
  * 获取 UI 配置（去重）
  * 缓存 30 秒
  */
@@ -293,24 +271,6 @@ export async function getPublicConfigDeduped(): Promise<any> {
 
 export function invalidatePublicConfigCache(): void {
   clearDedupCache(`${API_URL}/api/config/public`)
-}
-
-/**
- * 获取设置状态（去重）
- * 缓存 1 分钟
- */
-export async function getSetupStatusDeduped(): Promise<any> {
-  return dedupedFetch(
-    `${API_URL}/api/setup/status`,
-    async () => {
-      const response = await fetch(`${API_URL}/api/setup/status`)
-      if (!response.ok) {
-        throw new ApiError(httpStatusMessage(response.status), response.status)
-      }
-      return response.json()
-    },
-    { cacheTTL: 60 * 1000 },
-  )
 }
 
 /**

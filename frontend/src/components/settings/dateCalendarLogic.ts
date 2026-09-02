@@ -33,18 +33,6 @@ export function addMonths(y: number, m: number, delta: number): { y: number; m: 
   return { y: Math.floor(idx / 12), m: (idx % 12) + 1 }
 }
 
-export function compareIso(a: string, b: string): number {
-  if (a === b) return 0
-  return a < b ? -1 : 1
-}
-
-export function clampIso(iso: string, min?: string, max?: string): string {
-  let out = iso
-  if (min && out < min) out = min
-  if (max && out > max) out = max
-  return out
-}
-
 export function inclusiveDaySpan(from: string, to: string): number {
   const a = parseIso(from)
   const b = parseIso(to)

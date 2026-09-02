@@ -41,7 +41,7 @@ export async function parseJsonResponse(response: Response): Promise<any> {
  */
 export async function handleErrorResponse(
   response: Response,
-  defaultMessage: string = currentCopy().errors.operationFailed,
+  defaultMessage: string = currentCopy().errors.requestFailed,
 ): Promise<never> {
   const contentType = response.headers.get('content-type')
   const hasJson = contentType && contentType.includes('application/json')

@@ -137,7 +137,6 @@ function setMemoryCache(url: string, palette: ColorPalette): void {
 
 /** 当前正在进行的提取任务（壁纸 / 通用） */
 let currentExtractionController: AbortController | null = null
-let currentExtractionUrl: string | null = null
 /** 音乐封面：当前曲 high 优先级取色 */
 let musicHighController: AbortController | null = null
 /** 当前 high 任务对应的封面 URL（用于判断是否应 abort） */
@@ -823,7 +822,6 @@ export async function extractColorsFromImage(
 
   const myController = new AbortController()
   currentExtractionController = myController
-  currentExtractionUrl = imageUrl
 
   try {
     if (isWallpaper && !wallpaperState.isUrlActive(imageUrl)) {
@@ -873,7 +871,6 @@ export async function extractColorsFromImage(
   } finally {
     if (currentExtractionController === myController) {
       currentExtractionController = null
-      currentExtractionUrl = null
     }
   }
 }
@@ -890,19 +887,6 @@ export function applyColorPalette(palette: ColorPalette): void {
   root.style.setProperty('--color-dark', palette.dark)
   // 设置强调色：与 Hero adaptive 同源（对比度可读）
   syncCfgAccentColor()
-}
-
-/**
- * 清除颜色（重置为中性色）
- */
-export function clearColors(): void {
-  applyColorPalette({
-    primary: '#94a3b8',
-    secondary: '#94a3b8',
-    accent: '#94a3b8',
-    light: '#cbd5e1',
-    dark: '#475569',
-  })
 }
 
 /**
@@ -937,18 +921,4 @@ export function extractColorsFromLoadedImage(
     )
     return { ...DEFAULT_PALETTE }
   }
-}
-
-/**
- * 获取当前提取任务的URL
- */
-export function getCurrentExtractionUrl(): string | null {
-  return currentExtractionUrl
-}
-
-/**
- * 获取默认配色
- */
-export function getDefaultPalette(): ColorPalette {
-  return { ...DEFAULT_PALETTE }
 }

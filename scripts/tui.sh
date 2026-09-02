@@ -3,10 +3,13 @@
 # ============================================
 # Sourced by dev.sh. Do not execute directly.
 # macOS /bin/bash 3.2: no assoc arrays, no `wait -n`.
+# bash 3.2 leaks an FD on every process substitution (`<(...)`); never
+# use it on the idle/render path or the TUI hits "Too many open files".
 #
 # Overview is the start menu (mark + panel at ~90×26, compact below that).
 # Start/stop stay on this screen and write backend.log / frontend.log.
-# doctor / db-setup / psql / clean leave the alt screen (need a real tty).
+# After start-all / restart-all, Overview redraws every 5s until the stack is up.
+# Logs: arrows / PgUp / wheel. doctor / db-setup / psql / clean leave the alt screen.
 
 TUI_TAB=0
 TUI_SEL=0
@@ -35,9 +38,12 @@ TUI_CACHE_UP_DETAIL="—"
 TUI_EXPECT_DB_UNTIL=0
 TUI_EXPECT_BE_UNTIL=0
 TUI_EXPECT_FE_UNTIL=0
+TUI_BOOTING=0
+TUI_OVERVIEW_PULSE_AT=0
+TUI_OVERVIEW_PULSE_SECS=5
 TUI_POLL_FAST=3
 TUI_POLL_IDLE=10
-TUI_POLL_TIME=3
+TUI_POLL_TIME=10
 
 TUI_TAB_COUNT=5
 TUI_LOG_COUNT=4
@@ -45,6 +51,8 @@ TUI_MIN_COLS=72
 TUI_MIN_ROWS=18
 TUI_LOGO_FILE=""
 TUI_BODY_FILE=""
+TUI_PANEL_FILE=""
+TUI_KEYFILE=""
 TUI_LOGO_H=0
 TUI_LOGO_W=0
 TUI_IDLE=0
@@ -225,6 +233,10 @@ tui_attach_tty() {
     fi
 }
 
+tui_mouse_off() {
+    printf '\033[?1000l\033[?1006l\033[?1007l'
+}
+
 tui_enter() {
     TUI_STTY="$(stty -g 2>/dev/null || true)"
     tput smcup 2>/dev/null || printf '\033[?1049h'
@@ -234,11 +246,14 @@ tui_enter() {
     # VMIN=0 VTIME=3: kernel waits up to 0.3s. No bash `read -t` (3.2 is instant).
     stty -echo -icanon time "$TUI_POLL_TIME" min 0 2>/dev/null || stty -echo -icanon 2>/dev/null || true
     TUI_ACTIVE=1
+    # Alternate-scroll: wheel becomes up/down (logs scroll, menus move). Clicks stay selectable.
+    printf '\033[?1007h'
 }
 
 tui_leave() {
     [[ "$TUI_ACTIVE" -eq 1 ]] || return 0
     TUI_ACTIVE=0
+    tui_mouse_off
     [[ -n "$TUI_STTY" ]] && stty "$TUI_STTY" 2>/dev/null || stty sane 2>/dev/null || true
     printf '\033[?25h'
     tput rmcup 2>/dev/null || printf '\033[?1049l'
@@ -250,6 +265,14 @@ tui_leave() {
         rm -f "$TUI_BODY_FILE"
         TUI_BODY_FILE=""
     fi
+    if [[ -n "$TUI_PANEL_FILE" && -f "$TUI_PANEL_FILE" ]]; then
+        rm -f "$TUI_PANEL_FILE"
+        TUI_PANEL_FILE=""
+    fi
+    if [[ -n "$TUI_KEYFILE" && -f "$TUI_KEYFILE" ]]; then
+        rm -f "$TUI_KEYFILE"
+        TUI_KEYFILE=""
+    fi
 }
 
 tui_size() {
@@ -260,12 +283,21 @@ tui_size() {
 }
 
 tui_read_byte() {
-    # -d '' keeps newline as data. rc=0 + empty still means Enter
-    # (bash 3.2 delimiter). rc!=0 + empty is the 1s VTIME idle.
+    # bash 3.2 `read -n` on the TTY resets termios (VMIN=1 VTIME=0), so
+    # stty VTIME never fires. dd honors the current tty settings.
+    # Do not wrap tty-dd in $(...): that pipe+TTY path exhausts FDs.
     TUI_BYTE=""
+    TUI_READ_RC=1
+    if [[ -z "$TUI_KEYFILE" ]]; then
+        TUI_KEYFILE="$(mktemp "${TMPDIR:-/tmp}/myriad-key.XXXXXX")" || return 0
+    fi
+    : > "$TUI_KEYFILE"
+    dd bs=1 count=1 of="$TUI_KEYFILE" 2>/dev/null || true
+    [[ -s "$TUI_KEYFILE" ]] || return 0
+    # -d '' so Enter (newline) is data, not a delimiter. Redirected from a
+    # file so this `read -n` does not touch tty termios.
+    IFS= read -r -d '' -n 1 TUI_BYTE < "$TUI_KEYFILE" || true
     TUI_READ_RC=0
-    IFS= read -r -s -n 1 -d '' TUI_BYTE
-    TUI_READ_RC=$?
 }
 
 tui_read_key() {
@@ -273,11 +305,7 @@ tui_read_key() {
     local k="" rest=""
     tui_read_byte
     if [[ -z "$TUI_BYTE" ]]; then
-        if [[ "$TUI_READ_RC" -eq 0 ]]; then
-            TUI_KEY="enter"
-        else
-            TUI_KEY="timeout"
-        fi
+        TUI_KEY="timeout"
         return 0
     fi
     k="$TUI_BYTE"
@@ -297,8 +325,19 @@ tui_read_key() {
         elif [[ "$rest" == "[" ]]; then
             tui_read_byte
             k="${k}${TUI_BYTE}"
-            # CSI params: ESC [ 1 ; 5 A  or  ESC [ 3 ~
-            if [[ "$TUI_BYTE" == [0-9\;] ]]; then
+            if [[ "$TUI_BYTE" == "<" ]]; then
+                # SGR mouse: ESC [ < btn ; x ; y M
+                while true; do
+                    tui_read_byte
+                    [[ -n "$TUI_BYTE" ]] || break
+                    k="${k}${TUI_BYTE}"
+                    case "$TUI_BYTE" in
+                        M|m) break ;;
+                    esac
+                    [[ ${#k} -gt 40 ]] && break
+                done
+            elif [[ "$TUI_BYTE" == [0-9\;] ]]; then
+                # CSI params: ESC [ 1 ; 5 A  or  ESC [ 3 ~
                 while true; do
                     tui_read_byte
                     [[ -n "$TUI_BYTE" ]] || break
@@ -310,6 +349,10 @@ tui_read_key() {
             fi
         fi
         stty time "$TUI_POLL_TIME" min 0 2>/dev/null || true
+    fi
+    if [[ "$k" == $'\033[<'* ]]; then
+        tui_key_from_sgr "$k"
+        return 0
     fi
     case "$k" in
         $'\033[A'|$'\033OA'|$'\033[1A') TUI_KEY="up" ;;
@@ -324,6 +367,19 @@ tui_read_key() {
         $'\t') TUI_KEY="tab" ;;
         $'\x7f'|$'\b') TUI_KEY="bs" ;;
         *) TUI_KEY="$k" ;;
+    esac
+}
+
+tui_key_from_sgr() {
+    # ESC [ < btn ; x ; y M   64/65 = wheel up/down
+    local seq btn
+    seq="${1#*$'\033[<'}"
+    seq="${seq%[Mm]}"
+    btn="${seq%%;*}"
+    case "$btn" in
+        64|68|80) TUI_KEY="wu" ;;
+        65|69|81) TUI_KEY="wd" ;;
+        *) TUI_KEY="mouse" ;;
     esac
 }
 
@@ -440,12 +496,13 @@ tui_refresh_procs() {
 }
 
 tui_refresh_status() {
-    local now line dbp="${DB_PORT:-5432}" have_db=0 have_be=0 have_fe=0 have_up=0
+    local now line dbp="${DB_PORT:-5432}" have_db=0 have_be=0 have_fe=0 have_up=0 lsof_out
     now="$(date +%s)"
     parse_db_url || true
     dbp="${DB_PORT:-5432}"
 
     if command -v lsof >/dev/null 2>&1; then
+        lsof_out="$(lsof -nP -iTCP:"$dbp" -iTCP:"$BACKEND_PORT" -iTCP:"$FRONTEND_PORT" -iTCP:1101 -sTCP:LISTEN 2>/dev/null || true)"
         while IFS= read -r line; do
             case "$line" in
                 *":${dbp}"*) have_db=1 ;;
@@ -459,7 +516,7 @@ tui_refresh_status() {
             case "$line" in
                 *:1101*) have_up=1 ;;
             esac
-        done < <(lsof -nP -iTCP:"$dbp" -iTCP:"$BACKEND_PORT" -iTCP:"$FRONTEND_PORT" -iTCP:1101 -sTCP:LISTEN 2>/dev/null)
+        done <<< "$lsof_out"
     fi
 
     if [[ $have_db -eq 1 ]]; then
@@ -478,7 +535,7 @@ tui_refresh_status() {
         TUI_CACHE_BE_STATE="running"
         TUI_CACHE_BE_DETAIL=":${BACKEND_PORT}"
         TUI_EXPECT_BE_UNTIL=0
-    elif [[ "$now" -lt "${TUI_EXPECT_BE_UNTIL:-0}" ]]; then
+    elif [[ "$now" -lt "${TUI_EXPECT_BE_UNTIL:-0}" ]] || [[ -n "$(list_backend_pids 2>/dev/null || true)" ]]; then
         TUI_CACHE_BE_STATE="starting"
         TUI_CACHE_BE_DETAIL="cargo"
     else
@@ -490,7 +547,7 @@ tui_refresh_status() {
         TUI_CACHE_FE_STATE="running"
         TUI_CACHE_FE_DETAIL=":${FRONTEND_PORT}"
         TUI_EXPECT_FE_UNTIL=0
-    elif [[ "$now" -lt "${TUI_EXPECT_FE_UNTIL:-0}" ]]; then
+    elif [[ "$now" -lt "${TUI_EXPECT_FE_UNTIL:-0}" ]] || [[ -n "$(list_frontend_pids 2>/dev/null || true)" ]]; then
         TUI_CACHE_FE_STATE="starting"
         TUI_CACHE_FE_DETAIL="pnpm"
     else
@@ -594,7 +651,7 @@ tui_draw_footer() {
             0) hint="up/dn menu  Enter run  s/x/r  a start-all  K stop-all" ;;
             1) hint="up/dn select  x stop  X kill  r refresh" ;;
             2) hint="s start  x stop  p psql  Tools -> db-setup" ;;
-            3) hint="left/right source  up/dn/PgUp scroll  G tail" ;;
+            3) hint="left/right source  up/dn/wheel/PgUp scroll  G tail  c copy err" ;;
             4) hint="up/dn select  Enter run" ;;
         esac
     fi
@@ -729,6 +786,13 @@ tui_draw_overview() {
     tui_logo_init || true
 
     if tui_overview_fits_mark; then
+        if [[ -z "$TUI_PANEL_FILE" || ! -f "$TUI_PANEL_FILE" ]]; then
+            TUI_PANEL_FILE="$(mktemp "${TMPDIR:-/tmp}/myriad-panel.XXXXXX")" || {
+                tui_draw_overview_compact
+                return 0
+            }
+        fi
+        tui_draw_overview_panel "$(tui_overview_panel_w)" > "$TUI_PANEL_FILE"
         awk 'NR==FNR { a[FNR]=$0; n=FNR; next }
              {
                  if (FNR <= n) printf "%s  %s\n", a[FNR], $0
@@ -738,7 +802,7 @@ tui_draw_overview() {
              END {
                  if (m < n) for (i=m+1; i<=n; i++) print a[i]
              }' pad="$(printf '%*s' "$TUI_LOGO_W" "")" \
-            "$TUI_LOGO_FILE" <(tui_draw_overview_panel "$(tui_overview_panel_w)")
+            "$TUI_LOGO_FILE" "$TUI_PANEL_FILE"
         return 0
     fi
 
@@ -959,6 +1023,137 @@ tui_set_log() {
     return 0
 }
 
+# delta > 0 = older lines (scroll up). 0 = no change.
+tui_log_scroll() {
+    local delta="${1:-1}" oldskip="$TUI_LOG_SKIP"
+    TUI_LOG_SKIP=$((TUI_LOG_SKIP + delta))
+    [[ "$TUI_LOG_SKIP" -lt 0 ]] && TUI_LOG_SKIP=0
+    tui_clamp_log_skip
+    [[ "$TUI_LOG_SKIP" -eq "$oldskip" ]] && return 1
+    TUI_LOG_FP=""
+    return 0
+}
+
+tui_log_source_name() {
+    case "$TUI_LOG" in
+        0) echo "backend.log" ;;
+        1) echo "frontend.log" ;;
+        2) echo "postgres" ;;
+        3) echo "updater" ;;
+        *) echo "log" ;;
+    esac
+}
+
+# Recent raw lines for the current Logs source. Empty stdout if nothing to read.
+tui_log_raw_recent() {
+    local n=4000 file
+    case "$TUI_LOG" in
+        0)
+            file="$PROJECT_ROOT/backend.log"
+            [[ -f "$file" ]] && tail -n "$n" "$file"
+            ;;
+        1)
+            file="$PROJECT_ROOT/frontend.log"
+            [[ -f "$file" ]] && tail -n "$n" "$file"
+            ;;
+        2)
+            if docker_container_running "myriad-postgres-dev"; then
+                docker logs --tail "$n" myriad-postgres-dev 2>&1
+            else
+                file="$(native_pg_log_path 2>/dev/null || true)"
+                [[ -n "$file" && -f "$file" ]] && tail -n "$n" "$file"
+            fi
+            ;;
+        3)
+            if docker_container_running "myriad-updater-dev"; then
+                docker logs --tail "$n" myriad-updater-dev 2>&1
+            fi
+            ;;
+    esac
+}
+
+tui_strip_ansi_stream() {
+    sed -E $'s/\x1b\\[[0-9;?]*[ -/]*[A-Za-z]//g; s/\x1b\\][^\x07]*\x07//g'
+}
+
+tui_clipboard_copy() {
+    if have pbcopy; then
+        pbcopy
+        return
+    fi
+    if have wl-copy; then
+        wl-copy
+        return
+    fi
+    if have xclip; then
+        xclip -selection clipboard
+        return
+    fi
+    return 1
+}
+
+# Keep rustc/postgres diagnostic context (arrows, |, = note, DETAIL/HINT).
+tui_extract_log_alerts() {
+    awk '
+        function is_hit(s, t) {
+            t = tolower(s)
+            if (t ~ /error\[e[0-9]/) return 1
+            if (t ~ /(^|[ :])error:/) return 1
+            if (t ~ /(^|[ :])warning:/) return 1
+            if (t ~ /(^|[[:space:]])(error|warn|warning|fatal)[[:space:]]/) return 1
+            if (t ~ /panicked at/ || t ~ /(^|[[:space:]])panic[[:space:]]/) return 1
+            if (t ~ /failed to compile/ || t ~ /compilation failed/) return 1
+            if (t ~ /^(detail|hint|context|statement):/) return 1
+            return 0
+        }
+        function is_cont(s) {
+            return s ~ /^[[:space:]]*(-->|\||\^|= |[0-9]+[[:space:]]+\|)/
+        }
+        {
+            gsub(/\r/, "")
+            if (is_hit($0)) { inb=1; print; next }
+            if (inb && is_cont($0)) { print; next }
+            if (inb && $0 == "") { inb=0; next }
+            inb=0
+        }
+    '
+}
+
+tui_copy_log_errors() {
+    local src tmp n total cap=250 rc
+    src="$(tui_log_source_name)"
+    tmp="$(mktemp "${TMPDIR:-/tmp}/myriad-logcopy.XXXXXX")" || {
+        tui_set_msg "mktemp failed" 1
+        return 0
+    }
+    tui_log_raw_recent | sanitize_dev_log | tui_strip_ansi_stream | tui_extract_log_alerts >"$tmp"
+    total="$(wc -l < "$tmp" | tr -d '[:space:]')"
+    [[ "$total" =~ ^[0-9]+$ ]] || total=0
+    if [[ "$total" -eq 0 ]]; then
+        rm -f "$tmp"
+        tui_set_msg "No error/warning lines in $src"
+        return 0
+    fi
+    n="$total"
+    [[ "$n" -gt "$cap" ]] && n="$cap"
+    {
+        printf '# %s  errors/warnings (%s of %s line(s))\n' "$src" "$n" "$total"
+        tail -n "$n" "$tmp"
+    } | tui_clipboard_copy
+    rc=$?
+    rm -f "$tmp"
+    if [[ $rc -ne 0 ]]; then
+        tui_set_msg "No clipboard tool (need pbcopy, wl-copy, or xclip)" 1
+        return 0
+    fi
+    if [[ "$n" -lt "$total" ]]; then
+        tui_set_msg "Copied last $n error/warning lines of $total from $src"
+    else
+        tui_set_msg "Copied $n error/warning line(s) from $src"
+    fi
+    return 0
+}
+
 tui_draw_logs() {
     local src i=0 body file
     tui_clamp_log_skip
@@ -1049,7 +1244,7 @@ tui_draw_help() {
     printf '    s / x / r                start / stop / restart\n'
     printf '    a / K                    start-all / stop-all\n'
     printf '    p                        psql     ?/h help   q quit\n'
-    printf '    Logs                     up/dn / PgUp PgDn scroll   G tail\n'
+    printf '    Logs                     up/dn / wheel / PgUp PgDn scroll   G tail   c copy errors\n'
     printf '    Esc               dismiss message / close help\n'
     printf '\n  Mark is on the left from ~70×18. Starts write backend.log / frontend.log.\n'
 }
@@ -1065,14 +1260,23 @@ tui_status_fp() {
 }
 
 tui_stack_quiet() {
-    [[ "$TUI_CACHE_DB_STATE" == "running" && \
-       "$TUI_CACHE_BE_STATE" == "running" && \
-       "$TUI_CACHE_FE_STATE" == "running" ]]
+    [[ "$TUI_CACHE_DB_STATE" == "running" ]] || return 1
+    [[ "${RUN_BACKEND:-1}" -eq 0 || "$TUI_CACHE_BE_STATE" == "running" ]] || return 1
+    [[ "${RUN_FRONTEND:-1}" -eq 0 || "$TUI_CACHE_FE_STATE" == "running" ]] || return 1
+    return 0
+}
+
+tui_overview_should_pulse() {
+    [[ "${TUI_BOOTING:-0}" -eq 1 ]] && return 0
+    [[ "$TUI_CACHE_DB_STATE" == "starting" ]] && return 0
+    [[ "$TUI_CACHE_BE_STATE" == "starting" ]] && return 0
+    [[ "$TUI_CACHE_FE_STATE" == "starting" ]] && return 0
+    return 1
 }
 
 tui_apply_poll() {
-    local want="$TUI_POLL_FAST"
-    tui_stack_quiet && want="$TUI_POLL_IDLE"
+    local want="$TUI_POLL_IDLE"
+    tui_overview_should_pulse && want="$TUI_POLL_FAST"
     [[ "$want" -eq "$TUI_POLL_TIME" ]] && return 0
     TUI_POLL_TIME="$want"
     stty time "$TUI_POLL_TIME" min 0 2>/dev/null || true
@@ -1089,25 +1293,44 @@ tui_idle_tick() {
     tui_tick_clock
     tui_apply_poll
     local quiet=0 msgttl=16
-    tui_stack_quiet && { quiet=1; msgttl=8; }
+    tui_stack_quiet && { quiet=1; msgttl=8; TUI_BOOTING=0; }
     if [[ -n "$TUI_MSG" && "$TUI_MSG_ERR" -eq 0 && $TUI_IDLE -ge $msgttl ]]; then
-        tui_set_msg ""
-        TUI_STATUS_DIRTY=1
-        tui_render || true
-        return 0
+        if tui_overview_should_pulse; then
+            :
+        else
+            tui_set_msg ""
+            TUI_STATUS_DIRTY=1
+            tui_render || true
+            return 0
+        fi
     fi
-    # Booting: probe every 0.3s. All running: clock only, probe ~30s.
-    if [[ $quiet -eq 1 && $((TUI_IDLE % 30)) -ne 0 ]]; then
+    # Starting: probe every tick, Overview redraw every 5s.
+    # Stable (up or down): clock only, probe ~30s. Do not hammer lsof/ps
+    # while sitting on a stopped Overview — bash 3.2 used to leak those FDs.
+    if tui_overview_should_pulse; then
+        :
+    elif [[ $((TUI_IDLE % 30)) -ne 0 ]]; then
         return 0
     fi
     case "$TUI_TAB" in
         0)
-            local before after
+            local before after now pulse=0
             before="$(tui_status_fp)"
             tui_refresh_status || true
             after="$(tui_status_fp)"
-            if [[ "$before" != "$after" ]]; then
-                [[ "$TUI_MSG" == Postgres* ]] && tui_set_msg "$(tui_live_msg)"
+            now="$(date +%s)"
+            if tui_stack_quiet; then
+                TUI_BOOTING=0
+            fi
+            if tui_overview_should_pulse; then
+                if [[ "$now" -ge $((TUI_OVERVIEW_PULSE_AT + TUI_OVERVIEW_PULSE_SECS)) ]]; then
+                    pulse=1
+                fi
+            fi
+            if [[ "$before" != "$after" || "$pulse" -eq 1 ]]; then
+                if [[ "$TUI_MSG" == Postgres* ]] || tui_overview_should_pulse; then
+                    tui_set_msg "$(tui_live_msg)"
+                fi
                 tui_render || true
             fi
             ;;
@@ -1165,6 +1388,7 @@ tui_render() {
     tui_draw_footer
     printf '\033[J'
     [[ "$TUI_TAB" -eq 3 ]] && TUI_LOG_FP="$(tui_log_fp)"
+    [[ "$TUI_TAB" -eq 0 ]] && TUI_OVERVIEW_PULSE_AT="$(date +%s)"
 }
 
 # ---------- actions ----------
@@ -1242,7 +1466,7 @@ tui_bg_on() {
 }
 
 tui_run_quiet() {
-    local work="$1" done="$2" tmp rc last old_e=0
+    local work="$1" done="$2" tmp rc last old_e=0 pid now
     shift 2
     if [[ -n "$work" ]]; then
         tui_set_msg "$work"
@@ -1255,8 +1479,24 @@ tui_run_quiet() {
     [[ $- == *e* ]] && old_e=1
     tui_bg_on
     DEV_START_NOWAIT=1
+    tui_apply_poll
     set +e
-    "$@" >"$tmp" 2>&1
+    "$@" >"$tmp" 2>&1 </dev/null &
+    pid=$!
+    # Keep Overview/clock alive while the job runs. Keys are drained so they
+    # don't pile up and fire after start/stop returns.
+    while kill -0 "$pid" 2>/dev/null; do
+        tui_read_key
+        [[ "$TUI_KEY" == "timeout" ]] || continue
+        tui_refresh_status || true
+        tui_tick_clock
+        now="$(date +%s)"
+        if [[ "$now" -ge $((TUI_OVERVIEW_PULSE_AT + TUI_OVERVIEW_PULSE_SECS)) ]]; then
+            tui_set_msg "${work}  $(tui_live_msg)"
+            tui_render || true
+        fi
+    done
+    wait "$pid"
     rc=$?
     DEV_START_NOWAIT=0
     [[ $old_e -eq 1 ]] && set -e
@@ -1343,21 +1583,26 @@ tui_set_live_msg() {
 
 tui_start_svc() {
     tui_mark_launch "$1"
+    [[ "$1" == "all" ]] && TUI_BOOTING=1
     case "$1" in
         database) tui_run_quiet "Starting database…" "" start_database ;;
         backend)  tui_run_quiet "Starting backend…" "" start_backend ;;
         frontend) tui_run_quiet "Starting frontend…" "" start_frontend ;;
         updater)  tui_run_quiet "Starting updater…" "" start_updater ;;
         all)      tui_run_quiet "Starting database + stack…" "" start_all ;;
-        *)        tui_set_msg "cannot start $1" 1; return 0 ;;
+        *)        tui_set_msg "cannot start $1" 1; TUI_BOOTING=0; return 0 ;;
     esac
     tui_note_change
-    [[ "$TUI_MSG_ERR" -eq 1 ]] && return 0
+    if [[ "$TUI_MSG_ERR" -eq 1 ]]; then
+        TUI_BOOTING=0
+        return 0
+    fi
     tui_set_live_msg
 }
 
 tui_stop_svc() {
     tui_clear_launch "$1"
+    [[ "$1" == "all" ]] && TUI_BOOTING=0
     case "$1" in
         database) tui_run_quiet "Stopping database…" "" stop_database ;;
         backend)  tui_run_quiet "Stopping backend…" "" stop_backend ;;
@@ -1376,9 +1621,24 @@ tui_restart_svc() {
     [[ -n "$svc" ]] || return 0
     if [[ "$svc" == "all" ]]; then
         tui_mark_launch all
-        tui_run_quiet "Restarting database + stack…" "" restart_all
+        TUI_BOOTING=1
+        tui_run_quiet "Restarting stack…" "" restart_all
         tui_note_change
-        [[ "$TUI_MSG_ERR" -eq 1 ]] || tui_set_live_msg
+        if [[ "$TUI_MSG_ERR" -eq 1 ]]; then
+            TUI_BOOTING=0
+        else
+            tui_set_live_msg
+        fi
+        return 0
+    fi
+    if [[ "$svc" == "frontend" ]]; then
+        tui_mark_launch frontend
+        tui_run_quiet "Restarting frontend…" "" restart_frontend
+        tui_note_change
+        if [[ "$TUI_MSG_ERR" -eq 1 ]]; then
+            return 0
+        fi
+        tui_set_live_msg
         return 0
     fi
     tui_stop_svc "$svc"
@@ -1539,38 +1799,33 @@ tui_handle_key() {
             ;;
         up|k)
             if [[ "$TUI_TAB" -eq 3 ]]; then
-                local oldskip="$TUI_LOG_SKIP"
-                TUI_LOG_SKIP=$((TUI_LOG_SKIP + 1))
-                tui_clamp_log_skip
-                [[ "$TUI_LOG_SKIP" -eq "$oldskip" ]] && return 2
-                TUI_LOG_FP=""
+                tui_log_scroll 1 || return 2
             else
                 tui_move -1 || return 2
             fi
             ;;
         down|j)
             if [[ "$TUI_TAB" -eq 3 ]]; then
-                [[ "$TUI_LOG_SKIP" -eq 0 ]] && return 2
-                TUI_LOG_SKIP=$((TUI_LOG_SKIP - 1))
-                TUI_LOG_FP=""
+                tui_log_scroll -1 || return 2
             else
                 tui_move 1 || return 2
             fi
             ;;
         pgup)
             [[ "$TUI_TAB" -eq 3 ]] || return 2
-            local oldskip="$TUI_LOG_SKIP"
-            TUI_LOG_SKIP=$((TUI_LOG_SKIP + $(tui_log_body) ))
-            tui_clamp_log_skip
-            [[ "$TUI_LOG_SKIP" -eq "$oldskip" ]] && return 2
-            TUI_LOG_FP=""
+            tui_log_scroll "$(tui_log_body)" || return 2
             ;;
         pgdn)
             [[ "$TUI_TAB" -eq 3 ]] || return 2
-            [[ "$TUI_LOG_SKIP" -eq 0 ]] && return 2
-            TUI_LOG_SKIP=$((TUI_LOG_SKIP - $(tui_log_body) ))
-            [[ $TUI_LOG_SKIP -lt 0 ]] && TUI_LOG_SKIP=0
-            TUI_LOG_FP=""
+            tui_log_scroll "-$(tui_log_body)" || return 2
+            ;;
+        wu)
+            [[ "$TUI_TAB" -eq 3 ]] || { tui_move -1 || return 2; return 0; }
+            tui_log_scroll 3 || return 2
+            ;;
+        wd)
+            [[ "$TUI_TAB" -eq 3 ]] || { tui_move 1 || return 2; return 0; }
+            tui_log_scroll -3 || return 2
             ;;
         g)
             if [[ "$TUI_TAB" -eq 3 ]]; then
@@ -1599,6 +1854,10 @@ tui_handle_key() {
         a) tui_start_svc all ;;
         K) tui_stop_svc all ;;
         p) tui_run_tool psql ;;
+        c)
+            [[ "$TUI_TAB" -eq 3 ]] || return 2
+            tui_copy_log_errors
+            ;;
         b)
             [[ "$TUI_TAB" -eq 3 ]] || return 2
             tui_set_log 0 || true

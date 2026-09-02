@@ -46,8 +46,6 @@ export const CANONICAL_PLATFORM_IDS = [
   'psn',
 ] as const
 
-export type CanonicalPlatformId = (typeof CANONICAL_PLATFORM_IDS)[number]
-
 /**
  * Resolve a display name or alias to a canonical platform id.
  * Returns null when the name is not a known data platform.

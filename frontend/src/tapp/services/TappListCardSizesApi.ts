@@ -45,19 +45,6 @@ function normalizeOrder(raw: unknown): string[] {
   return out
 }
 
-export function normalizeListCardLayout(raw: unknown): TappListCardLayout {
-  if (!raw || typeof raw !== 'object') return { sizes: {}, order: [] }
-  const obj = raw as Record<string, unknown>
-  // Accept full layout, or bare sizes map (legacy)
-  if ('sizes' in obj || 'order' in obj) {
-    return {
-      sizes: normalizeSizes(obj.sizes),
-      order: normalizeOrder(obj.order),
-    }
-  }
-  return { sizes: normalizeSizes(obj), order: [] }
-}
-
 /** Load layout for the current authenticated user / public site-owner. */
 export async function fetchTappListCardSizes(): Promise<TappListCardLayoutResponse> {
   const data = await apiRequest<{

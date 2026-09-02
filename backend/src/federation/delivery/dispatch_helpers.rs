@@ -44,17 +44,17 @@ fn revocation_reason_tracks_the_thresholds_it_describes() {
 #[test]
 fn only_dns_failures_from_client_preparation_count_as_remote_failures() {
     assert!(outbound_client_error_counts_as_remote_failure(
-        "DNS resolution failed: no records"
+        "DNS resolution failed"
     ));
     assert!(outbound_client_error_counts_as_remote_failure(
         "DNS resolution returned no addresses"
     ));
     for local_error in [
-        "Invalid URL: relative URL without a base",
+        "Invalid URL",
         "Only HTTP and HTTPS URLs are allowed",
         "URL credentials are not allowed",
         "Target resolves to no public addresses",
-        "HTTP client error: invalid configuration",
+        "HTTP client error",
     ] {
         assert!(!outbound_client_error_counts_as_remote_failure(local_error));
     }

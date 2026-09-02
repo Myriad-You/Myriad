@@ -3,6 +3,7 @@
  *
  * 权限 → 图标 / i18n 键的映射，供详情页与商店详情视图共用。
  * 权限级别定义见 runtime/permissionConfig.ts 的 PERMISSION_LEVELS。
+ * i18n 键在 permissionCopy.ts，避免展示层依赖图标包。
  *
  * 图标语义（逐项对齐权限含义，避免「万能」图标）：
  * - 小组件 → 宫格；平台数据 → 库/编辑/服务；AI → 能力细分
@@ -52,12 +53,63 @@ import {
   FaVolumeUp,
   LuKeyboard,
 } from '@lib/icons'
+import { PERMISSION_COPY } from './permissionCopy'
 
 /** 权限图标组件（Fa / Lu 均可） */
 export type PermissionIcon = ComponentType<{
   className?: string
   size?: number | string
 }>
+
+const PERMISSION_ICONS: Record<TappPermission, PermissionIcon> = {
+  'widget:register': FaTh,
+  'platform:read': FaDatabase,
+  'platform:write': FaEdit,
+  'platform:register': FaServer,
+  'analytics:read': FaChartBar,
+  'ai:generate': FaMagic,
+  'ai:analyze': FaBrain,
+  'ai:chat': FaComments,
+  'ai:image': FaImage,
+  '3d:generate': FaCube,
+  'report:read': FaChartBar,
+  'report:write': FaEdit,
+  'storage:read': FaHdd,
+  'storage:write': FaHdd,
+  'ui:notification': FaBell,
+  'ui:fullscreen': FaExpand,
+  'ui:theme': FaPalette,
+  'ui:confirm': FaQuestionCircle,
+  'ui:openUrl': FaExternalLinkAlt,
+  'network:fetch': FaGlobe,
+  'media:control': FaPlay,
+  'media:read': FaMusic,
+  'media:audio': FaVolumeUp,
+  'component:theme': FaPaintBrush,
+  'component:agent': FaRobot,
+  'shortcut:register': LuKeyboard,
+  'event:publish': FaPaperPlane,
+  'event:subscribe': FaBroadcastTower,
+  'scheduler:register': FaClock,
+  'speech:tts': FaVolumeUp,
+  'speech:asr': FaMicrophone,
+  'tappList:read': FaList,
+  'tappList:manage': FaTools,
+  'brew:read': FaNewspaper,
+  'brew:write': FaEdit,
+  'brew:commentWrite': FaComments,
+  'brew:manage': FaCog,
+  'federation:read': FaUsers,
+  'federation:post': FaEdit,
+  'federation:interact': FaHeart,
+  'federation:channel': FaComments,
+  'federation:room': FaSignInAlt,
+  'federation:ring': FaExchangeAlt,
+  'federation:message': FaEnvelope,
+  'federation:trust': FaLock,
+  'federation:files': FaFolder,
+  'game:session': FaUsers,
+}
 
 /** 权限展示配置 - 使用 i18n 键名（对应 t.tapp 中的扁平键） */
 export const PERMISSION_CONFIG: Record<
@@ -67,265 +119,13 @@ export const PERMISSION_CONFIG: Record<
     labelKey: string
     descriptionKey: string
   }
-> = {
-  // —— 小组件 ——
-  'widget:register': {
-    icon: FaTh,
-    labelKey: 'permRegisterWidget',
-    descriptionKey: 'permRegisterWidgetDesc',
+> = (Object.keys(PERMISSION_COPY) as TappPermission[]).reduce(
+  (acc, name) => {
+    acc[name] = { icon: PERMISSION_ICONS[name], ...PERMISSION_COPY[name] }
+    return acc
   },
-
-  // —— 平台数据 ——
-  'platform:read': {
-    icon: FaDatabase,
-    labelKey: 'permReadPlatform',
-    descriptionKey: 'permReadPlatformDesc',
-  },
-  'platform:write': {
-    icon: FaEdit,
-    labelKey: 'permWritePlatform',
-    descriptionKey: 'permWritePlatformDesc',
-  },
-  'platform:register': {
-    icon: FaServer,
-    labelKey: 'permRegisterPlatform',
-    descriptionKey: 'permRegisterPlatformDesc',
-  },
-
-  // —— 访问统计 ——
-  'analytics:read': {
-    icon: FaChartBar,
-    labelKey: 'permReadAnalytics',
-    descriptionKey: 'permReadAnalyticsDesc',
-  },
-
-  // —— AI ——
-  'ai:generate': {
-    icon: FaMagic,
-    labelKey: 'permAiGenerate',
-    descriptionKey: 'permAiGenerateDesc',
-  },
-  'ai:analyze': {
-    icon: FaBrain,
-    labelKey: 'permAiAnalyze',
-    descriptionKey: 'permAiAnalyzeDesc',
-  },
-  'ai:chat': {
-    icon: FaComments,
-    labelKey: 'permAiChat',
-    descriptionKey: 'permAiChatDesc',
-  },
-  'ai:image': {
-    icon: FaImage,
-    labelKey: 'permAiImage',
-    descriptionKey: 'permAiImageDesc',
-  },
-  '3d:generate': {
-    icon: FaCube,
-    labelKey: 'perm3dGenerate',
-    descriptionKey: 'perm3dGenerateDesc',
-  },
-
-  // —— 报告 ——
-  'report:read': {
-    icon: FaChartBar,
-    labelKey: 'permReadReport',
-    descriptionKey: 'permReadReportDesc',
-  },
-  'report:write': {
-    icon: FaEdit,
-    labelKey: 'permWriteReport',
-    descriptionKey: 'permWriteReportDesc',
-  },
-
-  // —— 存储 / UI ——
-  'storage:read': {
-    icon: FaHdd,
-    labelKey: 'permStorageRead',
-    descriptionKey: 'permStorageReadDesc',
-  },
-  'storage:write': {
-    icon: FaHdd,
-    labelKey: 'permStorageWrite',
-    descriptionKey: 'permStorageWriteDesc',
-  },
-  'ui:notification': {
-    icon: FaBell,
-    labelKey: 'permNotification',
-    descriptionKey: 'permNotificationDesc',
-  },
-  'ui:fullscreen': {
-    icon: FaExpand,
-    labelKey: 'permFullscreen',
-    descriptionKey: 'permFullscreenDesc',
-  },
-  'ui:theme': {
-    icon: FaPalette,
-    labelKey: 'permReadTheme',
-    descriptionKey: 'permReadThemeDesc',
-  },
-  'ui:confirm': {
-    icon: FaQuestionCircle,
-    labelKey: 'permConfirm',
-    descriptionKey: 'permConfirmDesc',
-  },
-  'ui:openUrl': {
-    icon: FaExternalLinkAlt,
-    labelKey: 'permOpenUrl',
-    descriptionKey: 'permOpenUrlDesc',
-  },
-
-  // —— 网络 / 媒体 ——
-  'network:fetch': {
-    icon: FaGlobe,
-    labelKey: 'permNetworkFetch',
-    descriptionKey: 'permNetworkFetchDesc',
-  },
-  'media:control': {
-    icon: FaPlay,
-    labelKey: 'permMediaControl',
-    descriptionKey: 'permMediaControlDesc',
-  },
-  'media:read': {
-    icon: FaMusic,
-    labelKey: 'permMediaRead',
-    descriptionKey: 'permMediaReadDesc',
-  },
-  'media:audio': {
-    icon: FaVolumeUp,
-    labelKey: 'permMediaAudio',
-    descriptionKey: 'permMediaAudioDesc',
-  },
-
-  // —— 组件注册 ——
-  'component:theme': {
-    icon: FaPaintBrush,
-    labelKey: 'permRegisterTheme',
-    descriptionKey: 'permRegisterThemeDesc',
-  },
-  'component:agent': {
-    icon: FaRobot,
-    labelKey: 'permRegisterAgent',
-    descriptionKey: 'permRegisterAgentDesc',
-  },
-  'shortcut:register': {
-    icon: LuKeyboard,
-    labelKey: 'permRegisterShortcut',
-    descriptionKey: 'permRegisterShortcutDesc',
-  },
-
-  // —— 事件 / 调度 ——
-  'event:publish': {
-    icon: FaPaperPlane,
-    labelKey: 'permPublishEvent',
-    descriptionKey: 'permPublishEventDesc',
-  },
-  'event:subscribe': {
-    icon: FaBroadcastTower,
-    labelKey: 'permSubscribeEvent',
-    descriptionKey: 'permSubscribeEventDesc',
-  },
-  'scheduler:register': {
-    icon: FaClock,
-    labelKey: 'permSchedulerRegister',
-    descriptionKey: 'permSchedulerRegisterDesc',
-  },
-
-  // —— 语音（TTS 输出 / ASR 输入） ——
-  'speech:tts': {
-    icon: FaVolumeUp,
-    labelKey: 'permSpeechTts',
-    descriptionKey: 'permSpeechTtsDesc',
-  },
-  'speech:asr': {
-    icon: FaMicrophone,
-    labelKey: 'permSpeechAsr',
-    descriptionKey: 'permSpeechAsrDesc',
-  },
-
-  // —— Tapp 列表 ——
-  'tappList:read': {
-    icon: FaList,
-    labelKey: 'permReadTappList',
-    descriptionKey: 'permReadTappListDesc',
-  },
-  'tappList:manage': {
-    icon: FaTools,
-    labelKey: 'permManageTappList',
-    descriptionKey: 'permManageTappListDesc',
-  },
-
-  // —— Brew ——
-  'brew:read': {
-    icon: FaNewspaper,
-    labelKey: 'permReadBrew',
-    descriptionKey: 'permReadBrewDesc',
-  },
-  'brew:write': {
-    icon: FaEdit,
-    labelKey: 'permWriteBrew',
-    descriptionKey: 'permWriteBrewDesc',
-  },
-  'brew:commentWrite': {
-    icon: FaComments,
-    labelKey: 'permCommentWriteBrew',
-    descriptionKey: 'permCommentWriteBrewDesc',
-  },
-  'brew:manage': {
-    icon: FaCog,
-    labelKey: 'permManageBrew',
-    descriptionKey: 'permManageBrewDesc',
-  },
-
-  // —— 联邦 ——
-  'federation:read': {
-    icon: FaUsers,
-    labelKey: 'permReadFederation',
-    descriptionKey: 'permReadFederationDesc',
-  },
-  'federation:post': {
-    icon: FaEdit,
-    labelKey: 'permPostFederation',
-    descriptionKey: 'permPostFederationDesc',
-  },
-  'federation:interact': {
-    icon: FaHeart,
-    labelKey: 'permInteractFederation',
-    descriptionKey: 'permInteractFederationDesc',
-  },
-  'federation:channel': {
-    icon: FaComments,
-    labelKey: 'permChannelFederation',
-    descriptionKey: 'permChannelFederationDesc',
-  },
-  'federation:room': {
-    icon: FaSignInAlt,
-    labelKey: 'permRoomFederation',
-    descriptionKey: 'permRoomFederationDesc',
-  },
-  'federation:ring': {
-    icon: FaExchangeAlt,
-    labelKey: 'permRingFederation',
-    descriptionKey: 'permRingFederationDesc',
-  },
-  'federation:message': {
-    icon: FaEnvelope,
-    labelKey: 'permMessageFederation',
-    descriptionKey: 'permMessageFederationDesc',
-  },
-  'federation:trust': {
-    icon: FaLock,
-    labelKey: 'permTrustFederation',
-    descriptionKey: 'permTrustFederationDesc',
-  },
-  'federation:files': {
-    icon: FaFolder,
-    labelKey: 'permFederationFiles',
-    descriptionKey: 'permFederationFilesDesc',
-  },
-  'game:session': {
-    icon: FaUsers,
-    labelKey: 'permGameSession',
-    descriptionKey: 'permGameSessionDesc',
-  },
-}
+  {} as Record<
+    TappPermission,
+    { icon: PermissionIcon; labelKey: string; descriptionKey: string }
+  >,
+)

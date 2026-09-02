@@ -1,6 +1,6 @@
+import type { AppNotification } from '../services/notificationApi'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import type { AppNotification } from '../services/notificationApi'
 import {
   notificationFacingBody,
   notificationFacingTitle,
@@ -60,6 +60,20 @@ describe('notificationFacing', () => {
       }),
     )
     assert.equal(text.includes('新的关注者'), false)
+  })
+
+  it('maps leftover English brew and schedule titles', () => {
+    const brew = notificationFacingTitle(
+      notice('Tech News feed failed repeatedly', 'timeout', undefined, {
+        source_name: 'Tech News',
+      }),
+    )
+    assert.equal(/feed failed repeatedly/i.test(brew), false)
+    assert.match(brew, /Tech News/)
+    const schedule = notificationFacingTitle(
+      notice('Scheduled task failed', 'All 3 retries failed'),
+    )
+    assert.equal(/All 3 retries/.test(schedule), false)
   })
 
   it('maps leftover agent task failure titles', () => {

@@ -67,7 +67,7 @@ impl ComponentRegistryError {
         match self {
             Self::InvalidConfig { message } => message.clone(),
             Self::InvalidType => "Invalid component type".to_string(),
-            Self::Database => "Database error".to_string(),
+            Self::Database => "Failed to load components".to_string(),
             Self::NotFound => "Component not found".to_string(),
             Self::RegisterFailed => "Failed to register component".to_string(),
             Self::UpdateFailed => "Failed to update component".to_string(),

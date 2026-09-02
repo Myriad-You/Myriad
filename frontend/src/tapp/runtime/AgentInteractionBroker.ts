@@ -2,15 +2,15 @@ import type { AgentInteractionV2, TappInstance } from '../types'
 import type { TappBridge } from './TappBridge'
 import { currentCopy } from '../../i18n/localeCopy'
 import { executeFrontendAction } from '../../services/agent'
-import * as TappApiService from '../services/TappApiService'
 import { userFacingError } from '../../utils/userFacingError'
+import * as TappApiService from '../services/TappApiService'
 import { requestDataExchangeFromHost } from './DataExchangeBroker'
 
 const RECONNECT_DELAY_MS = 500
 
 function objectParams(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Intent params must be an object')
+    throw new Error(currentCopy().errors.agentInputEmpty)
   }
   return value as Record<string, unknown>
 }
@@ -26,7 +26,7 @@ async function executeHostIntent(
     case 'ui.open': {
       const tappId = params.tappId
       if (typeof tappId !== 'string' || !/^[\w.-]{1,128}$/.test(tappId)) {
-        throw new Error('ui.open requires a valid tappId')
+        throw new Error(currentCopy().tapp.invalidId)
       }
       const result = await executeFrontendAction({
         type: 'open_window',
@@ -34,7 +34,7 @@ async function executeHostIntent(
         timestamp: Date.now(),
       })
       if (result === null) {
-        throw new Error(currentCopy().errors.operationFailed)
+        throw new Error(currentCopy().errors.tappOpenFailed)
       }
       return result
     }
@@ -47,7 +47,7 @@ async function executeHostIntent(
         title.length > 200 ||
         !['platform', 'custom'].includes(String(reportType))
       ) {
-        throw new Error('report.create requires title and a valid reportType')
+        throw new Error(currentCopy().errors.agentInputEmpty)
       }
       return TappApiService.createTappReport(
         {
@@ -69,9 +69,7 @@ async function executeHostIntent(
         typeof exportId !== 'string' ||
         typeof purpose !== 'string'
       ) {
-        throw new TypeError(
-          'dataExchange.request requires targetTappId, exportId and purpose',
-        )
+        throw new TypeError(currentCopy().errors.agentInputEmpty)
       }
       // This adapter deliberately delegates confirmation to DataExchangeBroker
       // so a cross-Tapp read has exactly one detailed, one-shot consent popup.
@@ -83,7 +81,9 @@ async function executeHostIntent(
       })
     }
     default:
-      throw new Error(`Unsupported host intent: ${type}`)
+      throw new Error(
+        [currentCopy().errors.agentUnsupported, type].filter(Boolean).join(' · '),
+      )
   }
 }
 

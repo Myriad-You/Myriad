@@ -116,6 +116,20 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+impl ParseError {
+    /// Label the failed step and keep timeout / HTTP status / size / format.
+    pub fn user_message(&self) -> String {
+        use crate::services::agent::external_pure::classify_outbound_fetch;
+        match self {
+            ParseError::FetchError(msg) => classify_outbound_fetch("Failed to fetch feed", msg),
+            ParseError::ParseError(msg) | ParseError::UnsupportedFormat(msg) => {
+                classify_outbound_fetch("Failed to parse feed", msg)
+            }
+            ParseError::InvalidUrl(msg) => classify_outbound_fetch("Invalid feed URL", msg),
+        }
+    }
+}
+
 /// Feed 解析器
 ///
 /// 出站请求经 `outbound_security` 做公网 DNS 钉扎与禁用重定向，防止 SSRF。
@@ -153,7 +167,10 @@ impl FeedParser {
         )
         .await
         .map(|_| ())
-        .map_err(|e| ParseError::InvalidUrl(format!("Unsafe or invalid URL: {e}")))
+        .map_err(|error| {
+            tracing::warn!(%error, "unsafe or invalid feed URL");
+            ParseError::InvalidUrl("Unsafe or invalid URL".to_string())
+        })
     }
 
     /// 抓取并解析订阅源（SSRF 安全）
@@ -164,14 +181,16 @@ impl FeedParser {
             Some(Self::USER_AGENT),
         )
         .await
-        .map_err(|e| ParseError::InvalidUrl(format!("Unsafe or invalid URL: {e}")))?;
+        .map_err(|error| {
+            tracing::warn!(%error, "unsafe or invalid feed URL");
+            ParseError::InvalidUrl("Unsafe or invalid URL".to_string())
+        })?;
 
         // 抓取内容（客户端已禁用重定向并钉扎公网解析结果）
-        let response = client
-            .get(target_url)
-            .send()
-            .await
-            .map_err(|e| ParseError::FetchError(format!("Failed to fetch: {}", e)))?;
+        let response = client.get(target_url).send().await.map_err(|error| {
+            tracing::warn!(%error, "failed to fetch feed");
+            ParseError::FetchError(error.to_string())
+        })?;
 
         if !response.status().is_success() {
             return Err(ParseError::FetchError(format!(
@@ -193,9 +212,10 @@ impl FeedParser {
         let body_bytes =
             crate::services::outbound_security::read_limited_body(response, MAX_FEED_BODY_BYTES)
                 .await
-                .map_err(|e| {
+                .map_err(|error| {
                     // Oversize and I/O failures both surface as FetchError (fail cleanly).
-                    ParseError::FetchError(format!("Failed to read body: {e}"))
+                    tracing::warn!(%error, "failed to read feed body");
+                    ParseError::FetchError(error)
                 })?;
 
         let body = match String::from_utf8(body_bytes) {
@@ -543,8 +563,9 @@ impl FeedParser {
                     current_tag.clear();
                 }
                 Ok(Event::Eof) => break,
-                Err(e) => {
-                    return Err(ParseError::ParseError(format!("XML parse error: {}", e)));
+                Err(error) => {
+                    tracing::warn!(%error, "failed to parse RSS");
+                    return Err(ParseError::ParseError("not valid RSS".to_string()));
                 }
                 _ => {}
             }
@@ -815,8 +836,9 @@ impl FeedParser {
                     current_tag.clear();
                 }
                 Ok(Event::Eof) => break,
-                Err(e) => {
-                    return Err(ParseError::ParseError(format!("XML parse error: {}", e)));
+                Err(error) => {
+                    tracing::warn!(%error, "failed to parse Atom");
+                    return Err(ParseError::ParseError("not valid Atom".to_string()));
                 }
                 _ => {}
             }
@@ -912,8 +934,10 @@ impl FeedParser {
             title: Option<String>,
         }
 
-        let json_feed: JsonFeed = serde_json::from_str(content)
-            .map_err(|e| ParseError::ParseError(format!("JSON parse error: {}", e)))?;
+        let json_feed: JsonFeed = serde_json::from_str(content).map_err(|error| {
+            tracing::warn!(%error, "failed to parse JSON feed");
+            ParseError::ParseError("not valid JSON feed".to_string())
+        })?;
 
         let items: Vec<ParsedItem> = json_feed
             .items
@@ -1483,18 +1507,38 @@ mod tests {
     #[test]
     fn oversize_body_surfaces_as_fetch_error() {
         // fetch_and_parse maps read_limited_body failures to FetchError (no silent truncate).
-        let err = ParseError::FetchError(format!(
-            "Failed to read body: Response exceeds {} bytes",
-            MAX_FEED_BODY_BYTES
-        ));
-        let msg = err.to_string();
-        assert!(msg.starts_with("Fetch error:"));
+        let err = ParseError::FetchError(format!("Response exceeds {} bytes", MAX_FEED_BODY_BYTES));
+        let msg = err.user_message();
+        assert!(msg.starts_with("Failed to fetch feed"));
         assert!(msg.contains("exceeds"));
         assert!(msg.contains(&MAX_FEED_BODY_BYTES.to_string()));
+        assert!(!msg.contains("os error"));
+    }
+
+    #[test]
+    fn user_message_keeps_timeout_and_status_without_reqwest() {
+        let timed_out = ParseError::FetchError(
+            "error sending request for url (https://example.com/rss.xml): timed out".into(),
+        );
+        assert_eq!(timed_out.user_message(), "Failed to fetch feed: timed out");
+
+        let http = ParseError::FetchError("HTTP error: 404 Not Found".into());
+        assert_eq!(http.user_message(), "Failed to fetch feed (HTTP 404)");
+
+        let parse = ParseError::ParseError("not valid RSS".into());
+        assert_eq!(parse.user_message(), "Failed to parse feed: not valid RSS");
+        assert_ne!(parse.user_message(), timed_out.user_message());
+
+        let unsafe_url = ParseError::InvalidUrl("Unsafe or invalid URL".into());
+        assert_eq!(
+            unsafe_url.user_message(),
+            "Invalid feed URL: Unsafe or invalid URL"
+        );
     }
 
     #[tokio::test]
     async fn validate_public_url_rejects_loopback_literal() {
+        let _guard = crate::services::outbound_security::tests_lab_env_lock().await;
         let err = FeedParser::validate_public_url("http://127.0.0.1/feed.xml")
             .await
             .expect_err("loopback must be rejected");
@@ -1506,6 +1550,7 @@ mod tests {
 
     #[tokio::test]
     async fn validate_public_url_rejects_metadata_ip() {
+        let _guard = crate::services::outbound_security::tests_lab_env_lock().await;
         let err = FeedParser::validate_public_url("http://169.254.169.254/latest/meta-data/")
             .await
             .expect_err("link-local metadata must be rejected");
@@ -1514,6 +1559,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_and_parse_rejects_private_target() {
+        let _guard = crate::services::outbound_security::tests_lab_env_lock().await;
         let parser = FeedParser::new();
         let err = parser
             .fetch_and_parse("http://10.0.0.1/rss.xml")

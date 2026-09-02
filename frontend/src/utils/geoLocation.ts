@@ -204,32 +204,6 @@ export async function isUserInChinaMainland(): Promise<boolean> {
 }
 
 /**
- * 获取客户端唯一标识（用于缓存键）
- * 使用经纬度组合作为标识，同一位置的用户共享缓存
- *
- * @returns 客户端标识字符串
- */
-export async function getClientIdentifier(): Promise<string> {
-  try {
-    const geoData = await getClientGeoLocation()
-
-    // 使用 lat+lon 作为唯一标识（精确到小数点后2位）
-    if (geoData?.latitude && geoData?.longitude) {
-      return `${geoData.latitude.toFixed(2)},${geoData.longitude.toFixed(2)}`
-    }
-
-    if (geoData?.ip) {
-      return geoData.ip
-    }
-  } catch (error) {
-    console.warn('[GeoLocation] 获取客户端标识失败:', error)
-  }
-
-  // 所有方案失败，使用固定标识符
-  return 'browser-default'
-}
-
-/**
  * 重置所有地理位置缓存
  * 用于测试或用户切换网络时
  */
@@ -404,51 +378,6 @@ async function getGeoFromFallbackServices(): Promise<GeoLocationData | null> {
   }
 
   return null
-}
-
-/**
- * 获取带 localStorage 缓存的地理位置
- * IP→地理位置的映射缓存24小时
- *
- * @param clientIdentifier 客户端标识（如IP或位置坐标）
- * @returns 地理位置数据
- */
-export async function getGeoLocationWithLocalCache(
-  clientIdentifier: string,
-): Promise<GeoLocationData | null> {
-  const cacheKey = `geo_location_${clientIdentifier}`
-  const cacheTimeKey = `geo_location_time_${clientIdentifier}`
-
-  // 检查 localStorage 缓存
-  try {
-    const cached = localStorage.getItem(cacheKey)
-    const cacheTime = localStorage.getItem(cacheTimeKey)
-
-    if (cached && cacheTime) {
-      const cacheAge = Date.now() - Number.parseInt(cacheTime)
-      // IP→位置缓存24小时（位置很少变）
-      if (cacheAge < 24 * 60 * 60 * 1000) {
-        return JSON.parse(cached)
-      }
-    }
-  } catch (_error) {
-    // localStorage 读取失败，继续获取新数据
-  }
-
-  // 缓存失效或不存在，重新获取
-  const location = await getClientGeoLocation()
-
-  if (location) {
-    // 缓存结果到 localStorage
-    try {
-      localStorage.setItem(cacheKey, JSON.stringify(location))
-      localStorage.setItem(cacheTimeKey, Date.now().toString())
-    } catch (_error) {
-      // localStorage 写入失败，静默处理
-    }
-  }
-
-  return location
 }
 
 // 浏览器定位（高精度，需用户授权）

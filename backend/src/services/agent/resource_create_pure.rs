@@ -199,6 +199,7 @@ pub fn truncate_json_for_prompt(data: &Value, max_chars: usize) -> String {
 // ── Report ──────────────────────────────────────────────────────────────────
 
 /// Allowed report formats for report.create.
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub fn is_valid_report_format(format: &str) -> bool {
     matches!(format, "markdown" | "html" | "json")
 }

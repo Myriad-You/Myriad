@@ -680,14 +680,14 @@ html.dark[data-surface='liquid']
 /* 高不透明 chrome（84% tint，见下方覆盖）底下折射几乎不可见，
    纯付位移/合成成本 —— 退回普通磨砂链 */
 html.surface-lens[data-surface='liquid'] .control-bar-trigger,
-html.surface-lens[data-surface='liquid'] .arael-panel,
-html.surface-lens[data-surface='liquid'] .surface-dialog {
+html.surface-lens[data-surface='liquid'] .surface-dialog,
+html.surface-lens[data-surface='liquid'] .agent-panel-overlay {
   --surface-filter: blur(10px) saturate(200%) brightness(1.06);
 }
 
 html.dark.surface-lens[data-surface='liquid'] .control-bar-trigger,
-html.dark.surface-lens[data-surface='liquid'] .arael-panel,
-html.dark.surface-lens[data-surface='liquid'] .surface-dialog {
+html.dark.surface-lens[data-surface='liquid'] .surface-dialog,
+html.dark.surface-lens[data-surface='liquid'] .agent-panel-overlay {
   --surface-filter: blur(10px) saturate(150%) brightness(0.88);
 }
 
@@ -705,8 +705,7 @@ html.dark.surface-lens[data-surface='liquid'] .surface-dialog {
 :root[data-surface] .dynamic-island,
 :root[data-surface] .secondary-island,
 :root[data-surface] .control-bar-trigger,
-:root[data-surface] .site-footer-content,
-:root[data-surface] .arael-panel {
+:root[data-surface] .site-footer-content {
   /* --surface-bg 是逃逸令牌：表面模式可用它声明任意背景表达式
      （如 liquid 的 color-mix 吸色），未声明时回落到基色+透明度 */
   background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
@@ -746,13 +745,14 @@ html.dark .glass:where(:not(.glass-elev-free)) {
 }
 
 /* 内容密集的 chrome（控制面板信息岛 / Agent 面板 / 对话框）原生为 90%+ 不透明底，
+   —— Agent 面板要在里面读长回复，这一档尤其不能透穿。
    流体的高透底会压穿其可读性——升回 90% 不透明，噪点/高光/滤镜自动保留。
    ⚠️ 必须连 --surface-bg 一起在元素上重新声明：自定义属性里的 var()
    在「声明处」（根）即被替换烘焙后才继承，元素级只改 --surface-tint
    动不了已烘焙的 --surface-bg（此前仅覆盖 tint 的写法即因此失效） */
 :root[data-surface='liquid'] .control-bar-trigger,
-:root[data-surface='liquid'] .arael-panel,
-:root[data-surface='liquid'] .surface-dialog {
+:root[data-surface='liquid'] .surface-dialog,
+:root[data-surface='liquid'] .agent-panel-overlay {
   --surface-tint: color-mix(
     in srgb,
     rgb(var(--surface-rgb) / 80%),
@@ -766,8 +766,8 @@ html.dark .glass:where(:not(.glass-elev-free)) {
 /* 控制面板 / 对话框不跟随暗色流体的近黑基色（用户要求它与整体隔离调校），
    钉回原烟熏基色。对话框另见：全屏黑 scrim 上叠 near-black glass 会双倍压暗 */
 html.dark[data-surface='liquid'] .control-bar-trigger,
-html.dark[data-surface='liquid'] .arael-panel,
-html.dark[data-surface='liquid'] .surface-dialog {
+html.dark[data-surface='liquid'] .surface-dialog,
+html.dark[data-surface='liquid'] .agent-panel-overlay {
   --surface-rgb: 26 26 26;
 }
 

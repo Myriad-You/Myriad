@@ -5,7 +5,12 @@
 import type { AppNotification } from './notificationApi.ts'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { notificationSourceFor } from './notificationDelivery.ts'
+import {
+  notificationSourceFor,
+  shouldDeliverNotification,
+  shouldEmitNotificationToast,
+} from './notificationDelivery.ts'
+import { DEFAULT_NOTIFICATION_PREFERENCES } from './notificationPreferencesApi.ts'
 
 function note(
   partial: Partial<AppNotification> &
@@ -62,6 +67,39 @@ describe('notificationSourceFor', () => {
         }),
       ),
       'heartbeat',
+    )
+  })
+})
+
+describe('shouldEmitNotificationToast', () => {
+  const task = note({
+    notification_type: 'task_completed',
+    metadata: { event_key: 'agent.task_completed' },
+  })
+
+  it('follows toast delivery when the agent panel is closed', () => {
+    assert.equal(
+      shouldEmitNotificationToast(
+        DEFAULT_NOTIFICATION_PREFERENCES,
+        task,
+        false,
+      ),
+      shouldDeliverNotification(
+        DEFAULT_NOTIFICATION_PREFERENCES,
+        task,
+        'toast',
+      ),
+    )
+  })
+
+  it('does not toast while the agent panel is on screen', () => {
+    assert.equal(
+      shouldEmitNotificationToast(
+        DEFAULT_NOTIFICATION_PREFERENCES,
+        task,
+        true,
+      ),
+      false,
     )
   })
 })

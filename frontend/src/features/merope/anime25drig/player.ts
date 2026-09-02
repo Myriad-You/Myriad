@@ -1,215 +1,171 @@
+import type { PerformanceBaseline } from '../../../services/agent/types'
+import type { MotionChannelPolicy } from '../motion/policy'
 import type { MeropeRigManifest } from '../rig/types'
-import type { ChestWeightField } from './chestPhysics'
-import type { HairSpringState } from './hairPhysics'
-import type { Anime25DPlayback, Anime25DPlaybackLayer } from './types'
+import type { SingingSpectrumDrive } from '../singing/singingGroove'
+import type { SpeechProsodyPlan } from '../speech/prosody'
+import type { Anime25DMotionUnit } from './behaviorMotion'
+import type {
+  ChestDeformationRegion,
+  ChestDynamicsTuning,
+  ChestMotionGeometry,
+  ChestSpatialField,
+  ChestWeightField,
+} from './chestPhysics'
+import type { CollarClipMesh, CollarMotionPose } from './collarRuntime'
+import type { Anime25DDeformationChangeState } from './deformationDependencies'
+import type { Anime25DDriver } from './driver'
+import type {
+  Anime25DBlinkState,
+  Anime25DStylizedTargets,
+} from './driverComposition'
+import type { Anime25DExpressionDeformationFrame } from './expressionDeformation'
+import type { Anime25DHairSpringFrame } from './hairPhysics'
+import type { Anime25DGpuLayer } from './layerGpuBinding'
+import type { Anime25DMotionEnvelopeProfile } from './motionEnvelope'
+import type { Anime25DMouthDeformationFrame } from './mouthDeformation'
+import type {
+  Anime25DMouthMorphSources,
+  Anime25DOpacityFrame,
+  MouthMorphState,
+} from './mouthRuntime'
+import type { SpeechMouthMaterial } from './mouthTransition'
+import type {
+  Anime25DFrameWork,
+  Anime25DPerformanceSnapshot,
+} from './performanceTelemetry'
+import type { Anime25DRendererBindings, Anime25DRenderFrame } from './renderer'
+import type { Anime25DSecondaryDeformationFrame } from './secondaryDeformation'
+import type { Anime25DShellRotation } from './shellDeformation'
+import type { StylizedExpressionMotion } from './stylizedExpressionMotion'
+import type {
+  Anime25DTorsoShellRotation,
+  Anime25DTorsoYawState,
+} from './torsoDeformation'
+import type { Anime25DPlayback, Anime25DShellProfile } from './types'
+import { currentCopy } from '../../../i18n/localeCopy'
+import { allowsPointerGaze, IDLE_MOTION_POLICY } from '../motion/policy'
+import { SingingGrooveController } from '../singing/singingGroove'
+import { noteTurnTraceFrame } from '../turnTrace'
 import { AmbientMotionController } from './ambientMotion'
+import { Anime25DBehaviorMotionController } from './behaviorMotion'
 import {
   buildChestWeightField,
+  chestBodyExcitationY,
+  chestBreathResidual,
+  chestBreathTargetY,
+  chestFollowMix,
   chestMotionTarget,
   chestProfileUsesGeometryWeights,
+  chestResponseMix,
   createChestSpringState,
-  resolveChestMotionScale,
-  sampleChestWeight,
+  resolveChestDeformationRegion,
+  resolveChestDynamics,
+  resolveChestSpatialField,
   stepChestSpring,
+  topwearMotionAtChest,
 } from './chestPhysics'
 import {
-  frontHairUpperParallaxScale,
-  hairStrandDynamics,
-  stepHairSpring,
-} from './hairPhysics'
+  BODY_HEAD_FOLLOW,
+  deformCollarClipMesh,
+  uploadCollarClipMesh,
+} from './collarRuntime'
+import { cryTearHorizontalOffset, cryTearVerticalOffset } from './cryMotion'
+import {
+  captureAnime25DDeformationChanges,
+  createAnime25DDeformationChangeState,
+  markAnime25DLayerGeometryUpdated,
+  shouldUpdateAnime25DLayerGeometry,
+} from './deformationDependencies'
+import { IDENTITY_DRIVER, sanitizeDriverPatch } from './driver'
+import {
+  applyAnime25DComposedPose,
+  applyAnime25DCryMouth,
+  applyAnime25DSillyMouthOwnership,
+  applyAnime25DSpeechExtras,
+  applyAnime25DStylizedExpression,
+  captureAnime25DSecondaryMotion,
+  prepareAnime25DWorkingTarget,
+  resolveAnime25DStylizedTargets,
+  smoothAnime25DUnit,
+  stepAnime25DBlink,
+  stepAnime25DDriverResponse,
+} from './driverComposition'
+import { deformAnime25DExpressionPoint } from './expressionDeformation'
+import { expressiveEyeOpenOffset } from './expressiveMotionEnvelope'
+import {
+  animationCatchupSeconds,
+  animationElapsedSeconds,
+  animationSubstepCount,
+} from './frameClock'
+import { stepAnime25DHairLayerSprings } from './hairPhysics'
+import { idleBreathOffset } from './idleBreath'
+import {
+  createJawMotionState,
+  jawMotionTarget,
+  jawTravelPixels,
+  stepJawMotion,
+} from './jawMotion'
+import { deformAnime25DUpstreamFeaturePoint } from './layerDeformation'
+import { compileAnime25DGpuLayers } from './layerGpuBinding'
+import { writeAnime25DLayerGlobalTransform } from './layerTransform'
+import {
+  deriveAnime25DMotionEnvelopeProfile,
+  projectAnime25DMotionEnvelope,
+} from './motionEnvelope'
+import { predictedControlTime } from './motionPrediction'
+import {
+  deformAnime25DFaceJawPoint,
+  deformAnime25DMouthPoint,
+} from './mouthDeformation'
+import {
+  applyMouthTransitionBridge,
+  compileAnime25DMouthMorphSources,
+  createAnime25DOpacityFrame,
+  fadeOpacityFromFrame,
+  resolveMouthMorph,
+  shouldDeformLayer,
+  writeAnime25DOpacityFrame,
+} from './mouthRuntime'
+import { MouthTransitionController } from './mouthTransition'
+import {
+  bearingDriverPatch,
+  PerformanceExpressionController,
+} from './performanceExpression'
+import { baselineDriverPatch, restEnergyDriverPatch } from './performanceMotion'
+import {
+  Anime25DPerformanceTelemetry,
+  createAnime25DFrameWork,
+} from './performanceTelemetry'
+import {
+  applyBehaviorMotionGate,
+  PoseGateController,
+  resolvePoseGate,
+} from './poseArbitration'
+import { zeroOccupancyOffset } from './poseCompositor'
+import { PoseOccupancyController } from './poseOccupancy'
+import { RandomActionController } from './randomAction'
+import { createAnime25DRendererBindings, drawAnime25DFrame } from './renderer'
+import { resolveAnime25DRenderSurface } from './runtimePolicy'
+import {
+  deformAnime25DHairPoint,
+  deformAnime25DSecondaryPoint,
+} from './secondaryDeformation'
+import { writeAnime25DShellRotation } from './shellDeformation'
 import { CoSpeechExpressionController } from './speechExpression'
 import { AutoSpeechController } from './speechMotion'
-import { stepMouthForm, stepMouthOpen } from './speechResponse'
+import { StylizedExpressionMotionController } from './stylizedExpressionMotion'
+import { ThinkingMotionController } from './thinkingMotion'
+import {
+  resolveAnime25DTorsoChestShape,
+  stepAnime25DTorsoShellRotation,
+} from './torsoDeformation'
+import { compileProgram, createAtlasTexture, loadImage } from './webglRuntime'
 
-const VERTEX_SHADER = `#version 300 es
-in vec2 a_pos;
-in vec2 a_uv;
-uniform vec2 u_view;
-out vec2 v_uv;
-void main() {
-  vec2 clip = vec2(a_pos.x / u_view.x * 2.0 - 1.0, 1.0 - a_pos.y / u_view.y * 2.0);
-  gl_Position = vec4(clip, 0.0, 1.0);
-  v_uv = a_uv;
-}`
-
-const FRAGMENT_SHADER = `#version 300 es
-precision mediump float;
-in vec2 v_uv;
-uniform sampler2D u_texture;
-uniform float u_cut;
-uniform float u_opacity;
-out vec4 out_color;
-void main() {
-  vec4 color = texture(u_texture, v_uv);
-  if (color.a < u_cut) discard;
-  out_color = color * u_opacity;
-}`
-
-/** Parameter block copied from Anime2.5DRig `P` / `auto` in index.html. */
-export interface Anime25DDriver {
+interface SecondaryMotionPose {
   angleX: number
   angleY: number
   angleZ: number
-  eyeOpenL: number
-  eyeOpenR: number
-  eyeX: number
-  eyeY: number
-  brow: number
-  mouthOpen: number
-  mouthForm: number
-  mouthCY: number
   body: number
-  physAmp: number
-  soft: number
-  browAngL: number
-  browAngR: number
-  browAngSym: number
-  bangL: number
-  bangC: number
-  bangR: number
-  armY: number
-  armPos: number
-  bust: number
-  bustY: number
-  irisScale: number
-  mouthEase: number
-  eyeEase: number
-  fhAmp: number
-  fhSoft: number
-  eyeCY: number
-  eyeCAng: number
-  mouthCAng: number
-  eyeScaleL: number
-  eyeScaleR: number
-  mouthScale: number
-  idle: boolean
-  blink: boolean
-  rand: boolean
-  talk: boolean
-  mouse: boolean
-  phys: boolean
-}
-
-interface HairStrandSpring {
-  stiff: HairSpringState
-  soft: HairSpringState
-  phase: number
-  stiffnessScale: number
-  dampingScale: number
-}
-
-interface GpuLayer {
-  source: Anime25DPlaybackLayer
-  rest: Float32Array
-  deformed: Float32Array
-  uvs: Float32Array
-  indices: Uint16Array
-  cols: number
-  rows: number
-  vao: WebGLVertexArrayObject
-  vertexBuffer: WebGLBuffer
-  indexBuffer: WebGLBuffer
-  indexCount: number
-  texture: WebGLTexture
-  chestWeights: Float32Array | null
-  frontHair: boolean
-  frontHairParallaxScale: Float32Array | null
-  strandWeights: Float32Array | null
-  alongStrand: Float32Array | null
-  bangWeights: Float32Array | null
-  springs: HairStrandSpring[] | null
-}
-
-export const DEFAULT_FRONT_HAIR_SWAY = 1
-export const DEFAULT_REAR_HAIR_SWAY = 0.5
-
-export const IDENTITY_DRIVER: Anime25DDriver = {
-  angleX: 0,
-  angleY: 0,
-  angleZ: 0,
-  eyeOpenL: 1,
-  eyeOpenR: 1,
-  eyeX: 0,
-  eyeY: 0,
-  brow: 0,
-  mouthOpen: 0,
-  mouthForm: 0,
-  mouthCY: 0,
-  body: 0,
-  physAmp: DEFAULT_REAR_HAIR_SWAY,
-  soft: 2,
-  browAngL: 0,
-  browAngR: 0,
-  browAngSym: 0,
-  bangL: 0,
-  bangC: 0,
-  bangR: 0,
-  armY: 0,
-  armPos: 0,
-  bust: 2.5,
-  bustY: 1,
-  irisScale: 1,
-  mouthEase: 0.45,
-  eyeEase: 0.3,
-  fhAmp: DEFAULT_FRONT_HAIR_SWAY,
-  fhSoft: 0.4,
-  eyeCY: 0,
-  eyeCAng: 0,
-  mouthCAng: 0,
-  eyeScaleL: 1,
-  eyeScaleR: 1,
-  mouthScale: 1,
-  idle: true,
-  blink: true,
-  rand: true,
-  talk: true,
-  mouse: false,
-  phys: true,
-}
-
-/** Settings workbench: automations off so each slider can be seen. */
-export const WORKBENCH_DRIVER: Anime25DDriver = {
-  ...IDENTITY_DRIVER,
-  idle: false,
-  rand: false,
-  talk: false,
-  blink: true,
-  mouse: false,
-  phys: true,
-}
-
-const DRIVER_LIMITS: Partial<Record<keyof Anime25DDriver, readonly [number, number]>> = {
-  angleX: [-1, 1], angleY: [-1, 1], angleZ: [-1, 1],
-  eyeOpenL: [0, 1], eyeOpenR: [0, 1], eyeX: [-1, 1], eyeY: [-1, 1],
-  brow: [-1, 1], mouthOpen: [0, 1], mouthForm: [-1, 1], mouthCY: [-1, 1],
-  body: [-1, 1], physAmp: [0, 3], soft: [0, 3],
-  browAngL: [-1, 1], browAngR: [-1, 1], browAngSym: [-1, 1],
-  bangL: [-1, 1], bangC: [-1, 1], bangR: [-1, 1], armY: [-1, 1], armPos: [-1, 1],
-  bust: [0, 4], bustY: [-3, 3], irisScale: [0.5, 1.3],
-  mouthEase: [0, 1], eyeEase: [0, 1], fhAmp: [0, 3], fhSoft: [0, 2],
-  eyeCY: [-1, 1], eyeCAng: [-1, 1], mouthCAng: [-1, 1],
-  eyeScaleL: [0.5, 1.5], eyeScaleR: [0.5, 1.5], mouthScale: [0.5, 1.5],
-}
-
-export function sanitizeDriverPatch(
-  partial: Partial<Anime25DDriver>,
-): Partial<Anime25DDriver> {
-  const sanitized: Partial<Anime25DDriver> = {}
-  const output = sanitized as Record<string, unknown>
-  for (const [rawKey, rawValue] of Object.entries(partial)) {
-    const key = rawKey as keyof Anime25DDriver
-    const identityValue = IDENTITY_DRIVER[key]
-    if (typeof identityValue === 'boolean') {
-      if (typeof rawValue === 'boolean') output[rawKey] = rawValue
-      continue
-    }
-    if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) continue
-    const limits = DRIVER_LIMITS[key]
-    output[rawKey] = limits
-      ? Math.max(limits[0], Math.min(limits[1], rawValue))
-      : rawValue
-  }
-  return sanitized
 }
 
 export interface Anime25DDebugSnapshot {
@@ -218,37 +174,185 @@ export interface Anime25DDebugSnapshot {
   strandCount: number
   eyeOpenLayers: number
   eyeCloseLayers: number
+  eyeDizzyLayers: number
+  eyeSqueezeLayers: number
+  eyeCryLayers: number
+  eyeSillyLayers: number
+  lovestruckHeartLayers: number
+  lovestruckFaceLayers: number
+  lovestruckDroolLayers: number
+  maniacEyeShadowLayers: number
+  angerMarkLayers: number
+  speechlessSweatLayers: number
   mouthOpenLayers: number
+  mouthWideLayers: number
+  mouthRoundLayers: number
+  mouthNarrowLayers: number
   mouthCloseLayers: number
+  mouthCryLayers: number
+  mouthManiacLayers: number
+  mouthSillyLayers: number
   canvas: { width: number; height: number }
+  motionEnvelope: {
+    highCollar: boolean
+    armMotion: boolean
+    pitchLimit: number
+    torsoLimit: number
+    armLimit: number
+    transferredEnergy: number
+  }
+  performance: Anime25DPerformanceSnapshot
   current: Anime25DDriver
 }
 
 export class Anime25DPlayer {
   private readonly gl: WebGL2RenderingContext
   private readonly playback: Anime25DPlayback
+  private readonly shellProfile: Anime25DShellProfile
   private readonly program: WebGLProgram
-  private readonly viewLocation: WebGLUniformLocation
-  private readonly opacityLocation: WebGLUniformLocation
-  private readonly cutLocation: WebGLUniformLocation
-  private layers: GpuLayer[] = []
+  private readonly rendererBindings: Anime25DRendererBindings
+  private readonly renderFrame: Anime25DRenderFrame = {
+    viewWidth: 1,
+    viewHeight: 1,
+    bodyPivotX: 0,
+    bodyPivotY: 0,
+    bodyRotationCosine: 1,
+    bodyRotationSine: 0,
+    time: 0,
+    eyeCry: 0,
+  }
+
+  private layers: Anime25DGpuLayer[] = []
+  private atlasTexture: WebGLTexture | null = null
+  private readonly performanceTelemetry = new Anime25DPerformanceTelemetry()
   private readonly current: Anime25DDriver = { ...IDENTITY_DRIVER }
   private readonly target: Anime25DDriver = { ...IDENTITY_DRIVER }
+  private readonly workingTarget: Anime25DDriver = { ...IDENTITY_DRIVER }
+  private readonly secondaryCurrent: SecondaryMotionPose = {
+    angleX: 0,
+    angleY: 0,
+    angleZ: 0,
+    body: 0,
+  }
+
+  private readonly secondaryTarget: SecondaryMotionPose = {
+    angleX: 0,
+    angleY: 0,
+    angleZ: 0,
+    body: 0,
+  }
+
+  private readonly mouthMorph: MouthMorphState = {
+    centerX: 0,
+    centerY: 0,
+    width: 1,
+    height: 1,
+    openMix: 0,
+    wide: 0,
+    round: 0,
+    narrow: 0,
+  }
+
+  private readonly mouthMorphSources: Anime25DMouthMorphSources
+  private readonly opacityFrame: Anime25DOpacityFrame =
+    createAnime25DOpacityFrame()
+
+  private readonly deformationChangeState: Anime25DDeformationChangeState =
+    createAnime25DDeformationChangeState()
+
+  private readonly deformationPoint = { x: 0, y: 0 }
+  private readonly deformationFrame: Anime25DMouthDeformationFrame &
+    Anime25DExpressionDeformationFrame
+
+  private readonly secondaryDeformationFrame: Anime25DSecondaryDeformationFrame
+
+  private readonly shellRotation: Anime25DShellRotation = {
+    active: false,
+    yawCosine: 1,
+    yawSine: 0,
+    pitchCosine: 1,
+    pitchSine: 0,
+  }
+
+  private readonly torsoYaw: Anime25DTorsoYawState = { value: 0 }
+
+  private readonly torsoShellRotation: Anime25DTorsoShellRotation = {
+    active: false,
+    yawCosine: 1,
+    yawSine: 0,
+  }
+
+  private shellActivation = 0
+  private readonly collarMotion: CollarMotionPose
+  private readonly hairSpringFrame: Anime25DHairSpringFrame
+
+  private readonly mouthTransition: MouthTransitionController
+  private activeMouthMaterial: SpeechMouthMaterial = 'mouthClose'
+  private sillyMouthShare = 1
+
   private time = 0
-  private blinkT = -1
-  private nextBlink = 1.8
+  private readonly blinkState: Anime25DBlinkState = {
+    activeSeconds: -1,
+    nextAtSeconds: 1.8,
+  }
+
   private readonly ambientMotion = new AmbientMotionController()
+  private readonly behaviorMotion = new Anime25DBehaviorMotionController()
+  private readonly occupancy = new PoseOccupancyController()
+  private readonly poseGate = new PoseGateController()
+  private readonly randomAction = new RandomActionController()
+  private readonly singingGroove = new SingingGrooveController()
+  private singingDrive: SingingSpectrumDrive | null = null
+  private singingDeform = 0
+  private readonly thinkingMotion = new ThinkingMotionController()
+  private readonly stylizedExpression = new StylizedExpressionMotionController()
+  private readonly stylizedTargets: Anime25DStylizedTargets = {
+    anger: 0,
+    speechless: 0,
+    maniac: 0,
+    silly: 0,
+    lovestruck: 0,
+  }
+
+  private stylizedMotion: Readonly<StylizedExpressionMotion> | null = null
+  private stylizedHeadShare = 1
+  private readonly performanceExpression = new PerformanceExpressionController()
+  /** Reused so the per-frame pose composition never allocates. */
+  private readonly composedPose = zeroOccupancyOffset()
+  private readonly breathPose = { angleX: 0, angleY: 0, angleZ: 0, body: 0 }
   private readonly speechMotion = new AutoSpeechController()
   private readonly speechExpression = new CoSpeechExpressionController()
+  private readonly cryMouth = {
+    mouthOpen: 0,
+    mouthForm: 0,
+    mouthCY: 0,
+    mouthScale: 0,
+  }
+
   private speechActive = false
   private readonly chest = createChestSpringState()
   private readonly chestTarget = { x: 0, y: 0 }
-  private readonly chestMotionScale: number
+  private readonly chestSpringTarget = { x: 0, y: 0 }
+  private readonly chestParentTarget = { x: 0, y: 0 }
+  private readonly chestDynamics: ChestDynamicsTuning
+  private readonly chestField: ChestSpatialField
+  private readonly chestGeometry: ChestMotionGeometry
+  private readonly chestRegion: ChestDeformationRegion
   private readonly chestWeightField: ChestWeightField | null
+  private readonly jaw = createJawMotionState()
+  private readonly jawTravel: number
+  private readonly motionEnvelopeProfile: Anime25DMotionEnvelopeProfile
+  private readonly motionEnvelopeResult = {
+    clippedEnergy: 0,
+    transferredEnergy: 0,
+  }
+
+  private readonly neckDepth: number
+  private collarClip: CollarClipMesh | null = null
+  private jawEmphasis = 0
   private readonly mouse = { x: 0, y: 0, inside: false }
+  private policy: MotionChannelPolicy = { ...IDLE_MOTION_POLICY }
   private disposed = false
-  private viewWidth = 1
-  private viewHeight = 1
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -261,31 +365,142 @@ export class Anime25DPlayer {
       stencil: true,
       antialias: true,
     })
-    if (!gl) throw new Error('WebGL2 is required for Anime2.5DRig playback')
+    if (!gl) throw new Error(currentCopy().merope.anime25dWebglFailed)
     this.gl = gl
     this.playback = playback
-    this.chestMotionScale = resolveChestMotionScale(playback.chestProfile)
+    this.shellProfile = playback.shellProfile
+    this.motionEnvelopeProfile = deriveAnime25DMotionEnvelopeProfile(
+      playback,
+      rigManifest,
+    )
+    this.singingGroove.setArmMotion(this.motionEnvelopeProfile.armMotion)
+    this.neckDepth =
+      playback.layers.find((layer) => layer.role === 'neck')?.depth ?? 0.95
+    this.mouthTransition = new MouthTransitionController(playback.mouthProfile)
+    this.mouthMorphSources = compileAnime25DMouthMorphSources(playback.layers)
+    this.deformationFrame = {
+      mouth: playback.anchors.mouth,
+      face: playback.anchors.face,
+      faceScale: playback.anchors.faceScale,
+      morph: this.mouthMorph,
+      mouthMorph: this.mouthMorph,
+      expression: this.current,
+      jawDrop: 0,
+      jawOpen: 0,
+      time: 0,
+      stylizedMotion: null,
+    }
+    this.jawTravel = jawTravelPixels(playback)
+    this.chestField = resolveChestSpatialField(playback.chestProfile)
+    this.chestDynamics = resolveChestDynamics(
+      playback.chestProfile,
+      this.chestField,
+    )
+    const anchors = playback.anchors
+    this.chestRegion = resolveChestDeformationRegion(playback.chestProfile)
+    this.chestGeometry = {
+      faceScale: anchors.faceScale,
+      faceCenterY: anchors.face.cy,
+      neckX: anchors.neckPivot.x,
+      neckY: anchors.neckPivot.y,
+      centerX: this.chestRegion.centerX,
+      centerY: this.chestRegion.centerY,
+      depth:
+        playback.layers.find((layer) => layer.role === 'topwear')?.depth ?? 0.9,
+    }
     this.chestWeightField = chestProfileUsesGeometryWeights(
       playback.chestProfile,
     )
       ? buildChestWeightField(rigManifest)
       : null
+    const neckFollowTop = Math.min(
+      anchors.neckBottom - 1,
+      Math.max(anchors.neckTop, anchors.face.y1 + anchors.faceScale * 5),
+    )
+    this.secondaryDeformationFrame = {
+      expression: this.current,
+      faceScale: anchors.faceScale,
+      headAngleY: 0,
+      headRotationCosine: 1,
+      headRotationSine: 0,
+      neckPivotX: anchors.neckPivot.x,
+      neckPivotY: anchors.neckPivot.y,
+      neckBottom: anchors.neckBottom,
+      neckFollowTop,
+      neckFollowSpan: Math.max(1, anchors.neckBottom - neckFollowTop),
+      faceCenterY: anchors.face.cy,
+      bodyBreathOffset: 0,
+      headBreathOffset: 0,
+      torsoProfile: this.shellProfile.torso,
+      torsoChestShape: resolveAnime25DTorsoChestShape(
+        playback.chestProfile,
+        this.chestField,
+      ),
+      torsoShellRotation: this.torsoShellRotation,
+      torsoShellBlend: 0,
+      specialHeadOffset: 0,
+      highCollar: this.motionEnvelopeProfile.highCollar,
+      breath: 0,
+      chestCenterX: this.chestRegion.centerX,
+      chestRegionCenterY: this.chestRegion.centerY,
+      chestMotionCenterY: this.chestRegion.centerY,
+      chestRadiusY: this.chestRegion.radiusY,
+      inverseChestRadiusX: 1 / this.chestRegion.radiusX,
+      inverseChestRadiusY: 1 / this.chestRegion.radiusY,
+      chestOffsetX: 0,
+      chestOffsetY: 0,
+      chestField: this.chestField,
+      chestVolumeScale: 1,
+      shellProfile: this.shellProfile,
+      shellBlend: 0,
+      shellActivation: 0,
+      shellRotation: this.shellRotation,
+    }
+    this.collarMotion = {
+      neckPivotX: anchors.neckPivot.x,
+      neckPivotY: anchors.neckPivot.y,
+      neckFollowTop,
+      neckFollowSpan: Math.max(1, anchors.neckBottom - neckFollowTop),
+      faceCenterY: anchors.face.cy,
+      faceScale: anchors.faceScale,
+      angleX: 0,
+      angleY: 0,
+      headRotationCosine: 1,
+      headRotationSine: 0,
+      bodyBreathOffset: 0,
+      headBreathOffset: 0,
+      torsoProfile: this.shellProfile.torso,
+      torsoShellBlend: 0,
+      torsoShellRotation: this.torsoShellRotation,
+    }
+    this.hairSpringFrame = {
+      enabled: true,
+      idle: true,
+      angleX: 0,
+      angleZ: 0,
+      faceScale: anchors.faceScale,
+      neckPivotY: anchors.neckPivot.y,
+      faceCenterY: anchors.face.cy,
+      time: 0,
+    }
     this.program = compileProgram(gl)
-    this.viewLocation = requiredUniform(gl, this.program, 'u_view')
-    this.opacityLocation = requiredUniform(gl, this.program, 'u_opacity')
-    this.cutLocation = requiredUniform(gl, this.program, 'u_cut')
-    gl.useProgram(this.program)
-    gl.uniform1i(requiredUniform(gl, this.program, 'u_texture'), 0)
-    gl.enable(gl.BLEND)
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1)
+    this.rendererBindings = createAnime25DRendererBindings(gl, this.program)
   }
 
   async loadAtlas(url: string): Promise<void> {
     const image = await loadImage(url)
-    this.layers = this.playback.layers.map((layer, index) =>
-      this.createLayer(layer, image, index),
+    this.atlasTexture = createAtlasTexture(this.gl, image)
+    const compiled = compileAnime25DGpuLayers(
+      this.gl,
+      this.program,
+      this.playback,
+      this.shellProfile,
+      this.current,
+      this.chestWeightField,
+      image,
     )
+    this.layers = compiled.layers
+    this.collarClip = compiled.collarClip
   }
 
   setTarget(partial: Partial<Anime25DDriver>): void {
@@ -305,8 +520,8 @@ export class Anime25DPlayer {
   }
 
   blinkNow(): void {
-    this.blinkT = 0
-    this.nextBlink = this.time + 1.6 + Math.random() * 3.8
+    this.blinkState.activeSeconds = 0
+    this.blinkState.nextAtSeconds = this.time + 1.6 + Math.random() * 3.8
   }
 
   setMouse(x: number, y: number, inside: boolean): void {
@@ -315,8 +530,69 @@ export class Anime25DPlayer {
     this.mouse.inside = inside
   }
 
+  setMotionPolicy(policy: MotionChannelPolicy): void {
+    this.policy = policy
+  }
+
+  getMotionPolicy(): MotionChannelPolicy {
+    return this.policy
+  }
+
   setSpeechActive(active: boolean): void {
     this.speechActive = active
+  }
+
+  setSinging(active: boolean): void {
+    this.target.singing = active
+  }
+
+  setSingingTrack(trackId: string | null): void {
+    this.singingGroove.setTrack(trackId)
+  }
+
+  setSingingSpectrum(drive: SingingSpectrumDrive | null): void {
+    this.singingDrive = drive
+  }
+
+  setSpeechProsody(plan: SpeechProsodyPlan | null): void {
+    this.speechExpression.setProsody(plan, this.time)
+  }
+
+  enqueueSpeechText(text: string, locale?: string): void {
+    this.speechMotion.enqueueText(text, locale)
+  }
+
+  clearSpeechText(): void {
+    this.speechMotion.clear(this.time)
+  }
+
+  /**
+   * The one body entry point for a realized plan.
+   *
+   * Units are routed by family, not by output shape: modulating families reach
+   * the pose generators they scale, and performance units carry their own pose
+   * to the expression controller. Restating the whole live set is what makes
+   * this safe to call on every plan revision.
+   */
+  setBehaviorMotionUnits(
+    units: readonly Anime25DMotionUnit[],
+    nowMs: number,
+  ): void {
+    this.behaviorMotion.replace(units, nowMs, this.time)
+    this.performanceExpression.playBehaviorUnits(units, this.time, nowMs)
+  }
+
+  clearBehaviorMotionUnits(): void {
+    this.behaviorMotion.clear()
+    this.performanceExpression.stopBehaviors(this.time)
+  }
+
+  setBearing(bearing: PerformanceBaseline | null): void {
+    this.performanceExpression.setBearingAttention(bearing?.attention ?? null)
+    this.setTarget({
+      ...(bearing ? baselineDriverPatch(bearing) : restEnergyDriverPatch()),
+      ...bearingDriverPatch(bearing),
+    })
   }
 
   debugSnapshot(): Anime25DDebugSnapshot {
@@ -326,49 +602,139 @@ export class Anime25DPlayer {
       hairLayerCount: layers.filter((layer) => layer.phys === 'hair').length,
       strandCount: layers.reduce((sum, layer) => sum + layer.strands.length, 0),
       eyeOpenLayers: layers.filter((layer) => layer.fade === 'eyeOpen').length,
-      eyeCloseLayers: layers.filter((layer) => layer.fade === 'eyeClose').length,
-      mouthOpenLayers: layers.filter((layer) => layer.fade === 'mouthOpen').length,
+      eyeCloseLayers: layers.filter((layer) => layer.fade === 'eyeClose')
+        .length,
+      eyeDizzyLayers: layers.filter((layer) => layer.fade === 'eyeDizzy')
+        .length,
+      eyeSqueezeLayers: layers.filter((layer) => layer.fade === 'eyeSqueeze')
+        .length,
+      eyeCryLayers: layers.filter((layer) => layer.fade === 'eyeCry').length,
+      eyeSillyLayers: layers.filter((layer) => layer.fade === 'eyeSilly')
+        .length,
+      lovestruckHeartLayers: layers.filter(
+        (layer) => layer.fade === 'lovestruckHeart',
+      ).length,
+      lovestruckFaceLayers: layers.filter(
+        (layer) => layer.fade === 'lovestruckFace',
+      ).length,
+      lovestruckDroolLayers: layers.filter(
+        (layer) => layer.fade === 'lovestruckDrool',
+      ).length,
+      maniacEyeShadowLayers: layers.filter(
+        (layer) => layer.fade === 'maniacEyeShadow',
+      ).length,
+      angerMarkLayers: layers.filter((layer) => layer.fade === 'angerMark')
+        .length,
+      speechlessSweatLayers: layers.filter(
+        (layer) => layer.fade === 'speechlessSweat',
+      ).length,
+      mouthOpenLayers: layers.filter((layer) => layer.fade === 'mouthOpen')
+        .length,
+      mouthWideLayers: layers.filter((layer) => layer.fade === 'mouthWide')
+        .length,
+      mouthRoundLayers: layers.filter((layer) => layer.fade === 'mouthRound')
+        .length,
+      mouthNarrowLayers: layers.filter((layer) => layer.fade === 'mouthNarrow')
+        .length,
       mouthCloseLayers: layers.filter((layer) => layer.fade === 'mouthClose')
         .length,
+      mouthCryLayers: layers.filter((layer) => layer.fade === 'mouthCry')
+        .length,
+      mouthManiacLayers: layers.filter((layer) => layer.fade === 'mouthManiac')
+        .length,
+      mouthSillyLayers: layers.filter((layer) => layer.fade === 'mouthSilly')
+        .length,
       canvas: { ...this.playback.pixelCanvas },
+      motionEnvelope: {
+        highCollar: this.motionEnvelopeProfile.highCollar,
+        armMotion: this.motionEnvelopeProfile.armMotion,
+        pitchLimit: this.motionEnvelopeProfile.pitch.limit,
+        torsoLimit: this.motionEnvelopeProfile.torso.limit,
+        armLimit: this.motionEnvelopeProfile.rigidArm.limit,
+        transferredEnergy: this.motionEnvelopeResult.transferredEnergy,
+      },
+      performance: this.performanceTelemetry.observe(),
       current: this.getCurrent(),
     }
   }
 
   resize(cssWidth: number, cssHeight: number, devicePixelRatio: number): void {
-    const dpr = Math.max(1, Math.min(2, devicePixelRatio))
     const { width: pixelWidth, height: pixelHeight } = this.playback.pixelCanvas
+    const surface = resolveAnime25DRenderSurface({
+      sourceWidth: pixelWidth,
+      sourceHeight: pixelHeight,
+      cssWidth,
+      cssHeight,
+      devicePixelRatio,
+    })
     const canvas = this.gl.canvas
-    const bufferWidth = Math.max(1, Math.round(pixelWidth * dpr))
-    const bufferHeight = Math.max(1, Math.round(pixelHeight * dpr))
     if (canvas instanceof HTMLCanvasElement) {
-      canvas.width = bufferWidth
-      canvas.height = bufferHeight
-      const scale = Math.min(
-        Math.max(1, cssWidth) / pixelWidth,
-        Math.max(1, cssHeight) / pixelHeight,
-      )
-      canvas.style.width = `${pixelWidth * scale}px`
-      canvas.style.height = `${pixelHeight * scale}px`
+      if (canvas.width !== surface.bufferWidth)
+        canvas.width = surface.bufferWidth
+      if (canvas.height !== surface.bufferHeight)
+        canvas.height = surface.bufferHeight
+      canvas.style.width = `${surface.displayWidth}px`
+      canvas.style.height = `${surface.displayHeight}px`
     }
-    this.viewWidth = pixelWidth
-    this.viewHeight = pixelHeight
-    this.gl.viewport(0, 0, bufferWidth, bufferHeight)
+    this.renderFrame.viewWidth = pixelWidth
+    this.renderFrame.viewHeight = pixelHeight
+    this.gl.viewport(0, 0, surface.bufferWidth, surface.bufferHeight)
   }
 
   tick(deltaSeconds: number): void {
     if (this.disposed || this.layers.length === 0) return
-    const dt = Math.min(0.05, Math.max(0.001, deltaSeconds))
-    this.time += dt
-    this.smoothDriver(dt)
-    this.updateSprings(dt)
-    this.deform()
-    this.draw()
-  }
-
-  captureFrame(): string | null {
-    const canvas = this.gl.canvas
-    return canvas instanceof HTMLCanvasElement ? canvas.toDataURL('image/png') : null
+    const elapsed = animationElapsedSeconds(deltaSeconds)
+    const catchup = animationCatchupSeconds(elapsed)
+    const substeps = animationSubstepCount(catchup)
+    const dt = catchup / substeps
+    const dropped = elapsed > 0.05
+    // Skip the stale part of a long stall so expired cues are not replayed,
+    // then integrate the most recent bounded tail in stable substeps.
+    this.time += elapsed - catchup
+    if (!this.performanceTelemetry.shouldSample()) {
+      for (let step = 0; step < substeps; step += 1) {
+        this.time += dt
+        this.smoothDriver(dt)
+        this.updateSprings(dt)
+      }
+      this.deform()
+      this.uploadGeometry()
+      this.draw()
+      if (dropped) noteTurnTraceFrame({ dropped: true })
+      return
+    }
+    const work = createAnime25DFrameWork()
+    const frameStarted = performance.now()
+    let driverMs = 0
+    let springsMs = 0
+    for (let step = 0; step < substeps; step += 1) {
+      this.time += dt
+      const driverStarted = performance.now()
+      this.smoothDriver(dt)
+      const driverFinished = performance.now()
+      this.updateSprings(dt)
+      const springsFinished = performance.now()
+      driverMs += driverFinished - driverStarted
+      springsMs += springsFinished - driverFinished
+    }
+    const springsFinished = performance.now()
+    this.deform(work)
+    this.uploadGeometry(work)
+    const deformFinished = performance.now()
+    this.draw(work)
+    const drawFinished = performance.now()
+    this.performanceTelemetry.record({
+      ...work,
+      frameCpuMs: drawFinished - frameStarted,
+      driverMs,
+      springsMs,
+      deformMs: deformFinished - springsFinished,
+      drawSubmitMs: drawFinished - deformFinished,
+    })
+    noteTurnTraceFrame({
+      dropped,
+      cpuMs: drawFinished - frameStarted,
+    })
   }
 
   dispose(): void {
@@ -376,757 +742,555 @@ export class Anime25DPlayer {
     const { gl } = this
     for (const layer of this.layers) {
       gl.deleteBuffer(layer.vertexBuffer)
+      gl.deleteBuffer(layer.uvBuffer)
       gl.deleteBuffer(layer.indexBuffer)
       gl.deleteVertexArray(layer.vao)
-      gl.deleteTexture(layer.texture)
+    }
+    if (this.atlasTexture) gl.deleteTexture(this.atlasTexture)
+    this.atlasTexture = null
+    if (this.collarClip) {
+      gl.deleteBuffer(this.collarClip.vertexBuffer)
+      gl.deleteBuffer(this.collarClip.uvBuffer)
+      gl.deleteBuffer(this.collarClip.indexBuffer)
+      gl.deleteVertexArray(this.collarClip.vao)
+      this.collarClip = null
     }
     gl.deleteProgram(this.program)
     this.layers = []
   }
 
   private smoothDriver(dt: number): void {
+    this.shellActivation = Math.min(1, this.shellActivation + dt * 8)
     const t = this.time
-    const tgt: Anime25DDriver = { ...this.target }
-    if (this.target.mouse && this.mouse.inside) {
-      tgt.angleX = clamp(this.mouse.x * 0.9, -1, 1)
-      tgt.angleY = clamp(-this.mouse.y * 0.7, -1, 1)
-      tgt.eyeX = clamp(this.mouse.x * 1.2, -1, 1)
-      tgt.eyeY = clamp(-this.mouse.y * 0.8, -1, 1)
-    }
-    if (this.target.idle) {
-      tgt.angleX += 0.13 * Math.sin(t * 0.42) + 0.05 * Math.sin(t * 1.13)
-      tgt.angleY += 0.08 * Math.sin(t * 0.31 + 1.7)
-      tgt.angleZ += 0.07 * Math.sin(t * 0.23 + 0.5)
-      tgt.body += 0.1 * Math.sin(t * 0.19 + 2.1)
-    }
-    const pointerDriven = this.target.mouse && this.mouse.inside
-    const ambient = this.ambientMotion.sample(
+    const pointer =
+      this.target.mouse && allowsPointerGaze(this.policy.gaze)
+        ? this.mouse
+        : { x: 0, y: 0, inside: false }
+    const tgt = prepareAnime25DWorkingTarget(
+      this.workingTarget,
+      this.target,
+      pointer,
       t,
-      this.target.rand && !pointerDriven,
     )
-    tgt.angleX = clamp(tgt.angleX + ambient.angleX, -1, 1)
-    tgt.angleY = clamp(tgt.angleY + ambient.angleY, -1, 1)
-    tgt.angleZ = clamp(tgt.angleZ + ambient.angleZ, -1, 1)
-    tgt.body = clamp(tgt.body + ambient.body, -1, 1)
-    tgt.eyeX = clamp(tgt.eyeX + ambient.eyeX, -1, 1)
-    tgt.eyeY = clamp(tgt.eyeY + ambient.eyeY, -1, 1)
-    const speech = this.speechMotion.sample(t, this.target.talk)
-    if (speech.mouthOpen > 0) {
-      tgt.mouthOpen = Math.max(tgt.mouthOpen, speech.mouthOpen)
-      const formInfluence = smoothstep((speech.mouthOpen - 0.08) / 0.32)
-      tgt.mouthForm = clamp(
-        tgt.mouthForm + speech.mouthForm * formInfluence,
-        -1,
-        1,
-      )
-    }
+    // Known cues and prosody are sampled slightly ahead to compensate the
+    // display plus driver response. Observed input and physics remain at `t`.
+    const controlTime = predictedControlTime(t)
+    const behaviorMotion = this.behaviorMotion.sample(controlTime)
+    const semanticExpression = this.performanceExpression.sample(controlTime)
+    const stylizedTargets = resolveAnime25DStylizedTargets(
+      this.stylizedTargets,
+      tgt,
+      semanticExpression,
+    )
+    const stylized = this.stylizedExpression.sample(
+      controlTime,
+      stylizedTargets.anger,
+      stylizedTargets.speechless,
+      stylizedTargets.maniac,
+      stylizedTargets.silly,
+      stylizedTargets.lovestruck,
+    )
+    // Sticker-local geometry is authored inside the expression envelope. Pose
+    // ownership controls its visibility and shared face/body contribution, but
+    // must not shrink or otherwise attenuate the artwork a second time.
+    this.stylizedMotion = stylized
+    const performanceMotionScale =
+      this.performanceExpression.getAmbientMotionScale()
+    const pointerDriven = this.target.mouse && pointer.inside
+    const speech = this.speechMotion.sample(controlTime, this.target.talk)
+    this.jawEmphasis = speech.browAccent
+    const speaking = this.speechActive || this.target.talk
     const speechExpression = this.speechExpression.sample(
-      t,
-      this.speechActive || this.target.talk,
+      controlTime,
+      speaking,
       this.speechActive && !this.target.talk ? tgt.mouthOpen : null,
       speech.phraseActivity,
       speech.browAccent,
       speech.headAccent,
+      behaviorMotion.coSpeechQuality,
     )
-    tgt.brow = clamp(tgt.brow + speechExpression.brow, -1, 1)
-    tgt.eyeOpenL = clamp(tgt.eyeOpenL + speechExpression.eyeOpen, 0, 1)
-    tgt.eyeOpenR = clamp(tgt.eyeOpenR + speechExpression.eyeOpen, 0, 1)
-    tgt.angleY = clamp(tgt.angleY + speechExpression.angleY, -1, 1)
-    if (this.target.blink) {
-      if (this.blinkT < 0 && this.time > this.nextBlink) {
-        this.blinkT = 0
-        this.nextBlink = this.time + 1.6 + Math.random() * 3.8
-        if (Math.random() < 0.18) this.nextBlink = this.time + 0.28
-      }
-      if (this.blinkT >= 0) {
-        this.blinkT += dt
-        const elapsed = this.blinkT
-        let open = 1
-        if (elapsed < 0.08) {
-          open = 1 - elapsed / 0.08
-        } else if (elapsed < 0.42) {
-          open = 0
-        } else if (elapsed < 0.58) {
-          open = (elapsed - 0.42) / 0.16
-        } else {
-          open = 1
-          this.blinkT = -1
-        }
-        tgt.eyeOpenL = Math.min(tgt.eyeOpenL, open)
-        tgt.eyeOpenR = Math.min(tgt.eyeOpenR, open)
-      }
+    const singing = this.target.singing
+    // Audio drives the local groove clock; the realized music behavior below
+    // still decides whether that pose may enter the shared body compositor.
+    this.singingDeform +=
+      ((singing ? 1 : 0) - this.singingDeform) *
+      (1 - Math.exp(-(singing ? 5.5 : 1.05) * dt))
+    const groove = this.singingGroove.sample(
+      t,
+      singing,
+      this.singingDrive,
+      behaviorMotion.musicQuality,
+    )
+    const sticker = Math.max(
+      stylizedTargets.anger,
+      stylizedTargets.speechless,
+      stylizedTargets.maniac,
+      stylizedTargets.silly,
+      stylizedTargets.lovestruck,
+    )
+    const occupancy = this.occupancy.sample(dt, {
+      speaking,
+      singing,
+      thinking: this.target.thinking,
+      pointerDriven,
+      automation: this.target.rand,
+      sticker,
+    })
+    const randomAction = this.randomAction.sample(t, this.target.rand, false)
+    const ambient = this.ambientMotion.sample(t, this.target.rand)
+    const thinking = this.thinkingMotion.sample(t, this.target.thinking)
+    const breath = idleBreathOffset(t, this.breathPose)
+    // Ownership and situation resolve to one weight per source per channel;
+    // nothing below this line invents a scale of its own.
+    const gate = this.poseGate.sample(
+      dt,
+      applyBehaviorMotionGate(
+        resolvePoseGate(this.policy, occupancy, {
+          performance: performanceMotionScale,
+          stylized: stylized.ambientScale,
+          randomAmbient: randomAction.ambientScale,
+        }),
+        behaviorMotion,
+      ),
+    )
+    // PoseGateController already supplies a velocity-continuous handoff. Keep
+    // the renderer-local head pulse on that exact envelope instead of adding a
+    // second low-pass delay after arbitration.
+    this.stylizedHeadShare = gate.stylized.headBody
+    applyAnime25DComposedPose(
+      tgt,
+      gate,
+      {
+        ambient,
+        randomAction,
+        groove,
+        thinking,
+        breath,
+        performance: semanticExpression,
+        stylized,
+        coSpeech: speechExpression,
+      },
+      this.composedPose,
+    )
+    applyAnime25DStylizedExpression(
+      tgt,
+      semanticExpression,
+      stylized,
+      speaking,
+      gate.performance.expression,
+      gate.stylized.expression,
+    )
+    applyAnime25DCryMouth(tgt, this.current.eyeCry, t, dt, this.cryMouth)
+    const gatedSpeechExpression = {
+      brow: speechExpression.brow * gate.coSpeech.expression,
+      eyeOpen: speechExpression.eyeOpen * gate.coSpeech.expression,
+      angleY: speechExpression.angleY * gate.coSpeech.headBody,
     }
-    const rate = Math.min(1, dt * 14)
-    const flags = ['idle', 'blink', 'rand', 'talk', 'mouse', 'phys'] as const
-    for (const key of Object.keys(IDENTITY_DRIVER) as Array<keyof Anime25DDriver>) {
-      if (flags.includes(key as (typeof flags)[number])) {
-        this.current[key] = this.target[key] as never
-        continue
-      }
-      const from = this.current[key] as number
-      const to = tgt[key] as number
-      if (key === 'mouthOpen') {
-        this.current.mouthOpen = stepMouthOpen(from, to, dt)
-        continue
-      }
-      if (key === 'mouthForm') {
-        this.current.mouthForm = stepMouthForm(from, to, dt)
-        continue
-      }
-      ;(this.current[key] as number) = from + (to - from) * rate
-    }
+    gatedSpeechExpression.eyeOpen += expressiveEyeOpenOffset(
+      gatedSpeechExpression,
+    )
+    applyAnime25DSpeechExtras(tgt, speech, gatedSpeechExpression)
+    // The omega mouth only takes over once the character has stopped talking;
+    // a cue landing mid-delivery would otherwise freeze the lip sync.
+    this.sillyMouthShare +=
+      ((speaking ? 0 : 1) - this.sillyMouthShare) * (1 - Math.exp(-7 * dt))
+    applyAnime25DSillyMouthOwnership(
+      tgt,
+      smoothAnime25DUnit(stylizedTargets.silly) * this.sillyMouthShare,
+    )
+    projectAnime25DMotionEnvelope(
+      tgt,
+      this.motionEnvelopeProfile,
+      this.motionEnvelopeResult,
+    )
+    captureAnime25DSecondaryMotion(this.secondaryTarget, tgt)
+    stepAnime25DBlink(
+      tgt,
+      this.blinkState,
+      this.time,
+      dt,
+      this.target.blink,
+      stylizedTargets.maniac > 0.03 || stylizedTargets.silly > 0.03,
+    )
+    stepAnime25DDriverResponse(
+      this.current,
+      this.target,
+      tgt,
+      this.secondaryCurrent,
+      this.secondaryTarget,
+      dt,
+    )
+    stepAnime25DTorsoShellRotation(
+      this.torsoYaw,
+      this.current.angleX,
+      this.current.body,
+      dt,
+      this.torsoShellRotation,
+    )
   }
 
   private updateSprings(dt: number): void {
     const { anchors } = this.playback
     const faceScale = anchors.faceScale
     const e = this.current
+    stepJawMotion(this.jaw, jawMotionTarget(e, this.jawEmphasis), dt)
+    const secondary = this.secondaryCurrent
     const chestProfile = this.playback.chestProfile
-    if (chestProfile?.enabled !== false) {
+    if (chestProfile.enabled) {
       const chestTarget = chestMotionTarget(e, faceScale, this.chestTarget)
+      chestTarget.y += chestBreathTargetY(
+        chestBreathResidual(this.time),
+        faceScale,
+        this.chestDynamics.breathMotionScale,
+      )
+      this.chestSpringTarget.x = chestTarget.x
+      this.chestSpringTarget.y =
+        chestTarget.y +
+        chestBodyExcitationY(
+          e.body,
+          faceScale,
+          this.chestDynamics.bodyExcitationScale,
+        )
+      topwearMotionAtChest(e, this.chestGeometry, this.chestParentTarget)
       stepChestSpring(
         this.chest,
-        chestTarget.x,
-        chestTarget.y,
+        this.chestSpringTarget.x,
+        this.chestSpringTarget.y,
         dt,
-        chestProfile?.frequencyScale ?? 1,
+        this.chestDynamics.frequencyScale,
+        this.chestDynamics.dampingScale,
       )
     }
-    if (!e.phys) return
-    const headDX =
-      (e.angleX * 14 + e.angleZ * 0.07 * (anchors.neckPivot.y - anchors.face.cy)) *
-      faceScale
-    const time = this.time
-    const windAmp = e.idle ? 1 : 0
-    for (const layer of this.layers) {
-      if (!layer.springs) continue
-      for (const spring of layer.springs) {
-        const wind =
-          windAmp *
-          (1.8 * Math.sin(time * 0.8 + spring.phase) +
-            1.0 * Math.sin(time * 1.9 + spring.phase * 2.3))
-        const target = headDX + wind * faceScale
-        stepHairSpring(
-          spring.stiff,
-          target,
-          70 * spring.stiffnessScale,
-          9 * spring.dampingScale,
-          2.2,
-          dt,
-        )
-        stepHairSpring(
-          spring.soft,
-          target,
-          16 * spring.stiffnessScale,
-          1.3 * spring.dampingScale,
-          3,
-          dt,
-        )
-      }
-    }
+    const hairSpringFrame = this.hairSpringFrame
+    hairSpringFrame.enabled = e.phys
+    hairSpringFrame.idle = e.idle
+    hairSpringFrame.angleX = secondary.angleX
+    hairSpringFrame.angleZ = secondary.angleZ
+    hairSpringFrame.time = this.time
+    stepAnime25DHairLayerSprings(this.layers, hairSpringFrame, dt)
   }
 
-  private deform(): void {
+  private deform(work?: Anime25DFrameWork): void {
     const A = this.playback.anchors
     const e = this.current
     const fs = A.faceScale
     const t = this.time
-    const breath = 0.5 + 0.5 * Math.sin((t * Math.PI * 2) / 3.4)
+    const breathResidual = chestBreathResidual(t)
+    const breath = 0.5 + breathResidual
     const breathHead = 0.5 + 0.5 * Math.sin((t * Math.PI * 2) / 3.4 - 0.6)
     const npx = A.neckPivot.x
     const npy = A.neckPivot.y
     const bpx = A.bodyPivot.x
     const bpy = A.bodyPivot.y
-    const az = e.angleZ * 0.07
+    const singingLift = this.singingDeform
+    const az = e.angleZ * (0.07 + 0.38 * singingLift)
+    const ay = e.angleY * (1 + 1.1 * singingLift)
     const cz = Math.cos(az)
     const sz = Math.sin(az)
-    const ab = e.body * 0.028
+    const ab = e.body * (0.028 + 0.05 * singingLift)
     const cb = Math.cos(ab)
     const sb = Math.sin(ab)
-    const chestProfile = this.playback.chestProfile
-    const chestCx = chestProfile?.centerX ?? npx
-    const legacyChestCy = A.neckBottom + (A.face.y1 - A.face.y0) * 0.6
-    const chestCy = chestProfile?.centerY ?? legacyChestCy
-    const chestRx = chestProfile?.radiusX ?? (A.face.x1 - A.face.x0) * 0.6
-    const chestRy = chestProfile?.radiusY ?? (A.face.y1 - A.face.y0) * 0.45
-    const chestMotionScale = this.chestMotionScale
-    const mHalfW = (A.mouth.x1 - A.mouth.x0) / 2
+    this.renderFrame.bodyPivotX = bpx
+    this.renderFrame.bodyPivotY = bpy
+    this.renderFrame.bodyRotationCosine = cb
+    this.renderFrame.bodyRotationSine = sb
+    const chestCy = this.chestRegion.centerY
+    const chestRx = this.chestRegion.radiusX
+    const chestRy = this.chestRegion.radiusY
+    const chestMotionMix =
+      chestResponseMix(e.bust, this.chestDynamics.responseScale) *
+      (1 - 0.75 * singingLift)
+    const chestFollow =
+      chestFollowMix(e.bust, this.chestDynamics.followScale) *
+      (1 - 0.7 * singingLift)
+    const chestCenterY = chestCy + (e.bustY - 1) * 70 * fs
+    const chestOffsetX =
+      (this.chestTarget.x - this.chestParentTarget.x) * chestFollow +
+      this.chest.offsetX * chestMotionMix * this.chestDynamics.inertiaGain
+    const chestOffsetY =
+      (this.chestTarget.y - this.chestParentTarget.y) * chestFollow +
+      this.chest.offsetY * chestMotionMix * this.chestDynamics.inertiaGain
+    const inverseChestRx = 1 / chestRx
+    const inverseChestRy = 1 / chestRy
+    const jawDrop = this.jaw.value * this.jawTravel
+    const jawOpen = Math.max(0, this.jaw.value)
+    const specialHeadOffset = this.stylizedMotion
+      ? (this.stylizedMotion.maniacHeadPulse * 80 +
+          this.stylizedMotion.sillyHeadPulse * 8 +
+          this.stylizedMotion.lovestruckHeadPulse * 5) *
+        this.stylizedHeadShare *
+        fs
+      : 0
+    const mouthTransition = this.mouthTransition.sample(e)
+    this.activeMouthMaterial = mouthTransition.material
+    resolveMouthMorph(
+      this.mouthMorphSources,
+      e,
+      A.mouth,
+      A.face,
+      this.mouthMorph,
+    )
+    applyMouthTransitionBridge(this.mouthMorph, mouthTransition)
+    const deformationFrame = this.deformationFrame
+    deformationFrame.faceScale = fs
+    deformationFrame.jawDrop = jawDrop
+    deformationFrame.jawOpen = jawOpen
+    deformationFrame.time = t
+    deformationFrame.stylizedMotion = this.stylizedMotion
+    const deformationPoint = this.deformationPoint
+    const secondaryDeformationFrame = this.secondaryDeformationFrame
+    writeAnime25DShellRotation(e.angleX, ay, this.shellRotation)
+    secondaryDeformationFrame.headAngleY = ay
+    secondaryDeformationFrame.headRotationCosine = cz
+    secondaryDeformationFrame.headRotationSine = sz
+    secondaryDeformationFrame.bodyBreathOffset = breath * 2
+    secondaryDeformationFrame.headBreathOffset = breathHead * 1.6
+    secondaryDeformationFrame.specialHeadOffset = specialHeadOffset
+    secondaryDeformationFrame.breath = breath
+    secondaryDeformationFrame.chestMotionCenterY = chestCenterY
+    if (secondaryDeformationFrame.torsoChestShape) {
+      secondaryDeformationFrame.torsoChestShape.centerY = chestCenterY
+    }
+    secondaryDeformationFrame.inverseChestRadiusX = inverseChestRx
+    secondaryDeformationFrame.inverseChestRadiusY = inverseChestRy
+    secondaryDeformationFrame.chestOffsetX = chestOffsetX
+    secondaryDeformationFrame.chestOffsetY = chestOffsetY
+    secondaryDeformationFrame.chestVolumeScale =
+      1 + breathResidual * this.chestDynamics.breathVolumeScale
+    secondaryDeformationFrame.shellBlend =
+      this.shellProfile.blend * this.shellActivation
+    secondaryDeformationFrame.shellActivation = this.shellActivation
+    secondaryDeformationFrame.torsoShellBlend =
+      this.shellProfile.enabled && this.shellProfile.torso.enabled
+        ? this.shellProfile.blend *
+          this.shellProfile.torso.blend *
+          this.shellActivation
+        : 0
+    writeAnime25DOpacityFrame(
+      this.opacityFrame,
+      e,
+      this.activeMouthMaterial,
+      this.sillyMouthShare,
+    )
+    const deformationChanges = captureAnime25DDeformationChanges(
+      this.deformationChangeState,
+      e,
+      this.mouthMorph,
+      jawDrop,
+      jawOpen,
+      this.stylizedMotion,
+    )
     for (const layer of this.layers) {
+      layer.frameOpacity = fadeOpacityFromFrame(layer.source, this.opacityFrame)
+    }
+    const collarMotion = this.collarMotion
+    collarMotion.angleX = e.angleX
+    collarMotion.angleY = e.angleY
+    collarMotion.headRotationCosine = cz
+    collarMotion.headRotationSine = sz
+    collarMotion.bodyBreathOffset = secondaryDeformationFrame.bodyBreathOffset
+    collarMotion.headBreathOffset = secondaryDeformationFrame.headBreathOffset
+    collarMotion.torsoShellBlend = secondaryDeformationFrame.torsoShellBlend
+    if (this.collarClip) {
+      deformCollarClipMesh(this.collarClip, collarMotion, this.neckDepth)
+      if (work) {
+        work.deformedLayers += 1
+        work.deformedVertices += this.collarClip.rest.length / 2
+      }
+    }
+    for (const layer of this.layers) {
+      const visible = shouldDeformLayer(layer.source, layer.frameOpacity)
+      const updateLocalGeometry = layer.deformationPlan.cacheable
+        ? shouldUpdateAnime25DLayerGeometry(
+            layer.deformationPlan,
+            deformationChanges,
+            visible,
+          )
+        : true
+      if (!visible) continue
       const rest = layer.rest
       const deformed = layer.deformed
       const vertexCount = rest.length / 2
       const source = layer.source
-      const bn = layerBaseName(source.role)
-      const isTopwear = bn === 'topwear'
-      const chestCenterY = chestProfile
-        ? chestCy + (e.bustY - 1) * 70 * fs
-        : chestCy + e.bustY * 70 * fs
-      const chestOffsetX = this.chest.offsetX * e.bust * chestMotionScale
-      const chestOffsetY = this.chest.offsetY * e.bust * chestMotionScale
-      const inverseChestRx = 1 / chestRx
-      const inverseChestRy = 1 / chestRy
-      const eye = source.side === 'L' ? A.eyeL : source.side === 'R' ? A.eyeR : undefined
-      const vOpen = source.side === 'L' ? e.eyeOpenL : e.eyeOpenR
-      const bcx = source.x + source.w / 2
-      const bcy = source.y + source.h / 2
+      const bn = layer.baseRole
       const isHead = source.group === 'head'
-      const nS = layer.springs?.length ?? 0
+      if (layer.shaderGlobalTransform) {
+        writeAnime25DLayerGlobalTransform(
+          {
+            headFollow: isHead
+              ? 1
+              : source.group === 'body'
+                ? BODY_HEAD_FOLLOW
+                : 0,
+            headRotationCosine: cz,
+            headRotationSine: sz,
+            neckPivotX: npx,
+            neckPivotY: npy,
+            faceScale: fs,
+            angleX: e.angleX,
+            angleY: ay,
+            depthOffset: source.depth - 1,
+            faceCenterY: A.face.cy,
+            specialOffsetY: isHead ? specialHeadOffset : 0,
+            breathOffset: isHead
+              ? secondaryDeformationFrame.headBreathOffset
+              : secondaryDeformationFrame.bodyBreathOffset,
+          },
+          layer.layerTransform,
+        )
+      }
+      if (!layer.localDynamic) {
+        if (work) {
+          work.shaderOnlyLayers += 1
+          work.skippedVertices += vertexCount
+          work.savedUploadBytes += deformed.byteLength
+        }
+        continue
+      }
+      if (!updateLocalGeometry) {
+        if (work) {
+          work.skippedVertices += vertexCount
+          work.savedUploadBytes += deformed.byteLength
+        }
+        continue
+      }
+      if (work) {
+        work.deformedLayers += 1
+        work.deformedVertices += vertexCount
+      }
+      const upstreamFeature = layer.upstreamFeature
+      const cryLayer = source.fade === 'eyeCry'
+      const tearVertical = cryLayer
+        ? cryTearVerticalOffset(t, source.side, e.eyeCry, fs)
+        : 0
+      const tearHorizontal = cryLayer
+        ? cryTearHorizontalOffset(t, source.side, e.eyeCry, fs)
+        : 0
+      const mouthDeformation = layer.mouthDeformation
+      let geometryChanged = false
       for (let vertex = 0; vertex < vertexCount; vertex += 1) {
         const index = vertex * 2
+        const previousX = deformed[index]
+        const previousY = deformed[index + 1]
         let x = rest[index]
         let y = rest[index + 1]
-        if (eye && bn === 'eye_close') {
-          const scale = source.side === 'L' ? e.eyeScaleL : e.eyeScaleR
-          if (scale !== 1) {
-            const cxE = (eye.x0 + eye.x1) / 2
-            const cyE = (eye.y0 + eye.y1) / 2
-            x = cxE + (x - cxE) * scale
-            y = cyE + (y - cyE) * scale
-          }
+        if (upstreamFeature) {
+          deformationPoint.x = x
+          deformationPoint.y = y
+          deformAnime25DUpstreamFeaturePoint(deformationPoint, upstreamFeature)
+          x = deformationPoint.x
+          y = deformationPoint.y
         }
-        if (bn === 'mouth_open' || bn === 'mouth_close') {
-          if (e.mouthScale !== 1) {
-            x = A.mouth.cx + (x - A.mouth.cx) * e.mouthScale
-            y = A.mouth.cy + (y - A.mouth.cy) * e.mouthScale
-          }
-        }
-        if (source.fade === 'eyeOpen' && eye) {
-          if (bn === 'irides') {
-            x = eye.icx + (x - eye.icx) * e.irisScale
-            y = eye.icy + (y - eye.icy) * e.irisScale
-            x += e.eyeX * 11 * fs
-            y += e.eyeY * 6 * fs
-            const tl = smoothstep((0.32 - vOpen) / 0.32)
-            y = eye.closeY + (y - eye.closeY) * (1 - 0.8 * tl)
-          } else {
-            y = eye.closeY + (y - eye.closeY) * (1 - 0.85 * (1 - vOpen))
-          }
-        }
-        if (source.fade === 'eyeClose' && eye) {
-          y -= vOpen * 3
-          y += e.eyeCY * 14 * fs
-          const thE = e.eyeCAng * 0.3 * (source.side === 'L' ? 1 : -1)
-          if (thE) {
-            const ct = Math.cos(thE)
-            const st = Math.sin(thE)
-            const rx = x - bcx
-            const ry = y - bcy
-            x = bcx + rx * ct - ry * st
-            y = bcy + rx * st + ry * ct
-          }
-        }
-        if (bn === 'eyebrow') {
-          y += (-e.brow * 9 + (1 - vOpen) * 3.5) * fs
-          const th =
-            (source.side === 'L'
-              ? e.browAngL + e.browAngSym
-              : e.browAngR - e.browAngSym) * 0.3
-          if (th) {
-            const ct = Math.cos(th)
-            const st = Math.sin(th)
-            const rx = x - bcx
-            const ry = y - bcy
-            x = bcx + rx * ct - ry * st
-            y = bcy + rx * st + ry * ct
-          }
-        }
-        if (source.fade === 'mouthOpen') {
-          y = A.mouth.y0 + (y - A.mouth.y0) * (0.5 + 0.5 * e.mouthOpen)
-          const q = Math.abs(x - A.mouth.cx) / (mHalfW + 4)
-          y -= e.mouthForm * 6 * fs * (q ** 1.5 - 0.35)
-        }
-        if (source.fade === 'mouthClose') {
-          y += e.mouthCY * 14 * fs
-          const thM = e.mouthCAng * 0.35
-          if (thM) {
-            const ct = Math.cos(thM)
-            const st = Math.sin(thM)
-            const rx = x - A.mouth.cx
-            const ry = y - A.mouth.cy
-            x = A.mouth.cx + rx * ct - ry * st
-            y = A.mouth.cy + rx * st + ry * ct
-          }
-        }
-        if (bn === 'face' && y > A.mouth.cy) {
-          y +=
-            e.mouthOpen *
-            6 *
-            fs *
-            smoothstep((y - A.mouth.cy) / (A.face.y1 - A.mouth.cy))
-        }
-        let hw = isHead ? 1 : source.group === 'body' ? 0.16 : 0
-        if (bn === 'neck') {
-          hw =
-            0.55 *
-            smoothstep(
-              (A.neckBottom - y) / Math.max(1, A.neckBottom - A.neckTop),
-            )
-        }
-        if (hw > 0) {
-          const rx = x - npx
-          const ry = y - npy
-          const rx2 = rx * cz - ry * sz
-          const ry2 = rx * sz + ry * cz
-          x += (rx2 - rx) * hw
-          y += (ry2 - ry) * hw
-          const depthOffset =
-            (source.depth - 1) * (layer.frontHairParallaxScale?.[vertex] ?? 1)
-          x +=
-            hw *
-            fs *
-            (e.angleX * (14 + 40 * depthOffset) +
-              e.angleX * (npy - y) * 0.028)
-          y +=
-            hw *
-            fs *
-            (-e.angleY * (9 + 30 * depthOffset) -
-              e.angleY * depthOffset * (y - A.face.cy) * 0.05)
-        }
-        y -= (source.group === 'body' ? breath * 2.0 : breathHead * 1.6) * fs
-        if (isTopwear && y < chestCy) {
-          y -=
-            breath *
-            2.2 *
-            fs *
-            smoothstep((chestCy - y) / (chestRy * 2))
-        }
-        if (isTopwear) x = npx + (x - npx) * (1 + breath * 0.003)
-        if (isTopwear && (chestOffsetX !== 0 || chestOffsetY !== 0)) {
-          const gx = (x - chestCx) * inverseChestRx
-          const gy = (y - chestCenterY) * inverseChestRy
-          const skinWeight = layer.chestWeights?.[vertex] ?? 1
-          const chestWeight =
-            skinWeight * Math.exp(-(gx * gx + gy * gy))
-          x += chestOffsetX * chestWeight
-          y += chestOffsetY * chestWeight
-        }
-        if (bn === 'handwear') {
-          const w = smoothstep(((y - source.y) / source.h) * 1.15)
-          y -= e.armY * 30 * fs * w
-          y += e.armPos * 40 * fs
-          x += e.armY * 6 * fs * w * (x < npx ? 1 : -1)
-        }
-        if (layer.bangWeights && layer.alongStrand) {
-          const along = layer.alongStrand[vertex]
-          const m = along ** 1.4 * 22 * fs
-          x +=
-            (e.bangL * layer.bangWeights[vertex * 3] +
-              e.bangC * layer.bangWeights[vertex * 3 + 1] +
-              e.bangR * layer.bangWeights[vertex * 3 + 2]) *
-            m
-        }
-        if (
-          nS &&
-          layer.springs &&
-          layer.strandWeights &&
-          layer.alongStrand &&
-          e.phys
-        ) {
-          const along = layer.alongStrand[vertex]
-          const front = layer.frontHair
-          const u = front ? Math.min(1, along * 1.6) : along
-          const amp = u ** (front ? 1.8 : 2.1) * (front ? e.fhAmp : e.physAmp)
-          const softMix = u ** 1.2 * (front ? e.fhSoft : e.soft)
-          let dx = 0
-          for (let strand = 0; strand < nS; strand += 1) {
-            const weight = layer.strandWeights[vertex * nS + strand]
-            if (weight < 0.001) continue
-            const spring = layer.springs[strand]
-            dx +=
-              weight *
-              (spring.stiff.dx * (1 - softMix) + spring.soft.dx * softMix)
-          }
-          const offset = dx * amp
-          x += offset
-          y += Math.abs(offset) * 0.12
-        }
-        deformed[index] = x
-        deformed[index + 1] = y
-      }
-      if (Math.abs(ab) > 1e-4) {
-        for (let index = 0; index < deformed.length; index += 2) {
-          const rx = deformed[index] - bpx
-          const ry = deformed[index + 1] - bpy
-          deformed[index] = bpx + rx * cb - ry * sb
-          deformed[index + 1] = bpy + rx * sb + ry * cb
-        }
-      }
-      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, layer.vertexBuffer)
-      this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, packVertices(deformed, layer.uvs))
-    }
-  }
-
-  private draw(): void {
-    const { gl } = this
-    gl.clearColor(0, 0, 0, 0)
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
-    gl.useProgram(this.program)
-    gl.uniform2f(this.viewLocation, this.viewWidth, this.viewHeight)
-    gl.activeTexture(gl.TEXTURE0)
-    for (const layer of this.layers) {
-      const opacity = fadeOpacity(layer.source, this.current)
-      if (opacity < 0.004 && !layer.source.name.startsWith('eyewhite')) continue
-      const eyewhite = layer.source.name.startsWith('eyewhite')
-      const iris = layer.source.name.startsWith('irides')
-      gl.bindTexture(gl.TEXTURE_2D, layer.texture)
-      gl.uniform1f(this.opacityLocation, opacity)
-      gl.bindVertexArray(layer.vao)
-      if (eyewhite) {
-        gl.enable(gl.STENCIL_TEST)
-        gl.stencilFunc(gl.ALWAYS, 1, 0xFF)
-        gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE)
-        gl.uniform1f(this.cutLocation, 0.25)
-        gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)
-        gl.disable(gl.STENCIL_TEST)
-        gl.uniform1f(this.cutLocation, 0)
-      } else if (iris) {
-        gl.enable(gl.STENCIL_TEST)
-        gl.stencilFunc(gl.EQUAL, 1, 0xFF)
-        gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP)
-        gl.uniform1f(this.cutLocation, 0)
-        gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)
-        gl.disable(gl.STENCIL_TEST)
-      } else {
-        gl.uniform1f(this.cutLocation, 0)
-        gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)
-      }
-    }
-    gl.bindVertexArray(null)
-  }
-
-  private createLayer(
-    source: Anime25DPlaybackLayer,
-    atlasImage: HTMLImageElement,
-    layerIndex: number,
-  ): GpuLayer {
-    const cell = (source.phys ? 30 : 42) * Math.max(0.6, this.playback.pixelCanvas.width / 768)
-    const cols = Math.max(2, Math.round(source.w / cell))
-    const rows = Math.max(2, Math.round(source.h / cell))
-    const rest = new Float32Array((cols + 1) * (rows + 1) * 2)
-    const uvs = new Float32Array(rest.length)
-    let cursor = 0
-    for (let row = 0; row <= rows; row += 1) {
-      const v = row / rows
-      for (let col = 0; col <= cols; col += 1) {
-        const u = col / cols
-        rest[cursor] = source.x + source.w * u
-        rest[cursor + 1] = source.y + source.h * v
-        uvs[cursor] = u
-        uvs[cursor + 1] = v
-        cursor += 2
-      }
-    }
-    const indices = new Uint16Array(cols * rows * 6)
-    let write = 0
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < cols; col += 1) {
-        const topLeft = row * (cols + 1) + col
-        const topRight = topLeft + 1
-        const bottomLeft = topLeft + cols + 1
-        const bottomRight = bottomLeft + 1
-        indices.set([topLeft, topRight, bottomLeft, topRight, bottomRight, bottomLeft], write)
-        write += 6
-      }
-    }
-    const packed = packVertices(rest, uvs)
-    const { gl } = this
-    const vao = gl.createVertexArray()
-    const vertexBuffer = gl.createBuffer()
-    const indexBuffer = gl.createBuffer()
-    if (!vao || !vertexBuffer || !indexBuffer) {
-      throw new Error('Anime2.5DRig mesh buffers failed')
-    }
-    const position = gl.getAttribLocation(this.program, 'a_pos')
-    const uv = gl.getAttribLocation(this.program, 'a_uv')
-    gl.bindVertexArray(vao)
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
-    gl.bufferData(gl.ARRAY_BUFFER, packed, gl.DYNAMIC_DRAW)
-    gl.enableVertexAttribArray(position)
-    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 16, 0)
-    gl.enableVertexAttribArray(uv)
-    gl.vertexAttribPointer(uv, 2, gl.FLOAT, false, 16, 8)
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer)
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW)
-    gl.bindVertexArray(null)
-    const vertexCount = (cols + 1) * (rows + 1)
-    const chestWeights =
-      source.role === 'topwear' && this.chestWeightField
-        ? samplePlaybackChestWeights(
-            this.chestWeightField,
-            rest,
-            this.playback.pixelCanvas.width,
+        if (layer.expressionDeformation) {
+          deformationPoint.x = x
+          deformationPoint.y = y
+          deformAnime25DExpressionPoint(
+            deformationPoint,
+            rest[index + 1],
+            layer.expressionDeformation,
+            tearHorizontal,
+            tearVertical,
+            deformationFrame,
           )
-        : null
-    const hair = attachHairPhysics(
-      source,
-      rest,
-      vertexCount,
-      this.playback.anchors.face,
-      typeof source.z === 'number' && Number.isFinite(source.z)
-        ? source.z
-        : layerIndex,
-    )
-    return {
-      source,
-      rest,
-      deformed: rest.slice(),
-      uvs,
-      indices,
-      cols,
-      rows,
-      vao,
-      vertexBuffer,
-      indexBuffer,
-      indexCount: indices.length,
-      texture: cropLayerTexture(gl, atlasImage, source),
-      chestWeights,
-      ...hair,
-    }
-  }
-}
-
-function samplePlaybackChestWeights(
-  field: ChestWeightField,
-  rest: Float32Array,
-  frameWidth: number,
-): Float32Array {
-  const scale = Math.max(1, frameWidth)
-  const weights = new Float32Array(rest.length / 2)
-  for (let vertex = 0; vertex < weights.length; vertex += 1) {
-    weights[vertex] = sampleChestWeight(
-      field,
-      rest[vertex * 2] / scale,
-      rest[vertex * 2 + 1] / scale,
-    )
-  }
-  return weights
-}
-
-function cropLayerTexture(
-  gl: WebGL2RenderingContext,
-  atlas: HTMLImageElement,
-  source: Anime25DPlaybackLayer,
-): WebGLTexture {
-  const sx = Math.max(0, Math.round(source.atlas.x * atlas.width))
-  const sy = Math.max(0, Math.round(source.atlas.y * atlas.height))
-  const sw = Math.max(1, Math.round(source.atlas.w * atlas.width))
-  const sh = Math.max(1, Math.round(source.atlas.h * atlas.height))
-  const crop = document.createElement('canvas')
-  crop.width = sw
-  crop.height = sh
-  const context = crop.getContext('2d')
-  if (!context) throw new Error('Anime2.5DRig layer crop failed')
-  context.drawImage(atlas, sx, sy, sw, sh, 0, 0, sw, sh)
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Anime2.5DRig layer texture failed')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, crop)
-  return texture
-}
-
-function layerBaseName(role: string): string {
-  if (role === 'front-hair') return 'front hair'
-  if (role === 'back-hair') return 'back hair'
-  return role.replace(/-/g, '_')
-}
-
-function fadeOpacity(layer: Anime25DPlaybackLayer, driver: Anime25DDriver): number {
-  if (!layer.fade) return 1
-  if (layer.fade === 'eyeOpen' || layer.fade === 'eyeClose') {
-    const open = layer.side === 'L' ? driver.eyeOpenL : driver.eyeOpenR
-    const faded = smoothstep((open - (0.1 + driver.eyeEase * 0.45)) / 0.15)
-    return layer.fade === 'eyeOpen' ? faded : 1 - faded
-  }
-  if (layer.fade === 'mouthOpen' || layer.fade === 'mouthClose') {
-    const faded = smoothstep(
-      (driver.mouthOpen - (0.05 + driver.mouthEase * 0.35)) / 0.12,
-    )
-    return layer.fade === 'mouthOpen' ? faded : 1 - faded
-  }
-  return 1
-}
-
-function attachHairPhysics(
-  source: Anime25DPlaybackLayer,
-  rest: Float32Array,
-  vertexCount: number,
-  face: Anime25DPlayback['anchors']['face'],
-  layerZ: number,
-): Pick<
-  GpuLayer,
-  | 'frontHair'
-  | 'frontHairParallaxScale'
-  | 'strandWeights'
-  | 'alongStrand'
-  | 'bangWeights'
-  | 'springs'
-> {
-  const frontHair = source.role === 'front-hair'
-  const strands = source.strands
-  if (strands.length === 0) {
-    return {
-      frontHair,
-      frontHairParallaxScale: null,
-      strandWeights: null,
-      alongStrand: null,
-      bangWeights: null,
-      springs: null,
-    }
-  }
-  const strandCount = strands.length
-  let spacing = 120
-  if (strandCount > 1) {
-    const gaps = []
-    for (let index = 1; index < strandCount; index += 1) {
-      gaps.push(strands[index].x - strands[index - 1].x)
-    }
-    gaps.sort((left, right) => left - right)
-    spacing = gaps[gaps.length >> 1]
-  }
-  const sigma = spacing * 0.6
-  const referenceHeight = Math.max(1, face.y1 - face.y0)
-  const dynamics = strands.map((strand) =>
-    hairStrandDynamics(strand.rootY, strand.tipY, referenceHeight),
-  )
-  const frontHairParallaxScale = frontHair
-    ? new Float32Array(vertexCount)
-    : null
-  const strandWeights = new Float32Array(vertexCount * strandCount)
-  const alongStrand = new Float32Array(vertexCount)
-  for (let vertex = 0; vertex < vertexCount; vertex += 1) {
-    const x = rest[vertex * 2]
-    const y = rest[vertex * 2 + 1]
-    if (frontHairParallaxScale) {
-      frontHairParallaxScale[vertex] = frontHairUpperParallaxScale(
-        y,
-        source,
-        face,
-      )
-    }
-    let total = 0
-    for (let strand = 0; strand < strandCount; strand += 1) {
-      const weight = Math.exp(-(((x - strands[strand].x) / sigma) ** 2))
-      strandWeights[vertex * strandCount + strand] = weight
-      total += weight
-    }
-    let rootY = 0
-    let tipY = 0
-    if (total > 1e-6) {
-      for (let strand = 0; strand < strandCount; strand += 1) {
-        const weight = strandWeights[vertex * strandCount + strand] / total
-        strandWeights[vertex * strandCount + strand] = weight * dynamics[strand].amplitudeScale
-        rootY += weight * strands[strand].rootY
-        tipY += weight * strands[strand].tipY
+          x = deformationPoint.x
+          y = deformationPoint.y
+        }
+        if (mouthDeformation) {
+          deformationPoint.x = x
+          deformationPoint.y = y
+          deformAnime25DMouthPoint(
+            deformationPoint,
+            rest[index],
+            rest[index + 1],
+            source,
+            deformationFrame,
+            mouthDeformation,
+          )
+          x = deformationPoint.x
+          y = deformationPoint.y
+        }
+        if (bn === 'face') {
+          deformationPoint.x = x
+          deformationPoint.y = y
+          deformAnime25DFaceJawPoint(
+            deformationPoint,
+            rest[index + 1],
+            deformationFrame,
+          )
+          x = deformationPoint.x
+          y = deformationPoint.y
+        }
+        deformationPoint.x = x
+        deformationPoint.y = y
+        deformAnime25DSecondaryPoint(
+          deformationPoint,
+          rest[index],
+          rest[index + 1],
+          vertex,
+          layer.secondaryDeformation,
+          secondaryDeformationFrame,
+        )
+        deformAnime25DHairPoint(
+          deformationPoint,
+          vertex,
+          layer.secondaryDeformation,
+          secondaryDeformationFrame,
+        )
+        x = deformationPoint.x
+        y = deformationPoint.y
+        if (x !== previousX || y !== previousY) {
+          geometryChanged = true
+          deformed[index] = x
+          deformed[index + 1] = y
+        }
       }
-    } else {
-      strandWeights[vertex * strandCount] = dynamics[0].amplitudeScale
-      rootY = strands[0].rootY
-      tipY = strands[0].tipY
-    }
-    alongStrand[vertex] = clamp((y - rootY) / Math.max(1, tipY - rootY), 0, 1)
-  }
-  let bangWeights: Float32Array | null = null
-  if (frontHair) {
-    const faceWidth = face.x1 - face.x0
-    const leftSplit = face.cx - faceWidth * 0.22
-    const rightSplit = face.cx + faceWidth * 0.22
-    bangWeights = new Float32Array(vertexCount * 3)
-    for (let vertex = 0; vertex < vertexCount; vertex += 1) {
-      const x = rest[vertex * 2]
-      const left = smoothstep((x - leftSplit) / 36 + 0.5)
-      const right = smoothstep((x - rightSplit) / 36 + 0.5)
-      bangWeights[vertex * 3] = 1 - left
-      bangWeights[vertex * 3 + 1] = left * (1 - right)
-      bangWeights[vertex * 3 + 2] = right
+      if (layer.deformationPlan.cacheable) {
+        markAnime25DLayerGeometryUpdated(layer.deformationPlan)
+      }
+      if (!geometryChanged) {
+        layer.geometryDirty = false
+        if (work) work.savedUploadBytes += deformed.byteLength
+        continue
+      }
+      layer.geometryDirty = true
     }
   }
-  return {
-    frontHair,
-    frontHairParallaxScale,
-    strandWeights,
-    alongStrand,
-    bangWeights,
-    springs: strands.map((_, index) => ({
-      stiff: { x: 0, v: 0, dx: 0 },
-      soft: { x: 0, v: 0, dx: 0 },
-      phase: index * 1.37 + layerZ,
-      stiffnessScale: dynamics[index].stiffnessScale,
-      dampingScale: dynamics[index].dampingScale,
-    })),
+
+  private uploadGeometry(work?: Anime25DFrameWork): void {
+    const { gl } = this
+    if (this.collarClip) {
+      const uploadStarted = work ? performance.now() : 0
+      uploadCollarClipMesh(gl, this.collarClip)
+      if (work) {
+        work.uploadedBytes += this.collarClip.deformed.byteLength
+        work.uploadSubmitMs += performance.now() - uploadStarted
+      }
+    }
+    for (const layer of this.layers) {
+      if (!layer.geometryDirty) continue
+      gl.bindBuffer(gl.ARRAY_BUFFER, layer.vertexBuffer)
+      const uploadStarted = work ? performance.now() : 0
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, layer.deformed)
+      layer.geometryDirty = false
+      if (work) {
+        work.uploadedBytes += layer.deformed.byteLength
+        work.uploadSubmitMs += performance.now() - uploadStarted
+      }
+    }
   }
-}
 
-function smoothstep(value: number): number {
-  const bounded = clamp(value, 0, 1)
-  return bounded * bounded * (3 - 2 * bounded)
-}
-
-function packVertices(positions: Float32Array, uvs: Float32Array): Float32Array {
-  const packed = new Float32Array(positions.length * 2)
-  for (let index = 0; index < positions.length; index += 2) {
-    const write = index * 2
-    packed[write] = positions[index]
-    packed[write + 1] = positions[index + 1]
-    packed[write + 2] = uvs[index]
-    packed[write + 3] = uvs[index + 1]
+  private draw(work?: Anime25DFrameWork): void {
+    this.renderFrame.time = this.time
+    this.renderFrame.eyeCry = this.current.eyeCry
+    drawAnime25DFrame(
+      this.gl,
+      this.program,
+      this.rendererBindings,
+      this.layers,
+      this.atlasTexture,
+      this.collarClip,
+      this.renderFrame,
+      work,
+    )
   }
-  return packed
-}
-
-function compileProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertex = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragment = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Anime2.5DRig program failed')
-  gl.attachShader(program, vertex)
-  gl.attachShader(program, fragment)
-  gl.linkProgram(program)
-  gl.deleteShader(vertex)
-  gl.deleteShader(fragment)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error(gl.getProgramInfoLog(program) || 'Anime2.5DRig link failed')
-  }
-  return program
-}
-
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Anime2.5DRig shader failed')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const log = gl.getShaderInfoLog(shader) || 'Anime2.5DRig shader compile failed'
-    gl.deleteShader(shader)
-    throw new Error(log)
-  }
-  return shader
-}
-
-function requiredUniform(
-  gl: WebGL2RenderingContext,
-  program: WebGLProgram,
-  name: string,
-): WebGLUniformLocation {
-  const location = gl.getUniformLocation(program, name)
-  if (!location) throw new Error(`Missing uniform ${name}`)
-  return location
-}
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('Anime2.5DRig atlas failed to load'))
-    image.src = url
-  })
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
 }

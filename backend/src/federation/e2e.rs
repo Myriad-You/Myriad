@@ -423,9 +423,15 @@ pub fn encrypt_json_payload(
     session: &EncryptionSession,
     payload: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let plaintext = serde_json::to_vec(payload).map_err(|e| format!("payload serialize: {e}"))?;
+    let plaintext = serde_json::to_vec(payload).map_err(|error| {
+        tracing::error!(%error, "e2e payload serialize failed");
+        "payload serialize failed".to_string()
+    })?;
     let envelope = encrypt_with_session(session, &plaintext)?;
-    serde_json::to_value(envelope).map_err(|e| format!("envelope serialize: {e}"))
+    serde_json::to_value(envelope).map_err(|error| {
+        tracing::error!(%error, "e2e envelope serialize failed");
+        "envelope serialize failed".to_string()
+    })
 }
 
 /// 将加密信封 Value 解密回 JSON 载荷
@@ -433,10 +439,16 @@ pub fn decrypt_json_payload(
     session: &EncryptionSession,
     encrypted_payload: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let envelope: EncryptedEnvelope = serde_json::from_value(encrypted_payload.clone())
-        .map_err(|e| format!("envelope parse: {e}"))?;
+    let envelope: EncryptedEnvelope =
+        serde_json::from_value(encrypted_payload.clone()).map_err(|error| {
+            tracing::error!(%error, "e2e envelope parse failed");
+            "envelope parse failed".to_string()
+        })?;
     let plain = decrypt_with_session(session, &envelope)?;
-    serde_json::from_slice(&plain).map_err(|e| format!("plaintext json parse: {e}"))
+    serde_json::from_slice(&plain).map_err(|error| {
+        tracing::error!(%error, "e2e plaintext json parse failed");
+        "plaintext json parse failed".to_string()
+    })
 }
 
 // Room 多方加密（content-key + 按成员 key-wrap）
@@ -489,7 +501,10 @@ pub fn encrypt_for_recipients(
     // 3) 为每个收件人 ECDH-wrap content_key
     let mut key_wraps = Vec::with_capacity(recipients.len());
     for (hint, rpk_b64) in recipients {
-        validate_public_key_b64(rpk_b64).map_err(|e| format!("recipient {hint}: {e}"))?;
+        validate_public_key_b64(rpk_b64).map_err(|error| {
+            tracing::error!(%error, hint = %hint, "invalid e2e recipient public key");
+            "Invalid remote E2E public key".to_string()
+        })?;
 
         // 每次 wrap 用独立临时密钥
         let eph = generate_keypair();
@@ -504,8 +519,11 @@ pub fn encrypt_for_recipients(
 
         let shared = compute_shared_secret(&eph_sk, &rpk);
         let wrap_aad = [aad, b"|wrap:", rpk_b64.as_bytes()].concat();
-        let wrapped = encrypt_message(&content_key, &shared, &eph_pk, &wrap_aad)
-            .map_err(|e| format!("key wrap for {hint}: {e}"))?;
+        let wrapped =
+            encrypt_message(&content_key, &shared, &eph_pk, &wrap_aad).map_err(|error| {
+                tracing::error!(%error, hint = %hint, "e2e key wrap failed");
+                "e2e key wrap failed".to_string()
+            })?;
 
         key_wraps.push(KeyWrap {
             recipient_public_key: rpk_b64.clone(),
@@ -583,9 +601,15 @@ pub fn encrypt_json_for_recipients(
     aad: &[u8],
     recipients: &[(String, String)],
 ) -> Result<serde_json::Value, String> {
-    let plaintext = serde_json::to_vec(payload).map_err(|e| format!("payload serialize: {e}"))?;
+    let plaintext = serde_json::to_vec(payload).map_err(|error| {
+        tracing::error!(%error, "e2e payload serialize failed");
+        "payload serialize failed".to_string()
+    })?;
     let envelope = encrypt_for_recipients(&plaintext, aad, recipients)?;
-    serde_json::to_value(envelope).map_err(|e| format!("envelope serialize: {e}"))
+    serde_json::to_value(envelope).map_err(|error| {
+        tracing::error!(%error, "e2e envelope serialize failed");
+        "envelope serialize failed".to_string()
+    })
 }
 
 /// JSON 载荷多方解密
@@ -596,9 +620,15 @@ pub fn decrypt_json_for_recipient(
     aad: &[u8],
 ) -> Result<serde_json::Value, String> {
     let envelope: MultiRecipientEnvelope = serde_json::from_value(encrypted_payload.clone())
-        .map_err(|e| format!("multi envelope parse: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "e2e multi envelope parse failed");
+            "envelope parse failed".to_string()
+        })?;
     let plain = decrypt_for_recipient(&envelope, local_private_key_b64, local_public_key_b64, aad)?;
-    serde_json::from_slice(&plain).map_err(|e| format!("plaintext json parse: {e}"))
+    serde_json::from_slice(&plain).map_err(|error| {
+        tracing::error!(%error, "e2e plaintext json parse failed");
+        "plaintext json parse failed".to_string()
+    })
 }
 
 // At-rest private key sealing
@@ -631,7 +661,10 @@ pub fn seal_private_key(plain_b64: &str, jwt_secret: &str) -> Result<String, Str
     let nonce = Nonce::from(nonce_bytes);
     let ciphertext = cipher
         .encrypt(&nonce, plain_b64.as_bytes())
-        .map_err(|e| format!("e2e seal failed: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "e2e seal failed");
+            "e2e seal failed".to_string()
+        })?;
     let mut combined = Vec::with_capacity(12 + ciphertext.len());
     combined.extend_from_slice(&nonce_bytes);
     combined.extend_from_slice(&ciphertext);
@@ -646,9 +679,10 @@ pub fn unseal_private_key(stored: &str, jwt_secret: &str) -> Result<String, Stri
     let Some(rest) = stored.strip_prefix(E2E_SK_SEAL_PREFIX) else {
         return Ok(stored.to_string());
     };
-    let combined = B64
-        .decode(rest)
-        .map_err(|e| format!("e2e unseal b64: {e}"))?;
+    let combined = B64.decode(rest).map_err(|error| {
+        tracing::error!(%error, "e2e unseal failed");
+        "e2e unseal failed".to_string()
+    })?;
     if combined.len() < 13 {
         return Err("e2e sealed key too short".into());
     }

@@ -46,14 +46,6 @@ pub async fn database() -> Result<DatabaseConnection, DbErr> {
         .ok_or_else(|| DbErr::Custom("database is not connected".to_string()))
 }
 
-/// Synchronous read of the shared slot (for tests / FromRef-style extractors).
-pub fn try_database_sync() -> Option<DatabaseConnection> {
-    shared_database_slot()
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -172,4 +172,14 @@ export function registerPlaygroundPreviewHandlers(
     success: true,
     data: null,
   }))
+  bridge.registerHandler('persona.get', async () => ({
+    success: true,
+    data: {
+      enabled: true,
+      name: 'Arael',
+      moodBand: 'calm',
+      activity: 'idle',
+      portraitUrl: null,
+    },
+  }))
 }

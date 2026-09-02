@@ -34,16 +34,7 @@ pub fn parse_game_message_type(message_type: &str) -> Option<GameMessageType<'_>
     Some(GameMessageType { tapp_id, protocol })
 }
 
-pub fn format_game_message_type(tapp_id: &str, protocol: &str) -> Result<String, String> {
-    if !is_tapp_id(tapp_id) {
-        return Err("Invalid game tapp id".into());
-    }
-    if !is_protocol(protocol) {
-        return Err("Invalid game protocol".into());
-    }
-    Ok(format!("{GAME_MESSAGE_PREFIX}{tapp_id}:{protocol}"))
-}
-
+#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub fn format_share_room_id(room_id: &str, home_server: &str) -> String {
     let home = home_server.trim().trim_end_matches('/');
     if home.is_empty() || room_id.contains('@') {

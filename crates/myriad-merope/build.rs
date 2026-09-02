@@ -1,14 +1,23 @@
-use std::{env, fs, path::PathBuf};
+use std::{collections::HashSet, env, fs, path::PathBuf};
 
 use serde_json::Value;
 
 fn main() {
     let contract_path = PathBuf::from("../../shared/merope_rig_contract.json");
+    let performance_contract_path = PathBuf::from("../../shared/merope_performance_contract.json");
     println!("cargo:rerun-if-changed={}", contract_path.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        performance_contract_path.display()
+    );
     let contract: Value = serde_json::from_str(
         &fs::read_to_string(&contract_path).expect("read merope rig contract"),
     )
     .expect("parse merope rig contract");
+    let performance_contract: Value = serde_json::from_str(
+        &fs::read_to_string(&performance_contract_path).expect("read merope performance contract"),
+    )
+    .expect("parse merope performance contract");
     let number = |path: &[&str]| -> u64 {
         path.iter()
             .fold(&contract, |value, key| &value[*key])
@@ -181,6 +190,61 @@ fn main() {
             scalar("torsoTwistScale"),
             scalar("secondaryMotionScale"),
         ));
+    }
+    let performance_intents = performance_contract["cueIntents"]
+        .as_array()
+        .expect("missing performance cueIntents");
+    let performance_priorities = performance_contract["cuePriorities"]
+        .as_object()
+        .expect("missing performance cuePriorities");
+    assert_eq!(
+        performance_intents.len(),
+        performance_priorities.len(),
+        "every performance cue intent must have exactly one priority"
+    );
+    let mut performance_intent_names = HashSet::new();
+    for intent in performance_intents {
+        let intent = intent.as_str().expect("cueIntents values must be strings");
+        assert!(
+            performance_intent_names.insert(intent),
+            "performance cue intents must be unique: {intent}"
+        );
+        assert!(
+            performance_priorities
+                .get(intent)
+                .and_then(Value::as_u64)
+                .is_some_and(|priority| (1..=3).contains(&priority)),
+            "performance cue priority must be 1..=3: {intent}"
+        );
+    }
+    assert!(
+        performance_priorities
+            .keys()
+            .all(|intent| performance_intent_names.contains(intent.as_str())),
+        "performance cue priorities cannot contain unknown intents"
+    );
+    for (field, constant) in [
+        ("baselineExpressions", "PERFORMANCE_BASELINE_EXPRESSIONS"),
+        ("postures", "PERFORMANCE_POSTURES"),
+        ("cueIntents", "PERFORMANCE_CUE_INTENTS"),
+        ("interruptModes", "PERFORMANCE_INTERRUPT_MODES"),
+    ] {
+        let values = performance_contract[field]
+            .as_array()
+            .unwrap_or_else(|| panic!("missing performance {field}"));
+        generated.push_str(&format!("pub const {constant}: &[&str] = &[\n"));
+        for value in values {
+            generated.push_str(&format!(
+                "    {},\n",
+                serde_json::to_string(
+                    value
+                        .as_str()
+                        .unwrap_or_else(|| panic!("performance {field} values must be strings"))
+                )
+                .expect("serialize performance contract value")
+            ));
+        }
+        generated.push_str("];\n");
     }
     let output =
         PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("merope_rig_contract.rs");

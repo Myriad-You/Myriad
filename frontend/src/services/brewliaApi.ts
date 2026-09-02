@@ -6,9 +6,9 @@
 
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
-import { parseApiErrorBody } from './api'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
+import { parseApiErrorBody } from './api'
 
 const API_BASE = `${API_URL}/api/brewlia`
 
@@ -633,25 +633,6 @@ export async function generateStyleTags(
 }
 
 // 文本处理工具
-
-/**
- * 从 HTML 中提取纯文本
- * 安全：使用 DOMParser 避免 innerHTML 触发脚本
- */
-export function extractTextFromHtml(html: string): string {
-  try {
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(html, 'text/html')
-
-    const scripts = doc.querySelectorAll('script, style')
-    scripts.forEach((s) => s.remove())
-
-    return doc.body.textContent || ''
-  } catch {
-    // 回退：直接移除所有 HTML 标签
-    return html.replace(/<[^>]*>/g, '')
-  }
-}
 
 /**
  * 在 HTML 中高亮注释词汇

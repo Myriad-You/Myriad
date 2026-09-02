@@ -3,8 +3,11 @@ import { describe, it } from 'node:test'
 import {
   AI_VENDOR_PRESETS,
   findVendorPreset,
+  isAgoraSource,
+  isMiniMaxSpeechSource,
   resolveUsedVendorSlug,
   sourceFromPreset,
+  speechProviderKindFromSource,
   vendorSupports,
 } from './aiVendorPresets'
 
@@ -31,6 +34,7 @@ describe('AI vendor presets', () => {
         'fireworks',
         'perplexity',
         'minimax',
+        'agora',
         'ollama',
         'cloudflare',
         'cohere',
@@ -80,6 +84,19 @@ describe('AI vendor presets', () => {
     )
     assert.equal(vendorSupports({ kind: 'gemini', preset: 'gemini' }, 'image'), true)
     assert.equal(vendorSupports({ kind: 'gemini', preset: 'gemini' }, 'speech'), true)
+    assert.equal(
+      vendorSupports({ kind: 'openai_compatible', preset: 'minimax' }, 'speech'),
+      true,
+    )
+    assert.equal(
+      vendorSupports({ kind: 'openai_compatible', preset: 'minimax' }, 'image'),
+      false,
+    )
+    assert.equal(
+      vendorSupports({ kind: 'agora', preset: 'agora' }, 'realtime'),
+      true,
+    )
+    assert.equal(vendorSupports({ kind: 'agora', preset: 'agora' }, 'speech'), false)
   })
 
   it('declares text, image, and speech from endpoints this stack can call', () => {
@@ -104,7 +121,8 @@ describe('AI vendor presets', () => {
       together: ['image', 'text'],
       fireworks: ['text'],
       perplexity: ['text'],
-      minimax: ['text'],
+      minimax: ['speech', 'text'],
+      agora: ['realtime'],
       ollama: ['text'],
       cloudflare: ['text'],
       cohere: ['text'],
@@ -150,5 +168,36 @@ describe('AI vendor presets', () => {
     assert.equal(resolveUsedVendorSlug('openai', [second]), 'openai-2')
     const work = { ...first, slug: 'openai-work' }
     assert.equal(resolveUsedVendorSlug('openai', [work, second]), '')
+  })
+
+  it('maps MiniMax vendor sources onto the T2A speech provider', () => {
+    assert.equal(
+      isMiniMaxSpeechSource({
+        kind: 'openai_compatible',
+        preset: 'minimax',
+        slug: 'minimax',
+        base_url: 'https://api.minimaxi.com/v1',
+      }),
+      true,
+    )
+    assert.equal(
+      speechProviderKindFromSource(
+        {
+          kind: 'openai_compatible',
+          preset: 'minimax',
+          slug: 'minimax',
+        },
+        'openai',
+      ),
+      'minimax',
+    )
+    assert.equal(
+      speechProviderKindFromSource({ kind: 'tencent', slug: 'tencent' }, 'tencent'),
+      'tencent',
+    )
+    assert.equal(
+      isAgoraSource({ kind: 'agora', preset: 'agora', slug: 'agora' }),
+      true,
+    )
   })
 })

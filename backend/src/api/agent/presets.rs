@@ -2,6 +2,14 @@
 use super::*;
 use crate::error::HttpError;
 
+fn preset_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {
+    tracing::error!(%error, context, "agent preset store failed");
+    HttpError::from((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": format!("Failed to {context}") })),
+    ))
+}
+
 // 任务预设 API
 
 /// 获取任务预设列表
@@ -30,27 +38,13 @@ pub async fn list_presets(
     );
 
     let favorites = favorites_result
-        .map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to fetch favorites: {}", e);
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    json!({ "error": "Failed to fetch favorites", "code": "preset_fetch_failed" }),
-                ),
-            ))
-        })?
+        .map_err(|error| preset_store_http("fetch favorites", error))?
         .into_iter()
         .map(TaskPresetResponse::from)
         .collect();
 
     let history = history_result
-        .map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to fetch history: {}", e);
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to fetch history", "code": "preset_fetch_failed" })),
-            ))
-        })?
+        .map_err(|error| preset_store_http("fetch history", error))?
         .into_iter()
         .map(TaskPresetResponse::from)
         .collect();
@@ -123,13 +117,7 @@ pub async fn create_preset(
         .filter(agent_task_presets::Column::Input.eq(&req.input))
         .one(&db)
         .await
-        .map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to check existing preset: {}", e);
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
-        })?;
+        .map_err(|error| preset_store_http("check existing preset", error))?;
 
     if let Some(existing_preset) = existing {
         // 更新已存在的预设
@@ -157,13 +145,10 @@ pub async fn create_preset(
                 .map(|c| serde_json::to_value(&c).unwrap_or_default()));
         }
 
-        let updated = active_model.update(&db).await.map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to update preset: {}", e);
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to update preset", "code": "preset_update_failed" })),
-            ))
-        })?;
+        let updated = active_model
+            .update(&db)
+            .await
+            .map_err(|error| preset_store_http("update preset", error))?;
 
         return Ok(Json(TaskPresetResponse::from(updated)));
     }
@@ -185,13 +170,10 @@ pub async fn create_preset(
             .map(|c| serde_json::to_value(&c).unwrap_or_default())),
     };
 
-    let created = new_preset.insert(&db).await.map_err(|e| {
-        tracing::error!("[Agent Presets] Failed to create preset: {}", e);
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Failed to create preset", "code": "preset_update_failed" })),
-        ))
-    })?;
+    let created = new_preset
+        .insert(&db)
+        .await
+        .map_err(|error| preset_store_http("create preset", error))?;
 
     // 如果是历史记录，清理超过 20 条的旧记录
     if req.preset_type == "history" {
@@ -255,13 +237,7 @@ pub async fn delete_preset(
         .filter(agent_task_presets::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to find preset: {}", e);
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
-        })?;
+        .map_err(|error| preset_store_http("find preset", error))?;
 
     let preset = preset.ok_or_else(|| {
         HttpError::from((
@@ -281,13 +257,7 @@ pub async fn delete_preset(
     agent_task_presets::Entity::delete_by_id(preset_id)
         .exec(&db)
         .await
-        .map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to delete preset: {}", e);
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to delete preset", "code": "preset_update_failed" })),
-            ))
-        })?;
+        .map_err(|error| preset_store_http("delete preset", error))?;
 
     Ok(Json(json!({ "success": true })))
 }
@@ -306,13 +276,7 @@ pub async fn toggle_favorite(
         .filter(agent_task_presets::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to find preset: {}", e);
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
-        })?
+        .map_err(|error| preset_store_http("find preset", error))?
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::NOT_FOUND,
@@ -330,13 +294,10 @@ pub async fn toggle_favorite(
     let mut active_model: agent_task_presets::ActiveModel = preset.into();
     active_model.preset_type = Set(new_type.to_string());
 
-    let updated = active_model.update(&db).await.map_err(|e| {
-        tracing::error!("[Agent Presets] Failed to toggle favorite: {}", e);
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Failed to toggle favorite", "code": "preset_update_failed" })),
-        ))
-    })?;
+    let updated = active_model
+        .update(&db)
+        .await
+        .map_err(|error| preset_store_http("toggle favorite", error))?;
 
     Ok(Json(TaskPresetResponse::from(updated)))
 }
@@ -357,13 +318,7 @@ pub async fn use_preset(
         .filter(agent_task_presets::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to find preset: {}", e);
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
-        })?
+        .map_err(|error| preset_store_http("find preset", error))?
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::NOT_FOUND,
@@ -376,13 +331,10 @@ pub async fn use_preset(
     active_model.last_used_at = Set(now);
     active_model.use_count = Set(new_use_count);
 
-    let updated = active_model.update(&db).await.map_err(|e| {
-        tracing::error!("[Agent Presets] Failed to update use time: {}", e);
-        HttpError::from((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Failed to update preset", "code": "preset_update_failed" })),
-        ))
-    })?;
+    let updated = active_model
+        .update(&db)
+        .await
+        .map_err(|error| preset_store_http("update preset", error))?;
 
     Ok(Json(TaskPresetResponse::from(updated)))
 }
@@ -403,13 +355,7 @@ pub async fn execute_preset(
         .filter(agent_task_presets::Column::UserId.eq(user_id))
         .one(&db)
         .await
-        .map_err(|e| {
-            tracing::error!("[Agent Presets] Failed to find preset: {}", e);
-            HttpError::from((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error", "code": "database_error" })),
-            ))
-        })?
+        .map_err(|error| preset_store_http("find preset", error))?
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::NOT_FOUND,

@@ -1,7 +1,5 @@
-import {
-  isAnime25DPlayback,
-  type Anime25DPlayback,
-} from '../anime25drig/types'
+import type { Anime25DPlayback } from '../anime25drig/types'
+import { isAnime25DPlayback } from '../anime25drig/types'
 import {
   CHARACTER_ASSET_CONTRACT_VERSION,
   MAX_RIG_BONES,
@@ -161,27 +159,6 @@ export interface RigLayerSource {
   contours: RigPoint[][]
   mesh?: RigLayerMeshSource
   boneHandles: RigBoneHandle[]
-}
-
-export interface MeropeRigCompileRequest {
-  rigIrVersion?: number
-  characterAssetContractVersion: number
-  sourceMasterAssetId: string
-  sourceGenerationFingerprint?: string
-  canvas: RigSize
-  textures: Array<{
-    id: string
-    assetId: string
-    width: number
-    height: number
-  }>
-  bones: RigBone[]
-  layers: RigLayerSource[]
-  motionProfile?: RigMotionProfile
-  outfitProfile?: RigOutfitProfile
-  semanticAnchors?: Record<string, RigSemanticAnchor>
-  semantics?: RigSemantics
-  spatialProfile?: RigSpatialProfile
 }
 
 export interface MeropeRigImportSource {

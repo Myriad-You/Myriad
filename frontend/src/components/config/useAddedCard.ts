@@ -25,7 +25,7 @@ export function useAddedSlug(slugs: string[]): string | null {
 
   useEffect(() => {
     if (!addedSlug) return undefined
-    const timer = window.setTimeout(() => setAddedSlug(null), ADD_HIGHLIGHT_MS)
+    const timer = window.setTimeout(setAddedSlug, ADD_HIGHLIGHT_MS, null)
     return () => window.clearTimeout(timer)
   }, [addedSlug])
 

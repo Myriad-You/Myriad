@@ -145,6 +145,9 @@ pub const ASSET_DIRECTORY: &str = "assets";
 /// 闭包决定；入口和依赖可以位于任意安全包内路径。
 pub const PAGE_LAYER_DIRECTORY: &str = "page";
 pub const WIDGET_LAYER_DIRECTORY: &str = "widget";
+/// Host-precompiled CSS, a channel parallel to author layer styles.
+pub const HOST_WIDGET_CSS: &str = "host/widget.css";
+pub const HOST_PAGE_CSS: &str = "host/page.css";
 /// 层内声明的资源路径：字段路径 → 扩展名规则键。
 /// 每层自带入口与资源，不再有一组平铺的顶层路径字段。
 pub const MANIFEST_RESOURCE_FIELDS: &[(&str, &str)] = &[
@@ -255,7 +258,8 @@ pub const LOCALE_TAG_PATTERN: &str = r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$";
 pub const SEMVER_PATTERN: &str =
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$";
 pub const NAMED_VALUE_PATTERN: &str = r"^[A-Za-z0-9._-]+$";
-pub const STORAGE_KEY_PATTERN: &str = r"^[A-Za-z0-9_.:-]+$";
+/// Charset plus no leading/trailing `.` and no consecutive `..`.
+pub const STORAGE_KEY_PATTERN: &str = r"^(?:[A-Za-z0-9_:-]+\.)*[A-Za-z0-9_:-]+$";
 pub const THEME_COLOR_PATTERN: &str = r"^#[0-9A-Fa-f]{6}$";
 pub const SEMVER_PREFIXES: &[&str] = &["v"];
 pub const SETTING_FIELD_TYPES: &[(&str, &str)] = &[
@@ -273,3 +277,17 @@ pub const SETTING_DEFAULT_KINDS: &[(&str, &str)] = &[
     ("number", "number"),
 ];
 pub const WIDGET_REFRESH_MODES: &[(&str, &str)] = &[("event", "event"), ("interval", "interval")];
+
+#[cfg(test)]
+mod tests {
+    use super::{HOST_PAGE_CSS, HOST_WIDGET_CSS};
+
+    #[test]
+    fn host_css_paths_are_fixed_parallel_channels() {
+        assert_eq!(HOST_WIDGET_CSS, "host/widget.css");
+        assert_eq!(HOST_PAGE_CSS, "host/page.css");
+        assert!(!HOST_WIDGET_CSS.contains(".."));
+        assert!(!HOST_PAGE_CSS.contains(".."));
+        assert_ne!(HOST_WIDGET_CSS, HOST_PAGE_CSS);
+    }
+}

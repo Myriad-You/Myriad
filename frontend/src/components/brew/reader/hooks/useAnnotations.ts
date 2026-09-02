@@ -5,8 +5,8 @@
 
 import type { AnnotationItem } from '../../../../services/brewliaApi'
 import { useCallback, useRef, useState } from 'react'
-import { userFacingError } from '../../../../utils/userFacingError'
 import * as brewliaApi from '../../../../services/brewliaApi'
+import { userFacingError } from '../../../../utils/userFacingError'
 
 export interface UseAnnotationsOptions {
   itemId: number
@@ -94,7 +94,9 @@ export function useAnnotations({
           `${t.brew.foundAnnotations.replace('{count}', String(response.annotations.length))}${cacheHint}`,
         )
       } else {
-        setAnnotationsError(response.error || t.brew.fetchAnnotationFailed)
+        setAnnotationsError(
+          userFacingError(response.error, t.brew.fetchAnnotationFailed),
+        )
       }
     } catch (err) {
       console.error('Failed to load annotations:', err)

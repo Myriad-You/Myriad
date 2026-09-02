@@ -665,18 +665,21 @@ async fn exchange_discord_code(
         ])
         .send()
         .await
-        .map_err(|e| format!("token request failed: {e}"))?;
+        .map_err(|error| {
+            tracing::error!(%error, "discord token request failed");
+            "token request failed".to_string()
+        })?;
 
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(format!(
-            "token endpoint {} — {}",
-            status,
-            body.chars().take(300).collect::<String>()
-        ));
+        tracing::error!(%status, body = %body.chars().take(300).collect::<String>(), "discord token endpoint failed");
+        return Err("token endpoint failed".to_string());
     }
-    serde_json::from_str(&body).map_err(|e| format!("token JSON parse: {e}"))
+    serde_json::from_str(&body).map_err(|error| {
+        tracing::error!(%error, "discord token JSON parse failed");
+        "token JSON parse failed".to_string()
+    })
 }
 
 #[cfg(test)]

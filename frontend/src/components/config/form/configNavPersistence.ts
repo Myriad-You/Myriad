@@ -23,8 +23,6 @@ export const CONFIG_NAV_SECTIONS = [
   'about',
 ] as const
 
-export type ConfigNavSection = (typeof CONFIG_NAV_SECTIONS)[number]
-
 export interface ConfigNavPersisted {
   section: string
   mobilePane?: 'nav' | 'section'

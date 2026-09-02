@@ -222,20 +222,3 @@ export async function managedFetch<T = any>(
     timeout,
   )
 }
-
-/**
- * Hook：在组件卸载时自动取消请求
- */
-export function useCancelOnUnmount() {
-  const requestKeys: string[] = []
-
-  const registerRequest = (key: string) => {
-    requestKeys.push(key)
-  }
-
-  const cleanup = () => {
-    requestKeys.forEach((key) => requestManager.cancelRequest(key))
-  }
-
-  return { registerRequest, cleanup }
-}

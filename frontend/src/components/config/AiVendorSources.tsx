@@ -1,4 +1,4 @@
-import type { AiVendorSource } from './aiVendorPresets'
+import type { AiVendorCapability, AiVendorSource } from './aiVendorPresets'
 import {
   FaPlus,
   FaTrash,
@@ -9,7 +9,7 @@ import {
   SiOpenrouter,
   SiX,
 } from '@lib/icons'
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import {
   CheckboxCard,
@@ -22,12 +22,13 @@ import {
   SetupFlow,
   ToggleSwitch,
 } from '../settings'
-import type { AiVendorCapability } from './aiVendorPresets'
 import {
   AI_VENDOR_PRESETS,
   findVendorPreset,
+  isAgoraSource,
   sourceFromPreset,
 } from './aiVendorPresets'
+import { useAddedCardOpen, useAddedSlug } from './useAddedCard'
 import {
   AnthropicMark,
   AzureMark,
@@ -42,13 +43,13 @@ import {
   NvidiaMark,
   OllamaMark,
   PerplexityMark,
+  ShengwangMark,
   SiliconFlowMark,
   TencentCloudMark,
   TogetherMark,
   VolcengineMark,
   ZhipuMark,
 } from './vendorIcons'
-import { useAddedCardOpen, useAddedSlug } from './useAddedCard'
 import { getVendorSetupGuide } from './vendorSetupGuides'
 import './AiVendorAdd.css'
 
@@ -101,6 +102,8 @@ export function VendorKindIcon({
       return <PerplexityMark />
     case 'minimax':
       return <MinimaxMark />
+    case 'agora':
+      return <ShengwangMark />
     case 'ollama':
       return <OllamaMark />
     case 'cloudflare':
@@ -119,6 +122,7 @@ export function VendorKindIcon({
   if (kind === 'gemini') return <SiGooglegemini />
   if (kind === 'volcengine') return <VolcengineMark />
   if (kind === 'tencent') return <TencentCloudMark />
+  if (kind === 'agora') return <ShengwangMark />
   const letter = (resolved?.display_name || slug || kind).trim().charAt(0) || '?'
   return (
     <span className="oidc-preset-icon-placeholder" aria-hidden>
@@ -127,7 +131,7 @@ export function VendorKindIcon({
   )
 }
 
-export type VendorUsageId = 'standard' | 'lite' | 'pro' | 'image' | 'speech'
+export type VendorUsageId = 'standard' | 'lite' | 'pro' | 'image' | 'speech' | 'realtime'
 
 export type VendorUsageMap = Partial<Record<string, VendorUsageId[]>>
 
@@ -147,6 +151,8 @@ function usageLabel(id: VendorUsageId, t: ReturnType<typeof useI18n>['t']): stri
       return t.config.aiVendorUsedImage
     case 'speech':
       return t.config.aiVendorUsedSpeech
+    case 'realtime':
+      return t.config.aiVendorUsedRealtime
     default:
       return t.config.aiVendorUsedStandard
   }
@@ -163,7 +169,7 @@ function usedByText(
   )
 }
 
-const CAPABILITY_ORDER: AiVendorCapability[] = ['text', 'image', 'speech']
+const CAPABILITY_ORDER: AiVendorCapability[] = ['text', 'image', 'speech', 'realtime']
 
 function capabilityLabel(
   id: AiVendorCapability,
@@ -174,6 +180,8 @@ function capabilityLabel(
       return t.config.aiVendorCapImage
     case 'speech':
       return t.config.aiVendorCapSpeech
+    case 'realtime':
+      return t.config.aiVendorCapRealtime
     default:
       return t.config.aiVendorCapText
   }
@@ -326,6 +334,14 @@ function VendorSetupSteps({ source }: { source: AiVendorSource }) {
 }
 
 function hasVendorCredential(source: AiVendorSource): boolean {
+  if (isAgoraSource(source)) {
+    return Boolean(
+      source.app_id?.trim()
+      && source.api_key?.trim()
+      && source.secret_id?.trim()
+      && source.secret_key?.trim(),
+    )
+  }
   if (source.kind === 'tencent') {
     return Boolean(source.secret_id?.trim() || source.secret_key?.trim())
   }
@@ -483,6 +499,58 @@ function VendorCard({
                 options={regionOptions}
                 layout="vertical"
               />
+            </>
+          ) : isAgoraSource(source) ? (
+            <>
+              <InputItem
+                itemKey={`${source.slug}-app-id`}
+                label={t.config.agoraAppId}
+                value={source.app_id || ''}
+                onChange={(value) => onChange({ app_id: value })}
+                placeholder="App ID"
+                inputType="text"
+                layout="vertical"
+              />
+              <InputItem
+                itemKey={`${source.slug}-cert`}
+                label={t.config.agoraAppCertificate}
+                value={source.api_key || ''}
+                onChange={(value) => onChange({ api_key: value })}
+                placeholder=""
+                inputType="password"
+                autoSelectOnMask
+                layout="vertical"
+              />
+              <InputItem
+                itemKey={`${source.slug}-cid`}
+                label={t.config.agoraCustomerId}
+                value={source.secret_id || ''}
+                onChange={(value) => onChange({ secret_id: value })}
+                placeholder=""
+                inputType="password"
+                autoSelectOnMask
+                layout="vertical"
+              />
+              <InputItem
+                itemKey={`${source.slug}-csec`}
+                label={t.config.agoraCustomerSecret}
+                value={source.secret_key || ''}
+                onChange={(value) => onChange({ secret_key: value })}
+                placeholder=""
+                inputType="password"
+                autoSelectOnMask
+                layout="vertical"
+              />
+              <InputItem
+                itemKey={`${source.slug}-base`}
+                label={t.config.agoraApiBase}
+                value={source.base_url || ''}
+                onChange={(value) => onChange({ base_url: value })}
+                placeholder="https://api.agora.io/cn"
+                inputType="text"
+                layout="vertical"
+              />
+              <p className="setting-hint">{t.config.agoraConvoHint}</p>
             </>
           ) : (
             <>

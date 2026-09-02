@@ -1,10 +1,5 @@
 export type SpeechViseme =
-  | 'rest'
-  | 'closed'
-  | 'open'
-  | 'wide'
-  | 'round'
-  | 'narrow'
+  'rest' | 'closed' | 'open' | 'wide' | 'round' | 'narrow'
 
 export interface SpeechArticulation {
   energy: number | null

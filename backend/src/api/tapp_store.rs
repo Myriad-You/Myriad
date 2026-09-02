@@ -68,11 +68,11 @@ use store_package::validate_store_manifest_category;
 pub use store_sources::*;
 use types::{api_error, api_http_error, api_response_err};
 pub use types::{ApiResponse, TappDetail, TappListItem};
+pub use uninstall::prune_stale_private_tapps;
 #[cfg(test)]
 use uninstall::uninstall_post_commit_cleanup_path;
 pub(crate) use uninstall::uninstall_tapp_for_user;
 use uninstall::{cleanup_temporary_tapps, uninstall_tapp};
-pub use uninstall::{prune_stale_private_tapps, PRIVATE_INSTALL_INACTIVITY_DAYS};
 pub(crate) use validation::*;
 #[cfg(test)]
 use widgets::runtime_widget_belongs_to_installation;

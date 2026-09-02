@@ -49,7 +49,7 @@ export const CHANNEL_OPTIONS: ChannelOption[] = [
   { key: 'dev', mode: 'commit', channel: 'preview', badge: 'dev' },
 ]
 
-/** Formal release tags look like v0.2.6 (`v`-prefixed semver, matching DeployTag). */
+/** Formal release tags look like v0.4.0 (`v`-prefixed semver, matching DeployTag). */
 export function isReleaseTag(tag: string): boolean {
   return /^v\d+\.\d+\.\d+([.-][0-9A-Za-z.]+)?$/.test(tag.trim())
 }

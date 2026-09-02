@@ -718,7 +718,6 @@ html.dark .number-unit {
   --slider-rail-ring: rgb(0 0 0 / 5%);
   --slider-rail-inset: rgb(0 0 0 / 7%);
   --slider-tick: rgb(120 120 128 / 42%);
-  --slider-tick-passed: rgb(255 255 255 / 90%);
 
   /* 气泡 idle：与设置页 chip 同思路 */
   --slider-value-fg: var(--slider-p);
@@ -786,7 +785,6 @@ html.dark .slider-control {
   --slider-rail-ring: rgb(255 255 255 / 8%);
   --slider-rail-inset: rgb(0 0 0 / 40%);
   --slider-tick: rgb(255 255 255 / 22%);
-  --slider-tick-passed: rgb(255 255 255 / 88%);
   --slider-value-fg: var(--slider-p);
   --slider-value-bg: color-mix(in srgb, var(--slider-p) 16%, transparent);
   --slider-value-border: color-mix(in srgb, var(--slider-p) 28%, transparent);
@@ -1628,8 +1626,7 @@ html.dark .checkbox-group-card-desc {
  * (height/padding overridden by .managed-list-top vars). Card language: dot + title + desc.
  * `--stat` is a legacy alias of `--sm`.
  */
-.checkbox-group-card--sm,
-.checkbox-group-card--stat {
+.checkbox-group-card--sm {
   justify-content: center;
   flex: 0 0 auto;
   width: max-content;
@@ -1650,21 +1647,18 @@ html.dark .checkbox-group-card-desc {
     opacity var(--sm-dur-fast) var(--sm-ease-standard);
 }
 
-.checkbox-group-card--sm .checkbox-group-card-header,
-.checkbox-group-card--stat .checkbox-group-card-header {
+.checkbox-group-card--sm .checkbox-group-card-header {
   min-width: 0;
   width: 100%;
   gap: 0.3rem;
 }
 
 /* 标题↔说明间距：switch / action 共用同一 token */
-.checkbox-group-card--sm .checkbox-group-card-text,
-.checkbox-group-card--stat .checkbox-group-card-text {
+.checkbox-group-card--sm .checkbox-group-card-text {
   gap: 0.1rem;
 }
 
-.checkbox-group-card--sm .checkbox-group-card-label,
-.checkbox-group-card--stat .checkbox-group-card-label {
+.checkbox-group-card--sm .checkbox-group-card-label {
   display: inline-flex;
   align-items: center;
   gap: 0.15rem;
@@ -1679,16 +1673,12 @@ html.dark .checkbox-group-card-desc {
 }
 
 /* ⓘ 不撑高标题行，与「刷新」首行行高一致 */
-.checkbox-group-card--sm .checkbox-group-card-label .setting-title-help,
-.checkbox-group-card--stat .checkbox-group-card-label .setting-title-help {
+.checkbox-group-card--sm .checkbox-group-card-label .setting-title-help {
   margin-left: 0;
   flex-shrink: 0;
 }
 
 .checkbox-group-card--sm
-  .checkbox-group-card-label
-  .setting-title-help-trigger,
-.checkbox-group-card--stat
   .checkbox-group-card-label
   .setting-title-help-trigger {
   width: 0.875rem;
@@ -1697,16 +1687,12 @@ html.dark .checkbox-group-card-desc {
 
 .checkbox-group-card--sm
   .checkbox-group-card-label
-  .setting-title-help-icon,
-.checkbox-group-card--stat
-  .checkbox-group-card-label
   .setting-title-help-icon {
   width: 0.7rem;
   height: 0.7rem;
 }
 
-.checkbox-group-card--sm .checkbox-group-card-desc,
-.checkbox-group-card--stat .checkbox-group-card-desc {
+.checkbox-group-card--sm .checkbox-group-card-desc {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
@@ -1717,20 +1703,17 @@ html.dark .checkbox-group-card-desc {
   font-weight: 400;
 }
 
-.checkbox-group-card--sm .checkbox-group-card-indicator,
-.checkbox-group-card--stat .checkbox-group-card-indicator {
+.checkbox-group-card--sm .checkbox-group-card-indicator {
   width: 0.32rem;
   height: 0.32rem;
 }
 
-.checkbox-group-card--sm .checkbox-group-card-icon,
-.checkbox-group-card--stat .checkbox-group-card-icon {
+.checkbox-group-card--sm .checkbox-group-card-icon {
   width: 0.85rem;
   height: 0.85rem;
 }
 
-.checkbox-group-card--sm .checkbox-group-card-icon svg,
-.checkbox-group-card--stat .checkbox-group-card-icon svg {
+.checkbox-group-card--sm .checkbox-group-card-icon svg {
   width: 0.85rem;
   height: 0.85rem;
 }
@@ -1738,17 +1721,11 @@ html.dark .checkbox-group-card-desc {
 /* sm 有说明：圆点/图标贴标题首行中线（行高 0.72×1.25） */
 .checkbox-group-card--sm
   .checkbox-group-card-header:has(.checkbox-group-card-desc)
-  > .checkbox-group-card-indicator,
-.checkbox-group-card--stat
-  .checkbox-group-card-header:has(.checkbox-group-card-desc)
   > .checkbox-group-card-indicator {
   margin-top: 0.28rem;
 }
 
 .checkbox-group-card--sm
-  .checkbox-group-card-header:has(.checkbox-group-card-desc)
-  > .checkbox-group-card-icon,
-.checkbox-group-card--stat
   .checkbox-group-card-header:has(.checkbox-group-card-desc)
   > .checkbox-group-card-icon {
   margin-top: 0.05rem;
@@ -2014,17 +1991,12 @@ html.dark
 }
 
 /* Dense action: allow press scale (sm used to force transform:none) */
-.checkbox-group-card--action.checkbox-group-card--sm:hover:not(:disabled),
-.checkbox-group-card--action.checkbox-group-card--stat:hover:not(:disabled) {
+.checkbox-group-card--action.checkbox-group-card--sm:hover:not(:disabled) {
   transform: none;
 }
 
 .checkbox-group-card--action.checkbox-group-card--sm:active:not(:disabled),
-.checkbox-group-card--action.checkbox-group-card--stat:active:not(:disabled),
-.checkbox-group-card--action.checkbox-group-card--sm.is-pressing:not(:disabled),
-.checkbox-group-card--action.checkbox-group-card--stat.is-pressing:not(
-    :disabled
-  ) {
+.checkbox-group-card--action.checkbox-group-card--sm.is-pressing:not(:disabled) {
   transform: scale(var(--sm-scale-press));
 }
 

@@ -1,3 +1,5 @@
+import { isUselessErrorText, userFacingError } from './userFacingError'
+
 export interface WallpaperErrorCopy {
   unsafeUrl: string
   imageLoadFailed: string
@@ -8,9 +10,16 @@ export function wallpaperUnknownMessage(
   reason: unknown,
   copy: WallpaperErrorCopy,
 ): string {
-  if (reason instanceof Error && reason.message.trim()) {
-    const message = reason.message.trim()
-    if (!/^API Error:\s*\d+$/i.test(message)) return message
+  const raw =
+    reason instanceof Error
+      ? reason.message.trim()
+      : typeof reason === 'string'
+        ? reason.trim()
+        : ''
+  if (!raw || isUselessErrorText(raw)) return copy.unknown
+  if (/timeout|decode|failed to (load|fetch)|http\s*\d|network/i.test(raw)) {
+    return copy.imageLoadFailed
   }
-  return copy.unknown
+  const mapped = userFacingError(reason, copy.unknown)
+  return mapped === raw ? copy.unknown : mapped
 }

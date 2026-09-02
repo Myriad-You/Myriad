@@ -324,13 +324,13 @@ function ProviderCard({
 
   useEffect(() => {
     if (!copied) return undefined
-    const timer = window.setTimeout(() => setCopied(false), 2000)
+    const timer = window.setTimeout(setCopied, 2000, false)
     return () => window.clearTimeout(timer)
   }, [copied])
 
   useEffect(() => {
     if (!copiedData) return undefined
-    const timer = window.setTimeout(() => setCopiedData(false), 2000)
+    const timer = window.setTimeout(setCopiedData, 2000, false)
     return () => window.clearTimeout(timer)
   }, [copiedData])
 

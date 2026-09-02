@@ -25,8 +25,8 @@ import {
 } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { fetchJson } from '../../utils/apiHelper'
-import { userFacingError } from '../../utils/userFacingError'
 import { getBuildInfo } from '../../utils/buildInfo'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   SettingGroup,
   SettingGroupGrid,

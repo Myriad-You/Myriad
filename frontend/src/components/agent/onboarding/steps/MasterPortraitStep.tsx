@@ -7,12 +7,12 @@ import {
   getSiteFace,
 } from '../../../../features/merope/api'
 import { notifyFaceUpdated } from '../../../../features/merope/events'
+import { userFacingError } from '../../../../utils/userFacingError'
 import {
   generationFailureMessage,
   isGenerationTimeout,
   isPortraitInProgress,
 } from '../generationError'
-import { userFacingError } from '../../../../utils/userFacingError'
 import { ActionBar, PrimaryButton, StepBody } from '../ui/Chrome'
 import { ErrorNote } from '../ui/Feedback'
 import { TextArea } from '../ui/Field'

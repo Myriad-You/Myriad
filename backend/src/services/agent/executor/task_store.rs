@@ -57,7 +57,10 @@ pub async fn enqueue_steering(
         (Utc::now() + chrono::Duration::minutes(30)).timestamp(),
     )
     .await
-    .map_err(|error| format!("Failed to persist steering instruction: {error}"))?;
+    .map_err(|error| {
+        tracing::error!(%error, "failed to persist steering instruction");
+        "Failed to persist steering instruction".to_string()
+    })?;
     Ok(())
 }
 

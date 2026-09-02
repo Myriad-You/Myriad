@@ -341,14 +341,14 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         applyUpdated(updated)
         return { ok: true as const, updated }
       } catch (error) {
-        notifyError(error, c.usersActionError)
+        notifyError(error, c.usersUpdateFailed)
         return { ok: false as const }
       } finally {
         setBusy(false)
         setRowBusyId(null)
       }
     },
-    [applyUpdated, notifyError, c.usersActionError],
+    [applyUpdated, notifyError, c.usersUpdateFailed],
   )
 
   const handleToggleAdmin = useCallback(
@@ -401,7 +401,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       try {
         applyUpdated(await adminUsersApi.uninstallTapp(user.id, tapp.tapp_id))
       } catch (error) {
-        notifyError(error, c.usersActionError)
+        notifyError(error, c.usersUninstallFailed)
       } finally {
         setBusy(false)
         setRowBusyId(null)
@@ -418,7 +418,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       try {
         applyUpdated(await adminUsersApi.unlinkIdentity(user.id, identity.id))
       } catch (error) {
-        notifyError(error, c.usersActionError)
+        notifyError(error, c.usersUnlinkFailed)
       } finally {
         setBusy(false)
         setRowBusyId(null)
@@ -442,7 +442,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         }
         onMessage?.(c.usersDeleteSuccess, 'success')
       } catch (error) {
-        notifyError(error, c.usersActionError)
+        notifyError(error, c.usersDeleteFailed)
       } finally {
         setBusy(false)
         setRowBusyId(null)
@@ -469,7 +469,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         onMessage?.(c.usersPromoteReLoginNotice, 'info')
       }
     } catch (error) {
-      notifyError(error, c.usersActionError)
+      notifyError(error, c.usersCreateFailed)
     } finally {
       setBusy(false)
     }

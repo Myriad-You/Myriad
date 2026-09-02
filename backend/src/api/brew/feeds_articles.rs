@@ -24,15 +24,15 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use crate::models::entities::{
     brew_annotations, brew_categories, brew_items, brew_podcasts, brew_sources, brew_user_states,
 };
-use crate::services::brew_parser::{FeedParser, ParsedFeed};
+use crate::services::brew_parser::{FeedParser, ParseError, ParsedFeed};
 use crate::services::brew_scheduler::get_brew_scheduler;
 use crate::services::data_paths::paths;
 use crate::services::icon_service::IconService;
 
 use super::comments_rsshub;
 use super::helpers::{
-    brew_http_err, build_feed_discovery_candidates, generate_opml, get_admin_user_id_from_headers,
-    get_user_and_admin_status, parse_opml,
+    brew_http_err, brew_store_http, build_feed_discovery_candidates, generate_opml,
+    get_admin_user_id_from_headers, get_user_and_admin_status, parse_opml,
 };
 use super::reading_sync_ws;
 
@@ -207,11 +207,7 @@ pub(crate) async fn list_sources(
     let sources = match query.all(&db).await {
         Ok(s) => s,
         Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            return Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ));
+            return Err(brew_store_http("list sources", e));
         }
     };
 
@@ -494,12 +490,12 @@ pub(crate) async fn add_source(
                     extra_config,
                 ),
                 Err(e) => {
-                    tracing::warn!("Failed to fetch Notion source: {e}");
+                    tracing::warn!(error = %e, "Failed to fetch Notion source");
                     return Err(HttpError::from((
                         StatusCode::BAD_REQUEST,
                         Json(json!({
                             "success": false,
-                            "error": "Failed to fetch Notion",
+                            "error": e.to_string(),
                             "code": "notion_fetch_failed"
                         })),
                     )));
@@ -529,25 +525,36 @@ pub(crate) async fn add_source(
                     )
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to parse feed: {e}");
-                    // 即使解析失败也允许添加，使用用户提供的名称
-                    if req.name.is_none() {
-                        return Err(HttpError::from((
-                            StatusCode::BAD_REQUEST,
-                            Json(json!({
-                                "success": false,
-                                "error": "Failed to parse feed. Please provide a name.",
-                                "code": "feed_parse_failed"
-                            })),
-                        )));
+                    tracing::warn!(error = %e, "Failed to add feed");
+                    match e {
+                        ParseError::FetchError(_) | ParseError::InvalidUrl(_) => {
+                            let status = if matches!(e, ParseError::InvalidUrl(_)) {
+                                StatusCode::BAD_REQUEST
+                            } else {
+                                StatusCode::BAD_GATEWAY
+                            };
+                            return Err(brew_http_err(status, e.user_message()));
+                        }
+                        ParseError::ParseError(_) | ParseError::UnsupportedFormat(_) => {
+                            // 内容解析失败仍允许带名称添加
+                            if req.name.is_none() {
+                                return Err(HttpError::from((
+                                    StatusCode::BAD_REQUEST,
+                                    Json(json!({
+                                        "success": false,
+                                        "error": "Failed to parse feed. Please provide a name.",
+                                        "code": "feed_parse_failed"
+                                    })),
+                                )));
+                            }
+                            let final_feed_type = if is_rsshub {
+                                brew_sources::FeedType::RssHub
+                            } else {
+                                brew_sources::FeedType::Rss
+                            };
+                            (req.name.unwrap(), None, None, None, final_feed_type, None)
+                        }
                     }
-                    // 如果前端指定了 rsshub，使用 rsshub 类型
-                    let final_feed_type = if is_rsshub {
-                        brew_sources::FeedType::RssHub
-                    } else {
-                        brew_sources::FeedType::Rss
-                    };
-                    (req.name.unwrap(), None, None, None, final_feed_type, None)
                 }
             }
         };
@@ -629,13 +636,7 @@ pub(crate) async fn add_source(
             let response: brew_sources::SourceResponse = updated_source.into();
             Ok(Json(json!({ "success": true, "source": response })))
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("save source", e)),
     }
 }
 
@@ -664,13 +665,7 @@ pub(crate) async fn get_source(
             StatusCode::NOT_FOUND,
             Json(json!({ "success": false, "error": "Source not found" })),
         ))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("find source", e)),
     }
 }
 
@@ -770,26 +765,14 @@ pub(crate) async fn update_source(
                     let response: brew_sources::SourceResponse = updated.into();
                     Ok(Json(json!({ "success": true, "source": response })))
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, "Database error");
-                    Err(brew_http_err(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Database error",
-                    ))
-                }
+                Err(e) => Err(brew_store_http("update source", e)),
             }
         }
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
             Json(json!({ "success": false, "error": "Source not found" })),
         ))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("find source", e)),
     }
 }
 
@@ -819,26 +802,14 @@ pub(crate) async fn delete_source(
             // 删除订阅源（级联删除文章和状态）
             match brew_sources::Entity::delete_by_id(id).exec(&db).await {
                 Ok(_) => Ok(Json(json!({ "success": true }))),
-                Err(e) => {
-                    tracing::error!(error = %e, "Database error");
-                    Err(brew_http_err(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Database error",
-                    ))
-                }
+                Err(e) => Err(brew_store_http("delete source", e)),
             }
         }
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
             Json(json!({ "success": false, "error": "Source not found" })),
         ))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("find source", e)),
     }
 }
 
@@ -862,12 +833,20 @@ pub(crate) async fn refresh_source(
             if let Some(scheduler) = get_brew_scheduler() {
                 match scheduler.refresh_source(id).await {
                     Ok(new_count) => Ok(Json(json!({ "success": true, "new_items": new_count }))),
-                    Err(e) => {
-                        tracing::error!(error = %e, "Failed to refresh source");
-                        Err(brew_http_err(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "Database error",
-                        ))
+                    Err(error) => {
+                        tracing::error!(%error, "Failed to refresh source");
+                        let status = if error.starts_with("Failed to fetch feed") {
+                            StatusCode::BAD_GATEWAY
+                        } else if error.starts_with("Failed to parse feed") {
+                            StatusCode::UNPROCESSABLE_ENTITY
+                        } else if error.starts_with("Invalid feed URL") {
+                            StatusCode::BAD_REQUEST
+                        } else if error == "Source not found" {
+                            StatusCode::NOT_FOUND
+                        } else {
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        };
+                        Err(brew_http_err(status, error))
                     }
                 }
             } else {
@@ -881,13 +860,7 @@ pub(crate) async fn refresh_source(
             StatusCode::NOT_FOUND,
             Json(json!({ "success": false, "error": "Source not found" })),
         ))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("find source", e)),
     }
 }
 
@@ -947,7 +920,7 @@ pub(crate) async fn discover_source(
     // 用户输入本身已经是 Feed 时立即返回，不额外请求候选地址。
     let direct_error = match parser.fetch_and_parse(&requested_url).await {
         Ok(feed) => return discover_success_response(&requested_url, requested_url.clone(), feed),
-        Err(error) => error.to_string(),
+        Err(error) => error.user_message(),
     };
 
     // 常见后缀最多 4 个并发探测；每个请求仍经过 FeedParser 的 SSRF 防护。
@@ -966,12 +939,12 @@ pub(crate) async fn discover_source(
         }
     }
 
-    tracing::warn!("Unable to discover RSS/Atom feed: {direct_error}");
+    tracing::warn!(error = %direct_error, "Unable to discover RSS/Atom feed");
     Err(HttpError::from((
         StatusCode::BAD_REQUEST,
         Json(json!({
             "success": false,
-            "error": "Unable to discover RSS/Atom feed",
+            "error": direct_error,
             "code": "feed_discover_failed"
         })),
     )))
@@ -1046,11 +1019,7 @@ pub(crate) async fn import_opml(
             .exec(&db)
             .await
         {
-            tracing::error!(error = %e, "Failed to import sources");
-            return Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ));
+            return Err(brew_store_http("import sources", e));
         }
     }
 
@@ -1083,13 +1052,7 @@ pub(crate) async fn export_opml(
             let opml = generate_opml(&sources);
             Ok((StatusCode::OK, [("Content-Type", "application/xml")], opml))
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("export sources", e)),
     }
 }
 
@@ -1108,13 +1071,7 @@ pub(crate) async fn list_categories(
 
     match categories {
         Ok(cats) => Ok(Json(json!({ "success": true, "categories": cats }))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("list categories", e)),
     }
 }
 
@@ -1139,13 +1096,7 @@ pub(crate) async fn create_category(
 
     match new_cat.insert(&db).await {
         Ok(cat) => Ok(Json(json!({ "success": true, "category": cat }))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("save category", e)),
     }
 }
 
@@ -1181,26 +1132,14 @@ pub(crate) async fn update_category(
 
             match active.update(&db).await {
                 Ok(updated) => Ok(Json(json!({ "success": true, "category": updated }))),
-                Err(e) => {
-                    tracing::error!(error = %e, "Database error");
-                    Err(brew_http_err(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Database error",
-                    ))
-                }
+                Err(e) => Err(brew_store_http("update category", e)),
             }
         }
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
             Json(json!({ "success": false, "error": "Category not found" })),
         ))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("find category", e)),
     }
 }
 
@@ -1220,25 +1159,13 @@ pub(crate) async fn delete_category(
     match cat {
         Ok(Some(_)) => match brew_categories::Entity::delete_by_id(id).exec(&db).await {
             Ok(_) => Ok(Json(json!({ "success": true }))),
-            Err(e) => {
-                tracing::error!(error = %e, "Database error");
-                Err(brew_http_err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Database error",
-                ))
-            }
+            Err(e) => Err(brew_store_http("delete category", e)),
         },
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
             Json(json!({ "success": false, "error": "Category not found" })),
         ))),
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("find category", e)),
     }
 }
 
@@ -1504,12 +1431,6 @@ pub(crate) async fn list_items(
                 "per_page": per_page,
             })))
         }
-        Err(e) => {
-            tracing::error!(error = %e, "Database error");
-            Err(brew_http_err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Database error",
-            ))
-        }
+        Err(e) => Err(brew_store_http("list articles", e)),
     }
 }

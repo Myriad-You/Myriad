@@ -27,16 +27,6 @@ export enum Feature {
   MessageChannel = 1 << 8,
 }
 
-/** 页面功能配置 */
-export interface PageFeatureConfig {
-  /** 页面 ID */
-  pageId: string
-  /** 启用的功能（位掩码） */
-  features: number
-  /** 功能描述（开发调试用） */
-  description?: string
-}
-
 /**
  * 各页面功能配置
  *

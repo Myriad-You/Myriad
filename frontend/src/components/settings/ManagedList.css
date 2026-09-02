@@ -175,8 +175,7 @@ html.dark .managed-list-stat--danger .managed-list-stat-value {
 }
 
 /* Equal height only — width hugs content (not unified) */
-.managed-list-top .checkbox-group-card--sm,
-.managed-list-top .checkbox-group-card--stat {
+.managed-list-top .checkbox-group-card--sm {
   flex: 0 0 auto;
   width: max-content;
   max-width: min(100%, 20rem);

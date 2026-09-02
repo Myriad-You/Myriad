@@ -39,7 +39,6 @@ static GEO_CACHE: Lazy<RwLock<HashMap<String, (GeoInfo, Instant)>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
 const GEO_CACHE_TTL: Duration = Duration::from_secs(600);
-const MAX_GEO_CACHE_ENTRIES: usize = 2048; // default profile; runtime: memory_profile
 
 // API 响应缓存
 
@@ -57,7 +56,6 @@ fn approx_json_bytes(value: &Value) -> usize {
 
 static API_CACHE: Lazy<RwLock<HashMap<String, CacheEntry>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
-const MAX_API_CACHE_ENTRIES: usize = 2048; // default profile; runtime: memory_profile
 const MAX_TAPP_HTTP_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 // 上下文类型
@@ -563,8 +561,10 @@ impl TappApiService {
         let proxy_config = crate::services::http_client::ProxyConfig::from_dynamic_config().await;
         if proxy_config.should_use_proxy() && !proxy_config.should_bypass(url) {
             if let Some(proxy_url) = &proxy_config.proxy_url {
-                let mut proxy = reqwest::Proxy::all(proxy_url)
-                    .map_err(|error| format!("Invalid outbound proxy: {error}"))?;
+                let mut proxy = reqwest::Proxy::all(proxy_url).map_err(|error| {
+                    tracing::error!(%error, "invalid outbound proxy");
+                    "Invalid outbound proxy".to_string()
+                })?;
                 let bypass_str = proxy_config
                     .bypass_list
                     .iter()
@@ -587,6 +587,7 @@ impl TappApiService {
     }
 
     /// 执行 HTTP API
+    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
     async fn execute_http_api(
         api_def: &TappApiDef,
         context: &HashMap<String, Value>,
@@ -660,10 +661,8 @@ impl TappApiService {
 
         // 发送请求
         let response = request.send().await.map_err(|error| {
-            Self::redact_needles(
-                &format!("HTTP request failed: {error}"),
-                &prepared.redaction_needles,
-            )
+            tracing::error!(%error, "declared API HTTP request failed");
+            Self::redact_needles("HTTP request failed", &prepared.redaction_needles)
         })?;
 
         let status = response.status();
@@ -787,8 +786,10 @@ impl TappApiService {
                         ));
                     }
                 }
-                let prompt = serde_json::to_string(messages)
-                    .map_err(|error| format!("Invalid AI chat messages: {error}"))?;
+                let prompt = serde_json::to_string(messages).map_err(|error| {
+                    tracing::error!(%error, "invalid AI chat messages");
+                    "Invalid AI chat messages".to_string()
+                })?;
                 // Fits a full CJK USER_TEXT_MAX_CHARS turn plus several shorter ones.
                 const MAX_TAPP_CHAT_JSON_BYTES: usize = 256 * 1024;
                 if prompt.len() > MAX_TAPP_CHAT_JSON_BYTES {
@@ -854,7 +855,10 @@ impl TappApiService {
     ) -> Result<String, String> {
         let db = crate::services::tapp_registry::database()
             .await
-            .map_err(|error| format!("AI_TASK_REGISTRY_UNAVAILABLE: {error}"))?;
+            .map_err(|error| {
+                tracing::error!(%error, "AI task registry unavailable");
+                "AI task registry unavailable".to_string()
+            })?;
         let role = if context.is_admin {
             UserRole::Admin
         } else if context.user_id < 0 {
@@ -1086,8 +1090,10 @@ impl TappApiService {
         }
         let (bytes, default_content_type) = match api_def.body_mode {
             TappHttpBodyMode::Json => (
-                serde_json::to_vec(&body)
-                    .map_err(|error| format!("Failed to serialize JSON body: {error}"))?,
+                serde_json::to_vec(&body).map_err(|error| {
+                    tracing::error!(%error, "failed to serialize declared API JSON body");
+                    "Failed to serialize JSON body".to_string()
+                })?,
                 Some("application/json"),
             ),
             TappHttpBodyMode::Form => {
@@ -1149,8 +1155,10 @@ impl TappApiService {
             TappHttpBodyMode::Json => {
                 let resolved_body = Self::resolve_json_templates(body, context);
                 (
-                    serde_json::to_vec(&resolved_body)
-                        .map_err(|error| format!("Failed to serialize JSON body: {error}"))?,
+                    serde_json::to_vec(&resolved_body).map_err(|error| {
+                        tracing::error!(%error, "failed to serialize declared API JSON body");
+                        "Failed to serialize JSON body".to_string()
+                    })?,
                     Some("application/json"),
                 )
             }

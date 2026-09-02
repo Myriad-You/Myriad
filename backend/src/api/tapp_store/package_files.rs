@@ -651,8 +651,10 @@ pub(crate) async fn cleanup_orphaned_tapp_directories(
     db: &DatabaseConnection,
     installed: &std::collections::HashSet<(i32, String)>,
 ) -> Result<usize, DbErr> {
-    let candidates = orphaned_tapp_directories(&paths().tapps, installed)
-        .map_err(|error| DbErr::Custom(format!("Failed to inspect Tapp resources: {error}")))?;
+    let candidates = orphaned_tapp_directories(&paths().tapps, installed).map_err(|error| {
+        tracing::error!(%error, "Failed to inspect Tapp resources");
+        DbErr::Custom("Failed to inspect Tapp resources".to_string())
+    })?;
     let mut removed = 0;
     for (owner_id, tapp_id, directory) in candidates {
         // Recovery also runs after a live database reconfiguration. Serialize
@@ -1057,9 +1059,10 @@ pub(crate) fn validate_tapp_archive_with<R: std::io::Read + std::io::Seek>(
     let mut total_size = 0_u64;
     let mut paths = std::collections::HashSet::new();
     for index in 0..archive.len() {
-        let file = archive
-            .by_index(index)
-            .map_err(|error| format!("Invalid Tapp archive entry: {error}"))?;
+        let file = archive.by_index(index).map_err(|error| {
+            tracing::error!(%error, "Invalid Tapp archive entry");
+            "Invalid Tapp archive".to_string()
+        })?;
         let name = file.name().trim_end_matches('/');
         total_size = validate_archive_entry_with(
             name,

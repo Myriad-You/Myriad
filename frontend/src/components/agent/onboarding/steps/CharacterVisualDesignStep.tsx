@@ -1,7 +1,7 @@
 import type {
   ClothingStyle,
-  PersonaGender,
   OnboardingHeaderChrome,
+  PersonaGender,
   UpperBodyVisualIdentity,
   UpperBodyVisualIdentityKey,
 } from '../onboardingTypes'

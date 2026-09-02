@@ -11,6 +11,7 @@
 //!   sandbox / seccomp / landlock is intentionally future work (multi-week).
 
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use serde_json::Value;
@@ -31,6 +32,39 @@ pub const MAX_MCP_LINE_BYTES: usize = 4 * 1024 * 1024;
 /// Matches `validate_config` server cap so a healthy config can start every
 /// enabled server, while still bounding spawn storms / reload races.
 pub const MAX_MCP_CHILDREN: usize = 32;
+
+fn mcp_io_failed(action: &str, error: std::io::Error) -> String {
+    tracing::warn!(%error, action, "MCP io failed");
+    match error.kind() {
+        ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => {
+            format!("{action}: storage is not writable")
+        }
+        ErrorKind::BrokenPipe | ErrorKind::NotConnected | ErrorKind::UnexpectedEof => {
+            format!("{action}: MCP server closed")
+        }
+        ErrorKind::TimedOut => format!("{action}: timed out"),
+        ErrorKind::StorageFull => format!("{action}: not enough disk space"),
+        _ => action.to_string(),
+    }
+}
+
+fn mcp_json_failed(action: &str, error: impl std::fmt::Display) -> String {
+    tracing::warn!(%error, action, "MCP json failed");
+    action.to_string()
+}
+
+fn mcp_rpc_error(code: i64, message: &str) -> String {
+    let keep = message.trim();
+    if keep.is_empty()
+        || keep.starts_with('{')
+        || keep.contains("at line ")
+        || keep.contains("missing field")
+        || keep.len() > 160
+    {
+        return format!("MCP error ({code})");
+    }
+    format!("MCP error ({code}): {keep}")
+}
 
 /// Process-wide count of live MCP children (includes slots held during spawn).
 static MCP_LIVE_CHILDREN: AtomicUsize = AtomicUsize::new(0);
@@ -75,10 +109,10 @@ async fn read_line_limited<R: AsyncBufReadExt + Unpin>(
 ) -> Result<String, String> {
     let mut out: Vec<u8> = Vec::new();
     loop {
-        let available = reader
-            .fill_buf()
-            .await
-            .map_err(|e| format!("Failed to read from MCP server: {e}"))?;
+        let available = reader.fill_buf().await.map_err(|e| {
+            tracing::warn!(error = %e, "Failed to read from MCP server");
+            "Failed to read from MCP server".to_string()
+        })?;
         if available.is_empty() {
             if out.is_empty() {
                 return Err("MCP server closed stdout (process exited)".into());
@@ -106,16 +140,19 @@ async fn read_line_limited<R: AsyncBufReadExt + Unpin>(
         out.extend_from_slice(available);
         reader.consume(n);
     }
-    String::from_utf8(out).map_err(|e| format!("MCP line is not valid UTF-8: {e}"))
+    String::from_utf8(out).map_err(|e| {
+        tracing::warn!(error = %e, "MCP line is not valid UTF-8");
+        "MCP line is not valid UTF-8".to_string()
+    })
 }
 
 /// Discard bytes until a newline (or EOF). Used after an oversized-line reject.
 async fn drain_until_newline<R: AsyncBufReadExt + Unpin>(reader: &mut R) -> Result<(), String> {
     loop {
-        let available = reader
-            .fill_buf()
-            .await
-            .map_err(|e| format!("Failed to drain MCP stream: {e}"))?;
+        let available = reader.fill_buf().await.map_err(|e| {
+            tracing::warn!(error = %e, "Failed to drain MCP stream");
+            "Failed to drain MCP stream".to_string()
+        })?;
         if available.is_empty() {
             return Ok(());
         }
@@ -296,8 +333,8 @@ impl StdioTransport {
         let request = JsonRpcRequest::new(id, method, params);
 
         // 序列化 + 换行
-        let mut payload =
-            serde_json::to_string(&request).map_err(|e| format!("JSON serialize error: {}", e))?;
+        let mut payload = serde_json::to_string(&request)
+            .map_err(|error| mcp_json_failed("Failed to serialize MCP request", error))?;
         // MYR-009: reject oversized outbound messages before write
         if payload.len() > MAX_MCP_LINE_BYTES {
             return Err(format!(
@@ -311,11 +348,11 @@ impl StdioTransport {
         self.stdin
             .write_all(payload.as_bytes())
             .await
-            .map_err(|e| format!("Failed to write to MCP server: {}", e))?;
+            .map_err(|error| mcp_io_failed("Failed to write to MCP server", error))?;
         self.stdin
             .flush()
             .await
-            .map_err(|e| format!("Failed to flush MCP stdin: {}", e))?;
+            .map_err(|error| mcp_io_failed("Failed to flush MCP stdin", error))?;
 
         // 在总超时内读到匹配 id 的响应
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -376,16 +413,11 @@ impl StdioTransport {
                 continue;
             }
 
-            let response: JsonRpcResponse = serde_json::from_value(value).map_err(|e| {
-                format!(
-                    "Invalid JSON-RPC response: {} | raw: {}",
-                    e,
-                    &trimmed[..trimmed.len().min(200)]
-                )
-            })?;
+            let response: JsonRpcResponse = serde_json::from_value(value)
+                .map_err(|error| mcp_json_failed("Invalid JSON-RPC response", error))?;
 
             if let Some(err) = response.error {
-                return Err(format!("MCP error ({}): {}", err.code, err.message));
+                return Err(mcp_rpc_error(err.code, &err.message));
             }
 
             return response
@@ -408,8 +440,8 @@ impl StdioTransport {
             map.insert("params", p);
         }
 
-        let mut payload =
-            serde_json::to_string(&map).map_err(|e| format!("JSON serialize error: {}", e))?;
+        let mut payload = serde_json::to_string(&map)
+            .map_err(|error| mcp_json_failed("Failed to serialize MCP notification", error))?;
         if payload.len() > MAX_MCP_LINE_BYTES {
             return Err(format!(
                 "MCP notification exceeds max message length ({} bytes)",
@@ -421,11 +453,11 @@ impl StdioTransport {
         self.stdin
             .write_all(payload.as_bytes())
             .await
-            .map_err(|e| format!("Failed to write notification: {}", e))?;
+            .map_err(|error| mcp_io_failed("Failed to write MCP notification", error))?;
         self.stdin
             .flush()
             .await
-            .map_err(|e| format!("Flush error: {}", e))?;
+            .map_err(|error| mcp_io_failed("Failed to flush MCP stdin", error))?;
 
         Ok(())
     }
@@ -503,6 +535,22 @@ mod tests {
         assert_eq!(extract(&s), Some(id));
         assert_ne!(extract(&wrong), Some(id));
         assert!(notif.get("method").is_some() && notif.get("result").is_none());
+    }
+
+    #[test]
+    fn mcp_rpc_error_keeps_short_phrase_and_drops_dumps() {
+        assert_eq!(
+            mcp_rpc_error(-32601, "Method not found"),
+            "MCP error (-32601): Method not found"
+        );
+        assert_eq!(
+            mcp_rpc_error(-32700, "{\"stack\":\"boom\"}"),
+            "MCP error (-32700)"
+        );
+        assert_eq!(
+            mcp_rpc_error(-32602, "missing field `name` at line 1 column 2"),
+            "MCP error (-32602)"
+        );
     }
 
     /// MCP server 是第三方代码。这条断言锁住"宿主凭据不进子进程环境"。

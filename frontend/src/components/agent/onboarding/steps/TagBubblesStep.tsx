@@ -1,4 +1,4 @@
-import type { OnboardingTag, OnboardingHeaderChrome } from '../onboardingTypes'
+import type { OnboardingHeaderChrome, OnboardingTag } from '../onboardingTypes'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { agentService } from '../../../../services/agent'

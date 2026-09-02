@@ -27,6 +27,8 @@ pub struct ConfirmationResumeContext {
     pub session_id: Option<String>,
     /// Original process run id when confirmation was requested (may be reused on confirm/stream).
     pub run_id: Option<String>,
+    /// Consciousness proposal that originated this Work run, if any.
+    pub source_intent_id: Option<String>,
 }
 
 /// Extract session id from a lane key of the form `user:{id}:session:{session_id}`.
@@ -54,6 +56,9 @@ pub(crate) struct PendingRecipeConfirmation {
     /// 发起确认时的 run id（确认续跑复用同一 run hub / 通知）
     #[serde(default)]
     pub run_id: Option<String>,
+    /// Consciousness proposal that entered Work and is waiting on this confirmation.
+    #[serde(default)]
+    pub source_intent_id: Option<String>,
 }
 
 /// Agent 主入口

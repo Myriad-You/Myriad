@@ -443,13 +443,13 @@ html.dark .merope-ob-bar .merope-ob-cta {
   gap: 10px;
 }
 
-@media (max-width: 900px) {
+@media (width <= 900px) {
   .merope-ob-styles {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 640px) {
+@media (width <= 640px) {
   .merope-ob-styles {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1084,6 +1084,7 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
 /* Step 2: one field, style/roll chip inset on the right */
 .merope-ob-name-field {
   --name-dice-inset: 4px;
+
   position: relative;
   display: flex;
   gap: var(--name-dice-inset);
@@ -1389,23 +1390,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   font-size: 12px;
   font-weight: 720;
   letter-spacing: 0.04em;
-}
-
-.merope-ob-persona-group__draft {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid
-    color-mix(in srgb, var(--merope-warn, #c98a2e) 45%, transparent);
-  color: color-mix(
-    in srgb,
-    var(--merope-warn, #c98a2e) 92%,
-    var(--merope-ink, #222)
-  );
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
 .merope-ob-visual .merope-ob-persona-view__row {

@@ -2,7 +2,9 @@ import type { MeropeRigManifest } from '../rig/types'
 import type { RigAssetCompileEvent } from './compiler'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { compileRigAsset, persistRigAsset, preflightRigAsset } from './compiler'
+import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
+import { buildAnime25DPlayback } from '../anime25drig/playback'
+import { persistRigAsset, preflightRigAsset } from './compiler'
 
 const file = new File([new Uint8Array([1])], 'character.psd')
 const manifest = {
@@ -16,7 +18,7 @@ const manifest = {
 
 test('rig compiler exposes the complete successful artifact DAG', async () => {
   const events: RigAssetCompileEvent[] = []
-  const result = await compileRigAsset(
+  const preflight = await preflightRigAsset(
     file,
     'master-asset',
     {
@@ -31,8 +33,12 @@ test('rig compiler exposes the complete successful artifact DAG', async () => {
         }
       },
       preview: async () => manifest,
-      upload: async () => manifest,
     },
+    (event) => events.push(event),
+  )
+  const result = await persistRigAsset(
+    preflight,
+    async () => manifest,
     (event) => events.push(event),
   )
   assert.equal(result.manifest, manifest)
@@ -57,21 +63,25 @@ test('rig compiler exposes the complete successful artifact DAG', async () => {
 
 test('rig compiler marks persistence failure as terminal', async () => {
   const events: RigAssetCompileEvent[] = []
+  const preflight = await preflightRigAsset(
+    file,
+    'master-asset',
+    {
+      prepare: async () => ({
+        atlas: new Blob(),
+        analysisReference: new Blob(),
+        source: {} as never,
+        partCount: 2,
+      }),
+      preview: async () => manifest,
+    },
+    (event) => events.push(event),
+  )
   await assert.rejects(
-    compileRigAsset(
-      file,
-      'master-asset',
-      {
-        prepare: async () => ({
-          atlas: new Blob(),
-          analysisReference: new Blob(),
-          source: {} as never,
-          partCount: 2,
-        }),
-        preview: async () => manifest,
-        upload: async () => {
-          throw new Error('storage unavailable')
-        },
+    persistRigAsset(
+      preflight,
+      async () => {
+        throw new Error('storage unavailable')
       },
       (event) => events.push(event),
     ),
@@ -127,25 +137,44 @@ test('preflight sends the imported PSD composition to one-shot vision analysis',
   assert.equal(receivedReference, analysisReference)
 })
 
-test('preflight carries one-shot chest analysis into the persisted source', async () => {
+test('preflight carries analyzed playback profiles into the persisted source', async () => {
+  const mouth = { x0: 40, y0: 48, x1: 60, y1: 60, cx: 50, cy: 54 }
   const source = {
-    anime25dPlayback: {
-      kind: 'anime-2.5d-rig',
-      version: 1,
-      engine: 'Anime2.5DRig',
-      engineUrl: 'https://github.com/852wa/Anime2.5DRig',
-      license: 'MIT',
-      copyright: 'Copyright (c) 2026 hakoniwa',
-      pixelCanvas: { width: 100, height: 120 },
-      layers: [],
-      anchors: {},
-    },
+    anime25dPlayback: buildAnime25DPlayback({
+      frameWidth: 100,
+      frameHeight: 120,
+      layers: [
+        {
+          id: 'face',
+          role: 'face',
+          side: null,
+          group: 'head',
+          bounds: { x: 0, y: 0, width: 1, height: 1 },
+          textureBounds: { x: 0, y: 0, width: 1, height: 1 },
+          strands: [],
+        },
+      ],
+      anchors: {
+        face: { x0: 25, y0: 10, x1: 75, y1: 65, cx: 50, cy: 37.5 },
+        neckPivot: { x: 50, y: 70 },
+        neckTop: 65,
+        neckBottom: 75,
+        bodyPivot: { x: 50, y: 120 },
+        mouth,
+        faceScale: 1,
+      },
+      mouthProfile: analyzeAnime25DMouthProfile(
+        [],
+        { x: 0, y: 0, width: 100, height: 120 },
+        mouth,
+      ),
+    }),
   }
   const analyzed = structuredClone(manifest)
   analyzed.anime25dPlayback = {
     ...source.anime25dPlayback,
     chestProfile: {
-      version: 1,
+      version: 2,
       enabled: true,
       source: 'ai-vision',
       centerX: 50,
@@ -155,9 +184,11 @@ test('preflight carries one-shot chest analysis into the persisted source', asyn
       visibleScale: 0.7,
       motionScale: 1.05,
       frequencyScale: 0.96,
+      supportScale: 0.35,
+      garmentMotionScale: 0.8,
       confidence: 0.9,
     },
-  } as never
+  }
   const result = await preflightRigAsset(file, 'master-asset', {
     prepare: async () => ({
       atlas: new Blob(),
@@ -171,27 +202,45 @@ test('preflight carries one-shot chest analysis into the persisted source', asyn
     result.prepared.source.anime25dPlayback?.chestProfile,
     analyzed.anime25dPlayback.chestProfile,
   )
+  assert.deepEqual(
+    result.prepared.source.anime25dPlayback?.shellProfile,
+    analyzed.anime25dPlayback.shellProfile,
+  )
+  assert.notEqual(
+    result.prepared.source.anime25dPlayback?.shellProfile,
+    analyzed.anime25dPlayback.shellProfile,
+  )
 })
 
-test('failed preview cannot reach persistence', async () => {
-  let persisted = false
+test('failed preview never produces anything to persist', async () => {
+  const events: RigAssetCompileEvent[] = []
   await assert.rejects(
-    compileRigAsset(file, 'master-asset', {
-      prepare: async () => ({
-        atlas: new Blob(),
-        analysisReference: new Blob(),
-        source: {} as never,
-        partCount: 45,
-      }),
-      preview: async () => {
-        throw new Error('semantic chain rejected')
+    preflightRigAsset(
+      file,
+      'master-asset',
+      {
+        prepare: async () => ({
+          atlas: new Blob(),
+          analysisReference: new Blob(),
+          source: {} as never,
+          partCount: 45,
+        }),
+        preview: async () => {
+          throw new Error('semantic chain rejected')
+        },
       },
-      upload: async () => {
-        persisted = true
-        return manifest
-      },
-    }),
+      (event) => events.push(event),
+    ),
     /semantic chain rejected/,
   )
-  assert.equal(persisted, false)
+  // 拿不到 preflight 就无从落库；阶段流里也不该出现落库这一步。
+  assert.deepEqual(events.at(-1), {
+    stage: 'compile-preview',
+    status: 'failed',
+    error: 'semantic chain rejected',
+  })
+  assert.equal(
+    events.some((event) => event.stage === 'persist-manifest'),
+    false,
+  )
 })

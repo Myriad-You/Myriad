@@ -38,13 +38,14 @@ import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { currentCopy } from '../../i18n/localeCopy'
 import { getCSRFToken } from '../../utils/csrf'
-import { httpStatusMessage } from '../../utils/userFacingError'
 import {
   clearDedupCache,
   getPublicConfigDeduped,
   getUIConfigDeduped,
 } from '../../utils/requestDedup'
 import { useThemeMode } from '../../utils/themeSubscriber'
+import { showError } from '../../utils/toastManager'
+import { userFacingError } from '../../utils/userFacingError'
 import { Spinner } from '../Spinner'
 import { parseCustomPlatforms } from './parseCustomPlatforms'
 import { GlowBackground } from './shared/GlowBackground'
@@ -397,8 +398,7 @@ async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
       }),
     })
     if (!response.ok) {
-      const text = await response.text().catch(() => '')
-      throw new Error(text || httpStatusMessage(response.status))
+      throw new Error(`Failed to save custom platforms: HTTP ${response.status}`)
     }
     // Drop 30s UI config cache so refresh / other widgets see new list
     clearDedupCache(`${API_URL}/api/config/ui`)
@@ -926,6 +926,7 @@ const InfoTooltip = memo(
         setTimeout(setCopied, 1500, false)
       } catch (e) {
         console.error('Failed to copy:', e)
+        showError(userFacingError(e, currentCopy().errors.clipboardFailed))
       }
     }, [textContent])
 
@@ -1245,7 +1246,9 @@ const GlobalSettingsModal = memo(() => {
       closeSettingsModal()
     } catch (error) {
       console.error('Failed to create custom platform:', error)
-      alert(t.socialNetworkWidget.createCustomPlatformFailed)
+      showError(
+        userFacingError(error, t.socialNetworkWidget.createCustomPlatformFailed),
+      )
     } finally {
       setIsGeneratingIcon(false)
     }
@@ -1255,8 +1258,17 @@ const GlobalSettingsModal = memo(() => {
   const handleDeleteCustomPlatform = useCallback(
     async (platformId: string) => {
       if (confirm(t.socialNetworkWidget.confirmDeleteCustomPlatform)) {
-        await removeCustomPlatform(platformId)
-        setAllPlatforms(getAllPlatforms())
+        try {
+          await removeCustomPlatform(platformId)
+          setAllPlatforms(getAllPlatforms())
+        } catch (error) {
+          showError(
+            userFacingError(
+              error,
+              t.socialNetworkWidget.deleteCustomPlatformFailed,
+            ),
+          )
+        }
       }
     },
     [t],
@@ -1712,6 +1724,9 @@ export const SocialNetworkWidget = memo(
           }
         } catch (err) {
           console.error('Failed to copy:', err)
+          showError(
+            userFacingError(err, currentCopy().errors.clipboardFailed),
+          )
         }
         return
       }

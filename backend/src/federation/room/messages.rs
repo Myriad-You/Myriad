@@ -62,9 +62,13 @@ pub async fn send_room_message(
         want_encrypt,
         room_game.as_ref(),
     ) {
+        tracing::error!(%error, "invalid game message");
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": error, "code": "GAME_MESSAGE_INVALID"})),
+            Json(json!({
+                "error": "Invalid game message",
+                "code": "GAME_MESSAGE_INVALID"
+            })),
         ));
     }
 

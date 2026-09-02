@@ -10,11 +10,11 @@ import {
   FaMicrophone,
   FaVolumeUp,
   LuChevronLeft,
-  LuPalette,
-  LuStore,
-  LuRefreshCw,
   LuNotebookPen,
+  LuPalette,
+  LuRefreshCw,
   LuSparkles,
+  LuStore,
   SiGooglegemini,
   SiOpenai,
   SiOpenrouter,
@@ -22,20 +22,20 @@ import {
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { userFacingError } from '../../utils/userFacingError'
-import { agentService } from '../../services/agent'
-import { invalidatePublicConfigCache } from '../../utils/requestDedup'
-import {
-  ADDRESSEE_UPDATED_EVENT,
-  activityKey,
-  moodBand,
-} from '../agent/meropeVitals'
 import {
   FACE_UPDATED_EVENT,
 } from '../../features/merope/events'
 import SiteMotionWorkbench from '../../features/merope/SiteMotionWorkbench'
-import PersonaOnboardingPage from '../agent/onboarding/PersonaOnboardingPage'
+import { agentService } from '../../services/agent'
+import { invalidatePublicConfigCache } from '../../utils/requestDedup'
+import { userFacingError } from '../../utils/userFacingError'
+import {
+  activityKey,
+  ADDRESSEE_UPDATED_EVENT,
+  moodBand,
+} from '../agent/meropeVitals'
 import { parseFlattenedPersona } from '../agent/onboarding/onboardingTypes'
+import PersonaOnboardingPage from '../agent/onboarding/PersonaOnboardingPage'
 import {
   AutoHeight,
   InfoActionCard,
@@ -45,13 +45,18 @@ import {
   SettingsButton,
   SettingSection,
   SettingTitleTag,
+  SwitchItem,
   ToggleSwitch,
   useSettingGuide,
 } from '../settings'
+import AgentOptionsPanel, {
+  AgentNestedSection,
+} from './AgentOptionsPanel'
 import {
   defaultModelsForSource,
   parseVendorSources,
   resolveUsedVendorSlug,
+  speechProviderKindFromSource,
   vendorSupports,
 } from './aiVendorPresets'
 import {
@@ -360,6 +365,13 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     [uiConfigFields],
   )
 
+  const agentPersonaSpeechEnabled = useMemo(
+    () =>
+      uiConfigFields.find((field) => field.key === 'merope_speech_enabled')
+        ?.value === 'true',
+    [uiConfigFields],
+  )
+
   const currentLiteProvider = useMemo(() => {
     const raw = getFieldValue('lite_provider')
     if (!raw) return 'openrouter'
@@ -495,6 +507,11 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     }
     add(getFieldValue('ai_image_source') || currentImageProvider, 'image')
     add(getFieldValue('speech_source') || currentSpeechProvider, 'speech')
+    for (const source of vendorSources) {
+      if (source.enabled && vendorSupports(source, 'realtime')) {
+        add(source.slug, 'realtime')
+      }
+    }
     return map
   }, [
     currentImageProvider,
@@ -543,17 +560,9 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     (slug: string) => {
       updateValue('speech_source', slug)
       const source = vendorSources.find((item) => item.slug === slug)
-      const kind = source?.kind || slug
-      const mapped =
-        kind === 'tencent'
-          ? 'tencent'
-          : kind === 'openrouter'
-            ? 'openrouter'
-            : kind === 'gemini'
-              ? 'gemini'
-              : 'openai'
+      const mapped = speechProviderKindFromSource(source, slug)
       updateValue('speech_provider', mapped)
-      const models = defaultModelsForSource(source ?? { kind }, 'speech')
+      const models = defaultModelsForSource(source ?? { kind: slug }, 'speech')
       if (models.stt) updateValue('speech_stt_model', models.stt)
       if (models.tts !== undefined) updateValue('speech_tts_model', models.tts)
       if (models.voice) updateValue('speech_tts_voice', models.voice)
@@ -673,6 +682,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   const [savedPersonaName, setSavedPersonaName] = useState('')
   const [hasSavedPersona, setHasSavedPersona] = useState(false)
   const [mood, setMood] = useState(70)
+  const [arousal, setArousal] = useState(48)
   const [activity, setActivity] = useState('idle')
   const [personality, setPersonality] = useState('')
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null)
@@ -702,6 +712,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       setSavedPersonaName('')
       setHasSavedPersona(false)
       setMood(70)
+      setArousal(48)
       setActivity('idle')
       setPersonality('')
       setPortraitUrl(null)
@@ -723,6 +734,9 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
               Boolean(persona.personality?.trim()),
           )
           setMood(typeof persona.mood === 'number' ? persona.mood : 70)
+          setArousal(
+            typeof persona.arousal === 'number' ? persona.arousal : 48,
+          )
           setActivity(persona.activity ?? 'idle')
           setPersonality(persona.personality?.trim() ?? '')
           setPortraitUrl(
@@ -769,10 +783,19 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     const summary = parseFlattenedPersona(personality).summary.replace(/\s+/g, ' ').trim()
     return {
       summary,
-      mood: vitalsReady ? o.mood[moodBand(mood)] : '—',
+      mood: vitalsReady ? o.mood[moodBand(mood, arousal)] : '—',
       activity: vitalsReady ? o.activity[activityKey(activity)] : '—',
     }
-  }, [activity, hasSavedPersona, meropeOn, mood, o, personality, vitalsReady])
+  }, [
+    activity,
+    arousal,
+    hasSavedPersona,
+    meropeOn,
+    mood,
+    o,
+    personality,
+    vitalsReady,
+  ])
 
   return (
     <SettingSection
@@ -859,7 +882,11 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
               gateLead={personaGateLead}
             />
           ) : meropePage ? (
-            <SiteMotionWorkbench mood={mood} activity={activity} />
+            <SiteMotionWorkbench
+              mood={mood}
+              arousal={arousal}
+              activity={activity}
+            />
           ) : (
             <>
       <SettingGroup
@@ -977,22 +1004,30 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       </SettingGroup>
 
       <SettingGroup
-        title={t.config.agentPersona}
+        title={t.config.agentOptions}
         icon={<LuNotebookPen />}
-        description={personaGateLead}
-        titleExtra={
-          <SettingTitleTag variant="beta">{t.config.agentPersonaBeta}</SettingTitleTag>
-        }
+        description={t.config.agentOptionsDesc}
         {...bindGuide('ai.agentPersona', g.ai.agentPersona)}
-        switch={{
-          checked: meropeOn,
-          onChange: (value) =>
-            updateUiFieldValue('merope_enabled', value ? 'true' : 'false'),
-          disabled: !proEnabled,
-          ariaLabel: t.config.agentPersona,
-        }}
       >
+        <AgentNestedSection
+          title={t.config.agentPersona}
+          description={personaGateLead}
+          badge={
+            <SettingTitleTag variant="beta">
+              {t.config.agentPersonaBeta}
+            </SettingTitleTag>
+          }
+          toggle={{
+            checked: meropeOn,
+            onChange: (value) =>
+              updateUiFieldValue('merope_enabled', value ? 'true' : 'false'),
+            disabled: !proEnabled,
+            ariaLabel: t.config.agentPersona,
+            title: t.config.agentPersonaHint,
+          }}
+        >
         {meropeOn ? (
+          <>
           <InfoActionCard
             copyable={false}
             tone={!liteEnabled ? 'info' : 'default'}
@@ -1067,7 +1102,24 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
               </p>
             )}
           </InfoActionCard>
+          <SwitchItem
+            itemKey="merope_speech_enabled"
+            label={t.config.agentPersonaSpeech}
+            description={t.config.agentPersonaSpeechHint}
+            {...bindGuide('ai.agentPersonaSpeech', g.ai.agentPersonaSpeech)}
+            value={agentPersonaSpeechEnabled}
+            onChange={(value) =>
+              updateUiFieldValue(
+                'merope_speech_enabled',
+                value ? 'true' : 'false',
+              )
+            }
+            layout="horizontal"
+          />
+          </>
         ) : null}
+        </AgentNestedSection>
+        <AgentOptionsPanel />
       </SettingGroup>
 
       {/* 图片生成模型 */}
@@ -1148,66 +1200,99 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         />
 
         {(() => {
-          const selected =
-            vendorSources.find(
-              (item) =>
-                item.slug ===
-                (getFieldValue('speech_source') || currentSpeechProvider),
-            )?.kind || currentSpeechProvider
-          return (
+          const selectedSource = vendorSources.find(
+            (item) =>
+              item.slug ===
+              (getFieldValue('speech_source') || currentSpeechProvider),
+          )
+          const selected = speechProviderKindFromSource(
+            selectedSource,
+            selectedSource?.kind || currentSpeechProvider,
+          )
+          if (selected === 'minimax') {
+            return (
+              <>
+                <InputItem
+                  itemKey="speech_tts_model"
+                  label={t.config.speechTtsModel}
+                  value={getFieldValue('speech_tts_model')}
+                  onChange={(v) => updateValue('speech_tts_model', v)}
+                  placeholder="speech-2.8-turbo"
+                  inputType="text"
+                  layout="vertical"
+                />
+                <InputItem
+                  itemKey="speech_tts_voice"
+                  label={t.config.speechTtsVoice}
+                  value={getFieldValue('speech_tts_voice', 'female-shaonv')}
+                  onChange={(v) => updateValue('speech_tts_voice', v)}
+                  placeholder="female-shaonv"
+                  inputType="text"
+                  layout="vertical"
+                />
+                <p className="setting-hint">{t.config.speechMinimaxAsrHint}</p>
+              </>
+            )
+          }
+          if (
             selected === 'openai' ||
             selected === 'openrouter' ||
             selected === 'openai_compatible' ||
             selected === 'gemini'
-          )
-        })() && (
-          <>
-            <InputItem
-              itemKey="speech_stt_model"
-              label={t.config.speechSttModel}
-              value={getFieldValue('speech_stt_model')}
-              onChange={(v) => updateValue('speech_stt_model', v)}
-              placeholder={
-                currentSpeechProvider === 'openrouter'
-                  ? 'openai/gpt-transcribe'
-                  : currentSpeechProvider === 'gemini'
-                    ? 'gemini-3.6-flash'
-                    : 'gpt-transcribe'
-              }
-              inputType="text"
-              layout="vertical"
-            />
-            <InputItem
-              itemKey="speech_tts_model"
-              label={t.config.speechTtsModel}
-              value={getFieldValue('speech_tts_model')}
-              onChange={(v) => updateValue('speech_tts_model', v)}
-              placeholder={
-                currentSpeechProvider === 'openai'
-                  ? 'gpt-4o-mini-tts'
-                  : currentSpeechProvider === 'gemini'
-                    ? 'gemini-2.5-flash-preview-tts'
-                    : ''
-              }
-              inputType="text"
-              layout="vertical"
-            />
-            <InputItem
-              itemKey="speech_tts_voice"
-              label={t.config.speechTtsVoice}
-              value={getFieldValue('speech_tts_voice', 'marin')}
-              onChange={(v) => updateValue('speech_tts_voice', v)}
-              placeholder={
-                currentSpeechProvider === 'gemini' ? 'Kore' : 'marin'
-              }
-              inputType="text"
-              layout="vertical"
-            />
-            {currentSpeechProvider === 'openrouter' ? (
-              <p className="setting-hint">{t.config.speechOpenRouterTtsHint}</p>
-            ) : null}
-          </>
-        )}
+          ) {
+            return (
+              <>
+                <InputItem
+                  itemKey="speech_stt_model"
+                  label={t.config.speechSttModel}
+                  value={getFieldValue('speech_stt_model')}
+                  onChange={(v) => updateValue('speech_stt_model', v)}
+                  placeholder={
+                    currentSpeechProvider === 'openrouter'
+                      ? 'openai/gpt-transcribe'
+                      : currentSpeechProvider === 'gemini'
+                        ? 'gemini-3.6-flash'
+                        : 'gpt-transcribe'
+                  }
+                  inputType="text"
+                  layout="vertical"
+                />
+                <InputItem
+                  itemKey="speech_tts_model"
+                  label={t.config.speechTtsModel}
+                  value={getFieldValue('speech_tts_model')}
+                  onChange={(v) => updateValue('speech_tts_model', v)}
+                  placeholder={
+                    currentSpeechProvider === 'openai'
+                      ? 'gpt-4o-mini-tts'
+                      : currentSpeechProvider === 'gemini'
+                        ? 'gemini-2.5-flash-preview-tts'
+                        : ''
+                  }
+                  inputType="text"
+                  layout="vertical"
+                />
+                <InputItem
+                  itemKey="speech_tts_voice"
+                  label={t.config.speechTtsVoice}
+                  value={getFieldValue('speech_tts_voice', 'marin')}
+                  onChange={(v) => updateValue('speech_tts_voice', v)}
+                  placeholder={
+                    currentSpeechProvider === 'gemini' ? 'Kore' : 'marin'
+                  }
+                  inputType="text"
+                  layout="vertical"
+                />
+                {currentSpeechProvider === 'openrouter' ? (
+                  <p className="setting-hint">
+                    {t.config.speechOpenRouterTtsHint}
+                  </p>
+                ) : null}
+              </>
+            )
+          }
+          return null
+        })()}
       </SettingGroup>
             </>
           )}

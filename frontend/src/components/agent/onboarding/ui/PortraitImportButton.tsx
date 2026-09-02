@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
-import { SettingsButton } from '../../../settings'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { uploadSitePortrait } from '../../../../features/merope/api'
 import { notifyFaceUpdated } from '../../../../features/merope/events'
 import { userFacingError } from '../../../../utils/userFacingError'
+import { SettingsButton } from '../../../settings'
 import { GhostButton } from './Chrome'
 
 interface Props {

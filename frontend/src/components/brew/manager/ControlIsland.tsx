@@ -40,10 +40,10 @@ import {
 } from '@lib/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
-import { userFacingError } from '../../../utils/userFacingError'
-
 import { BREW_SHORTCUTS } from '../../../hooks/useBrewKeyboard'
+
 import * as brewApi from '../../../services/brewApi'
+import { userFacingError } from '../../../utils/userFacingError'
 import { getIconUrl, IslandLayout } from '../../shared/control-island'
 import {
   AddMode,

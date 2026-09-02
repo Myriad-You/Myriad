@@ -24,7 +24,7 @@ impl NotificationManager {
             )
             .with_metadata(serde_json::json!({
                 "event_key": if success { "heartbeat.succeeded" } else { "heartbeat.failed" },
-                "action": "open_arael_manage",
+                "action": "open_agent_manage",
                 "tab": "heartbeat",
                 "success": success,
                 "status": if success { "completed" } else { "failed" },
@@ -84,7 +84,7 @@ impl NotificationManager {
             "status": "failed",
         });
         if crate::services::agent::merope::is_enabled().await {
-            metadata["action"] = serde_json::json!("open_arael");
+            metadata["action"] = serde_json::json!("open_agent");
             metadata["session_id"] = serde_json::json!(
                 crate::services::agent::merope::ingest::latest_session_id_for(user_id).await
             );
@@ -114,7 +114,7 @@ impl NotificationManager {
             "status": "failed",
         });
         if crate::services::agent::merope::is_enabled().await {
-            metadata["action"] = serde_json::json!("open_arael");
+            metadata["action"] = serde_json::json!("open_agent");
             metadata["session_id"] = serde_json::json!(
                 crate::services::agent::merope::ingest::latest_session_id_for(user_id).await
             );
@@ -161,7 +161,7 @@ impl NotificationManager {
             )
             .with_metadata(serde_json::json!({
                 "event_key": event_key,
-                "action": "open_arael_manage",
+                "action": "open_agent_manage",
                 "tab": "skills",
                 "skill_id": skill_id,
                 "status": action,

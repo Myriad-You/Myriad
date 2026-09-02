@@ -4,7 +4,6 @@
  * 对接后端 /api/agent/notifications 系列端点：
  * - SSE 实时流（EventSource，cookie 认证）
  * - 历史列表 / 未读数
- * - 单条已读 / 全部已读
  */
 import { API_URL } from '../config'
 import apiService from './api'
@@ -58,7 +57,6 @@ export type NotificationStreamEvent =
   | { event: 'init'; unread_count: number }
   | { event: 'new_notification'; notification: AppNotification }
   | { event: 'notification_read'; id: string; user_id: number }
-  | { event: 'notifications_read_all'; user_id: number }
   | { event: 'notification_deleted'; id: string; user_id: number }
   | { event: 'notifications_cleared'; user_id: number }
   /** 订阅方落后丢消息：应重新 list() 补全 */

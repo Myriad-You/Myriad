@@ -74,6 +74,8 @@ manifest-src 'none'
 - `img-src` 默认仅 `data:` / `blob:` / 宿主同源。需要外链封面、CDN 图时，在
   `manifest.permissions` 声明 **`network:fetch`**（安装时由用户授权）；CSP 会
   追加 `https:` / `http:`。不要用 `/api/proxy/image` 折中绕过声明。
+  `Tapp.persona.get()` 的 `portraitUrl` 已是宿主同源路径，直接 `<img src>` 即可，不要
+  再申请 `network:fetch` 去拉立绘。
 - `connect-src` 仅 `blob:` / `data:`：包内 Loader（Three `FileLoader`、`.glb`）
   可以读沙箱自己创建的 blob。即使有 `network:fetch`，也不能直接 `fetch` `https:` /
   XHR/WS，出站仍走 Manifest `apis` + Bridge。包装器同样拒绝非 blob/data 的 `fetch`。

@@ -32,9 +32,9 @@ RUN npm install --global pnpm@${PNPM_VERSION} && \
 # Copy source code and config
 COPY frontend/ ./
 
-# Hotlink host list imported by src/utils/proxyImageUrl.ts
-# (../../../shared/... from /app/src/utils → /shared/...)
-COPY shared/image_proxy_hosts.json /shared/image_proxy_hosts.json
+# Shared static contracts imported by frontend source
+# (relative ../../../shared/... from /app/src/... → /shared/...)
+COPY shared /shared
 
 # Build argument for backend URL
 # 默认为空字符串，使用相对路径（生产环境推荐）

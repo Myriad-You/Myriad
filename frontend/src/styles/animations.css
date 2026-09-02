@@ -48,19 +48,6 @@
   }
 }
 
-/* 下滑进入 */
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-20px) translateZ(0);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) translateZ(0);
-  }
-}
-
 /* 右滑进入 */
 
 /* 缩放进入 */
@@ -142,17 +129,6 @@
   50% {
     opacity: 0.7;
     transform: scale(0.95) translateZ(0);
-  }
-}
-
-/* Tapp 商店安装/更新进度条扫光 */
-@keyframes tappPkgProgressShimmer {
-  0% {
-    background-position: 200% 0;
-  }
-
-  100% {
-    background-position: -200% 0;
   }
 }
 

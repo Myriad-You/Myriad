@@ -144,42 +144,6 @@ export function getNeteaseAudioUrlImmediate(songId: string): string {
 }
 
 /**
- * 获取网易云音乐音频URL
- * 根据用户地理位置与是否需要 Web Audio 决定策略：
- * - 桌面：全量代理（频谱 CORS）
- * - 移动国内：play-url 302 HTTPS CDN
- * - 海外：全量代理拉流
- *
- * @param songId 歌曲ID
- * @param useProxy 是否强制使用全量代理（覆盖自动检测）
- * @returns 音频URL（可直接赋给 audio.src）
- */
-export async function getNeteaseAudioUrl(
-  songId: string,
-  useProxy?: boolean,
-): Promise<string> {
-  // 如果显式指定了是否使用代理
-  if (useProxy !== undefined) {
-    return useProxy
-      ? getNeteaseProxyAudioUrl(songId)
-      : getNeteasePlayUrl(songId)
-  }
-
-  if (prefersSameOriginMusicProxy()) {
-    return getNeteaseProxyAudioUrl(songId)
-  }
-
-  // 已有缓存则同步返回，避免临时播放等热路径再挂一次 microtask
-  const cached = getCachedIsChinaMainland()
-  if (cached === true) return getNeteasePlayUrl(songId)
-  if (cached === false) return getNeteaseProxyAudioUrl(songId)
-
-  // 自动检测是否需要代理
-  const inChina = await isUserInChinaMainland()
-  return getNeteaseGeoPlaybackUrl(songId, inChina)
-}
-
-/**
  * QQ「仅解析播放链」：后端 302 到 HTTPS CDN，音频字节仍直连 QQ。
  * 与网易 play-url 对称。CDN 同样无 ACAO，桌面频谱须走全量代理。
  */
@@ -192,13 +156,6 @@ export function getQQPlayUrl(songMid: string): string {
  */
 export function getQQProxyAudioUrl(songMid: string): string {
   return `${API_URL}/api/proxy/music/qq/audio/${songMid}`
-}
-
-/**
- * @deprecated 使用 getQQProxyAudioUrl；保留别名避免外部引用断裂。
- */
-export function getQQAudioUrl(songMid: string): string {
-  return getQQProxyAudioUrl(songMid)
 }
 
 /**
@@ -253,28 +210,6 @@ export function getQQAudioUrlImmediate(songMid: string): string {
   if (cached === false) return getQQProxyAudioUrl(songMid)
   void isUserInChinaMainland()
   return getQQProxyAudioUrl(songMid)
-}
-
-/**
- * 获取 QQ 音乐音频 URL
- * - 桌面：全量代理（频谱 CORS）
- * - 移动国内：play-url 302 CDN
- * - 海外：全量代理拉流
- */
-export async function getQQAudioUrlForGeo(
-  songMid: string,
-  useProxy?: boolean,
-): Promise<string> {
-  if (useProxy !== undefined) {
-    return useProxy ? getQQProxyAudioUrl(songMid) : getQQPlayUrl(songMid)
-  }
-  if (prefersSameOriginMusicProxy()) return getQQProxyAudioUrl(songMid)
-
-  const cached = getCachedIsChinaMainland()
-  if (cached === true) return getQQPlayUrl(songMid)
-  if (cached === false) return getQQProxyAudioUrl(songMid)
-  const inChina = await isUserInChinaMainland()
-  return getQQGeoPlaybackUrl(songMid, inChina)
 }
 
 /**
@@ -908,52 +843,6 @@ export async function getQQPlaylist(playlistId: string): Promise<Song[]> {
   }
 }
 
-/**
- * 获取网易云音乐歌词
- */
-export async function getNeteaseLyrics(songId: string): Promise<LyricLine[]> {
-  const cacheKey = `netease-${songId}`
-
-  // 检查缓存
-  if (lyricsCache.has(cacheKey)) {
-    return lyricsCache.get(cacheKey)!
-  }
-
-  try {
-    const response = await fetch(
-      `${API_URL}/api/proxy/music/netease/lyrics/${songId}`,
-    )
-
-    if (response.status === 429) {
-      const { notifyHttpRateLimit } = await import('./httpRateLimitToast')
-      notifyHttpRateLimit(response)
-      return []
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        currentCopy().errors.lyricsFailed.replace(
-          '{status}',
-          String(response.status),
-        ),
-      )
-    }
-
-    const data = await response.json()
-
-    if (data.lrc?.lyric) {
-      const lyrics = parseLyrics(data.lrc.lyric)
-      addToLyricsCache(cacheKey, lyrics)
-      return lyrics
-    }
-
-    return []
-  } catch (error) {
-    console.error('Error fetching Netease lyrics:', error)
-    return []
-  }
-}
-
 // 逐字歌词缓存（复用 LRU 大小上限）
 const verbatimLyricsCache = new Map<string, VerbatimLyricsResult>()
 
@@ -1156,17 +1045,6 @@ export async function getKugouVerbatimLyrics(
     console.error('Error fetching KuGou verbatim lyrics:', error)
     return []
   }
-}
-
-/**
- * 获取QQ音乐歌词（含可选翻译层）
- *
- * BE 已规范化：retcode 校验 + HTML 实体 unescape + `trans` 字段。
- * 返回 lines；翻译挂到 line.translation（与网易 attachLyricTranslation 一致）。
- */
-export async function getQQLyrics(songId: string): Promise<LyricLine[]> {
-  const result = await getQQLyricsWithTranslation(songId)
-  return result.lines
 }
 
 export async function getQQLyricsWithTranslation(

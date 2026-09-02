@@ -57,24 +57,6 @@ pub(crate) async fn toggle_heartbeat(
     }
 }
 
-/// 重新加载 Heartbeat 配置（HEARTBEAT.md 修改后调用）
-pub(crate) async fn reload_heartbeat(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-) -> Result<Json<Value>, HttpError> {
-    require_current_admin(&claims, &db).await?;
-    let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
-        HttpError::from((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Heartbeat not initialized" })),
-        ))
-    })?;
-
-    manager.reload().await;
-    let tasks = manager.get_tasks().await;
-    Ok(Json(json!({ "reloaded": true, "task_count": tasks.len() })))
-}
-
 #[derive(Debug, Deserialize)]
 pub(crate) struct UpdateHeartbeatBody {
     name: Option<String>,
@@ -306,18 +288,34 @@ pub(crate) async fn mcp_put_config(
             })))
         }
         Err(e) => {
-            let status = if e.starts_with("server ")
+            tracing::error!(error = %e, "MCP config replace failed");
+            let validation = e.starts_with("server ")
                 || e.contains("duplicate")
                 || e.contains("empty")
                 || e.contains("too many")
                 || e.contains("too long")
-                || e.contains("may only")
-            {
+                || e.contains("may only");
+            let status = if validation {
                 StatusCode::BAD_REQUEST
             } else {
                 StatusCode::SERVICE_UNAVAILABLE
             };
-            Err(HttpError::from((status, Json(json!({ "error": e })))))
+            let public = if validation {
+                e
+            } else {
+                "Failed to save MCP config".to_string()
+            };
+            Err(HttpError::from((
+                status,
+                Json(json!({
+                    "error": public,
+                    "code": if validation {
+                        "mcp_config_invalid"
+                    } else {
+                        "mcp_config_save_failed"
+                    }
+                })),
+            )))
         }
     }
 }
@@ -472,53 +470,21 @@ pub(crate) async fn delete_skill(
     Ok(Json(json!({ "success": true })))
 }
 
-/// 获取能力缺口报告
-pub(crate) async fn list_capability_gaps(
-    State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
-) -> Result<Json<Value>, HttpError> {
-    require_current_admin(&claims, &db).await?;
-    let evo = crate::services::agent::skill_evolution::get_skill_evolution().ok_or_else(|| {
-        HttpError::from((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Skill evolution not initialized" })),
-        ))
-    })?;
-
-    let gaps = evo.get_all_gaps().await;
-    let significant_count = gaps.iter().filter(|g| g.confidence >= 0.7).count();
-
-    Ok(Json(json!({
-        "gaps": gaps,
-        "total": gaps.len(),
-        "significantCount": significant_count,
-    })))
-}
-
-// Multi-Agent Routing
-
-/// 获取所有 Agent 配置信息
-pub(crate) async fn list_agents() -> Json<Value> {
-    let router = crate::services::agent::routing::get_router();
-    let profiles: Vec<Value> = router
-        .get_all_profiles()
-        .iter()
-        .map(|p| {
-            json!({
-                "id": p.id,
-                "role": p.role,
-                "description": p.description,
-                "defaultTier": format!("{:?}", p.default_tier),
-                "maxConcurrency": p.max_concurrency,
-                "capabilityPrefixes": p.capability_prefixes,
-            })
-        })
-        .collect();
-
-    Json(json!({ "agents": profiles }))
-}
-
 // Session Control (Steer / Interrupt)
+
+/// Stop the live Chat generation. Does not cancel Work.
+pub(crate) async fn cancel_chat_turn(
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, HttpError> {
+    let user_id = parse_user_id(&claims)?;
+    let session_id = body
+        .get("sessionId")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let cancelled = crate::services::agent::turn::cancel_chat_turn(user_id, session_id).await;
+    Ok(Json(json!({ "success": cancelled })))
+}
 
 /// 中断当前正在执行的任务并替换为新请求
 pub(crate) async fn interrupt_session(
@@ -526,7 +492,9 @@ pub(crate) async fn interrupt_session(
     Extension(claims): Extension<Claims>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, HttpError> {
-    let user_id = parse_user_id(&claims)?;
+    // 这里提交的新请求 `context: None`，落到 Agent 里就是 Work。之前只解析
+    // 了 user_id，等于绕过了模块可见性这道门。
+    let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     let new_input = body
         .get("input")
         .and_then(|v| v.as_str())
@@ -665,9 +633,13 @@ pub(crate) async fn steer_session(
     crate::services::agent::executor::enqueue_steering(&db, &task_id, instruction.to_string())
         .await
         .map_err(|error| {
+            tracing::error!(%error, "failed to enqueue steering instruction");
             HttpError::from((
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "error": error, "code": "steering_unavailable" })),
+                Json(json!({
+                    "error": "Failed to persist steering instruction",
+                    "code": "steering_unavailable"
+                })),
             ))
         })?;
 

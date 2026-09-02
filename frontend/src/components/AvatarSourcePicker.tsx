@@ -23,8 +23,8 @@ import type {
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
-import { userFacingError } from '../utils/userFacingError'
 import avatarSourceApi from '../services/avatarSourceApi'
+import { userFacingError } from '../utils/userFacingError'
 import { Avatar } from './Avatar'
 import { Spinner } from './Spinner'
 import './AvatarSourcePicker.css'
@@ -77,8 +77,8 @@ export function AvatarSourcePicker({
           : sourceKey(data.current.kind, data.current.ref),
       )
       setError('')
-    } catch {
-      setError(t.userModal.profileSourceFailed)
+    } catch (error) {
+      setError(userFacingError(error, t.userModal.profileSourceFailed))
     } finally {
       setLoading(false)
     }
