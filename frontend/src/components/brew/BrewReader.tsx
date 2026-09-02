@@ -21,7 +21,14 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { API_URL as CONFIG_API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { useImmersiveChrome } from '../../contexts/NavigationContext'
@@ -266,7 +273,7 @@ interface TocItem {
 }
 
 export default function BrewReader({
-  item,
+  item: incomingItem,
   onClose,
   onToggleStar,
   isAuthenticated = false,
@@ -280,6 +287,23 @@ export default function BrewReader({
   const { t } = useI18n()
   const contentRef = useRef<HTMLDivElement>(null)
   const articleRef = useRef<HTMLElement>(null)
+
+  /**
+   * 换文章 = 淡出 → 换 → 淡入，而不是换完 DOM 再补一个淡入。
+   *
+   * 后者会先把新文章按满不透明画一帧，再跳到 0 开始淡入 —— 就是读者看到的
+   * 「闪一下」。这里把 prop 延迟一步：组件内部所有逻辑（标题、目录、进度、
+   * 批注、滚动复位）都只看 `item`，它在旧正文淡到 0 之后才切成新的一篇，
+   * 于是这些切换全都发生在正文不可见的那一刻。
+   *
+   * 同一篇的字段更新（已读 / 收藏 / 进度）直接透传，不走动画。
+   */
+  const [item, setItem] = useState(incomingItem)
+  if (incomingItem !== item && incomingItem.id === item.id)
+    setItem(incomingItem)
+  /** 中栏：标题 + 元信息 + 正文 + 上下篇。淡入淡出作用在这一层，不碰两侧面板。 */
+  const columnRef = useRef<HTMLDivElement>(null)
+  const fadeOutRef = useRef<Animation | null>(null)
 
   // 阅读列表上下文 - 用于顺序阅读导航
   const readingList = useReadingListOptional()
@@ -301,12 +325,17 @@ export default function BrewReader({
     requestAnimationFrame(() => {
       const el = articleRef.current
       if (!el) return
+      // 复位必须瞬间完成：容器带 scroll-behavior: smooth，直接 scrollTo / 赋 scrollTop
+      // 都会平滑滚一段，正好落在新正文淡入的那 260ms 里，看起来像内容在往上飘。
+      const prevBehavior = el.style.scrollBehavior
+      el.style.scrollBehavior = 'auto'
       if (saved > 0 && saved < 100) {
         const max = el.scrollHeight - el.clientHeight
         if (max > 0) el.scrollTop = (saved / 100) * max
       } else {
         el.scrollTo({ top: 0 })
       }
+      el.style.scrollBehavior = prevBehavior
     })
   }, [item.id])
 
@@ -363,19 +392,47 @@ export default function BrewReader({
   const enableAnimations = !isExlight(animConfig)
 
   /**
-   * 换文章时给正文做一次淡入。
-   *
-   * 直接替换 DOM 会「啪」地跳一下：上一篇的段落瞬间变成下一篇，滚动位置又在
-   * 同一帧归零，读者会彻底丢失位置感。260ms 淡入 + 8px 上移把「换了一篇」这件
-   * 事说清楚，也顺手把滚动复位藏在动画里。
+   * 第一步：淡出。父组件换了 incomingItem 时，先把中栏淡到 0（140ms），
+   * 结束时才真正 setItem —— 目录、进度、滚动复位都在这一刻发生，读者看不见。
+   * 连续快速切换（狂按 j/k）时淡出已经在跑，只改它的目标，不从头再来。
    *
    * exlight 一律不做 —— `prefers-reduced-motion` 在本仓库就会解析成 exlight。
    */
   useEffect(() => {
+    if (incomingItem.id === item.id) return
+    const col = columnRef.current
+    if (!enableAnimations || !col || typeof col.animate !== 'function') {
+      setItem(incomingItem)
+      return
+    }
+    const running = fadeOutRef.current
+    if (running && running.playState === 'running') {
+      running.onfinish = () => setItem(incomingItem)
+      return
+    }
+    const out = col.animate(
+      [
+        { opacity: 1, transform: 'translateY(0)' },
+        { opacity: 0, transform: 'translateY(-6px)' },
+      ],
+      { duration: 140, easing: 'ease-in', fill: 'forwards' },
+    )
+    fadeOutRef.current = out
+    out.onfinish = () => setItem(incomingItem)
+  }, [incomingItem, item.id, enableAnimations])
+
+  /**
+   * 第二步：淡入。用 useLayoutEffect 在新正文首帧绘制之前起动画，
+   * 第一帧就是 opacity 0 —— useEffect 会晚一帧，那一帧就是「闪」。
+   * 淡出留下的 fill: forwards 必须先取消，否则新正文永远透明。
+   */
+  useLayoutEffect(() => {
+    fadeOutRef.current?.cancel()
+    fadeOutRef.current = null
     if (!enableAnimations) return
-    const body = articleRef.current?.firstElementChild as HTMLElement | null
-    if (!body || typeof body.animate !== 'function') return
-    const swap = body.animate(
+    const col = columnRef.current
+    if (!col || typeof col.animate !== 'function') return
+    const swap = col.animate(
       [
         { opacity: 0, transform: 'translateY(8px)' },
         { opacity: 1, transform: 'translateY(0)' },
@@ -1748,6 +1805,7 @@ export default function BrewReader({
 
           {/* 正文内容 */}
           <div
+            ref={columnRef}
             className={`w-full ${currentLayout.width} px-6 py-16 transition-all duration-300`}
           >
             {/* 标题 */}
@@ -1857,13 +1915,14 @@ export default function BrewReader({
 
               /* 行内代码 - 柔和 */
               prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-lg
-              prose-code:text-[0.9em] prose-code:font-normal
+              prose-code:text-[0.9em] prose-code:font-normal prose-code:font-mono
               prose-code:before:content-none prose-code:after:content-none
 
               /* 代码块 - 干净圆角 + 相对定位（支持复制按钮） */
               prose-pre:rounded-2xl prose-pre:px-5 prose-pre:py-4
               prose-pre:overflow-x-auto prose-pre:text-[0.875em]
-              prose-pre:leading-relaxed prose-pre:relative
+              prose-pre:leading-relaxed prose-pre:relative prose-pre:font-mono
+              [&_pre_code]:font-mono
               /* 代码块内的code不要额外样式 */
               [&_pre_code]:p-0 [&_pre_code]:bg-transparent [&_pre_code]:rounded-none
               [&_pre_code]:text-inherit
