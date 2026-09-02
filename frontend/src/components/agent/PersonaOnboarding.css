@@ -36,6 +36,11 @@ html.dark .merope-ob {
   }
 }
 
+/* 分岔口自己管标题到内容的空隙，不再叠一层 settings header gap。 */
+.setting-section.setting-section--persona:has(.merope-ob-choice) > .section-header {
+  margin-bottom: 0;
+}
+
 .setting-section.setting-section--persona > .config-form {
   overflow: hidden;
   border-bottom-right-radius: 1.25rem;
@@ -552,9 +557,11 @@ html.dark .merope-ob-bar .merope-ob-cta {
   transform: scale(1.06);
 }
 
-.merope-gender__opt:hover:not(:disabled, .is-on) {
-  color: var(--merope-ink);
-  background: color-mix(in srgb, var(--merope-ink) 5%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .merope-gender__opt:hover:not(:disabled, .is-on) {
+    color: var(--merope-ink);
+    background: color-mix(in srgb, var(--merope-ink) 5%, transparent);
+  }
 }
 
 .merope-gender__opt.is-on {
@@ -1415,6 +1422,659 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   text-align: center;
 }
 
+/* Choice: left column is the pitch + two compact lanes; right is the
+   clothing preview (5/7). Both panes share InfoActionCard + liquid sheen. */
+.merope-ob__pane > section.merope-ob-choice {
+  display: grid;
+  padding: 1.5rem 1.85rem 1.7rem;
+  overflow: hidden;
+}
+
+.merope-ob-choice {
+  --choice-gutter: 1.2rem;
+  --choice-inset-x: 1.15rem;
+  --choice-inset-y: 0.78rem;
+  --choice-icon: 1.05rem;
+  --choice-preview-pad: 8px;
+  --choice-radius: 1.15rem;
+  --choice-accent: var(--cfg-accent, var(--merope-accent));
+  --choice-border: var(
+    --cfg-subtle-border,
+    var(--ob-liq-border, var(--merope-line))
+  );
+  --choice-fill: var(
+    --cfg-subtle-bg,
+    color-mix(in srgb, rgb(var(--merope-surface-rgb) / 92%), white 6%)
+  );
+
+  display: grid;
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+}
+
+.merope-ob-choice__layout {
+  display: grid;
+  grid-template-columns: minmax(16.75rem, 2fr) minmax(0, 5fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--choice-gutter);
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  align-items: stretch;
+}
+
+.merope-ob-choice__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.merope-ob-choice__intro {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.merope-ob-choice__headline {
+  margin: 0;
+  color: var(--cfg-text-1, var(--merope-ink));
+  font-size: clamp(1.55rem, 2.35vw, 2.05rem);
+  font-weight: 650;
+  letter-spacing: -0.028em;
+  line-height: 1.28;
+}
+
+.merope-ob-choice__sub {
+  margin: 0;
+  color: var(--cfg-text-2, var(--merope-muted));
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+}
+
+.merope-ob-choice__lanes {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+/* 窄屏：介绍 → 选项轨 → 预览。 */
+@media (width <= 720px) {
+  .merope-ob__pane > section.merope-ob-choice {
+    overflow-y: auto;
+    padding: 1.25rem 1.45rem 1.4rem;
+  }
+
+  .merope-ob-choice,
+  .merope-ob-choice__layout,
+  .merope-ob-choice__copy {
+    height: auto;
+  }
+
+  .merope-ob-choice {
+    --choice-gutter: 1rem;
+    --choice-inset-x: 1.1rem;
+    --choice-inset-y: 0.75rem;
+  }
+
+  .merope-ob-choice__layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .merope-ob-choice__intro {
+    flex: 0 0 auto;
+  }
+
+  .merope-ob-choice__headline {
+    font-size: 1.5rem;
+  }
+
+  .merope-ob-choice__preview {
+    min-height: 18rem;
+  }
+}
+
+.merope-ob-choice__lane {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: var(--choice-icon) minmax(0, 1fr) 1rem;
+  grid-template-areas:
+    'icon title go'
+    '. flow flow';
+  gap: 0.28rem 0.5rem;
+  align-content: start;
+  align-items: center;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: var(--choice-inset-y) var(--choice-inset-x);
+  overflow: hidden;
+  appearance: none;
+  text-align: start;
+  cursor: pointer;
+  border: 1px solid var(--choice-border);
+  border-radius: 1rem;
+  color: var(--cfg-text-1, var(--merope-ink));
+  background:
+    var(--ob-liq-sheen, none),
+    var(--ob-liq-streak, none),
+    var(--choice-fill);
+  box-shadow: var(--ob-liq-inset, none);
+  font: inherit;
+  transition: background-color var(--sm-dur-base, 220ms)
+    var(--sm-ease-standard, ease);
+}
+
+.merope-ob-choice__lane:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px
+    color-mix(in srgb, var(--choice-accent) 28%, transparent);
+}
+
+/* 触屏上 :hover 点完会粘住，所以抬起只给真有指针的设备。 */
+@media (hover: hover) and (pointer: fine) {
+  .merope-ob-choice__lane:hover {
+    background:
+      linear-gradient(
+        color-mix(in srgb, var(--choice-accent) 7%, transparent),
+        color-mix(in srgb, var(--choice-accent) 7%, transparent)
+      ),
+      var(--ob-liq-sheen, none),
+      var(--ob-liq-streak, none),
+      var(--choice-fill);
+  }
+
+  .merope-ob-choice__lane:hover .merope-ob-choice__go {
+    opacity: 0.92;
+    transform: translateX(3px);
+  }
+
+  .merope-ob-choice__preview:hover .merope-ob-choice__track {
+    animation-play-state: paused;
+  }
+
+  .merope-ob-choice__preview:hover .merope-ob-choice__tile img {
+    transform: scale(1.045);
+  }
+}
+
+.merope-ob-choice__preview {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: var(--choice-preview-pad);
+  overflow: hidden;
+  border: 1px solid var(--choice-border);
+  border-radius: var(--choice-radius);
+  background:
+    var(--ob-liq-sheen, none),
+    var(--ob-liq-streak, none),
+    var(--choice-fill);
+  box-shadow: var(--ob-liq-inset, none);
+}
+
+.merope-ob-choice__badge {
+  display: grid;
+  grid-area: icon;
+  place-items: center;
+  width: var(--choice-icon);
+  height: var(--choice-icon);
+  border: 0;
+  background: none;
+  line-height: 0;
+}
+
+.merope-ob-choice__badge svg {
+  width: var(--choice-icon);
+  height: var(--choice-icon);
+  color: var(--cfg-text-2, var(--merope-muted));
+}
+
+.merope-ob-choice__title {
+  grid-area: title;
+  min-width: 0;
+  color: var(--cfg-text-1, var(--merope-ink));
+  font-size: 1.025rem;
+  font-weight: 650;
+  letter-spacing: 0.005em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+/* 一次露出 3 张角色预览，横向循环滚过视觉设计的全部服装风格。 */
+.merope-ob-choice__reel {
+  --choice-reel-gap: var(--choice-preview-pad);
+  --choice-reel-shown: 3;
+
+  container-type: inline-size;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.merope-ob-choice__track {
+  display: flex;
+  gap: var(--choice-reel-gap);
+  width: max-content;
+  height: 100%;
+  animation: merope-choice-reel calc(var(--choice-reel-n, 17) * 5.6s) linear
+    infinite;
+}
+
+.merope-ob-choice__tile {
+  flex: 0 0
+    calc(
+      (
+          100cqi - (var(--choice-reel-shown) - 1) * var(--choice-reel-gap)
+        ) / var(--choice-reel-shown)
+    );
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--choice-border) 70%, transparent);
+  border-radius: calc(var(--choice-radius) - var(--choice-preview-pad));
+  background: color-mix(
+    in srgb,
+    var(--cfg-text-1, var(--merope-ink)) 5%,
+    transparent
+  );
+}
+
+.merope-ob-choice__tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  transform-origin: 50% 18%;
+  pointer-events: none;
+  transition: transform var(--sm-dur-slow, 320ms) var(--sm-ease-standard, ease);
+}
+
+@keyframes merope-choice-reel {
+  to {
+    /* 一张卡宽 + 缝：N 张之后第二份拷贝对齐视口左沿。 */
+    transform: translate3d(
+      calc(
+        -1 * var(--choice-reel-n, 17) *
+          (100cqi + var(--choice-reel-gap)) / var(--choice-reel-shown)
+      ),
+      0,
+      0
+    );
+  }
+}
+
+/* 这条路会经过什么。编号胶囊，不是句号串起来的短名。 */
+.merope-ob-choice__flow {
+  display: flex;
+  grid-area: flow;
+  flex-wrap: wrap;
+  gap: 0.24rem;
+  align-items: center;
+  width: auto;
+}
+
+.merope-ob-choice__chip {
+  display: inline-flex;
+  gap: 0.24rem;
+  align-items: center;
+  padding: 0.14rem 0.42rem 0.14rem 0.14rem;
+  border: 1px solid color-mix(in srgb, var(--choice-border) 88%, transparent);
+  border-radius: 999px;
+  color: var(--cfg-text-2, var(--merope-muted));
+  background: color-mix(
+    in srgb,
+    var(--cfg-text-1, var(--merope-ink)) 4.5%,
+    transparent
+  );
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.merope-ob-choice__n {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+  color: var(--choice-accent);
+  background: color-mix(in srgb, var(--choice-accent) 14%, transparent);
+  font-size: 0.5625rem;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 箭头常驻，悬停变亮。只在 hover 出现的话，触屏上就没有「可点」的提示了。 */
+.merope-ob-choice__go {
+  display: grid;
+  grid-area: go;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0;
+  border: 0;
+  color: var(--cfg-text-1, var(--merope-ink));
+  background: none;
+  opacity: 0.38;
+  transition:
+    opacity var(--sm-dur-base, 220ms) var(--sm-ease-standard, ease),
+    transform var(--sm-dur-base, 220ms) var(--sm-ease-standard, ease);
+}
+
+.merope-ob-choice__go svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.merope-ob-choice__lane:focus-visible .merope-ob-choice__go,
+.merope-ob-choice__lane:active .merope-ob-choice__go {
+  opacity: 0.92;
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .merope-ob-choice__lane,
+  .merope-ob-choice__go,
+  .merope-ob-choice__tile img {
+    transition: none;
+  }
+
+  .merope-ob-choice__track {
+    animation: none;
+  }
+
+  .merope-ob-choice__lane:hover .merope-ob-choice__go,
+  .merope-ob-choice__lane:focus-visible .merope-ob-choice__go,
+  .merope-ob-choice__lane:active .merope-ob-choice__go,
+  .merope-ob-choice__preview:hover .merope-ob-choice__tile img {
+    transform: none;
+  }
+}
+
+/* Import: form left, portrait stage right. Same glass as the fork. */
+.merope-ob__pane > section.merope-ob-import {
+  display: grid;
+  padding: 8px var(--ob-pad) 76px;
+  overflow: hidden;
+}
+
+.merope-ob-import {
+  --import-border: var(
+    --cfg-subtle-border,
+    var(--ob-liq-border, var(--merope-line))
+  );
+  --import-fill: var(
+    --cfg-subtle-bg,
+    color-mix(in srgb, rgb(var(--merope-surface-rgb) / 92%), white 6%)
+  );
+  --import-radius: 1.15rem;
+  --import-accent: var(--cfg-accent, var(--merope-accent));
+
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+}
+
+.merope-ob-import__layout {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1.15fr) minmax(15rem, 0.9fr);
+  gap: 1.15rem;
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  align-items: stretch;
+}
+
+.merope-ob-import__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.merope-ob-import__form > .merope-ob-import__persona {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.merope-ob-import__persona {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.95rem 1.1rem 0.85rem;
+  overflow: hidden;
+  border: 1px solid var(--import-border);
+  border-radius: var(--import-radius);
+  background:
+    var(--ob-liq-sheen, none),
+    var(--ob-liq-streak, none),
+    var(--import-fill);
+  box-shadow: var(--ob-liq-inset, none);
+}
+
+.merope-ob-import__persona .merope-ob-field__hint,
+.merope-ob-import__persona .merope-ob-import__ready {
+  margin: 0;
+}
+
+.merope-ob-import__ready {
+  color: var(--import-accent);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.merope-ob-import__persona .merope-ob-input--area {
+  flex: 1 1 auto;
+  min-height: 7.5rem;
+  padding: 0;
+  overflow: auto;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  resize: none;
+}
+
+.merope-ob-import__persona .merope-ob-input--area:focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.merope-ob-import__submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--import-border);
+  border-radius: 999px;
+  color: var(--cfg-text-1, var(--merope-ink));
+  background:
+    var(--ob-liq-sheen, none),
+    var(--import-fill);
+  box-shadow: var(--ob-liq-inset, none);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color var(--sm-dur-base, 220ms)
+    var(--sm-ease-standard, ease);
+}
+
+.merope-ob-import__submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.merope-ob-import__stage {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  appearance: none;
+  text-align: start;
+  cursor: pointer;
+  border: 1px solid var(--import-border);
+  border-radius: var(--import-radius);
+  color: var(--cfg-text-1, var(--merope-ink));
+  background:
+    var(--ob-liq-sheen, none),
+    var(--ob-liq-streak, none),
+    var(--import-fill);
+  box-shadow: var(--ob-liq-inset, none);
+  font: inherit;
+  transition:
+    border-color var(--sm-dur-base, 220ms) var(--sm-ease-standard, ease),
+    background-color var(--sm-dur-base, 220ms) var(--sm-ease-standard, ease);
+}
+
+.merope-ob-import__stage:disabled {
+  cursor: wait;
+}
+
+.merope-ob-import__stage.is-over,
+.merope-ob-import__stage:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--import-accent) 55%, var(--import-border));
+  box-shadow:
+    var(--ob-liq-inset, none),
+    0 0 0 3px color-mix(in srgb, var(--import-accent) 18%, transparent);
+}
+
+.merope-ob-import__stage-empty {
+  display: grid;
+  gap: 0.55rem;
+  place-items: center;
+  place-content: center;
+  padding: 1.5rem 1.25rem;
+  color: var(--cfg-text-2, var(--merope-muted));
+  text-align: center;
+}
+
+.merope-ob-import__stage-empty svg {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.merope-ob-import__stage-title {
+  color: var(--cfg-text-1, var(--merope-ink));
+  font-size: 1.025rem;
+  font-weight: 650;
+  letter-spacing: 0.005em;
+  line-height: 1.3;
+}
+
+.merope-ob-import__stage-hint {
+  max-width: 16rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.merope-ob-import__portrait {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  pointer-events: none;
+}
+
+.merope-ob-import__stage-overlay {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  padding: 0.32rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--import-border) 80%, transparent);
+  border-radius: 999px;
+  color: var(--cfg-text-1, var(--merope-ink));
+  background: color-mix(
+    in srgb,
+    rgb(var(--merope-surface-rgb) / 88%),
+    white 8%
+  );
+  font-size: 0.75rem;
+  font-weight: 650;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--sm-dur-base, 220ms) var(--sm-ease-standard, ease);
+}
+
+.merope-ob-import__stage.has-image:focus-visible .merope-ob-import__stage-overlay,
+.merope-ob-import__stage.has-image.is-busy .merope-ob-import__stage-overlay {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .merope-ob-import__submit:hover:not(:disabled) {
+    background:
+      var(--ob-liq-sheen, none),
+      color-mix(in srgb, var(--import-accent) 8%, var(--import-fill));
+  }
+
+  .merope-ob-import__stage:hover:not(:disabled, .has-image) {
+    border-color: color-mix(
+      in srgb,
+      var(--import-accent) 40%,
+      var(--import-border)
+    );
+  }
+
+  .merope-ob-import__stage.has-image:hover .merope-ob-import__stage-overlay {
+    opacity: 1;
+  }
+}
+
+@media (width <= 720px) {
+  .merope-ob__pane > section.merope-ob-import {
+    overflow-y: auto;
+  }
+
+  .merope-ob-import,
+  .merope-ob-import__layout,
+  .merope-ob-import__form {
+    height: auto;
+  }
+
+  .merope-ob-import__layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .merope-ob-import__form > .merope-ob-import__persona {
+    flex: 0 0 auto;
+  }
+
+  .merope-ob-import__stage {
+    min-height: 18rem;
+  }
+}
+
 /* Step 5: master portrait on the shared 3:4 character-asset contract. */
 .merope-ob-master__layout {
   display: grid;
@@ -1727,6 +2387,7 @@ html[data-perf-mode='exlight'] .merope-choice--bubble {
   animation: sm-rise-in var(--sm-dur-base) var(--sm-ease-standard) backwards;
 }
 
-html[data-perf-mode='exlight'] .merope-loading__orb {
+html[data-perf-mode='exlight'] .merope-loading__orb,
+html[data-perf-mode='exlight'] .merope-ob-choice__track {
   animation: none;
 }

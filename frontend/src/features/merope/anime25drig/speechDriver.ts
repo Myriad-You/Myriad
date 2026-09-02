@@ -10,17 +10,6 @@ type EnergyDriverPatch = Pick<
   | 'mouthSeal'
   | 'talk'
 >
-type ArticulationDriverPatch = Pick<
-  Anime25DDriver,
-  | 'mouthOpen'
-  | 'mouthWide'
-  | 'mouthRound'
-  | 'mouthNarrow'
-  | 'mouthSeal'
-  | 'mouthForm'
-  | 'talk'
->
-
 /**
  * External audio/text articulation is an authored signal. Keep preview speech
  * disabled so the player never combines it with an unrelated random mouth.
@@ -40,8 +29,7 @@ export function speechEnergyDriverPatch(
 
 export function speechArticulationDriverPatch(
   articulation: SpeechArticulation,
-  baselineMouthForm = 0,
-): ArticulationDriverPatch {
+): EnergyDriverPatch {
   const amount = clamp01(articulation.amount)
   const openness =
     articulation.viseme === 'closed' || articulation.viseme === 'rest'
@@ -59,21 +47,11 @@ export function speechArticulationDriverPatch(
     mouthRound: articulation.viseme === 'round' ? amount : 0,
     mouthNarrow: articulation.viseme === 'narrow' ? amount : 0,
     mouthSeal: articulation.viseme === 'closed' ? amount : 0,
-    mouthForm: finiteOrZero(baselineMouthForm),
+    // Mouth corners belong to the current bearing/manual pose, not phonemes.
+    // Omitting mouthForm also preserves mood changes made mid-utterance and
+    // musical rest frames, without keeping a second cached copy of the face.
     talk: false,
   }
-}
-
-/** Keeps authored articulation anchored to a base pose edited mid-utterance. */
-export function updatedSpeechMouthFormBaseline(
-  current: number,
-  speechActive: boolean,
-  next: number | undefined,
-): number {
-  if (!speechActive || next === undefined || !Number.isFinite(next)) {
-    return finiteOrZero(current)
-  }
-  return next
 }
 
 function clamp01(value: number): number {

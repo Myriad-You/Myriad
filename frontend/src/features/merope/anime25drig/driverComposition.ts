@@ -6,6 +6,7 @@ import type { IdleBreathOffset } from './idleBreath'
 import type { PerformanceExpressionOffset } from './performanceExpression'
 import type { PoseGate } from './poseArbitration'
 import type { OccupancyOffset } from './poseCompositor'
+import type { PoseResponseController } from './poseResponse'
 import type { RandomActionFrame } from './randomAction'
 import type { CoSpeechExpressionOffset } from './speechExpression'
 import type { AutoSpeechPose } from './speechMotion'
@@ -29,6 +30,7 @@ import {
   accumulateOccupancyOffset,
   accumulatePoseChannel,
 } from './poseCompositor'
+import { isContinuousPoseKey } from './poseResponse'
 import {
   stepMouthForm,
   stepMouthOpen,
@@ -490,12 +492,13 @@ export function stepAnime25DDriverResponse(
   current: Anime25DDriver,
   authored: Readonly<Anime25DDriver>,
   target: Readonly<Anime25DDriver>,
-  secondaryCurrent: Anime25DSecondaryMotionPose,
-  secondaryTarget: Readonly<Anime25DSecondaryMotionPose>,
+  poseResponse: PoseResponseController,
   elapsedSeconds: number,
 ): void {
+  poseResponse.step(current, target, elapsedSeconds)
   const rate = Math.min(1, elapsedSeconds * 14)
   for (const key of DRIVER_KEYS) {
+    if (isContinuousPoseKey(key)) continue
     if (isAutomationFlag(key)) {
       current[key] = authored[key]
       continue
@@ -544,13 +547,6 @@ export function stepAnime25DDriverResponse(
     }
     current[key] = from + (to - from) * rate
   }
-  secondaryCurrent.angleX +=
-    (secondaryTarget.angleX - secondaryCurrent.angleX) * rate
-  secondaryCurrent.angleY +=
-    (secondaryTarget.angleY - secondaryCurrent.angleY) * rate
-  secondaryCurrent.angleZ +=
-    (secondaryTarget.angleZ - secondaryCurrent.angleZ) * rate
-  secondaryCurrent.body += (secondaryTarget.body - secondaryCurrent.body) * rate
 }
 
 function isAutomationFlag(

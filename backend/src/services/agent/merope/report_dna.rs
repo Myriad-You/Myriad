@@ -11,7 +11,10 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, EntityTrait,
+    QueryFilter, QueryOrder, Statement,
+};
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -102,21 +105,34 @@ fn is_chunk_platform(platform: &str) -> bool {
 }
 
 /// Distinct platforms with a real report. Chunks and the `all` rollup do not count.
+///
+/// Only the `platform` column is read. `platform_reports` rows carry two `Json`
+/// columns — `metadata` and the report body — and this is called on every
+/// persona page load and on every name / draft roll. Selecting whole rows meant
+/// dragging the owner's entire report corpus across the wire and deserializing
+/// it to count distinct strings, which got slower the longer the site was used.
+///
+/// The chunk rule stays in Rust rather than becoming a SQL regex: it is the
+/// same predicate the rest of this module uses, and one copy of it is enough.
 pub async fn count_report_platforms(
     database: &DatabaseConnection,
     user_id: i32,
 ) -> Result<usize, DbErr> {
-    let rows = platform_reports::Entity::find()
-        .filter(platform_reports::Column::UserId.eq(user_id))
-        .filter(platform_reports::Column::Platform.ne("all"))
-        .all(database)
+    let rows = database
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT DISTINCT platform FROM platform_reports \
+             WHERE user_id = $1 AND platform <> 'all'",
+            [user_id.into()],
+        ))
         .await?;
     let mut seen = HashSet::new();
     for row in rows {
-        if is_chunk_platform(&row.platform) {
+        let platform: String = row.try_get("", "platform")?;
+        if is_chunk_platform(&platform) {
             continue;
         }
-        seen.insert(row.platform);
+        seen.insert(platform);
     }
     Ok(seen.len())
 }
@@ -954,6 +970,39 @@ fn parse_ai_tags(raw: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 数报告平台数只该读 `platform` 这一列。
+    ///
+    /// 这个函数在人设页每次打开、每次「换一个名字」、每次起草人设时都会跑。
+    /// 拉整行意味着把两个 Json 大列（metadata 和报告正文）一起搬过来再丢掉，
+    /// 报告越攒越多就越慢——是那种只有老站点才会察觉的慢。
+    #[test]
+    fn counting_platforms_reads_one_column_not_whole_reports() {
+        let source = include_str!("report_dna.rs");
+        let body = source
+            .split("pub async fn count_report_platforms(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("count_report_platforms body");
+        assert!(
+            body.contains("SELECT DISTINCT platform"),
+            "只要平台名，不要报告正文"
+        );
+        assert!(!body.contains(".all(database)"), "别再把整行拉回来数字符串");
+        // chunk 规则留在 Rust，一份就够；翻译成 SQL 正则等于开第二份真相。
+        assert!(body.contains("is_chunk_platform"));
+    }
+
+    #[test]
+    fn chunk_platforms_never_count_as_a_platform() {
+        assert!(is_chunk_platform("steam_chunk_1"));
+        assert!(is_chunk_platform("steam_chunk_12"));
+        // 后缀为空时 `all()` 在空迭代器上为真，历史行为如此，别在搬家时改掉。
+        assert!(is_chunk_platform("steam_chunk_"));
+        assert!(!is_chunk_platform("steam"));
+        assert!(!is_chunk_platform("_chunk_1"));
+        assert!(!is_chunk_platform("steam_chunk_x"));
+    }
 
     #[test]
     fn bounds_report_evidence_and_never_copies_unknown_fields() {

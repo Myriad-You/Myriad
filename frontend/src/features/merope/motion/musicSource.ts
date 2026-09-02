@@ -1,24 +1,29 @@
+import type { MotionAudioFeatures } from '../../../utils/audioMotionAnalysis'
 import type { SpeechArticulation } from '../rig/articulation'
 import type { BeatFrame } from '../singing/beatClock'
-import type { SingingSpectrumDrive } from '../singing/singingGroove'
+import type {
+  MusicMode,
+  MusicMotionSignal,
+  MusicPhrase,
+} from '../singing/musicSignal'
 import type { SingingCue } from '../singing/singingTimeline'
 import type { BehaviorPlan } from './behavior'
 import type { MotionChannel } from './channels'
 import type { MotionLeaseHandle, RigMotionCoordinator } from './coordinator'
 import type { SingingApply } from './singingApply'
 import { BeatClock } from '../singing/beatClock'
+import { compileMusicPhrases, sampleMusicPhrase } from '../singing/musicPhrases'
 import {
   restSingingArticulation,
   sampleSingingCue,
   singingArticulation,
-  singingVocalEnergy,
 } from '../singing/singingClock'
-import { singingSpectrumDrive } from '../singing/singingGroove'
 import { singingPlaybackGap } from '../singing/singingHold'
 import { compileSingingTimeline } from '../singing/singingTimeline'
+import { MUSIC_QUALITY, MusicReactionPlanner } from './musicReaction'
 import { resolveSingingApply } from './singingApply'
 
-export const SINGING_SAMPLE_INTERVAL_MS = 50
+export const SINGING_SAMPLE_INTERVAL_MS = 25
 export const TRACK_SWITCH_HOLD_MS = 12_000
 export const MUSIC_LEASE_TTL_MS = 250
 
@@ -34,7 +39,7 @@ const MUSIC_CHANNELS = [
 
 export interface SingingFrame {
   apply: SingingApply
-  spectrum: SingingSpectrumDrive | null
+  signal: MusicMotionSignal | null
   articulation: SpeechArticulation
   /** Stable media identity; a change invalidates tempo evidence immediately. */
   trackId: string | null
@@ -51,7 +56,10 @@ export interface MusicMotionClock {
 
 export interface MusicMotionAudio {
   getCurrentAudio: () => { paused: boolean; currentTime: number } | null
-  getSpectrumBands: () => number[]
+  getMotionAudioFeatures: (audio: {
+    paused: boolean
+    currentTime: number
+  }) => Readonly<MotionAudioFeatures> | null
   connectAudioToAnalyser: (audio: { paused: boolean }) => boolean
 }
 
@@ -95,8 +103,8 @@ function musicTrackInputFingerprint(track: MusicTrackInput): string {
 }
 
 /**
- * One sampler for every mounted face. Reuses the site audio analyser
- * (50ms cache) and publishes a channel-gated frame.
+ * One 25ms sampler for every mounted face. Reads the analysis-only audio tap,
+ * independently of the display signal cache, and publishes a gated frame.
  */
 export class MusicMotionSource {
   private readonly listeners = new Set<SingingFrameListener>()
@@ -110,6 +118,9 @@ export class MusicMotionSource {
   private trackId = ''
   private trackInputFingerprint: string | null = null
   private cues: SingingCue[] = []
+  private phrases: MusicPhrase[] = []
+  private readonly reaction = new MusicReactionPlanner()
+  private musicMode: MusicMode = 'listen'
   private humming = true
   private compileGeneration = 0
   private connectedAudio: object | null = null
@@ -184,6 +195,7 @@ export class MusicMotionSource {
       if (this.trackId) this.switching = true
       this.trackId = trackId
       this.beatClock.setTrack(trackId || null)
+      this.reaction.reset(trackId)
       this.cues = []
       this.humming = true
     }
@@ -191,8 +203,13 @@ export class MusicMotionSource {
       this.compileGeneration += 1
       this.cues = []
       this.humming = true
+      this.phrases = []
       return
     }
+    this.phrases = compileMusicPhrases({
+      ...track,
+      songDuration: track.duration,
+    })
     const generation = ++this.compileGeneration
     void this.compileTimeline({
       verbatim: track.verbatim,
@@ -232,7 +249,6 @@ export class MusicMotionSource {
       this.stopEntrainment(nowMs)
     } else {
       this.holdMusic(nowMs)
-      this.holdEntrainment(nowMs)
     }
 
     const snapshot = this.coordinator.snapshot(nowMs)
@@ -244,29 +260,32 @@ export class MusicMotionSource {
       headBodyOwner: snapshot.owners.headBody,
     })
 
-    let spectrum: SingingSpectrumDrive | null = null
+    let signal: MusicMotionSignal | null = null
     let articulation = restSingingArticulation()
+    let mode: MusicMode = 'settle'
     if (!apply.release && audio && !audioPaused) {
       const time = Number.isFinite(audio.currentTime) ? audio.currentTime : 0
-      const bands = this.audio.getSpectrumBands()
-      const energy = singingVocalEnergy(bands)
-      const hasSpectrum = bands.some((band) => band > 0.01)
-      const baseDrive = singingSpectrumDrive(bands)
-      const beatFrame = this.beatClock.sample(time, baseDrive.bass, true)
-      if (hasSpectrum || beatFrame.confidence > 0) {
-        spectrum = {
-          ...baseDrive,
-          sampleTimeSeconds: time,
-          beatFrame: { ...beatFrame },
-        }
+      const features = this.audio.getMotionAudioFeatures(audio)
+      const beatFrame = this.beatClock.sample(
+        time,
+        features?.pulse ?? 0,
+        features !== null,
+      )
+      signal = {
+        audio: features ? { ...features } : null,
+        sampleTimeSeconds: time,
+        beatFrame: { ...beatFrame },
+        phrase: sampleMusicPhrase(this.phrases, time),
       }
-      this.updateBeatAnticipation(nowMs, beatFrame)
+      mode = this.reaction.sample(signal, nowMs, false, !this.humming)
       const cue = this.humming ? null : sampleSingingCue(this.cues, time)
-      articulation = singingArticulation({
-        cue,
-        energy: hasSpectrum ? energy : null,
-        humming: this.humming,
-      })
+      if (mode === 'sing' || mode === 'hum') {
+        articulation = singingArticulation({
+          cue,
+          energy: features?.energy ?? null,
+          humming: mode === 'hum',
+        })
+      }
     } else {
       const beatFrame = this.beatClock.sample(
         audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
@@ -275,10 +294,14 @@ export class MusicMotionSource {
       )
       this.updateBeatAnticipation(nowMs, beatFrame)
     }
+    if (!apply.release) {
+      this.holdEntrainment(nowMs, mode)
+      if (signal) this.updateBeatAnticipation(nowMs, signal.beatFrame)
+    }
 
     const frame: SingingFrame = {
       apply,
-      spectrum,
+      signal,
       articulation,
       trackId: this.trackId || null,
       behaviorPlan: this.behaviorPlan,
@@ -333,7 +356,7 @@ export class MusicMotionSource {
           writeMouth: false,
           restMouth: this.coordinator.owner('mouth') !== 'speech',
         },
-        spectrum: null,
+        signal: null,
         articulation: restSingingArticulation(),
         trackId: this.trackId || null,
         behaviorPlan: null,
@@ -370,9 +393,23 @@ export class MusicMotionSource {
     this.musicLease = null
   }
 
-  private holdEntrainment(nowMs: number): void {
+  private holdEntrainment(nowMs: number, mode: MusicMode): void {
     const trackId = this.trackId || null
-    if (this.behaviorPlan && this.behaviorTrackId === trackId) return
+    if (this.behaviorPlan && this.behaviorTrackId === trackId) {
+      if (mode !== this.musicMode) {
+        this.musicMode = mode
+        this.behaviorPlan = {
+          ...this.behaviorPlan,
+          behaviors: this.behaviorPlan.behaviors.map((behavior) => ({
+            ...behavior,
+            form: { family: 'music', id: mode },
+            quality: MUSIC_QUALITY[mode],
+          })),
+        }
+      }
+      return
+    }
+    this.musicMode = mode
     this.behaviorSequence += 1
     const prefix = `music-${this.behaviorSequence}`
     const start = `${prefix}:start`
@@ -421,18 +458,9 @@ export class MusicMotionSource {
             end: null,
           },
           anticipation,
-          form: { family: 'music', id: 'groove' },
+          form: { family: 'music', id: mode },
           intensity: 1,
-          quality: {
-            extent: 1.08,
-            tempo: 0.82,
-            power: 0.78,
-            fluidity: 0.92,
-            directness: 0.58,
-            rebound: 0.54,
-            asymmetry: 0.36,
-            density: 0.7,
-          },
+          quality: MUSIC_QUALITY[mode],
           confidence: 0.8,
         },
       ],

@@ -14,6 +14,17 @@ describe('preferCardCoverUrl', () => {
     )
   })
 
+  it('leaves bangumi /r/{width}/pic/cover/l/ resize paths alone', () => {
+    assert.equal(
+      preferCardCoverUrl('https://lain.bgm.tv/r/400/pic/cover/l/ab.jpg'),
+      'https://lain.bgm.tv/r/400/pic/cover/l/ab.jpg',
+    )
+    const proxied = `/api/proxy/image?url=${encodeURIComponent(
+      'https://lain.bgm.tv/r/400/pic/cover/l/ab.jpg',
+    )}`
+    assert.equal(preferCardCoverUrl(proxied), proxied)
+  })
+
   it('adds netease param when missing', () => {
     const out = preferCardCoverUrl('https://p2.music.126.net/xx.jpg')
     assert.ok(out?.includes('param=300y300'))

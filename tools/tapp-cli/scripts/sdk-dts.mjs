@@ -180,7 +180,7 @@ function localMembers() {
 
   ai: {
     tasks: {
-      create(request: unknown): Promise<unknown>
+      create(request: TappAITaskRequest): Promise<unknown>
       get(taskId: string): Promise<unknown>
       cancel(taskId: string): Promise<unknown>
       usage(): Promise<unknown>
@@ -274,6 +274,33 @@ export function generateTappSdkDts(catalog) {
  *${deniedComment}
  * Do not edit by hand — run: npm run sync-contract
  */
+
+export interface TappAIImageInput {
+  prompt: string
+  width?: number | string
+  height?: number | string
+  /**
+   * Ordered PNG/JPEG/WebP base64 data URLs or /api/brew/image-cache/ paths.
+   * At most 4 images, at most 10 MiB of decoded image data in total.
+   */
+  referenceImages?: string[]
+}
+
+export type TappAITaskRequest = {
+  version: 2
+  context?: Array<
+    | { type: 'platform'; platform: string; selector: string }
+    | { type: 'report'; reportId: number }
+    | { type: 'profile'; fields: Array<'id' | 'username' | 'role'> }
+    | { type: 'custom'; value: unknown }
+  >
+  output?: { format: 'text' | 'json' | 'image'; schema?: Record<string, unknown> }
+  delivery?: 'result' | 'stream'
+  idempotencyKey?: string
+} & (
+  | { operation: 'image'; input: string | TappAIImageInput }
+  | { operation: 'generate' | 'analyze' | 'chat'; input: unknown }
+)
 
 export interface TappSdk {
 ${localMembers()}

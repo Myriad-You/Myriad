@@ -1,4 +1,6 @@
 import type { BehaviorKind, BehaviorQuality } from '../motion/behavior'
+import type { MusicMode } from '../singing/musicSignal'
+import { isMusicMode } from '../singing/musicSignal'
 
 export interface Anime25DMotionUnit {
   behaviorId: string
@@ -25,6 +27,7 @@ export interface Anime25DBehaviorMotionSample {
   music: number
   musicPower: number
   musicQuality: Readonly<BehaviorQuality>
+  musicMode: MusicMode
 }
 
 interface MutableBehaviorMotionSample {
@@ -34,6 +37,7 @@ interface MutableBehaviorMotionSample {
   music: number
   musicPower: number
   musicQuality: BehaviorQuality
+  musicMode: MusicMode
 }
 
 interface LocalMotionUnit extends Omit<Anime25DMotionUnit, 'timing'> {
@@ -75,6 +79,7 @@ export class Anime25DBehaviorMotionController {
     music: 0,
     musicPower: 0,
     musicQuality: { ...DEFAULT_QUALITY },
+    musicMode: 'listen',
   }
 
   replace(
@@ -120,6 +125,7 @@ export class Anime25DBehaviorMotionController {
     this.output.coSpeechPower = 0
     this.output.music = 0
     this.output.musicPower = 0
+    this.output.musicMode = 'listen'
     copyQuality(this.output.coSpeechQuality, DEFAULT_QUALITY)
     copyQuality(this.output.musicQuality, DEFAULT_QUALITY)
     let write = 0
@@ -142,9 +148,10 @@ export class Anime25DBehaviorMotionController {
           copyQuality(this.output.coSpeechQuality, unit.quality)
         }
         this.output.coSpeechPower = Math.max(this.output.coSpeechPower, power)
-      } else if (unit.family === 'music') {
+      } else if (unit.family === 'music' && isMusicMode(unit.form)) {
         if (extent >= this.output.music) {
           this.output.music = extent
+          this.output.musicMode = unit.form
           copyQuality(this.output.musicQuality, unit.quality)
         }
         this.output.musicPower = Math.max(this.output.musicPower, power)

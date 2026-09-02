@@ -6,6 +6,7 @@ import {
   applyAnime25DComposedPose,
   applyAnime25DSillyMouthOwnership,
   applyAnime25DStylizedExpression,
+  captureAnime25DSecondaryMotion,
   prepareAnime25DWorkingTarget,
   resolveAnime25DStylizedTargets,
   stepAnime25DBlink,
@@ -16,6 +17,7 @@ import {
   mixBoundedExpressionChannel,
 } from './performanceExpression'
 import { zeroOccupancyOffset } from './poseCompositor'
+import { isContinuousPoseKey, PoseResponseController } from './poseResponse'
 import {
   stepMouthForm,
   stepMouthOpen,
@@ -395,7 +397,7 @@ test('blink stepping matches the frozen player state machine', () => {
   assert.equal(actualRandomIndex, expectedRandomIndex)
 })
 
-test('driver response matches the frozen player loop for every channel', () => {
+test('new pose response leaves mouth, expression, blink and physics flags unchanged', () => {
   const actual = { ...IDENTITY_DRIVER }
   const expected = { ...IDENTITY_DRIVER }
   const authored = { ...IDENTITY_DRIVER }
@@ -403,6 +405,7 @@ test('driver response matches the frozen player loop for every channel', () => {
   const actualSecondary = { angleX: 0, angleY: 0, angleZ: 0, body: 0 }
   const expectedSecondary = { ...actualSecondary }
   const secondaryTarget = { ...actualSecondary }
+  const response = new PoseResponseController()
   const keys = Object.keys(IDENTITY_DRIVER) as Array<keyof Anime25DDriver>
 
   for (let frame = 0; frame < 180; frame += 1) {
@@ -432,14 +435,7 @@ test('driver response matches the frozen player loop for every channel', () => {
     secondaryTarget.body = Math.cos(frame * 0.03 + 0.7)
     const dt = frame % 23 === 0 ? 1 / 30 : 1 / 60
 
-    stepAnime25DDriverResponse(
-      actual,
-      authored,
-      target,
-      actualSecondary,
-      secondaryTarget,
-      dt,
-    )
+    stepAnime25DDriverResponse(actual, authored, target, response, dt)
     legacyStepDriverResponse(
       expected,
       authored,
@@ -448,12 +444,18 @@ test('driver response matches the frozen player loop for every channel', () => {
       secondaryTarget,
       dt,
     )
-    assert.deepEqual(actual, expected, `driver at frame ${frame}`)
-    assert.deepEqual(
-      actualSecondary,
-      expectedSecondary,
-      `secondary motion at frame ${frame}`,
-    )
+    for (const key of keys) {
+      if (!isContinuousPoseKey(key))
+        assert.equal(actual[key], expected[key], `${key} at frame ${frame}`)
+    }
+    captureAnime25DSecondaryMotion(actualSecondary, actual)
+    for (const key of ['angleX', 'angleY', 'angleZ', 'body'] as const) {
+      assert.equal(
+        actualSecondary[key],
+        actual[key],
+        `physics follows displayed ${key}`,
+      )
+    }
   }
 })
 

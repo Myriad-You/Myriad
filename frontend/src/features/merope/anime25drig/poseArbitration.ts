@@ -337,5 +337,11 @@ export function applyBehaviorMotionGate(
   gate.groove.gaze *= music
   gate.groove.headBody *= music
   gate.groove.expression *= music
+  if (motion.music > 0 && motion.musicMode === 'settle') {
+    // Attentive stilling is a body decision, not a frozen face. Keep gaze,
+    // blink and breathing available while reducing unrelated body fidgets.
+    gate.ambient.headBody *= 0.18
+    gate.random.headBody *= 0.18
+  }
   return gate
 }

@@ -23,6 +23,8 @@ pub struct Model {
     pub last_user_message_at: Option<DateTimeWithTimeZone>,
     #[sea_orm(nullable)]
     pub last_proactive_at: Option<DateTimeWithTimeZone>,
+    #[sea_orm(nullable)]
+    pub music_mood_credited_at: Option<DateTimeWithTimeZone>,
     pub mood_settled_at: DateTimeWithTimeZone,
     pub emotion_settled_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,

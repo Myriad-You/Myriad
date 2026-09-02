@@ -8,7 +8,7 @@ import type {
   RigStateSummary,
 } from '../../../services/agent/types'
 import type { MeropeRigManifest } from '../rig/types'
-import type { SingingSpectrumDrive } from '../singing/singingGroove'
+import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { BehaviorSnapshot } from './behavior'
 import type { MotionSourceId } from './channels'
 import type { MotionRuntime } from './runtime'
@@ -129,7 +129,7 @@ export function captureRigStateSummary(
   const baseline = frame.bearing
   const behaviors = frame.behaviors
   const acting = resolveActing(performance, behaviors)
-  const spectrum = frame.music?.spectrum ?? null
+  const signal = frame.music?.signal ?? null
   const singing = Boolean(frame.music?.apply.writeGroove)
   const musicPlaying =
     singing || Boolean(frame.music && !frame.music.apply.release)
@@ -148,7 +148,7 @@ export function captureRigStateSummary(
     singing,
     musicPlaying,
     ...(musicPlaying
-      ? { music: { energy: musicEnergy(spectrum), beat: beatPhase(spectrum) } }
+      ? { music: { energy: musicEnergy(signal), beat: beatPhase(signal) } }
       : {}),
     capabilities: facts.capabilities,
     recentIntents: facts.recentIntents,
@@ -289,15 +289,13 @@ function activeBehaviorSummaries(
     const key = `${behavior.source}:${behavior.function}`
     if (!kept.has(key)) kept.set(key, behavior)
   }
-  return [...kept.values()]
-    .slice(0, MAX_ACTIVE_BEHAVIORS)
-    .map((behavior) => ({
-      function: behavior.function,
-      lifecycle: behavior.phase,
-      source: behavior.source,
-      resources: [...behavior.resources],
-      remainingMs: clampMs(behavior.remainingMs),
-    }))
+  return [...kept.values()].slice(0, MAX_ACTIVE_BEHAVIORS).map((behavior) => ({
+    function: behavior.function,
+    lifecycle: behavior.phase,
+    source: behavior.source,
+    resources: [...behavior.resources],
+    remainingMs: clampMs(behavior.remainingMs),
+  }))
 }
 
 function sanitizeActiveBehavior(
@@ -387,18 +385,17 @@ function resolveActing(
   }
 }
 
-function musicEnergy(spectrum: SingingSpectrumDrive | null): RigMusicEnergy {
-  const amount = Math.max(spectrum?.vocal ?? 0, spectrum?.beat ?? 0)
+function musicEnergy(signal: MusicMotionSignal | null): RigMusicEnergy {
+  const amount = signal?.audio?.energy ?? 0
   if (amount >= 0.6) return 'strong'
   if (amount >= 0.3) return 'present'
   if (amount >= 0.12) return 'soft'
   return 'quiet'
 }
 
-function beatPhase(spectrum: SingingSpectrumDrive | null): RigBeatPhase {
-  if (!spectrum || spectrum.beat < 0.08) return 'rest'
-  if (spectrum.beat >= 0.55) return 'downbeat'
-  if (spectrum.vocal >= 0.4) return 'pulse'
+function beatPhase(signal: MusicMotionSignal | null): RigBeatPhase {
+  if (!signal || (signal.audio?.energy ?? 0) < 0.025) return 'rest'
+  if (signal.beatFrame.confidence >= 0.45) return 'pulse'
   return 'hold'
 }
 

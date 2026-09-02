@@ -877,6 +877,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           {setupPage ? (
             <PersonaOnboardingPage
               onBack={closeAiSubpage}
+              onFinished={() => openAiSubpage('merope')}
               onChromeChange={setPersonaChrome}
               meropeOn={meropeOn}
               gateLead={personaGateLead}

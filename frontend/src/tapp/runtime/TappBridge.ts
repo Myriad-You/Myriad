@@ -782,11 +782,21 @@ export class TappBridge {
         if (payloadBytes === null) {
           return { valid: false, error: 'Payload must be JSON-serializable' }
         }
-        // 1 MiB 业务值额外保留 JSON envelope 余量。
-        if (payloadBytes > 1024 * 1024 + 64 * 1024) {
+        const request = (msg.payload as {
+          args?: Array<{ operation?: unknown; input?: { referenceImages?: unknown } }>
+        })?.args?.[0]
+        const hasImageReferences = msg.action === 'ai.tasks.create'
+          && request?.operation === 'image'
+          && Array.isArray(request.input?.referenceImages)
+        // Image tasks need room for 10 MiB of base64 images, 256 KiB of text,
+        // and the envelope (backend ai_task_image enforces decoded/text limits).
+        const maxPayloadBytes = hasImageReferences
+          ? 14 * 1024 * 1024
+          : 1024 * 1024 + 64 * 1024
+        if (payloadBytes > maxPayloadBytes) {
           return {
             valid: false,
-            error: `Payload too large (max ~1 MiB for ${msg.action || 'this action'}; use action-specific APIs for media/packages)`,
+            error: `Payload too large (max ${maxPayloadBytes} bytes for ${msg.action || 'this action'})`,
           }
         }
       }

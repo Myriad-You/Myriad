@@ -1,7 +1,7 @@
 import type { RigBearing } from '../motion/bearing'
 import type { BehaviorPlan, BehaviorRealizerReport } from '../motion/behavior'
 import type { MotionChannelPolicy } from '../motion/policy'
-import type { SingingSpectrumDrive } from '../singing/singingGroove'
+import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'
 import type { SpeechArticulation } from './articulation'
@@ -19,7 +19,7 @@ export interface RigMotionPort {
   enqueueSpeechText: (text: string, locale?: string) => void
   setSinging: (active: boolean) => void
   setSingingTrack: (trackId: string | null) => void
-  setSingingSpectrum: (drive: SingingSpectrumDrive | null) => void
+  setMusicSignal: (drive: MusicMotionSignal | null) => void
   playBehaviorPlan: (plan: BehaviorPlan) => readonly BehaviorRealizerReport[]
   stopBehaviorPlan: (planId?: string) => void
 }

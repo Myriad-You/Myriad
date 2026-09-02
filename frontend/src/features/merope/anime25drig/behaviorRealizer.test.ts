@@ -107,7 +107,7 @@ test('music groove realizes through the same registry', () => {
         function: 'entrain',
         kind: 'rhythmic',
         source: 'music',
-        form: { family: 'music', id: 'groove' },
+        form: { family: 'music', id: 'listen' },
         timing: { ...speech.behaviors[0]!.timing, relax: null, end: null },
       },
     ],

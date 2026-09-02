@@ -7,6 +7,8 @@
 
 const BANGUMI_COVER_LARGE = /\/pic\/cover\/l\//i
 const BANGUMI_COVER_GRID = /\/pic\/cover\/g\//i
+/** Current API common/medium/grid: `/r/{width}/pic/cover/l/` — `l` is the source file. */
+const BANGUMI_RESIZE_COVER = /\/r\/\d+\/pic\/cover\//i
 
 /** Prefer card-sized CDN variants before decode. */
 export function preferCardCoverUrl(url: string | null | undefined): string | null {
@@ -40,6 +42,8 @@ export function preferCardCoverUrl(url: string | null | undefined): string | nul
   }
 
   if (trimmed.includes('bgm.tv') || trimmed.includes('lain.bgm')) {
+    // `/r/{n}/pic/cover/l/` is a width resize of large; swapping `l`→`c` 400s.
+    if (BANGUMI_RESIZE_COVER.test(trimmed)) return trimmed
     return trimmed
       .replace(BANGUMI_COVER_LARGE, '/pic/cover/c/')
       .replace(BANGUMI_COVER_GRID, '/pic/cover/c/')

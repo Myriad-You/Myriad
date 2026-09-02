@@ -12,6 +12,7 @@ import type {
   ExecutionTrace,
   HeartbeatTask,
   MemoryEntry,
+  MoodTransition,
   ProcessContext,
   ProcessRequest,
   ProgressCallback,
@@ -31,6 +32,13 @@ import { abortSseSubscriptions, executeSSERequest } from './sseTransport'
 
 /** Keep in sync with MEROPE_PROXY_TIMEOUT_MS in frontend/astro.config.mjs */
 const PERSONA_GENERATION_TIMEOUT_MS = 15 * 60 * 1000
+/**
+ * 起名不是长任务，但也不能掐太紧：后端给上游 2 分钟，这里留 30s 余量。
+ *
+ * 必须比后端的 `NAME_CALL_TIMEOUT` 大。掐得比它小的话，浏览器会先断开，
+ * 用户看到的是一个空泛的网络错误，而不是后端整理好的那条失败原因。
+ */
+const NAME_SUGGEST_TIMEOUT_MS = 150 * 1000
 
 const personaGenerationInflight = new Map<string, Promise<unknown>>()
 
@@ -272,7 +280,10 @@ class AgentService {
 
   async acceptIntention(
     intentionId: string,
-  ): Promise<{ intention: AgentIntention; work: { mode: 'work'; input: string } }> {
+  ): Promise<{
+    intention: AgentIntention
+    work: { mode: 'work'; input: string }
+  }> {
     return apiService.post(
       `${this.baseUrl}/intentions/${encodeURIComponent(intentionId)}/accept`,
     )
@@ -296,9 +307,7 @@ class AgentService {
     return apiService.get(`${this.baseUrl}/autonomy`)
   }
 
-  async putAutonomyGrant(
-    allowedPermissions: string[] = [],
-  ): Promise<{
+  async putAutonomyGrant(allowedPermissions: string[] = []): Promise<{
     grant: { userId: number; allowedPermissions: string[]; revoked: boolean }
   }> {
     return apiService.put(`${this.baseUrl}/autonomy`, { allowedPermissions })
@@ -1018,7 +1027,7 @@ class AgentService {
       `name:${body.language || ''}:${body.nameStyle || ''}:${body.gender || ''}:${body.avoidName || ''}:${body.selectedTags.join(',')}`,
       () =>
         apiService.post(`${this.baseUrl}/persona/name`, body, {
-          timeout: PERSONA_GENERATION_TIMEOUT_MS,
+          timeout: NAME_SUGGEST_TIMEOUT_MS,
         }),
     )
   }
@@ -1080,6 +1089,17 @@ class AgentService {
     dndEnd?: string | null
   }> {
     return apiService.put(`${this.baseUrl}/addressee`, body)
+  }
+
+  async creditMusicListening(listenedSeconds: number): Promise<{
+    credited: boolean
+    nextCreditInSeconds: number
+    mood: MoodTransition
+    activity: string
+  }> {
+    return apiService.post(`${this.baseUrl}/addressee/music-listening`, {
+      listenedSeconds: Math.max(0, Math.floor(listenedSeconds)),
+    })
   }
 
   // 会话管理

@@ -534,6 +534,12 @@ calls、tokens 与 cooldown 以 `(subject, owner, tapp, UTC day)` 持久化，�
 执行时重验 Runtime Grant、安装授权和当前角色；实际调用仍注册为统一 AI Task，不能绕过共享
 并发、速率、calls、tokens 或 cooldown。
 
+生图的 `input.referenceImages` 经 SDK/Bridge 原样传到 Task API，由
+`backend/src/services/ai_task_image.rs` 在预留额度前校验并解析为图片字节；只接受有界 data URL
+和本平台图片缓存路径。原始来源参与幂等哈希，执行期间保留解析后的字节，交给
+`image_generation.rs` / `gemini_media.rs` 映射到供应商的多图输入。参考图不进入文本 prompt，
+供应商错误详情也不进入任务快照或事件。字段与限制见 [AI API](API_REFERENCE.md#ai-api)。
+
 通用 Tapp 请求限流同样写入 PostgreSQL TTL registry。计数键包含 subject、Tapp 与 operation，
 每次递增由 advisory transaction lock 串行化，因此增加后端副本不会放大可用额度；指标与状态
 端点读取同一份权威计数。数据库不可用时受限操作返回 `503 RATE_LIMITER_UNAVAILABLE`，不会

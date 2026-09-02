@@ -81,10 +81,10 @@ pub fn image_request_body(
     prompt: &str,
     width: u32,
     height: u32,
-    reference: Option<&ImageReference>,
+    references: &[ImageReference],
 ) -> Value {
     let mut parts = Vec::new();
-    if let Some(reference) = reference {
+    for reference in references {
         parts.push(json!({
             "inlineData": {
                 "mimeType": reference.media_type,
@@ -149,13 +149,13 @@ pub async fn generate_image(
     prompt: &str,
     width: u32,
     height: u32,
-    reference: Option<&ImageReference>,
+    references: &[ImageReference],
 ) -> Result<GeneratedImage, ImageGenerationError> {
     let value = post_generate_content(
         &config.base_url,
         &config.api_key,
         &config.model,
-        &image_request_body(prompt, width, height, reference),
+        &image_request_body(prompt, width, height, references),
     )
     .await
     .map_err(ImageGenerationError::from)?;
@@ -412,7 +412,7 @@ mod tests {
             bytes: b"\x89PNG\r\n\x1a\n".to_vec(),
             media_type: "image/png".to_string(),
         };
-        let body = image_request_body("portrait", 1024, 1536, Some(&reference));
+        let body = image_request_body("portrait", 1024, 1536, &[reference]);
         assert_eq!(
             body["generationConfig"]["imageConfig"]["aspectRatio"],
             "2:3"
@@ -423,6 +423,28 @@ mod tests {
         );
         assert!(body["contents"][0]["parts"][0]["inlineData"]["data"].is_string());
         assert_eq!(body["contents"][0]["parts"][1]["text"], "portrait");
+    }
+
+    #[test]
+    fn image_body_preserves_multiple_reference_order_and_text_only() {
+        let references = [
+            ImageReference {
+                bytes: vec![1],
+                media_type: "image/png".into(),
+            },
+            ImageReference {
+                bytes: vec![2],
+                media_type: "image/jpeg".into(),
+            },
+        ];
+        let body = image_request_body("combine", 1024, 1024, &references);
+        let parts = body["contents"][0]["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0]["inlineData"]["data"], BASE64.encode([1]));
+        assert_eq!(parts[1]["inlineData"]["data"], BASE64.encode([2]));
+        assert_eq!(parts[2]["text"], "combine");
+        let body = image_request_body("draw", 1024, 1024, &[]);
+        assert_eq!(body["contents"][0]["parts"], json!([{ "text": "draw" }]));
     }
 
     #[test]

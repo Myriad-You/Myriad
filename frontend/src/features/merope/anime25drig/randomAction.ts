@@ -48,14 +48,14 @@ interface ActionDefinition {
 type RandomSource = () => number
 
 const IDLE_ACTIONS: readonly ActionDefinition[] = [
-  { name: 'postureShift', minimumDuration: 1.8, maximumDuration: 2.3 },
-  { name: 'headDrift', minimumDuration: 2.2, maximumDuration: 2.8 },
-  { name: 'shoulderEase', minimumDuration: 2.1, maximumDuration: 2.7 },
+  { name: 'postureShift', minimumDuration: 2.4, maximumDuration: 4.2 },
+  { name: 'headDrift', minimumDuration: 2.6, maximumDuration: 4.4 },
+  { name: 'shoulderEase', minimumDuration: 2.8, maximumDuration: 4.6 },
   {
     name: 'softBlink',
     minimumDuration: 1.6,
     maximumDuration: 2.1,
-    weight: 2.4,
+    weight: 0.8,
   },
 ]
 
@@ -176,8 +176,8 @@ export class RandomActionController {
       action.maximumDuration,
     )
     this.actionDirection = this.randomUnit() < 0.5 ? -1 : 1
-    this.actionIntensity = this.randomRange(0.9, 1.08)
-    this.nextActionAt = now + this.actionDuration + this.randomRange(3.8, 6.5)
+    this.actionIntensity = this.randomRange(0.75, 1.25)
+    this.nextActionAt = now + this.actionDuration + this.randomRange(2.8, 7.5)
     copyFrame(this.actionFrom, this.output)
   }
 
@@ -215,30 +215,30 @@ export class RandomActionController {
 
     switch (action.name) {
       case 'postureShift': {
-        this.output.angleY = 0.035 * motion * intensity
-        this.output.angleZ = direction * 0.05 * motion * intensity
-        this.output.body = 0.035 * motion * intensity
+        this.output.angleY = 0.1 * motion * intensity
+        this.output.angleZ = direction * 0.14 * motion * intensity
+        this.output.body = direction * 0.19 * motion * intensity
         this.output.eyeOpen = -0.035 * face * intensity
-        this.output.ambientScale = 1 - 0.32 * motion
+        this.output.ambientScale = 1 - 0.15 * motion
         break
       }
       case 'headDrift':
-        this.output.angleX = direction * 0.045 * motion * intensity
-        this.output.angleY = -0.025 * motion * intensity
-        this.output.angleZ = direction * 0.075 * motion * intensity
-        this.output.body = -direction * 0.035 * motion * intensity
+        this.output.angleX = direction * 0.15 * motion * intensity
+        this.output.angleY = -0.07 * motion * intensity
+        this.output.angleZ = direction * 0.16 * motion * intensity
+        this.output.body = -direction * 0.12 * motion * intensity
         this.output.eyeOpen = -0.025 * face * intensity
-        this.output.ambientScale = 1 - 0.38 * motion
+        this.output.ambientScale = 1 - 0.18 * motion
         break
       case 'shoulderEase':
-        this.output.angleX = direction * 0.035 * motion * intensity
-        this.output.angleY = -0.025 * motion * intensity
-        this.output.angleZ = -direction * 0.045 * motion * intensity
-        this.output.body = direction * 0.055 * motion * intensity
+        this.output.angleX = direction * 0.1 * motion * intensity
+        this.output.angleY = -0.075 * motion * intensity
+        this.output.angleZ = -direction * 0.13 * motion * intensity
+        this.output.body = direction * 0.22 * motion * intensity
         this.output.eyeOpen = -0.035 * face * intensity
-        this.output.armY = 0.1 * gesture * intensity
-        this.output.armPos = -0.025 * gesture * intensity
-        this.output.ambientScale = 1 - 0.4 * motion
+        this.output.armY = 0.42 * gesture * intensity
+        this.output.armPos = -direction * 0.18 * gesture * intensity
+        this.output.ambientScale = 1 - 0.18 * motion
         break
       case 'softBlink':
         this.output.angleX = direction * 0.02 * motion * intensity
@@ -255,14 +255,14 @@ export class RandomActionController {
 
   private blendFromPrevious(amount: number): void {
     if (amount >= 1) return
+    // The incoming clip already owns its ease-in. Only decay the outgoing
+    // residue; crossfading the new envelope again squares it and compresses
+    // its visible rise into a late, sharp acceleration.
     for (const key of ACTION_OFFSET_KEYS) {
-      this.output[key] = mix(this.actionFrom[key], this.output[key], amount)
+      this.output[key] += this.actionFrom[key] * (1 - amount)
     }
-    this.output.ambientScale = mix(
-      this.actionFrom.ambientScale,
-      this.output.ambientScale,
-      amount,
-    )
+    this.output.ambientScale +=
+      (this.actionFrom.ambientScale - 1) * (1 - amount)
   }
 
   private beginRelease(now: number): void {

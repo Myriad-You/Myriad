@@ -12,17 +12,13 @@ import {
 import { ActionBar, PrimaryButton, StepBody } from '../ui/Chrome'
 import { ErrorNote } from '../ui/Feedback'
 import { TextArea } from '../ui/Field'
-import PersonaImportPanel from '../ui/PersonaImportPanel'
 
 interface Props {
   persona: StructuredPersona
-  name: string
-  gender?: string
   busy: boolean
   claimAutoGenerate: () => boolean
   onHeaderChange: (chrome: OnboardingHeaderChrome) => void
   onRegenerate: () => Promise<void>
-  onImported: (persona: StructuredPersona) => void
   onSave: (persona: StructuredPersona) => Promise<void>
 }
 
@@ -44,13 +40,10 @@ function keepText(next: unknown, fallback: string): string {
 
 export default function PersonaEditStep({
   persona,
-  name,
-  gender,
   busy,
   claimAutoGenerate,
   onHeaderChange,
   onRegenerate,
-  onImported,
   onSave,
 }: Props) {
   const { t, locale } = useI18n()
@@ -215,15 +208,6 @@ export default function PersonaEditStep({
   return (
     <section aria-label={o.step3Title}>
       <StepBody>
-        <PersonaImportPanel
-          name={name}
-          gender={gender}
-          disabled={busy || editingField !== null}
-          onImported={(next) => {
-            applyDraft(next)
-            onImported(next)
-          }}
-        />
         <div
           className={`merope-ob-persona-groups${regenBusy ? ' is-incomplete' : ''}`}
         >

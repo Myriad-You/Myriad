@@ -1,16 +1,8 @@
 /**
- * Tempo and phase for the groove.
- *
- * The groove nodded on the rising edge of a smoothed bass follower, so every
- * accent landed after the hit that caused it — reacting, never performing. A
- * dancer anticipates: the preparation happens *before* the downbeat and the
- * weight arrives *on* it. That needs to know where the beat is, not merely
- * that one just went past.
- *
- * This is an onset tracker over an already-smoothed 8-band spectrum, not a
- * research beat tracker. It is good enough to phase-lock to steady 4/4 pop and
- * honest about when it is not: `confidence` falls, and callers are expected to
- * fall back to the envelope rather than dance to a tempo that is not there.
+ * Causal tempo and pulse phase from low-band energy. Confidence-gated timing
+ * lets the body prepare before a likely pulse instead of always reacting late.
+ * This is not a neural beat/downbeat/meter estimator. When the pulse becomes
+ * uncertain, confidence falls and callers stop scheduling predicted accents.
  */
 
 /** 60–200 BPM. Outside this an "interval" is a fill or a dropout, not a tempo. */
@@ -23,7 +15,7 @@ const MIN_ONSET_GAP = 0.12
  * A tempo is a claim about music that is playing now, so it has to expire.
  *
  * `singing` stays true across a track switch — the rig holds the pose for up
- * to 12s so it does not snap to rest between songs — and the old spectrum is
+ * to 12s so it does not snap to rest between songs — and the old signal is
  * cleared, not replaced. Keyed only on that flag the clock kept a 120bpm lock
  * at full confidence through the silence and carried it into the next song.
  * The longest legitimate gap here is one beat at 60bpm, so evidence older than
@@ -35,33 +27,29 @@ const EVIDENCE_EXPIRY = 3.2
 const FLUX_THRESHOLD = 0.045
 /** Intervals kept for the period estimate. */
 const INTERVAL_MEMORY = 8
-const BEATS_PER_BAR = 4
 /** How hard an onset drags the phase back. Full correction chases noise. */
 const PHASE_PULL = 0.28
 
 export interface BeatFrame {
-  /** 0 at the downbeat, approaching 1 just before the next. */
+  /** 0 at an estimated pulse, approaching 1 just before the next. */
   beatPhase: number
-  /** 0 at the top of a 4-beat bar. */
-  barPhase: number
   /** Whole beats since tracking began. */
   beatCount: number
   bpm: number
   /** 0 when the tempo estimate is not to be trusted. */
   confidence: number
   /** True on the frame a beat boundary is crossed. */
-  downbeat: boolean
+  beatCrossed: boolean
   /** True on the frame an onset was detected, tempo or not. */
   onset: boolean
 }
 
 const IDLE: BeatFrame = {
   beatPhase: 0,
-  barPhase: 0,
   beatCount: 0,
   bpm: 0,
   confidence: 0,
-  downbeat: false,
+  beatCrossed: false,
   onset: false,
 }
 
@@ -102,29 +90,31 @@ export class BeatClock {
     enabled: boolean,
   ): Readonly<BeatFrame> {
     if (!enabled) {
-      if (this.period !== 0) this.reset()
+      this.reset()
       return this.frame
     }
     const now = Number.isFinite(timeSeconds) ? Math.max(0, timeSeconds) : 0
     const level = unit(bass)
-    const previous = this.lastTime
+    let previous = this.lastTime
+    if (Number.isFinite(previous) && (now < previous || now - previous > 0.5)) {
+      this.reset()
+      previous = Number.NaN
+    }
     this.lastTime = now
     const dt = Number.isFinite(previous) ? Math.max(0, now - previous) : 0
 
     if (this.evidenceAge(now) >= EVIDENCE_EXPIRY) this.forgetTempo()
-    const downbeat = this.advancePhase(dt)
+    const beatCrossed = this.advancePhase(dt)
     // Advance the prediction to `now` before correcting it with evidence at
     // `now`. Doing this in the opposite order applied the same dt after an
     // onset reset and placed the predicted beat almost one period late.
     const onset = this.detectOnset(now, level)
 
     this.frame.beatPhase = this.phase
-    this.frame.barPhase =
-      ((this.beatCount % BEATS_PER_BAR) + this.phase) / BEATS_PER_BAR
     this.frame.beatCount = this.beatCount
     this.frame.bpm = this.period > 0 ? 60 / this.period : 0
     this.frame.confidence = this.confidence(now)
-    this.frame.downbeat = downbeat
+    this.frame.beatCrossed = beatCrossed
     this.frame.onset = onset
     return this.frame
   }
@@ -237,41 +227,6 @@ export class BeatClock {
   }
 }
 
-/**
- * A dancer's weight arrives on the beat, so the preparation has to leave
- * early. Peaks at the downbeat and eases out behind it.
- *
- * Deliberately narrow. An accent that occupies half the bar is not an accent,
- * and the head needs the rest of the beat to come back up — a wide envelope
- * leaves it hanging down through the whole song.
- */
-/**
- * How far ahead of the beat the drive peaks so the pose can land on it.
- *
- * The neck is a spring and trails the drive by roughly 90ms, so this is a
- * partial compensation, not a full one: leading by the whole settle time
- * widens the accent enough that at 120bpm the head no longer recovers between
- * beats and the groove reads as a slump. Closing the rest of the gap means
- * retuning the neck spring, not widening this. In seconds rather than a
- * fraction of the beat, because the spring's lag does not change with tempo.
- */
-export const BEAT_ACCENT_LEAD_SECONDS = 0.06
-export const BEAT_ACCENT_TAIL = 0.2
-
-export function beatAccentLead(bpm: number): number {
-  if (!Number.isFinite(bpm) || bpm <= 0) return 0.12
-  const period = 60 / bpm
-  return clamp(BEAT_ACCENT_LEAD_SECONDS / period, 0.08, 0.35)
-}
-
-export function beatAnticipation(phase: number, lead = 0.12): number {
-  if (!Number.isFinite(phase)) return 0
-  const toBeat = 1 - clamp(phase, 0, 1)
-  if (toBeat <= lead) return smoothstep(1 - toBeat / lead)
-  const since = 1 - toBeat
-  return since < BEAT_ACCENT_TAIL ? smoothstep(1 - since / BEAT_ACCENT_TAIL) : 0
-}
-
 function median(values: readonly number[]): number {
   if (!values.length) return 0
   const sorted = [...values].sort((left, right) => left - right)
@@ -279,11 +234,6 @@ function median(values: readonly number[]): number {
   return sorted.length % 2
     ? sorted[middle]!
     : (sorted[middle - 1]! + sorted[middle]!) / 2
-}
-
-function smoothstep(value: number): number {
-  const t = clamp(value, 0, 1)
-  return t * t * (3 - 2 * t)
 }
 
 function unit(value: number | undefined): number {

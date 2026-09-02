@@ -92,8 +92,13 @@ pub fn prefer_card_cover_url(url: &str) -> String {
 }
 
 fn prefer_raw_card_cover_url(trimmed: &str) -> String {
-    // Bangumi: /pic/cover/{l|c|m|s|g}/… — common is enough for cards.
+    // Bangumi: legacy /pic/cover/{l|c|m|s|g}/… — common is enough for cards.
+    // Current API common/medium/grid are /r/{width}/pic/cover/l/… — `l` is the
+    // source file. Rewriting those to /c/ is a 400 on lain.bgm.tv.
     if trimmed.contains("bgm.tv") || trimmed.contains("lain.bgm") {
+        if is_bangumi_resize_cover(trimmed) {
+            return trimmed.to_string();
+        }
         return trimmed
             .replace("/pic/cover/l/", "/pic/cover/c/")
             .replace("/pic/cover/g/", "/pic/cover/c/");
@@ -108,6 +113,17 @@ fn prefer_raw_card_cover_url(trimmed: &str) -> String {
     }
 
     trimmed.to_string()
+}
+
+/// True for Bangumi resize paths `/r/{width}/pic/cover/…` (width is ASCII digits).
+fn is_bangumi_resize_cover(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let Some(start) = lower.find("/r/") else {
+        return false;
+    };
+    let rest = &lower[start + 3..];
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    digits > 0 && rest[digits..].starts_with("/pic/cover/")
 }
 
 fn rewrite_proxied_cover_url(proxied: &str) -> Option<String> {
@@ -911,11 +927,60 @@ mod tests {
     }
 
     #[test]
+    fn append_bangumi_keeps_api_v0_resize_common() {
+        let mut items = Vec::new();
+        let data = json!({
+            "collections": [{
+                "subject_id": 1,
+                "subject_type": 2,
+                "subject": {
+                    "id": 1,
+                    "name_cn": "测试",
+                    "type": 2,
+                    "images": {
+                        "large": "https://lain.bgm.tv/pic/cover/l/1.jpg",
+                        "common": "https://lain.bgm.tv/r/400/pic/cover/l/1.jpg"
+                    }
+                }
+            }]
+        });
+        append_bangumi_library_items(&mut items, &data);
+        let cover = items[0].cover.as_ref().unwrap();
+        assert!(cover.starts_with("/api/proxy/image"), "{cover}");
+        assert!(
+            cover.contains("r%2F400%2Fpic%2Fcover%2Fl%2F") || cover.contains("/r/400/pic/cover/l/"),
+            "must keep resize common, not rewrite l→c: {cover}"
+        );
+        assert!(
+            !cover.contains("pic%2Fcover%2Fc%2F") && !cover.contains("/pic/cover/c/"),
+            "must not rewrite /r/400/…/l/ to /c/: {cover}"
+        );
+        let slimmed = normalize_library_item_for_client(items[0].clone());
+        let slim_cover = slimmed.cover.as_ref().unwrap();
+        assert!(
+            slim_cover.contains("r%2F400%2Fpic%2Fcover%2Fl%2F")
+                || slim_cover.contains("/r/400/pic/cover/l/"),
+            "client normalize must keep resize common: {slim_cover}"
+        );
+    }
+
+    #[test]
     fn prefer_card_cover_rewrites_bangumi_large_and_netease_param() {
         assert_eq!(
             prefer_card_cover_url("https://lain.bgm.tv/pic/cover/l/ab.jpg"),
             "https://lain.bgm.tv/pic/cover/c/ab.jpg"
         );
+        // Current API common/medium/grid: /r/{width}/pic/cover/l/ — leave the `l`.
+        assert_eq!(
+            prefer_card_cover_url("https://lain.bgm.tv/r/400/pic/cover/l/ab.jpg"),
+            "https://lain.bgm.tv/r/400/pic/cover/l/ab.jpg"
+        );
+        assert_eq!(
+            prefer_card_cover_url("https://lain.bgm.tv/r/800/pic/cover/l/ab.jpg"),
+            "https://lain.bgm.tv/r/800/pic/cover/l/ab.jpg"
+        );
+        let proxied_resize = proxy_image_url("https://lain.bgm.tv/r/400/pic/cover/l/ab.jpg");
+        assert_eq!(prefer_card_cover_url(&proxied_resize), proxied_resize);
         let netease = prefer_card_cover_url("https://p2.music.126.net/xx.jpg");
         assert!(netease.contains("param=300y300"), "{netease}");
         // Already sized: leave alone.

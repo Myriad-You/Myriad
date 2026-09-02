@@ -944,6 +944,26 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 - Interaction type 由应用自行命名，但必须与 Agent 能选择的任务类型一致；Tapp 不会获得任意
   DOM 操作权限。
 
+生图（含参考图）的最小声明片段：
+
+```json
+{
+  "permissions": ["ai:image"],
+  "ai": {
+    "protocolVersion": 2,
+    "operations": ["image"],
+    "modelTier": "standard",
+    "contextSources": [],
+    "outputFormats": ["image"]
+  }
+}
+```
+
+`prompt`、`width`、`height`、`referenceImages` 放在每次 `Tapp.ai.tasks.create` 的 `input`
+中。参考图不是 `contextSources`，也不是新增的权限；运行时仍须具有授予权限 `ai:image`。
+支持 PNG/JPEG/WebP 的 base64 data URL 或本平台图片缓存路径，最多 4 张、解码后合计 10 MiB；
+调用示例见 [AI API](API_REFERENCE.md#ai-api)。
+
 ---
 
 ## 权限列表

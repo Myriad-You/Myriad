@@ -6,6 +6,7 @@ import type { AITaskRequest, TappInstance } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
 import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'
+import { TappHttpError } from '../../../services/TappHttpClient'
 
 /**
  * 注册 AI 处理器
@@ -27,6 +28,7 @@ export function registerAIHandlers(bridge: TappBridge): () => void {
         success: false,
         error:
           userFacingError(error),
+        ...(error instanceof TappHttpError && error.code ? { code: error.code } : {}),
       }
     }
   })

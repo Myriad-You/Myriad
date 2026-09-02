@@ -16,7 +16,6 @@ import {
 import { ActionBar, PrimaryButton, StepBody } from '../ui/Chrome'
 import { ErrorNote } from '../ui/Feedback'
 import { TextArea } from '../ui/Field'
-import PortraitImportButton from '../ui/PortraitImportButton'
 
 interface Props {
   characterName: string
@@ -317,15 +316,6 @@ export default function MasterPortraitStep({
         {error ? <ErrorNote>{error}</ErrorNote> : null}
       </StepBody>
       <ActionBar>
-        <PortraitImportButton
-          disabled={blocked}
-          onError={setError}
-          onUploaded={(url) => {
-            claimedGenerate.current = true
-            setPortraitUrl(url)
-            setError('')
-          }}
-        />
         <PrimaryButton
           label={
             generating

@@ -569,7 +569,7 @@ stop();
 | `generate` | 非空字符串，或 `{ prompt }` | 文本生成 |
 | `analyze` | `{ data, instruction? }` | `data` 必填 |
 | `chat` | `{ message }` 或等价消息字段 | 对话 |
-| `image` | 非空字符串，或 `{ prompt, width?, height? }` | 图片生成；见下表 |
+| `image` | 非空字符串，或 `{ prompt, width?, height?, referenceImages? }` | 图片生成；见下表 |
 
 #### `operation: "image"`
 
@@ -580,6 +580,17 @@ stop();
 | `prompt` | string | — | 非空 | 也可用整段 `input` 字符串代替对象 |
 | `width` | number \| string | `1024` | clamp 到 256–2048 | 宽（像素）；也接受 `"768"` / `"768px"` |
 | `height` | number \| string | `1024` | clamp 到 256–2048 | 高（像素）；也接受 `"1024"` / `"1024px"` |
+| `referenceImages` | string[] | `[]` | 最多 4 张，解码后合计 ≤ 10 MiB | 按数组顺序提供参考图，支持 PNG / JPEG / WebP 的 base64 data URL，或本平台 `/api/brew/image-cache/...` 路径 |
+
+参考图只用于本次生图请求，不会作为文本拼进 prompt。可以在 prompt 中按顺序说明“第一张图的
+人物、第二张图的画风”。省略或传空数组时仍是文生图。参考图在预留额度和创建任务前校验；
+非法格式返回 `INVALID_AI_IMAGE_REFERENCE`，超数量或图片总大小返回 `AI_IMAGE_REFERENCE_LIMIT`。
+除 `referenceImages` 外，序列化后的 `input` 仍限制为 256 KiB，超限返回 `AI_TASK_INPUT_LIMIT`。
+
+本地上传可通过 `FileReader.readAsDataURL(file)` 转成 data URL；包内资源可先用
+`Tapp.assets.getArrayBuffer(path)` 读取，再以正确 MIME 创建 Blob 并转成 data URL。
+`blob:` URL、包内路径、任意 HTTP(S) URL、SVG/GIF 不可直接作为参考图。
+复用上次生成的图片时传任务结果的 `value.url`（平台缓存路径）。
 
 ```javascript
 // 默认 1024×1024
@@ -609,6 +620,32 @@ await Tapp.ai.tasks.create({
   input: { prompt: "wide landscape at dusk", width: 1344, height: 768 },
   output: { format: "image" },
 });
+
+// 多参考图：referenceFile 和 styleFile 来自页面的文件选择控件
+function asDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+await Tapp.ai.tasks.create({
+  version: 2,
+  operation: "image",
+  input: {
+    prompt: "保留第一张图的人物外观，使用第二张图的配色与画风",
+    referenceImages: await Promise.all([
+      asDataUrl(referenceFile),
+      asDataUrl(styleFile),
+    ]),
+    width: 1024,
+    height: 1536,
+  },
+  output: { format: "image" },
+  idempotencyKey: "portrait-with-style-v1",
+});
 ```
 
 成功结果大致为：
@@ -616,16 +653,29 @@ await Tapp.ai.tasks.create({
 ```json
 {
   "format": "image",
-  "value": { "url": "https://...", "width": 768, "height": 1024 }
+  "value": { "url": "/api/brew/image-cache/ab/<sha256>.png", "width": 768, "height": 1024 }
 }
 ```
 
 `image` 必须申请 `ai:image`，Manifest `ai.operations` 含 `"image"`，且 `output.format`
 为 `"image"`。供应商与模型由服务端选择；Tapp 只声明 operation 与输入，不指定 provider。
+平台按授予权限决定是否可调用；新增参考图参数不改变声明、批准或授予权限的规则。
+
+参考图映射到 OpenAI `/images/edits` 的 multipart `image` / `image[]`、OpenRouter 的
+`input_references`、Volcengine/Ark/Seedream 的 `image` 数组，以及 Gemini 的 `inlineData`。
+底层模型是否接受参考图、支持的张数和生成效果由供应商决定，平台的 4 张上限不保证每个模型
+都支持 4 张；供应商拒绝会令任务失败，不会静默丢弃参考图重试文生图。
+供应商错误详情不会返回沙箱，任务返回固定的 `AI_PROVIDER_ERROR` 错误。
+
+供应商接口依据：[OpenAI](https://developers.openai.com/api/docs/guides/image-generation)、
+[OpenRouter](https://openrouter.ai/docs/guides/overview/multimodal/image-generation)、
+[Seedream](https://docs.byteplus.com/api/docs/ModelArk/1824121)、
+[Gemini](https://ai.google.dev/gemini-api/docs/image-generation)。
 
 任务绑定当前 Tapp/subject/owner，最多并发 4 个，125 秒执行上限，终态保留 15 分钟。
 并发/保留上限和 `idempotencyKey` 在跨副本事务中原子判定；同一身份重复提交相同请求只返回
 原任务，不会重复调用模型或重复计费。
+参考图内容与顺序参与幂等判定；替换或调换参考图时应使用新的 `idempotencyKey`。
 `platform`、`report` 上下文还需对应读取权限；跨 Tapp 上下文不能由 AI 接口静默获取，必须
 先走 One-shot Data Exchange。结构化 JSON 输出会在后端解析并验证 inline schema。
 

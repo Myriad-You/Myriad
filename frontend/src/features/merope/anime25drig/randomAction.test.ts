@@ -24,12 +24,12 @@ test('waits briefly, then plays a visible staged action', () => {
   assert.equal(magnitude(controller.sample(1.59, true, false)), 0)
 
   controller.sample(1.61, true, false)
-  assert.equal(controller.getActiveAction(), 'shoulderEase')
+  assert.equal(controller.getActiveAction(), 'headDrift')
   const action = controller.sample(2.25, true, false)
-  assert.ok(action.armY > 0.05)
+  assert.ok(Math.abs(action.angleX) > 0.1)
   assert.equal(action.brow, 0)
   assert.ok(action.eyeOpen < -0.015)
-  assert.ok(action.ambientScale < 0.8)
+  assert.ok(action.ambientScale > 0.8 && action.ambientScale < 1)
 })
 
 test('reuses one frame object and keeps every action channel bounded', () => {
@@ -52,17 +52,17 @@ test('reuses one frame object and keeps every action channel bounded', () => {
       Math.abs(current.angleZ - previous.angleZ),
       Math.abs(current.armY - previous.armY),
     )
-    assert.ok(Math.abs(current.angleX) <= 0.087)
+    assert.ok(Math.abs(current.angleX) <= 0.188)
     assert.ok(Math.abs(current.angleY) <= 0.238)
     assert.ok(Math.abs(current.angleZ) <= 0.216)
-    assert.ok(Math.abs(current.body) <= 0.141)
+    assert.ok(Math.abs(current.body) <= 0.276)
     assert.ok(Math.abs(current.brow) <= 0.195)
     assert.ok(Math.abs(current.browAngSym) <= 0.108)
     assert.ok(Math.abs(current.eyeOpen) <= 0.454)
     assert.equal(current.eyeX, 0)
     assert.equal(current.eyeY, 0)
-    assert.ok(Math.abs(current.armY) <= 0.346)
-    assert.ok(Math.abs(current.armPos) <= 0.108)
+    assert.ok(Math.abs(current.armY) <= 0.526)
+    assert.ok(Math.abs(current.armPos) <= 0.226)
     assert.ok(current.ambientScale >= 0.28 && current.ambientScale <= 1)
     previous = { ...current }
   }

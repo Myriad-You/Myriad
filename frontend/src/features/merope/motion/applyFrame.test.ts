@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { bearingDriverPatch } from '../anime25drig/performanceExpression'
+import { musicSignalAt } from '../singing/musicSignal.test-support'
 import { applyMotionFrame, createMotionApplyState } from './applyFrame'
 import { RigMotionCoordinator } from './coordinator'
 import { compilePerformanceBehaviorPlan } from './performanceBehaviorPlan'
@@ -40,8 +41,8 @@ function recordingRig() {
       stopBehaviorPlan: () => calls.push('stop'),
       setSinging: (value: boolean) => calls.push(`singing:${value}`),
       setSingingTrack: (value: string | null) => calls.push(`track:${value}`),
-      setSingingSpectrum: (value: unknown) =>
-        calls.push(`spectrum:${value !== null}`),
+      setMusicSignal: (value: unknown) =>
+        calls.push(`signal:${value !== null}`),
     },
   }
 }
@@ -242,10 +243,9 @@ test('a standing bearing is written even without a performance round', () => {
   assert.ok(host.calls.includes('bearing:true'))
 })
 
-test('a low mood frame reaches the Anime2.5D driver as the sad standing face', () => {
+test('every negative mood band reaches a visibly distinct Anime2.5D standing face', () => {
   const runtime = new MotionRuntime(new RigMotionCoordinator())
   const release = runtime.retain()
-  runtime.mood.set(30, 'idle', 40)
   const host = recordingRig()
   let applied: ReturnType<typeof bearingDriverPatch> | null = null
   const rig = {
@@ -255,12 +255,25 @@ test('a low mood frame reaches the Anime2.5D driver as the sad standing face', (
     },
   }
 
+  runtime.mood.set(30, 'idle', 40)
   applyMotionFrame(rig, runtime.frame(), createMotionApplyState())
-
   assert.ok(applied)
-  assert.ok((applied.browAngSym ?? 0) <= -0.28)
-  assert.ok((applied.eyeOpenL ?? 1) < 1)
-  assert.ok((applied.mouthForm ?? 0) < -0.1)
+  assert.ok((applied.browAngSym ?? 0) <= -0.6)
+  assert.ok((applied.eyeOpenL ?? 1) <= 0.75)
+  assert.ok((applied.mouthForm ?? 0) <= -0.5)
+
+  runtime.mood.set(5, 'idle', 40)
+  applyMotionFrame(rig, runtime.frame(), createMotionApplyState())
+  assert.ok((applied?.browAngSym ?? 0) <= -0.85)
+  assert.ok((applied?.eyeOpenL ?? 1) <= 0.65)
+  assert.ok((applied?.mouthForm ?? 0) <= -0.8)
+
+  runtime.mood.set(30, 'idle', 70)
+  applyMotionFrame(rig, runtime.frame(), createMotionApplyState())
+  assert.ok((applied?.brow ?? 0) <= -0.5)
+  assert.ok((applied?.browAngSym ?? 0) >= 0.75)
+  assert.ok((applied?.eyeOpenL ?? 0) >= 0.9)
+  assert.ok((applied?.mouthForm ?? 0) <= -0.4)
   release()
 })
 
@@ -279,7 +292,7 @@ test('a music frame forwards track identity before the groove sample', () => {
           writeMouth: true,
           restMouth: false,
         },
-        spectrum: { bass: 0.4, beat: 0.5, vocal: 0.6 },
+        signal: musicSignalAt(1),
         articulation: { energy: 0.6, viseme: 'open', amount: 0.8 },
         behaviorPlan: null,
         behaviors: [],
@@ -369,10 +382,13 @@ test('a rejected plan reports once instead of retrying every frame', () => {
 })
 
 test('the frame writer keeps exactly one behavior path', () => {
-  const source = readFileSync(new URL('./applyFrame.ts', import.meta.url), 'utf8')
+  const source = readFileSync(
+    new URL('./applyFrame.ts', import.meta.url),
+    'utf8',
+  )
   // Motion reaches the body through the behavior protocol or not at all. A
   // second call site here is a second scheduler, which is what the protocol
-  // exists to prevent; signals (speech text, audio spectrum) are inputs to a
+  // exists to prevent; signals (speech text, audio signal) are inputs to a
   // generator and are deliberately not counted.
   const behaviorWrites = [...source.matchAll(/rig\.playBehaviorPlan\(/g)]
   assert.equal(

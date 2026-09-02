@@ -1,4 +1,8 @@
-import type { MusicMotionAudio, MusicMotionClock, MusicMotionVisibility } from './musicSource'
+import type {
+  MusicMotionAudio,
+  MusicMotionClock,
+  MusicMotionVisibility,
+} from './musicSource'
 import { isPageVisible, onVisibility } from '../../../hooks/animation'
 import { audioManager } from '../../../utils/musicPlayer'
 import { getRigMotionCoordinator } from './coordinator'
@@ -12,7 +16,8 @@ const productionClock: MusicMotionClock = {
 
 const productionAudio: MusicMotionAudio = {
   getCurrentAudio: () => audioManager.getCurrentAudio(),
-  getSpectrumBands: () => audioManager.getSpectrumBands(),
+  getMotionAudioFeatures: (audio) =>
+    audioManager.getMotionAudioFeatures(audio as HTMLAudioElement),
   connectAudioToAnalyser: (audio) =>
     audioManager.connectAudioToAnalyser(audio as HTMLAudioElement),
 }

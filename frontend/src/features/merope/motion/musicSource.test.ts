@@ -5,7 +5,10 @@ import type {
 } from './musicSource'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { Anime25DBehaviorMotionController } from '../anime25drig/behaviorMotion'
+import { realizeAnime25DBehaviorPlan } from '../anime25drig/behaviorRealizer'
 import { RigMotionCoordinator } from './coordinator'
+import { HumanPerformanceRuntime } from './humanPerformanceRuntime'
 import {
   MUSIC_LEASE_TTL_MS,
   MusicMotionSource,
@@ -34,7 +37,12 @@ function fakeClock(): MusicMotionClock & {
 function silentAudio(paused = false): MusicMotionAudio {
   return {
     getCurrentAudio: () => ({ paused, currentTime: 1.2 }),
-    getSpectrumBands: () => [0.4, 0.5, 0.3, 0.1, 0, 0, 0, 0],
+    getMotionAudioFeatures: () => ({
+      energy: 0.6,
+      bass: 0.4,
+      pulse: 0.5,
+      presence: 0.3,
+    }),
     connectAudioToAnalyser: () => true,
   }
 }
@@ -43,6 +51,97 @@ const visible: MusicMotionVisibility = {
   isPageVisible: () => true,
   onVisibility: () => () => {},
 }
+
+test('phrase participation reaches the shared scheduler and body without restarting the lifecycle', async () => {
+  const audio = { paused: false, currentTime: 1 }
+  let energy = 0.6
+  const source = new MusicMotionSource(
+    new RigMotionCoordinator(),
+    fakeClock(),
+    {
+      getCurrentAudio: () => audio,
+      connectAudioToAnalyser: () => true,
+      getMotionAudioFeatures: () => ({
+        energy,
+        bass: energy,
+        pulse: energy,
+        presence: energy,
+      }),
+    },
+    visible,
+    async () => [{ start: 2, end: 3, viseme: 'open', emphasis: false }],
+  )
+  source.setTrack({
+    trackId: 'phrase-track',
+    verbatim: [
+      {
+        time: 2,
+        text: 'hello',
+        words: [{ time: 2, duration: 1, text: 'hello' }],
+      },
+    ],
+  })
+  source.setPlayback(true, false)
+  await Promise.resolve()
+  const runtime = new HumanPerformanceRuntime()
+  const body = new Anime25DBehaviorMotionController()
+  let behaviorId = ''
+  let startPeg = 0
+  for (const [time, expected] of [
+    [1, 'listen'],
+    [1.8, 'sing'],
+    [2.5, 'sing'],
+    [3.5, 'listen'],
+    [4, 'listen'],
+    [4.4, 'settle'],
+    [5, 'listen'],
+  ] as const) {
+    audio.currentTime = time
+    energy = time >= 4 && time < 5 ? 0 : 0.6
+    const frame = source.sampleNow(time * 1000)
+    const scheduled = runtime.frame([frame.behaviorPlan], time * 1000)
+    assert.ok(scheduled.plan)
+    const realized = realizeAnime25DBehaviorPlan(scheduled.plan, time * 1000)
+    assert.equal(realized.reports[0].result, 'accepted')
+    const unit = realized.units[0]
+    if (!behaviorId) {
+      behaviorId = unit.behaviorId
+      startPeg = unit.timing.startMs
+    }
+    assert.equal(unit.behaviorId, behaviorId)
+    assert.equal(unit.timing.startMs, startPeg)
+    body.replace(realized.units, time * 1000, time)
+    assert.equal(body.sample(time + 0.3).musicMode, expected)
+    if (expected === 'listen' || expected === 'settle')
+      assert.equal(frame.articulation.viseme, 'rest')
+  }
+})
+
+test('zero energy is published as measured silence, not absent analysis', () => {
+  const audio = { paused: false, currentTime: 1 }
+  const source = new MusicMotionSource(
+    new RigMotionCoordinator(),
+    fakeClock(),
+    {
+      getCurrentAudio: () => audio,
+      connectAudioToAnalyser: () => true,
+      getMotionAudioFeatures: () => ({
+        energy: 0,
+        bass: 0,
+        pulse: 0,
+        presence: 0,
+      }),
+    },
+    visible,
+  )
+  source.setPlayback(true, false)
+  source.sampleNow(1000)
+  audio.currentTime = 1.4
+  const frame = source.sampleNow(1400)
+  assert.equal(frame.signal?.audio?.energy, 0)
+  assert.equal(frame.behaviorPlan?.behaviors[0].form.id, 'settle')
+  assert.equal(frame.articulation.viseme, 'rest')
+})
 
 test('one sampler fans out to every mounted rig', () => {
   const coordinator = new RigMotionCoordinator()
@@ -264,7 +363,12 @@ test('reconnects the analyser when the player swaps its audio element', () => {
   }
   const audio: MusicMotionAudio = {
     getCurrentAudio: () => current,
-    getSpectrumBands: () => [0.4, 0.5, 0.3, 0.1, 0, 0, 0, 0],
+    getMotionAudioFeatures: () => ({
+      energy: 0.6,
+      bass: 0.4,
+      pulse: 0.5,
+      presence: 0.3,
+    }),
     connectAudioToAnalyser: (element) => {
       connected.push(element)
       return true
@@ -293,7 +397,12 @@ test('publishes the next audio-clock beat as a mutable anticipator peg', () => {
   let bass = 0.05
   const audio: MusicMotionAudio = {
     getCurrentAudio: () => ({ paused: false, currentTime }),
-    getSpectrumBands: () => [bass, 0.1, 0.2, 0.1, 0, 0, 0, 0],
+    getMotionAudioFeatures: () => ({
+      energy: 0.6,
+      bass,
+      pulse: bass,
+      presence: 0.3,
+    }),
     connectAudioToAnalyser: () => true,
   }
   const source = new MusicMotionSource(
@@ -325,5 +434,5 @@ test('publishes the next audio-clock beat as a mutable anticipator peg', () => {
     (anticipation?.atMs ?? Number.POSITIVE_INFINITY) <=
       currentTime * 1_000 + 500,
   )
-  assert.equal(latest.spectrum?.sampleTimeSeconds, currentTime)
+  assert.equal(latest.signal?.sampleTimeSeconds, currentTime)
 })

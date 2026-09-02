@@ -3,7 +3,7 @@ import type { Anime25DWorkbenchPort } from '../anime25drig/workbenchPort'
 import type { RigBearing } from '../motion/bearing'
 import type { BehaviorPlan } from '../motion/behavior'
 import type { MotionChannelPolicy } from '../motion/policy'
-import type { SingingSpectrumDrive } from '../singing/singingGroove'
+import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'
 import type { SpeechArticulation } from './articulation'
@@ -55,7 +55,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
     const speechProsodyRef = useRef<SpeechProsodyPlan | null>(null)
     const singingActiveRef = useRef(false)
     const singingTrackRef = useRef<string | null>(null)
-    const singingSpectrumRef = useRef<SingingSpectrumDrive | null>(null)
+    const musicSignalRef = useRef<MusicMotionSignal | null>(null)
     const motionPolicyRef = useRef<MotionChannelPolicy | null>(null)
     const moodRef = useRef(mood)
     const activityRef = useRef(activity)
@@ -109,7 +109,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
       animeRef.current?.setSpeechProsody(speechProsodyRef.current)
       animeRef.current?.setSinging(singingActiveRef.current)
       animeRef.current?.setSingingTrack(singingTrackRef.current)
-      animeRef.current?.setSingingSpectrum(singingSpectrumRef.current)
+      animeRef.current?.setMusicSignal(musicSignalRef.current)
       if (motionPolicyRef.current) {
         animeRef.current?.setMotionPolicy(motionPolicyRef.current)
       }
@@ -149,9 +149,9 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
         singingTrackRef.current = trackId
         animeRef.current?.setSingingTrack(trackId)
       },
-      setSingingSpectrum: (drive) => {
-        singingSpectrumRef.current = drive
-        animeRef.current?.setSingingSpectrum(drive)
+      setMusicSignal: (drive) => {
+        musicSignalRef.current = drive
+        animeRef.current?.setMusicSignal(drive)
       },
       setAutoSpeech: (active) => {
         latestSpeechRef.current = { kind: 'auto', active }

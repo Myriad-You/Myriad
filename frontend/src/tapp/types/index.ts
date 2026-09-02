@@ -767,10 +767,19 @@ export type AIContextRef =
   | { type: 'profile'; fields: Array<'id' | 'username' | 'role'> }
   | { type: 'custom'; value: unknown }
 
-export interface AITaskRequest {
+export interface AIImageInput {
+  prompt: string
+  width?: number | string
+  height?: number | string
+  /**
+   * Ordered PNG/JPEG/WebP base64 data URLs or /api/brew/image-cache/ paths.
+   * At most 4 images, at most 10 MiB of decoded image data in total.
+   */
+  referenceImages?: string[]
+}
+
+interface AITaskRequestOptions {
   version: 2
-  operation: TappAIOperation
-  input: unknown
   context?: AIContextRef[]
   output?: {
     format: TappAIOutputFormat
@@ -779,6 +788,11 @@ export interface AITaskRequest {
   delivery?: 'result' | 'stream'
   idempotencyKey?: string
 }
+
+export type AITaskRequest = AITaskRequestOptions & (
+  | { operation: 'image'; input: string | AIImageInput }
+  | { operation: Exclude<TappAIOperation, 'image'>; input: unknown }
+)
 
 export type AITaskStatus =
   'queued' | 'running' | 'completed' | 'failed' | 'cancelled'

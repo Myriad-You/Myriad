@@ -1,332 +1,207 @@
+import type { BehaviorQuality } from '../motion/behavior'
+import type { MusicMode, MusicMotionSignal } from './musicSignal'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { completeBehaviorQuality } from '../anime25drig/behaviorMotion'
+import { IDENTITY_DRIVER } from '../anime25drig/driver'
+import { PoseResponseController } from '../anime25drig/poseResponse'
+import { MUSIC_QUALITY } from '../motion/musicReaction'
+import { musicSignalAt } from './musicSignal.test-support'
 import {
   MIN_SINGING_NOD_INTERVAL_SECONDS,
   SingingGrooveController,
   singingNodBeatStride,
-  singingSpectrumDrive,
 } from './singingGroove'
 
-test('maps bass to beat and mids to vocal without letting kick own the voice', () => {
-  const kick = singingSpectrumDrive([1, 0, 0, 0, 0, 0, 0, 0])
-  assert.ok(kick.beat > 0.5)
-  assert.equal(kick.vocal, 0)
-  const voice = singingSpectrumDrive([0, 1, 1, 0.4, 0, 0, 0, 0])
-  assert.ok(voice.vocal > 0.5)
-})
-
-test('groove realizes rhythmic body motion without continuous face or gaze signals', () => {
+function play(
+  options: {
+    fps?: number
+    duration?: number
+    track?: string
+    signal?: (time: number) => MusicMotionSignal | null
+    mode?: (time: number) => MusicMode
+    quality?: Readonly<BehaviorQuality>
+  } = {},
+) {
+  const fps = options.fps ?? 60
   const controller = new SingingGrooveController()
-  const pose = controller.sample(1, true, { bass: 1, beat: 1, vocal: 1 })
-  assert.equal(pose.eyeX, 0)
-  assert.equal(pose.brow, 0)
-})
-
-test('behavior quality reaches groove response, density, and asymmetry', () => {
-  const restrained = new SingingGrooveController()
-  const open = new SingingGrooveController()
-  const drive = { bass: 0.4, beat: 0.4, vocal: 0.5 }
-  const restrainedQuality = completeBehaviorQuality({
-    tempo: 0.8,
-    fluidity: 1.2,
-    directness: 1.1,
-    rebound: 0.1,
-    asymmetry: 0.05,
-    density: 0.3,
-  })
-  const openQuality = completeBehaviorQuality({
-    tempo: 1.2,
-    fluidity: 0.7,
-    directness: 0.55,
-    rebound: 1.1,
-    asymmetry: 1.2,
-    density: 1.4,
-  })
-  let restrainedRange = 0
-  let openRange = 0
-  for (let frame = 0; frame <= 60 * 8; frame += 1) {
-    const time = frame / 60
-    const restrainedPose = restrained.sample(
-      time,
-      true,
-      drive,
-      restrainedQuality,
-    )
-    const openPose = open.sample(time, true, drive, openQuality)
-    if (frame < 90) continue
-    restrainedRange = Math.max(
-      restrainedRange,
-      Math.abs(restrainedPose.angleZ) + Math.abs(restrainedPose.body),
-    )
-    openRange = Math.max(
-      openRange,
-      Math.abs(openPose.angleZ) + Math.abs(openPose.body),
-    )
-  }
-  assert.ok(openRange > restrainedRange)
-})
-
-test('reads faster music in half-time instead of nodding on every beat', () => {
-  assert.equal(singingNodBeatStride(72), 1)
-  assert.equal(singingNodBeatStride(120), 2)
-  assert.equal(singingNodBeatStride(180), 4)
-  for (const bpm of [60, 72, 86, 100, 120, 150, 180, 200]) {
-    const nodInterval = (60 / bpm) * singingNodBeatStride(bpm)
-    assert.ok(nodInterval >= MIN_SINGING_NOD_INTERVAL_SECONDS - 1e-9)
-  }
-})
-
-test('a brief disable keeps the leaned pose instead of yanking back to center', () => {
-  const controller = new SingingGrooveController()
-  const drive = { bass: 0.4, beat: 0.4, vocal: 0.5 }
-  let pose = controller.sample(0, true, drive)
-  for (let step = 1; step <= 60 * 4; step += 1) {
-    pose = controller.sample(step / 60, true, drive)
-  }
-  const leaned = { ...pose }
-  assert.ok(Math.abs(leaned.angleZ) > 0.04)
-  const held = { ...controller.sample(4 + 1 / 60, false, null) }
-  assert.ok(Math.abs(held.angleZ) > Math.abs(leaned.angleZ) * 0.85)
-  const resumed = { ...controller.sample(4 + 2 / 60, true, drive) }
-  assert.ok(Math.abs(resumed.angleZ) > 0.03)
-  assert.equal(Math.sign(resumed.angleZ), Math.sign(leaned.angleZ))
-})
-
-test('turning singing off eases the lean back instead of collapsing it', () => {
-  const controller = new SingingGrooveController()
-  const drive = { bass: 0.4, beat: 0.4, vocal: 0.5 }
-  let pose = controller.sample(0, true, drive)
-  let start = 0
-  for (let step = 1; step <= 60 * 12; step += 1) {
-    pose = controller.sample(step / 60, true, drive)
-    if (Math.abs(pose.angleZ) > 0.06) {
-      start = step / 60
-      break
+  controller.setTrack(options.track ?? 'music-test')
+  controller.setArmMotion(true)
+  const response = new PoseResponseController()
+  const current = { ...IDENTITY_DRIVER }
+  const samples = []
+  for (let frame = 0; frame <= (options.duration ?? 30) * fps; frame++) {
+    const t = frame / fps
+    const mode = options.mode?.(t) ?? 'listen'
+    const signal = options.signal ? options.signal(t) : musicSignalAt(t)
+    const raw = {
+      ...controller.sample(t, true, signal, options.quality ?? MUSIC_QUALITY[mode], mode),
     }
+    response.step(current, { ...IDENTITY_DRIVER, ...raw }, frame ? 1 / fps : 0)
+    samples.push({ t, ...current, raw })
   }
-  const leaned = { ...pose }
-  assert.ok(Math.abs(leaned.angleZ) > 0.06)
-
-  const first = { ...controller.sample(start + 1 / 60, false, null) }
-  assert.ok(Math.abs(first.angleZ) > Math.abs(leaned.angleZ) * 0.9)
-
-  let afterOne = first
-  for (let frame = 2; frame <= 60; frame += 1) {
-    afterOne = { ...controller.sample(start + frame / 60, false, null) }
-  }
-  assert.ok(Math.abs(afterOne.angleZ) > 0.015)
-
-  let afterFour = afterOne
-  for (let frame = 61; frame <= 60 * 4; frame += 1) {
-    afterFour = { ...controller.sample(start + frame / 60, false, null) }
-  }
-  assert.ok(Math.abs(afterFour.angleZ) < 0.025)
-})
-
-test('weight keeps drifting both ways without parking', () => {
-  const controller = new SingingGrooveController()
-  const drive = { bass: 0.4, beat: 0.4, vocal: 0.5 }
-  let minZ = 0
-  let maxZ = 0
-  let minBody = 0
-  let maxBody = 0
-  let longestStill = 0
-  let stillRun = 0
-  let previous = 0
-  let previousDelta = 0
-  let harshReversals = 0
-  for (let step = 0; step <= 60 * 20; step += 1) {
-    const pose = controller.sample(step / 60, true, drive)
-    minZ = Math.min(minZ, pose.angleZ)
-    maxZ = Math.max(maxZ, pose.angleZ)
-    minBody = Math.min(minBody, pose.body)
-    maxBody = Math.max(maxBody, pose.body)
-    const delta = pose.angleZ - previous
-    if (step > 90 && Math.abs(delta) < 0.00035) {
-      stillRun += 1
-      longestStill = Math.max(longestStill, stillRun)
-    } else {
-      stillRun = 0
-    }
-    if (
-      step > 90 &&
-      previousDelta !== 0 &&
-      Math.sign(delta) !== 0 &&
-      Math.sign(delta) !== Math.sign(previousDelta) &&
-      Math.abs(delta) > 0.0028 &&
-      Math.abs(previousDelta) > 0.0028
-    ) {
-      harshReversals += 1
-    }
-    previousDelta = delta
-    previous = pose.angleZ
-  }
-  assert.ok(minZ < -0.04)
-  assert.ok(maxZ > 0.04)
-  assert.ok(minBody < -0.04)
-  assert.ok(maxBody > 0.04)
-  assert.ok(longestStill < 80)
-  assert.equal(harshReversals, 0)
-})
-
-test('leaning out drops the head and returning to center lifts it', () => {
-  const controller = new SingingGrooveController()
-  const drive = { bass: 0.4, beat: 0.5, vocal: 0.6 }
-  let edgeSum = 0
-  let edgeCount = 0
-  let centerSum = 0
-  let centerCount = 0
-  for (let step = 0; step <= 60 * 20; step += 1) {
-    const pose = controller.sample(step / 60, true, drive)
-    assert.ok(Math.abs(pose.angleY) <= 1)
-    const span = Math.abs(pose.angleZ)
-    if (span > 0.08) {
-      edgeSum += pose.angleY
-      edgeCount += 1
-    } else if (step > 180 && span < 0.04) {
-      centerSum += pose.angleY
-      centerCount += 1
-    }
-  }
-  assert.ok(edgeCount > 20)
-  assert.ok(centerCount > 10)
-  assert.ok(edgeSum / edgeCount < centerSum / centerCount)
-})
-
-function pulseBeat(time: number, amount: number): number {
-  const wave = Math.max(0, Math.sin(time * Math.PI * 4))
-  return 0.08 + amount * wave * wave
+  return samples
 }
 
-test('kick-heavy mix nods down more than a vocal phrase', () => {
-  const kickCtl = new SingingGrooveController()
-  const voiceCtl = new SingingGrooveController()
-  let kickSum = 0
-  let voiceSum = 0
-  let kickMin = 0
-  let count = 0
-  for (let step = 0; step <= 60 * 8; step += 1) {
-    const time = step / 60
-    const hit = pulseBeat(time, 0.88)
-    const down = kickCtl.sample(time, true, {
-      bass: hit,
-      beat: hit,
-      vocal: 0.12,
-    })
-    const up = voiceCtl.sample(time, true, {
-      bass: 0.08,
-      beat: 0.1,
-      vocal: 0.9,
-    })
-    if (step <= 90) continue
-    kickSum += down.angleY
-    voiceSum += up.angleY
-    kickMin = Math.min(kickMin, down.angleY)
-    count += 1
+test('head accents use a slower metrical level at all supported tempi', () => {
+  for (const bpm of [60, 72, 86, 100, 120, 150, 180, 200]) {
+    assert.ok(
+      (60 / bpm) * singingNodBeatStride(bpm) >=
+        MIN_SINGING_NOD_INTERVAL_SECONDS,
+    )
   }
-  assert.ok(count > 0)
-  assert.ok(kickSum / count < voiceSum / count - 0.08)
-  assert.ok(voiceSum / count > 0.08)
-  assert.ok(kickMin < -0.12)
-  assert.ok(kickMin > -0.27, 'the downbeat no longer makes the head dive')
 })
 
-test('a loud beat dips deeper than a soft beat', () => {
-  const loudCtl = new SingingGrooveController()
-  const softCtl = new SingingGrooveController()
-  let loudMin = 0
-  let softMin = 0
-  for (let step = 0; step <= 60 * 8; step += 1) {
-    const time = step / 60
-    const heavy = loudCtl.sample(time, true, {
-      bass: pulseBeat(time, 0.86),
-      beat: pulseBeat(time, 0.86),
-      vocal: 0.3,
-    })
-    const light = softCtl.sample(time, true, {
-      bass: pulseBeat(time, 0.18),
-      beat: pulseBeat(time, 0.18),
-      vocal: 0.3,
-    })
-    if (step <= 90) continue
-    loudMin = Math.min(loudMin, heavy.angleY)
-    softMin = Math.min(softMin, light.angleY)
+test('body and head retain visible range without allocating a face reaction', () => {
+  const samples = play().slice(180)
+  const span = (key: 'body' | 'angleZ' | 'angleX') =>
+    Math.max(...samples.map((s) => s[key])) -
+    Math.min(...samples.map((s) => s[key]))
+  assert.ok(span('body') > 0.8)
+  assert.ok(span('angleZ') > 0.9)
+  assert.ok(span('angleX') > 0.3)
+  for (const sample of samples) {
+    assert.equal(sample.raw.eyeX, 0)
+    assert.equal(sample.raw.brow, 0)
+    assert.ok(sample.angleY > -0.21 && sample.angleY < 0.18)
+    assert.ok(Math.abs(sample.angleZ) < 1)
   }
-  assert.ok(loudMin < softMin - 0.05)
-  assert.ok(loudMin > -0.13)
 })
 
-test('a pulsing beat nods down then comes back up', () => {
-  const pulseCtl = new SingingGrooveController()
-  const flatCtl = new SingingGrooveController()
-  let pulseMin = 0
-  let pulseMax = -1
-  let flatMin = 0
-  let flatMax = -1
-  for (let step = 0; step <= 60 * 8; step += 1) {
-    const time = step / 60
-    const beat = pulseBeat(time, 0.82)
-    const pulse = pulseCtl.sample(time, true, {
-      bass: beat,
-      beat,
-      vocal: 0.35,
-    })
-    const flat = flatCtl.sample(time, true, {
-      bass: 0.5,
-      beat: 0.5,
-      vocal: 0.35,
-    })
-    if (step <= 90) continue
-    pulseMin = Math.min(pulseMin, pulse.angleY)
-    pulseMax = Math.max(pulseMax, pulse.angleY)
-    flatMin = Math.min(flatMin, flat.angleY)
-    flatMax = Math.max(flatMax, flat.angleY)
-  }
-  assert.ok(pulseMin < -0.045)
-  assert.ok(pulseMin > -0.1)
-  assert.ok(pulseMax > 0.08)
-  assert.ok(pulseMax - pulseMin > flatMax - flatMin + 0.055)
+test('sway responds to music tempo, not only amplitude or an independent timer', () => {
+  const slow = play({ signal: (t) => musicSignalAt(t, { bpm: 80 }) })
+  const fast = play({ signal: (t) => musicSignalAt(t, { bpm: 110 }) })
+  const difference =
+    slow
+      .slice(180)
+      .reduce((sum, s, i) => sum + Math.abs(s.body - fast[i + 180].body), 0) /
+    (slow.length - 180)
+  assert.ok(difference > 0.15, `tempo has no effect: ${difference}`)
 })
 
-// The point of the beat clock: with a tempo to lock to, the accent leaves
-// before the hit instead of chasing it.
-test('a locked tempo pulls the nod earlier than an unlocked one', () => {
-  function meanLag(steady: boolean): number {
-    const controller = new SingingGrooveController()
-    const samples: { t: number; y: number; onset: boolean }[] = []
-    let seed = 3
-    let nextOnset = 0
-    for (let step = 0; step <= 60 * 14; step += 1) {
-      const t = step / 60
-      let onset = false
-      if (t >= nextOnset) {
-        onset = true
-        seed = (seed * 1103515245 + 12345) % 2147483648
-        nextOnset = t + (steady ? 0.5 : 0.22 + (seed / 2147483648) * 0.55)
-      }
-      const bass = onset ? 0.95 : 0.05
-      const pose = controller.sample(t, true, { bass, beat: bass, vocal: 0.35 })
-      samples.push({ t, y: pose.angleY, onset })
+test('director extent reaches the actual body, not only the planned quality', () => {
+  const compact = play({ quality: { ...MUSIC_QUALITY.listen, extent: 0.8 } })
+  const expansive = play({ quality: { ...MUSIC_QUALITY.listen, extent: 1.3 } })
+  const range = (samples: ReturnType<typeof play>) => Math.max(...samples.map(s => s.body)) - Math.min(...samples.map(s => s.body))
+  assert.ok(range(expansive) > range(compact) * 1.5)
+})
+
+test('measured silence settles but unavailable audio remains quiet listening', () => {
+  const silent = play({
+    duration: 15,
+    signal: (t) =>
+      musicSignalAt(
+        t,
+        t > 7
+          ? {
+              audio: { energy: 0, bass: 0, pulse: 0, presence: 0 },
+              bpm: 0,
+            }
+          : {},
+      ),
+  })
+  const unknown = play({
+    duration: 15,
+    signal: (t) => musicSignalAt(t, { audio: null, bpm: 0 }),
+  })
+  assert.ok(
+    Math.max(...silent.slice(11 * 60).map((s) => Math.abs(s.body))) < 0.001,
+  )
+  assert.ok(
+    Math.max(...unknown.slice(11 * 60).map((s) => Math.abs(s.body))) > 0.003,
+  )
+})
+
+test('stale audio evidence fades instead of predicting forever', () => {
+  const frozen = musicSignalAt(5)
+  const samples = play({
+    duration: 10,
+    signal: (t) => (t < 5 ? musicSignalAt(t) : frozen),
+  })
+  assert.ok(Math.abs(samples.at(-1)!.body) < 0.001)
+})
+
+test('phrase preparation starts before the vocal and releases after it', () => {
+  const phrase = { start: 2, end: 4, confidence: 0.95 }
+  const sung = play({
+    duration: 6,
+    mode: () => 'sing',
+    signal: (t) => musicSignalAt(t, { phrase }),
+  })
+  const listening = play({ duration: 6 })
+  assert.ok(
+    sung[Math.round(1.96 * 60)].angleY >
+      listening[Math.round(1.96 * 60)].angleY + 0.02,
+  )
+  assert.ok(sung[4 * 60].raw.armY > listening[4 * 60].raw.armY + 0.1)
+  assert.ok(sung[5 * 60].angleY < sung[4 * 60].angleY)
+})
+
+test('actual head accents are sparse, modest, and anticipate the audible pulse', () => {
+  const samples = play({ duration: 60 })
+  const peaks: number[] = []
+  for (let i = 181; i < samples.length - 1; i++) {
+    const s = samples[i]
+    if (
+      s.angleY < -0.05 &&
+      s.angleY < samples[i - 1].angleY &&
+      s.angleY <= samples[i + 1].angleY
+    ) {
+      peaks.push(s.t)
+}
+  }
+  assert.ok(peaks.length >= 5 && peaks.length < 26, `nod count ${peaks.length}`)
+  for (let i = 1; i < peaks.length; i++) assert.ok(peaks[i] - peaks[i - 1] > 1)
+  const errors = peaks.map((t) => Math.abs(t - Math.round(t * 2) / 2))
+  assert.ok(
+    Math.max(...errors) < 0.14,
+    `actual nod phase error ${Math.max(...errors)}`,
+  )
+})
+
+test('silence, resuming and mode replacement preserve actual pose continuity', () => {
+  const samples = play({
+    duration: 18,
+    mode: (t) => (t < 6 ? 'sing' : t < 10 ? 'settle' : 'listen'),
+  })
+  let maxStep = 0
+  for (let i = 1; i < samples.length; i++) {
+    for (const key of ['angleX', 'angleY', 'angleZ', 'body'] as const) {
+      maxStep = Math.max(
+        maxStep,
+        Math.abs(samples[i][key] - samples[i - 1][key]),
+      )
     }
-    const lags: number[] = []
-    for (let i = 0; i < samples.length; i += 1) {
-      if (!samples[i]!.onset || samples[i]!.t < 6) continue
-      let lowest = Infinity
-      let at = 0
-      for (
-        let j = Math.max(0, i - 15);
-        j < i + 18 && j < samples.length;
-        j += 1
-      ) {
-        if (samples[j]!.y < lowest) {
-          lowest = samples[j]!.y
-          at = samples[j]!.t
-        }
-      }
-      lags.push(at - samples[i]!.t)
-    }
-    return lags.reduce((sum, lag) => sum + lag, 0) / lags.length
   }
-  assert.ok(meanLag(true) < meanLag(false))
+  assert.ok(maxStep < 0.07, `pose step ${maxStep}`)
+  assert.ok(Math.abs(samples[9 * 60].body) < 0.005)
+  assert.ok(
+    Math.abs(samples[6 * 60].body) > 0.01,
+    'does not reset to origin on handoff',
+  )
+})
+
+test('track replacement keeps the physical pose rather than resetting the oscillator', () => {
+  const controller = new SingingGrooveController()
+  let pose = { ...controller.sample(0, true, musicSignalAt(0)) }
+  for (let i = 1; i <= 151; i++)
+    pose = { ...controller.sample(i / 60, true, musicSignalAt(i / 60)) }
+  controller.setTrack('other-song')
+  const next = controller.sample(152 / 60, true, musicSignalAt(0, { bpm: 80 }))
+  assert.ok(Math.abs(next.body - pose.body) < 0.05)
+  assert.ok(Math.abs(next.angleZ - pose.angleZ) < 0.05)
+})
+
+test('30, 60, and 120 fps keep the same slow musical movement', () => {
+  const sample = (t: number) =>
+    musicSignalAt(Math.floor((t + 1e-9) / 0.025) * 0.025)
+  const reference = play({ fps: 120, duration: 24, signal: sample })
+  for (const fps of [30, 60]) {
+    const actual = play({ fps, duration: 24, signal: sample })
+    const error =
+      actual.reduce(
+        (sum, s, i) => sum + Math.abs(s.body - reference[(i * 120) / fps].body),
+        0,
+      ) / actual.length
+    assert.ok(error < 0.045, `${fps} fps differs ${error}`)
+  }
 })

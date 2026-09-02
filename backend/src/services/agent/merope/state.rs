@@ -18,6 +18,12 @@ const PUSH: f64 = 0.05;
 const DIMINISH_SPAN: f64 = 40.0;
 const EMOTION_PULL_SKIP: f64 = 1.0;
 const LITE_HINT_SCALE: f64 = 16.0;
+/// Music is a restorative activity, not an unlimited reward. A qualified
+/// listening block can ease low/neutral mood, but cannot by itself create the
+/// character's happiest state.
+pub const MUSIC_LISTENING_MIN_SECS: u32 = 10 * 60;
+pub const MUSIC_LISTENING_MAX_SECS: u32 = 30 * 60;
+pub const MUSIC_MOOD_CEILING: f64 = 80.0;
 
 /// How long a non-idle `activity` is believed. Nothing clears the row if the
 /// process is killed between `working` and `idle`, and `working` is a gate in
@@ -237,6 +243,25 @@ pub fn apply_task_outcome(affect: &mut Affect, success: bool) {
         },
         1.0,
     );
+}
+
+/// Apply one server-qualified block of actual music playback.
+///
+/// We deliberately leave arousal and the short emotion untouched: without
+/// knowing whether the track is calming, sad or energetic, changing either
+/// would invent a reaction. The slow valence nudge represents the modest
+/// restorative benefit of choosing to listen, with duration saturation,
+/// ordinary headroom diminishing and a comfort ceiling.
+pub fn apply_music_listening(affect: &mut Affect, listened_seconds: u32) {
+    if listened_seconds < MUSIC_LISTENING_MIN_SECS || affect.mood >= MUSIC_MOOD_CEILING {
+        return;
+    }
+    let seconds = listened_seconds.min(MUSIC_LISTENING_MAX_SECS);
+    let duration_span = MUSIC_LISTENING_MAX_SECS - MUSIC_LISTENING_MIN_SECS;
+    let duration = f64::from(seconds - MUSIC_LISTENING_MIN_SECS) / f64::from(duration_span);
+    let raw_boost = 1.5 + 1.5 * duration;
+    let boost = diminish(affect.mood, raw_boost).min(MUSIC_MOOD_CEILING - affect.mood);
+    affect.mood = clamp(affect.mood + boost);
 }
 
 pub fn parse_appraisal_hint(raw: &str) -> Option<(i32, i32)> {
@@ -498,6 +523,37 @@ mod tests {
         let settled = affect.mood;
         apply_task_outcome(&mut affect, false);
         assert!((affect.mood - settled).abs() < 0.05);
+    }
+
+    #[test]
+    fn qualified_music_listening_modestly_lifts_mood_without_inventing_arousal() {
+        let mut affect = Affect {
+            mood: 40.0,
+            arousal: 67.0,
+            emotion: 21.0,
+            emotion_arousal: 73.0,
+        };
+        apply_music_listening(&mut affect, MUSIC_LISTENING_MIN_SECS);
+        assert_eq!(affect.mood, 41.5);
+        assert_eq!(affect.arousal, 67.0);
+        assert_eq!(affect.emotion, 21.0);
+        assert_eq!(affect.emotion_arousal, 73.0);
+    }
+
+    #[test]
+    fn music_listening_requires_real_duration_and_has_a_comfort_ceiling() {
+        let mut too_short = rest();
+        apply_music_listening(&mut too_short, MUSIC_LISTENING_MIN_SECS - 1);
+        assert_eq!(too_short, rest());
+
+        let mut affect = Affect {
+            mood: MUSIC_MOOD_CEILING - 0.25,
+            ..rest()
+        };
+        apply_music_listening(&mut affect, MUSIC_LISTENING_MAX_SECS * 10);
+        assert_eq!(affect.mood, MUSIC_MOOD_CEILING);
+        apply_music_listening(&mut affect, MUSIC_LISTENING_MAX_SECS);
+        assert_eq!(affect.mood, MUSIC_MOOD_CEILING);
     }
 
     #[test]

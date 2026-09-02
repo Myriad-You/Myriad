@@ -33,15 +33,6 @@ export function sampleSingingCue(
   return time < cue.end ? cue : null
 }
 
-/** Mid/presence bands; skip kick/bass so drums do not chew the mouth. */
-export function singingVocalEnergy(bands: readonly number[]): number {
-  if (bands.length === 0) return 0
-  const mid = unit(bands[1])
-  const presence = unit(bands[2])
-  const treble = unit(bands[3])
-  return unit(mid * 0.45 + presence * 0.35 + treble * 0.2)
-}
-
 export function singingArticulation(input: {
   cue: SingingCue | null
   energy: number | null

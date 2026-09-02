@@ -581,6 +581,13 @@ pub async fn ensure_agent_usage_allowed(
 /// Agent 权限串 → Tapp 权限（强制对齐；未映射的权限非管理员一律拒绝，仅 `system:read` 例外）
 ///
 /// 非管理员能力 = 候选全集 ∩ Tapp 下放开关（与权限页预设模板同一真相源）
+///
+/// `mcp:execute` 故意不在这里：它曾经挂在 `NetworkFetch` 上，于是站长为了让
+/// Tapp 能抓个网页而打开「网络请求」时，顺带把「调用本站接入的所有 MCP 工具」
+/// 也下放给了普通用户。MCP 服务器是站长在 `agent/mcp_servers.json` 里配的，
+/// 每个工具都会变成一个 `required_permissions: ["mcp:execute"]` 的能力，范围
+/// 完全不在那个开关的语义里。没有映射 → 非管理员一律拒；管理员走
+/// `get_user_permissions` 里单独 insert 的那一条，不受影响。
 fn agent_perm_to_tapp(perm: &str) -> Option<crate::services::permission_service::TappPermission> {
     use crate::services::permission_service::TappPermission;
     match perm {
@@ -607,7 +614,7 @@ fn agent_perm_to_tapp(perm: &str) -> Option<crate::services::permission_service:
         "speech:tts" => Some(TappPermission::SpeechTts),
         "music:control" => Some(TappPermission::MediaControl),
         "music:read" => Some(TappPermission::MediaRead),
-        "mcp:execute" | "notion:read" => Some(TappPermission::NetworkFetch),
+        "notion:read" => Some(TappPermission::NetworkFetch),
         "profile:read" | "random:read" | "search:read" | "filter:read" | "compare:read"
         | "icon:read" | "rsshub:read" => Some(TappPermission::PlatformRead),
         "prompt:write" => Some(TappPermission::AiGenerate),
@@ -660,15 +667,9 @@ pub(crate) fn granted_covers_tapp_permission(
                 || granted.contains("ai:search")
                 || granted.contains("prompt:write")
         }
-        TappPermission::NetworkFetch => [
-            "http:fetch",
-            "web:scrape",
-            "proxy:read",
-            "mcp:execute",
-            "notion:read",
-        ]
-        .iter()
-        .any(|perm| granted.contains(*perm)),
+        TappPermission::NetworkFetch => ["http:fetch", "web:scrape", "proxy:read", "notion:read"]
+            .iter()
+            .any(|perm| granted.contains(*perm)),
         _ => false,
     }
 }
@@ -1109,6 +1110,48 @@ mod tests {
         }
     }
 
+    /// 非管理员开着「网络请求」也拿不到 MCP。
+    ///
+    /// 这个开关在权限页写的是「允许声明式出站请求，以及加载远端图片/音视频
+    /// 资源」。站长按这句话打开它，不应该同时把本站接入的每一个 MCP 工具
+    /// 交给普通用户——那是文件系统、内网 API 这一类东西，不是取个网页。
+    #[test]
+    fn the_network_fetch_switch_does_not_hand_out_mcp() {
+        use crate::config::DynamicConfig;
+        use crate::services::permission_service::{
+            TappPermission, TappPermissionService, UserRole,
+        };
+
+        let mut config = DynamicConfig::default();
+        config.user_perm_network_fetch = true;
+        assert!(TappPermissionService::check(
+            &config,
+            UserRole::User,
+            TappPermission::NetworkFetch
+        ));
+
+        // 开关开着，出站类权限确实放行……
+        for perm in ["http:fetch", "web:scrape", "proxy:read", "notion:read"] {
+            let mapped = agent_perm_to_tapp(perm).expect("mapped");
+            assert!(
+                TappPermissionService::check(&config, UserRole::User, mapped),
+                "{perm} 应当跟着「网络请求」开关走"
+            );
+        }
+
+        // ……但 MCP 不在其中，而且它也不是宿主 UI 那一档的特例。
+        assert_eq!(agent_perm_to_tapp("mcp:execute"), None);
+        assert!(!host_agent_permission("mcp:execute"));
+
+        // 反向映射得跟着一起改，否则文档里那句「same mapping」就成了假话。
+        let mcp_only: std::collections::HashSet<String> =
+            ["mcp:execute".to_string()].into_iter().collect();
+        assert!(!granted_covers_tapp_permission(
+            &mcp_only,
+            TappPermission::NetworkFetch
+        ));
+    }
+
     #[test]
     fn test_system_gate_blocks_high() {
         let steps = vec![pending("cache.clear", RiskLevel::High)];
@@ -1218,8 +1261,10 @@ mod tests {
             agent_perm_to_tapp("content:write"),
             Some(TappPermission::StorageWrite)
         );
+        // MCP 工具不跟着「网络请求」开关走：没有映射就等于非管理员拒绝。
+        assert_eq!(agent_perm_to_tapp("mcp:execute"), None);
         assert_eq!(
-            agent_perm_to_tapp("mcp:execute"),
+            agent_perm_to_tapp("notion:read"),
             Some(TappPermission::NetworkFetch)
         );
         assert_eq!(agent_perm_to_tapp("unknown:perm"), None);

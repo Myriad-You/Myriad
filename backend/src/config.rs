@@ -1273,8 +1273,45 @@ impl DynamicConfig {
         Some(self.resolve_ai_config(ModelTier::Lite))
     }
 
+    /// 这一档要的模型没配、实际会落到 Standard 上吗？
+    ///
+    /// 开关打开但模型字段留空时，`resolve_tier` 会取 Standard 的模型。配置上
+    /// 看是「Lite 已启用」，跑的却是 Standard——账单和延迟都按 Standard 走，
+    /// 而日志里记的是 Lite。这个函数只负责认出这件事，喊出来是调用方的事。
+    ///
+    /// 关掉的档不算回退：那是明确的选择，不是没说清楚。
+    pub fn tier_falls_back_to_standard(&self, tier: ModelTier) -> bool {
+        let (enabled, provider, gemini_model, openai_model) = match tier {
+            ModelTier::Lite => (
+                self.lite_enabled,
+                &self.lite_ai_provider,
+                &self.lite_gemini_model,
+                &self.lite_openai_model,
+            ),
+            ModelTier::Pro => (
+                self.pro_enabled,
+                &self.pro_ai_provider,
+                &self.pro_gemini_model,
+                &self.pro_openai_model,
+            ),
+            ModelTier::Standard => return false,
+        };
+        if !enabled {
+            return false;
+        }
+        let configured = if provider == "gemini" {
+            gemini_model.trim()
+        } else {
+            openai_model.trim()
+        };
+        configured.is_empty()
+    }
+
     /// 根据模型层级解析 AI 配置。与严格 Lite 解析不同，这里保留平台级的
     /// 兼容行为：Lite / Pro 关闭或对应模型留空时可回退到 Standard。
+    ///
+    /// 回退是静默的，所以调用方应当先问一次 [`Self::tier_falls_back_to_standard`]
+    /// 并把它记下来——否则「我明明开了 Lite」会变成一个查不出来的问题。
     pub fn resolve_ai_config(&self, tier: ModelTier) -> ResolvedAiConfig {
         if tier == ModelTier::Lite && self.lite_enabled {
             return self.resolve_tier(
@@ -1365,6 +1402,60 @@ mod tests {
             Some(v) => std::env::set_var("DATABASE_URL", v),
             None => std::env::remove_var("DATABASE_URL"),
         }
+    }
+
+    /// 「我明明开了 Lite」得能被认出来。
+    #[test]
+    fn an_enabled_tier_with_no_model_of_its_own_is_a_fallback() {
+        let mut config = DynamicConfig::default();
+        config.openai_model = "standard-model".into();
+        // 出厂默认给 Lite / Pro 各配了自己的模型，回退只在字段被清空后发生。
+        config.lite_openai_model = String::new();
+        config.pro_openai_model = String::new();
+
+        // 关着不算回退：那是明确的选择。
+        assert!(!config.tier_falls_back_to_standard(ModelTier::Lite));
+        assert!(!config.tier_falls_back_to_standard(ModelTier::Pro));
+
+        // 开着但模型留空 —— 配置上写着 Lite，跑的是 Standard。
+        config.lite_enabled = true;
+        assert!(config.tier_falls_back_to_standard(ModelTier::Lite));
+        assert_eq!(
+            config.resolve_ai_config(ModelTier::Lite).model,
+            "standard-model",
+            "这正是那句警告要说的事实"
+        );
+
+        // 填上自己的模型就不再是回退。
+        config.lite_openai_model = "lite-model".into();
+        assert!(!config.tier_falls_back_to_standard(ModelTier::Lite));
+        assert_eq!(
+            config.resolve_ai_config(ModelTier::Lite).model,
+            "lite-model"
+        );
+
+        // Pro 同一套形状。
+        config.pro_enabled = true;
+        assert!(config.tier_falls_back_to_standard(ModelTier::Pro));
+        config.pro_openai_model = "pro-model".into();
+        assert!(!config.tier_falls_back_to_standard(ModelTier::Pro));
+
+        // Standard 是回退的目的地，它自己不会回退。
+        assert!(!config.tier_falls_back_to_standard(ModelTier::Standard));
+    }
+
+    /// 严格 Lite 拒绝的，正好就是会静默回退的那一档。
+    #[test]
+    fn strict_lite_refuses_exactly_what_would_have_fallen_back() {
+        let mut config = DynamicConfig::default();
+        config.lite_enabled = true;
+        config.lite_openai_model = String::new();
+        assert!(config.tier_falls_back_to_standard(ModelTier::Lite));
+        assert!(config.resolve_strict_lite_ai_config().is_none());
+
+        config.lite_openai_model = "lite-model".into();
+        assert!(!config.tier_falls_back_to_standard(ModelTier::Lite));
+        assert!(config.resolve_strict_lite_ai_config().is_some());
     }
 
     #[test]

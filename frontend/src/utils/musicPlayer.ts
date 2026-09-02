@@ -2,12 +2,11 @@
  * 音乐播放器 - 支持网易云音乐和QQ音乐歌单播放
  */
 
+import type { MotionAudioFeatures } from './audioMotionAnalysis'
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
-import {
-  getCachedIsChinaMainland,
-  isUserInChinaMainland,
-} from './geoLocation'
+import { analyzeMotionAudio } from './audioMotionAnalysis'
+import { getCachedIsChinaMainland, isUserInChinaMainland } from './geoLocation'
 import { shouldPreserveNativeAudioOutput } from './platformDetect'
 import { proxyImageUrlOr } from './proxyImageUrl'
 
@@ -179,10 +178,7 @@ export function isQQDirectPlayUrl(url: string): boolean {
 /**
  * 国内 geo 下的 QQ 播放 URL：移动 play-url；桌面全量代理（Web Audio CORS）。
  */
-export function getQQGeoPlaybackUrl(
-  songMid: string,
-  inChina: boolean,
-): string {
+export function getQQGeoPlaybackUrl(songMid: string, inChina: boolean): string {
   if (!inChina) return getQQProxyAudioUrl(songMid)
   if (prefersSameOriginMusicProxy()) return getQQProxyAudioUrl(songMid)
   return getQQPlayUrl(songMid)
@@ -881,7 +877,9 @@ export async function getNeteaseVerbatimLyrics(
 
     const data = await response.json()
 
-    const lines: LyricLine[] = data.lrc?.lyric ? parseLyrics(data.lrc.lyric) : []
+    const lines: LyricLine[] = data.lrc?.lyric
+      ? parseLyrics(data.lrc.lyric)
+      : []
     const verbatim: WordLyricLine[] = data.yrc?.lyric
       ? parseYrc(data.yrc.lyric)
       : []
@@ -973,9 +971,7 @@ export function alignVerbatimToLines(
 
   diffs.sort((a, b) => a - b)
   const median = diffs[Math.floor(diffs.length / 2)]
-  const residuals = diffs
-    .map((d) => Math.abs(d - median))
-    .sort((a, b) => a - b)
+  const residuals = diffs.map((d) => Math.abs(d - median)).sort((a, b) => a - b)
   const medResidual = residuals[Math.floor(residuals.length / 2)]
 
   if (medResidual > 1.2) return null // 结构不符：拒绝该源
@@ -1077,10 +1073,7 @@ export async function getQQLyricsWithTranslation(
       // BE returns 404 + { retcode: -1 } on normalize failure — treat as empty
       try {
         const errBody = await response.json()
-        if (
-          typeof errBody?.retcode === 'number' &&
-          errBody.retcode !== 0
-        ) {
+        if (typeof errBody?.retcode === 'number' && errBody.retcode !== 0) {
           return { lines: [], translation: [] }
         }
       } catch {
@@ -1109,9 +1102,7 @@ export async function getQQLyricsWithTranslation(
 
     // FE 侧再做一次实体 unescape（BE 已做；兼容旧缓存/直连）
     const lyricText = unescapeQQLyricText(String(data.lyric))
-    const transText = data.trans
-      ? unescapeQQLyricText(String(data.trans))
-      : ''
+    const transText = data.trans ? unescapeQQLyricText(String(data.trans)) : ''
 
     const lines = parseLyrics(lyricText)
     const translation = transText ? parseLyrics(transText) : []
@@ -1419,6 +1410,16 @@ class GlobalAudioManager {
   private sourceNode: MediaElementAudioSourceNode | null = null
   private connectedAudio: HTMLAudioElement | null = null // 追踪已连接的音频元素
   private frequencyData: Uint8Array | null = null
+  private motionAnalyser: AnalyserNode | null = null
+  private motionWaveform = new Float32Array(2048)
+  private motionSpectrum = new Float32Array(1024)
+  private readonly motionFeatures: MotionAudioFeatures = {
+    energy: 0,
+    bass: 0,
+    pulse: 0,
+    presence: 0,
+  }
+
   /** 一旦为 true，本会话内不再尝试把媒体元素接入 AudioContext */
   private nativeOutputLocked = false
 
@@ -1728,6 +1729,7 @@ class GlobalAudioManager {
       // 注意：每个音频元素只能创建一次 MediaElementAudioSourceNode
       this.sourceNode = this.audioContext.createMediaElementSource(audio)
       this.sourceNode.connect(this.analyser)
+      if (this.motionAnalyser) this.sourceNode.connect(this.motionAnalyser)
       this.connectedAudio = audio
 
       return true
@@ -1912,6 +1914,42 @@ class GlobalAudioManager {
       this.bandsResult[i] = this.tempBands[i]
     }
     return this.bandsResult
+  }
+
+  /**
+   * One analysis-only tap on the existing source, never a second speaker path.
+   * Null means unavailable (native output/CORS/suspended), not measured silence.
+   * 2048 samples give bass resolution; a 25ms caller hop keeps evidence fresh.
+   * Do not reuse the visualizer's cached, smoothed, equal-width display bars.
+   */
+  getMotionAudioFeatures(
+    audio: HTMLAudioElement,
+  ): Readonly<MotionAudioFeatures> | null {
+    if (
+      this.connectedAudio !== audio ||
+      !this.sourceNode ||
+      !this.audioContext ||
+      this.audioContext.state !== 'running' ||
+      audio.muted ||
+      audio.volume < 0.0001
+    ) {
+      return null
+    }
+    if (!this.motionAnalyser) {
+      this.motionAnalyser = this.audioContext.createAnalyser()
+      this.motionAnalyser.fftSize = 2048
+      this.motionAnalyser.smoothingTimeConstant = 0
+      this.sourceNode.connect(this.motionAnalyser)
+    }
+    this.motionAnalyser.getFloatTimeDomainData(this.motionWaveform)
+    this.motionAnalyser.getFloatFrequencyData(this.motionSpectrum)
+    return analyzeMotionAudio(
+      this.motionWaveform,
+      this.motionSpectrum,
+      this.audioContext.sampleRate,
+      this.motionFeatures,
+      audio.volume,
+    )
   }
 
   /**

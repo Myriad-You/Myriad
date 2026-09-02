@@ -4,6 +4,7 @@ import type { Anime25DMotionUnit } from './behaviorMotion'
 import type { CueIntent } from './performanceCueDefinitions'
 import { BehaviorRealizerRegistry } from '../motion/behaviorRealizerRegistry'
 import { PERFORMANCE_CUE_INTENTS } from '../performanceContract'
+import { isMusicMode } from '../singing/musicSignal'
 import { completeBehaviorQuality } from './behaviorMotion'
 
 export interface Anime25DBehaviorRealization {
@@ -54,7 +55,7 @@ registry.register('co-speech', (behavior, context) => {
 })
 
 registry.register('music', (behavior, context) => {
-  if (behavior.form.id !== 'groove') return null
+  if (!isMusicMode(behavior.form.id)) return null
   const timing = realizedUnitTiming(behavior.timing, context)
   if (!timing) return null
   return {

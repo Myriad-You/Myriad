@@ -59,7 +59,7 @@ test('merges speech, performance and music into one scheduler plan', () => {
   })
   const music = plan('music', {
     source: 'music',
-    form: { family: 'music', id: 'groove' },
+    form: { family: 'music', id: 'listen' },
   })
   const first = runtime.frame([speech, music], 120)
   assert.equal(first.plan?.id, 'human-performance')
@@ -87,7 +87,7 @@ test('anticipator revisions update lifecycle without replaying the body plan', (
     kind: 'rhythmic',
     source: 'music',
     anticipation: 'music:next-beat',
-    form: { family: 'music', id: 'groove' },
+    form: { family: 'music', id: 'listen' },
     timing: {
       start: 'music:behavior:start',
       ready: 'music:behavior:ready',
@@ -129,7 +129,10 @@ test('motion style changes quality at the single merge boundary', () => {
 })
 
 test('a refinement restating a live beat retimes it instead of restarting it', () => {
-  const directive = (atMs: number, intensity: number): PerformanceDirective => ({
+  const directive = (
+    atMs: number,
+    intensity: number,
+  ): PerformanceDirective => ({
     phase: 'delivery',
     moodRevision: 1,
     motionStyle: 'even',
@@ -148,7 +151,11 @@ test('a refinement restating a live beat retimes it instead of restarting it', (
     },
   })
   const runtime = new HumanPerformanceRuntime()
-  const floor = compilePerformanceBehaviorPlan(directive(0, 0.9), 1_000, 'performance')
+  const floor = compilePerformanceBehaviorPlan(
+    directive(0, 0.9),
+    1_000,
+    'performance',
+  )
   runtime.frame([floor], 1_000)
   const live = runtime.frame([floor], 1_400).behaviors[0]
   assert.ok(live)

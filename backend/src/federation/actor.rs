@@ -1357,7 +1357,7 @@ mod tests {
                 "-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----\n".into(),
             ),
             public_key_id: Some("https://peer.example/users/alice#main-key".into()),
-            mfp_version: Some("0.4.0".into()),
+            mfp_version: Some("0.4.1".into()),
         };
         let ephemeral = doc.to_info(0);
         assert_eq!(ephemeral.id, 0);

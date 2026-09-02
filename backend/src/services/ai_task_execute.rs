@@ -172,6 +172,7 @@ pub struct PreparedTask {
     pub prompt: String,
     pub output: AiTaskOutputRequest,
     pub provenance: Vec<Value>,
+    pub image_references: Vec<crate::services::image_generation::ImageReference>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -794,6 +795,7 @@ pub fn prepare_task(
         prompt,
         output,
         provenance,
+        image_references: Vec::new(),
     })
 }
 
@@ -884,16 +886,23 @@ pub async fn execute_task(execution: AiTaskExecution) {
             PreparedModel::Image(config) => {
                 let (width, height) = image_size_from_input(&request.input);
                 let event_sender = event_sink.clone();
-                run_image_provider(config, &prepared.prompt, width, height, |attempt, max| {
-                    let _ = event_sender.publish(TaskBroadcast {
-                        kind: "progress".to_string(),
-                        payload: json!({
-                            "stage": "image",
-                            "attempt": attempt,
-                            "maxAttempts": max,
-                        }),
-                    });
-                })
+                run_image_provider(
+                    config,
+                    &prepared.prompt,
+                    width,
+                    height,
+                    &prepared.image_references,
+                    |attempt, max| {
+                        let _ = event_sender.publish(TaskBroadcast {
+                            kind: "progress".to_string(),
+                            payload: json!({
+                                "stage": "image",
+                                "attempt": attempt,
+                                "maxAttempts": max,
+                            }),
+                        });
+                    },
+                )
                 .await
                 .map(|value| {
                     let (input, output) = crate::services::ai_cost_ledger::estimate_image_tokens(
@@ -1103,6 +1112,24 @@ mod tests {
             idempotency_key: Some("k".into()),
         };
         assert_eq!(hash_request(&req).unwrap(), hash_request(&req).unwrap());
+    }
+
+    #[test]
+    fn image_idempotency_hash_includes_reference_content_and_order() {
+        let mut request = CreateAiTaskRequest {
+            version: 2,
+            operation: TappAiOperation::Image,
+            input: json!({"prompt": "combine", "referenceImages": ["first", "second"]}),
+            context: vec![],
+            output: None,
+            delivery: AiTaskDelivery::Result,
+            idempotency_key: Some("image-1".into()),
+        };
+        let original = hash_request(&request).unwrap();
+        request.input["referenceImages"] = json!(["second", "first"]);
+        assert_ne!(original, hash_request(&request).unwrap());
+        request.input["referenceImages"] = json!(["first", "changed"]);
+        assert_ne!(original, hash_request(&request).unwrap());
     }
 
     #[test]

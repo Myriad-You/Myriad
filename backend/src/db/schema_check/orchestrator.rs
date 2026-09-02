@@ -27,6 +27,7 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// **Support floor: product ≥ 0.3.10.** 不再为更旧版本维护逐列「字段对齐」
 /// heal（approved_permissions / engagement 过渡形态 / rate_* 专用 ALTER 等）。
 ///
+/// - 2026.09.02.1: agent_addressee_state.music_mood_credited_at（听歌心情收益跨进程冷却）
 /// - 2026.09.01.3: agent_addressee_state.activity_updated_at（活动过期不再受心情写入续期）
 /// - 2026.09.01.2: 去掉 agent_addressee_state.last_departure_at（离开衰减已删，沉默回归读时 overlay）
 /// - 2026.09.01.1: agent_addressee_state 效价×唤醒 + 短期情绪层（arousal/emotion/settled_at）
@@ -50,7 +51,7 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// - 2026.07.21–20: domain_aliases / interactions / heartbeat / policy / filters
 /// - ≤0.3.9 字段对齐（已删，见 git）：approved_permissions 专用 ADD、整表 create 兜底等
 /// Marker for ops/logs + `_schema_versions`. Bump only with real schema/heal work.
-pub const SCHEMA_VERSION: &str = "2026.09.01.3";
+pub const SCHEMA_VERSION: &str = "2026.09.02.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);

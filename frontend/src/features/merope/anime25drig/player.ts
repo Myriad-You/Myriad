@@ -1,7 +1,7 @@
 import type { PerformanceBaseline } from '../../../services/agent/types'
 import type { MotionChannelPolicy } from '../motion/policy'
 import type { MeropeRigManifest } from '../rig/types'
-import type { SingingSpectrumDrive } from '../singing/singingGroove'
+import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { Anime25DMotionUnit } from './behaviorMotion'
 import type {
@@ -143,6 +143,7 @@ import {
 } from './poseArbitration'
 import { zeroOccupancyOffset } from './poseCompositor'
 import { PoseOccupancyController } from './poseOccupancy'
+import { PoseResponseController } from './poseResponse'
 import { RandomActionController } from './randomAction'
 import { createAnime25DRendererBindings, drawAnime25DFrame } from './renderer'
 import { resolveAnime25DRenderSurface } from './runtimePolicy'
@@ -235,12 +236,7 @@ export class Anime25DPlayer {
     body: 0,
   }
 
-  private readonly secondaryTarget: SecondaryMotionPose = {
-    angleX: 0,
-    angleY: 0,
-    angleZ: 0,
-    body: 0,
-  }
+  private readonly poseResponse = new PoseResponseController()
 
   private readonly mouthMorph: MouthMorphState = {
     centerX: 0,
@@ -302,8 +298,7 @@ export class Anime25DPlayer {
   private readonly poseGate = new PoseGateController()
   private readonly randomAction = new RandomActionController()
   private readonly singingGroove = new SingingGrooveController()
-  private singingDrive: SingingSpectrumDrive | null = null
-  private singingDeform = 0
+  private musicSignal: MusicMotionSignal | null = null
   private readonly thinkingMotion = new ThinkingMotionController()
   private readonly stylizedExpression = new StylizedExpressionMotionController()
   private readonly stylizedTargets: Anime25DStylizedTargets = {
@@ -550,8 +545,8 @@ export class Anime25DPlayer {
     this.singingGroove.setTrack(trackId)
   }
 
-  setSingingSpectrum(drive: SingingSpectrumDrive | null): void {
-    this.singingDrive = drive
+  setMusicSignal(drive: MusicMotionSignal | null): void {
+    this.musicSignal = drive
   }
 
   setSpeechProsody(plan: SpeechProsodyPlan | null): void {
@@ -810,16 +805,17 @@ export class Anime25DPlayer {
       behaviorMotion.coSpeechQuality,
     )
     const singing = this.target.singing
-    // Audio drives the local groove clock; the realized music behavior below
-    // still decides whether that pose may enter the shared body compositor.
-    this.singingDeform +=
-      ((singing ? 1 : 0) - this.singingDeform) *
-      (1 - Math.exp(-(singing ? 5.5 : 1.05) * dt))
+    const vocalizing =
+      speaking ||
+      (singing &&
+        (behaviorMotion.musicMode === 'sing' ||
+          behaviorMotion.musicMode === 'hum'))
     const groove = this.singingGroove.sample(
       t,
       singing,
-      this.singingDrive,
+      this.musicSignal,
       behaviorMotion.musicQuality,
+      behaviorMotion.musicMode,
     )
     const sticker = Math.max(
       stylizedTargets.anger,
@@ -853,9 +849,8 @@ export class Anime25DPlayer {
         behaviorMotion,
       ),
     )
-    // PoseGateController already supplies a velocity-continuous handoff. Keep
-    // the renderer-local head pulse on that exact envelope instead of adding a
-    // second low-pass delay after arbitration.
+    // The renderer-local pulse shares the source's continuous weight. Actual
+    // head/body kinematics are carried once by the final pose response below.
     this.stylizedHeadShare = gate.stylized.headBody
     applyAnime25DComposedPose(
       tgt,
@@ -876,7 +871,7 @@ export class Anime25DPlayer {
       tgt,
       semanticExpression,
       stylized,
-      speaking,
+      vocalizing,
       gate.performance.expression,
       gate.stylized.expression,
     )
@@ -893,7 +888,7 @@ export class Anime25DPlayer {
     // The omega mouth only takes over once the character has stopped talking;
     // a cue landing mid-delivery would otherwise freeze the lip sync.
     this.sillyMouthShare +=
-      ((speaking ? 0 : 1) - this.sillyMouthShare) * (1 - Math.exp(-7 * dt))
+      ((vocalizing ? 0 : 1) - this.sillyMouthShare) * (1 - Math.exp(-7 * dt))
     applyAnime25DSillyMouthOwnership(
       tgt,
       smoothAnime25DUnit(stylizedTargets.silly) * this.sillyMouthShare,
@@ -903,7 +898,6 @@ export class Anime25DPlayer {
       this.motionEnvelopeProfile,
       this.motionEnvelopeResult,
     )
-    captureAnime25DSecondaryMotion(this.secondaryTarget, tgt)
     stepAnime25DBlink(
       tgt,
       this.blinkState,
@@ -916,10 +910,12 @@ export class Anime25DPlayer {
       this.current,
       this.target,
       tgt,
-      this.secondaryCurrent,
-      this.secondaryTarget,
+      this.poseResponse,
       dt,
     )
+    // Physics follows the actual continuous pose, not a separately filtered
+    // copy of the desired pose that can disagree during a handoff.
+    captureAnime25DSecondaryMotion(this.secondaryCurrent, this.current)
     stepAnime25DTorsoShellRotation(
       this.torsoYaw,
       this.current.angleX,
@@ -982,12 +978,13 @@ export class Anime25DPlayer {
     const npy = A.neckPivot.y
     const bpx = A.bodyPivot.x
     const bpy = A.bodyPivot.y
-    const singingLift = this.singingDeform
-    const az = e.angleZ * (0.07 + 0.38 * singingLift)
-    const ay = e.angleY * (1 + 1.1 * singingLift)
+    // One coordinate system for all sources and physics. Music extent is
+    // authored before composition/envelope/response, never after them.
+    const az = e.angleZ * 0.07
+    const ay = e.angleY
     const cz = Math.cos(az)
     const sz = Math.sin(az)
-    const ab = e.body * (0.028 + 0.05 * singingLift)
+    const ab = e.body * 0.028
     const cb = Math.cos(ab)
     const sb = Math.sin(ab)
     this.renderFrame.bodyPivotX = bpx
@@ -997,12 +994,11 @@ export class Anime25DPlayer {
     const chestCy = this.chestRegion.centerY
     const chestRx = this.chestRegion.radiusX
     const chestRy = this.chestRegion.radiusY
-    const chestMotionMix =
-      chestResponseMix(e.bust, this.chestDynamics.responseScale) *
-      (1 - 0.75 * singingLift)
-    const chestFollow =
-      chestFollowMix(e.bust, this.chestDynamics.followScale) *
-      (1 - 0.7 * singingLift)
+    const chestMotionMix = chestResponseMix(
+      e.bust,
+      this.chestDynamics.responseScale,
+    )
+    const chestFollow = chestFollowMix(e.bust, this.chestDynamics.followScale)
     const chestCenterY = chestCy + (e.bustY - 1) * 70 * fs
     const chestOffsetX =
       (this.chestTarget.x - this.chestParentTarget.x) * chestFollow +

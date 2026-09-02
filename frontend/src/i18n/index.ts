@@ -2523,6 +2523,26 @@ export interface TranslationKeys {
       importPortrait: string
       importPortraitBusy: string
       importPortraitFailed: string
+      importPortraitReplace: string
+      importEnter: string
+      choiceTitle: string
+      choiceLead: string
+      /** 左栏介绍的标题 / 副标题。 */
+      choiceIntroTitle: string
+      choiceIntroSub: string
+      choiceShort: string
+      choiceGuidedTitle: string
+      choiceGuidedDetail: string
+      choiceGuidedMeta: string
+      choiceImportTitle: string
+      choiceImportDetail: string
+      choiceImportMeta: string
+      importShort: string
+      importTitle: string
+      importLead: string
+      importPersonaReady: string
+      importPortraitHint: string
+      importFinish: string
       personaFieldGenerating: string
       editPersona: string
       doneEditing: string

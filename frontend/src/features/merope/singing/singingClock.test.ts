@@ -4,7 +4,6 @@ import {
   restSingingArticulation,
   sampleSingingCue,
   singingArticulation,
-  singingVocalEnergy,
 } from './singingClock'
 
 const cues = [
@@ -73,9 +72,4 @@ test('hums from energy only when there is no lyric timeline', () => {
     humming: true,
   })
   assert.equal(belt.viseme, 'open')
-})
-
-test('ignores bass when reading vocal energy', () => {
-  assert.equal(singingVocalEnergy([1, 0, 0, 0, 0, 0, 0, 0]), 0)
-  assert.ok(singingVocalEnergy([0, 1, 0, 0]) > 0.4)
 })

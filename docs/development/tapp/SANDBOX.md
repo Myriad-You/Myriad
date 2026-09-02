@@ -132,6 +132,7 @@ Tapp SDK 把调用转换为请求消息。宿主只接受同时满足以下条�
 | action | 上限 | 说明 |
 | ------ | ---- | ---- |
 | **默认**（绝大多数 API） | JSON 序列化后约 **1 MiB + 64 KiB** envelope | 超限返回 `Payload too large` |
+| `ai.tasks.create`（`operation: "image"` 且 `input.referenceImages` 为数组） | JSON payload **14 MiB** | 为参考图 base64 留出空间；后端另限最多 4 张、解码后合计 10 MiB，其余 `input` 字段合计 256 KiB |
 | `file.download` | 内容 Blob **10 MiB**；`filename` ≤ 1024；可选 `mimeType` ≤ 256 | 不走默认 1 MiB；非法/过大返回 `Invalid or oversized file payload` |
 | `federation.uploadMedia` | raw 媒体按业务 **图片 10 MiB / 视频 50 MiB**；bridge 允许 data URL/base64 字符约 `ceil(50 MiB * 4/3) + 256` | 对齐后端 multipart 路由（body 上限 55 MiB）；字段 `data` 必填字符串 |
 | `tappList.install` / `tappList.getInstallPackage` | JSON 序列化后约 **128 MiB + 512 KiB** | 对齐游戏档整包上限；商店安装只传元数据，不占这笔预算 |
@@ -140,6 +141,9 @@ Tapp SDK 把调用转换为请求消息。宿主只接受同时满足以下条�
 
 - 默认 1 MiB 针对的是 **postMessage JSON payload**，与 `Tapp.storage` 单值 1 MiB 是不同层，
   但数量级一致，避免大 blob 经 bridge 灌入主线程。
+- **AI 参考图**：Page、Widget、Headless 使用同一任务输入。更大的消息预算只对上述生图请求
+  生效，不能据此在文本 AI 或 storage 中传大图。参考图支持 PNG/JPEG/WebP data URL 或
+  本平台图片缓存路径；`blob:`、任意 HTTP(S) URL 不能直接作为参考图，见 [AI API](API_REFERENCE.md#ai-api)。
 - **商店**安装：`tappList.install` 只传元数据（`source: "store"` + `storeSource`，或 HTTP
   catalog `source`，加 `tappId`），包体不经 Bridge；由后端 REST `source=store` 下载，或宿主
   在失败/大包时浏览器下载后再 REST `source=direct` 安装。

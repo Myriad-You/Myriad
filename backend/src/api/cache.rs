@@ -12,6 +12,8 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::services::image_proxy_urls::proxy_image_url;
+
 #[derive(Debug, Serialize)]
 pub struct CacheInfo {
     pub platform: String,
@@ -421,13 +423,8 @@ fn sample_from_object(item: &Value) -> Option<Value> {
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|s| {
-            if s.starts_with("http://") {
-                s.replacen("http://", "https://", 1)
-            } else {
-                s.to_string()
-            }
-        });
+        .map(proxy_image_url)
+        .filter(|s| !s.is_empty());
 
     let subtitle = item
         .get("artist")
@@ -740,5 +737,39 @@ fn get_platform_cache_info(platform: &str) -> CacheInfo {
         size_bytes,
         modified_at,
         path: cache_path.to_string_lossy().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_samples_proxy_bangumi_hotlink_covers() {
+        let sample = sample_from_object(&json!({
+            "title": "Example",
+            "cover": "https://lain.bgm.tv/pic/cover/l/1.jpg",
+            "rate": 8,
+        }))
+        .expect("sample");
+        let image = sample.get("image").and_then(|v| v.as_str()).unwrap();
+        assert!(
+            image.starts_with("/api/proxy/image?url="),
+            "bangumi covers must go through the image proxy: {image}"
+        );
+        assert!(image.contains("lain.bgm.tv"), "{image}");
+    }
+
+    #[test]
+    fn preview_samples_leave_non_hotlink_https() {
+        let sample = sample_from_object(&json!({
+            "title": "Repo",
+            "image": "https://avatars.githubusercontent.com/u/1",
+        }))
+        .expect("sample");
+        assert_eq!(
+            sample.get("image").and_then(|v| v.as_str()),
+            Some("https://avatars.githubusercontent.com/u/1")
+        );
     }
 }

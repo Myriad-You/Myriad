@@ -3,7 +3,7 @@ import type { BehaviorPlan } from '../motion/behavior'
 import type { MotionChannelPolicy } from '../motion/policy'
 import type { RigMotionPort } from '../rig/motionPort'
 import type { MeropeRigManifest } from '../rig/types'
-import type { SingingSpectrumDrive } from '../singing/singingGroove'
+import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'
 import type { Anime25DPlayback } from './types'
@@ -23,7 +23,6 @@ import { shouldAnimateAnime25D } from './runtimePolicy'
 import {
   speechArticulationDriverPatch,
   speechEnergyDriverPatch,
-  updatedSpeechMouthFormBaseline,
 } from './speechDriver'
 
 interface Props {
@@ -64,9 +63,8 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
     const speechProsodyRef = useRef<SpeechProsodyPlan | null>(null)
     const singingActiveRef = useRef(false)
     const singingTrackRef = useRef<string | null>(null)
-    const singingSpectrumRef = useRef<SingingSpectrumDrive | null>(null)
+    const musicSignalRef = useRef<MusicMotionSignal | null>(null)
     const motionPolicyRef = useRef<MotionChannelPolicy | null>(null)
-    const speechMouthFormRef = useRef(0)
     const pendingSpeechTextRef = useRef<
       Array<{ text: string; locale?: string }>
     >([])
@@ -105,10 +103,6 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         playerRef.current?.setBearing(bearing)
       },
       setSpeechActive(active) {
-        if (active && !speechActiveRef.current) {
-          speechMouthFormRef.current =
-            playerRef.current?.getTarget().mouthForm ?? 0
-        }
         speechActiveRef.current = active
         playerRef.current?.setSpeechActive(active)
       },
@@ -120,9 +114,9 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         singingTrackRef.current = trackId
         playerRef.current?.setSingingTrack(trackId)
       },
-      setSingingSpectrum(drive) {
-        singingSpectrumRef.current = drive
-        playerRef.current?.setSingingSpectrum(drive)
+      setMusicSignal(drive) {
+        musicSignalRef.current = drive
+        playerRef.current?.setMusicSignal(drive)
       },
       setAutoSpeech(active) {
         if (!active) playerRef.current?.clearSpeechText()
@@ -140,10 +134,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       },
       setSpeechArticulation(articulation) {
         playerRef.current?.setTarget(
-          speechArticulationDriverPatch(
-            articulation,
-            speechMouthFormRef.current,
-          ),
+          speechArticulationDriverPatch(articulation),
         )
       },
       setSpeechProsody(prosody) {
@@ -173,20 +164,10 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       },
       setDriver(partial) {
         enterManualControl()
-        speechMouthFormRef.current = updatedSpeechMouthFormBaseline(
-          speechMouthFormRef.current,
-          speechActiveRef.current,
-          partial.mouthForm,
-        )
         playerRef.current?.setTarget(partial)
       },
       replaceDriver(driver) {
         enterManualControl()
-        speechMouthFormRef.current = updatedSpeechMouthFormBaseline(
-          speechMouthFormRef.current,
-          speechActiveRef.current,
-          driver.mouthForm,
-        )
         playerRef.current?.replaceTarget(driver)
       },
       blinkNow() {
@@ -224,7 +205,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       player.setSpeechProsody(speechProsodyRef.current)
       player.setSinging(singingActiveRef.current)
       player.setSingingTrack(singingTrackRef.current)
-      player.setSingingSpectrum(singingSpectrumRef.current)
+      player.setMusicSignal(musicSignalRef.current)
       if (motionPolicyRef.current)
         player.setMotionPolicy(motionPolicyRef.current)
       for (const chunk of pendingSpeechTextRef.current) {

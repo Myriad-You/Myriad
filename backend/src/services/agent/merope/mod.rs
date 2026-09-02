@@ -24,11 +24,12 @@ pub use motion::{
 pub use myriad_merope::RigStateSummary;
 pub use store::{
     acquire_portrait_generation, clear_persona_on, complete_portrait_generation,
-    generation_inputs_changed, get_or_create_state, get_persona, get_persona_on, insert_diary,
-    insert_proactive, latest_diary, list_diary_from_sources, list_remembered,
-    normalize_persona_fields, portrait_generation_is_pending, promote_activity, recent_proactive,
-    release_portrait_generation, set_activity, set_dnd_schedule, set_do_not_disturb, update_affect,
-    upsert_persona_on, JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate,
+    credit_music_listening, generation_inputs_changed, get_or_create_state, get_persona,
+    get_persona_on, insert_diary, insert_proactive, latest_diary, list_diary_from_sources,
+    list_remembered, normalize_persona_fields, portrait_generation_is_pending, promote_activity,
+    recent_proactive, release_portrait_generation, set_activity, set_dnd_schedule,
+    set_do_not_disturb, update_affect, upsert_persona_on, JsonDocumentUpdate,
+    PersonaContractUpdate, PortraitUpdate,
 };
 
 /// Logged-in users only. Guests use negative ids; heartbeat is `SYSTEM_USER_ID` (0).
@@ -385,7 +386,8 @@ pub use gates::{decide_ingest, is_chatting, is_valuable_event, IngestDecision};
 pub use state::{
     apply_mood_hint, apply_task_outcome, apply_user_utterance, clamp_mood, detect_mood_cue,
     effective_activity, is_extremely_low, mood_band, parse_appraisal_hint, Affect, AffectBaseline,
-    MoodTransition, ACTIVITY_STALE_SECS, DEFAULT_AROUSAL, DEFAULT_MOOD, MOOD_FLOOR, ORIGIN,
+    MoodTransition, ACTIVITY_STALE_SECS, DEFAULT_AROUSAL, DEFAULT_MOOD, MOOD_FLOOR,
+    MUSIC_LISTENING_MIN_SECS, ORIGIN,
 };
 
 /// The activity to act on, with a stale one read as idle.

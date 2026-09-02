@@ -178,6 +178,22 @@ fn test_users_schema_includes_token_version() {
 }
 
 #[test]
+fn test_agent_addressee_schema_includes_music_mood_cooldown() {
+    let tables = get_expected_schema();
+    let addressee = tables
+        .iter()
+        .find(|table| table.name == "agent_addressee_state")
+        .expect("agent_addressee_state table");
+    let column = addressee
+        .columns
+        .iter()
+        .find(|column| column.name == "music_mood_credited_at")
+        .expect("music mood cooldown must be durable and field-healed");
+    assert_eq!(column.data_type, "timestamp with time zone");
+    assert!(column.is_nullable);
+}
+
+#[test]
 fn test_default_platform_seeds_include_x_and_core() {
     let seeds = default_platform_seeds();
     let names: Vec<&str> = seeds.iter().map(|s| s.name).collect();

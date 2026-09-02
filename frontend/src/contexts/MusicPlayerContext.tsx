@@ -14,6 +14,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
+import { bindMusicMoodListening } from '../features/merope/musicMood'
 import { pickMusicContextState } from '../utils/musicPlayerState'
 import {
   applyPublishedMusicState,
@@ -77,6 +78,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     currentLyricIndex: -1,
   })
 
+  useEffect(() => bindMusicMoodListening(), [])
+
   // 在客户端初始化时从全局状态读取
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -108,8 +111,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleMusicStateChange = (e: Event) => {
       const detail = (e as CustomEvent).detail as
-        | Record<string, unknown>
-        | undefined
+        Record<string, unknown> | undefined
       if (!detail) return
 
       applyPublishedMusicState(detail)
@@ -266,8 +268,7 @@ function updateGlobalMusicState(newState: Partial<MusicPlayerState>) {
 
 function handleGlobalMusicStateChange(event: Event) {
   const detail = (event as CustomEvent).detail as
-    | Record<string, unknown>
-    | undefined
+    Record<string, unknown> | undefined
   if (!detail) return
   // 只吸收 Context 关心的字段，忽略 currentTime / musicColors 等宿主专属字段
   const patch = pickMusicContextState(detail) as Partial<MusicPlayerState>

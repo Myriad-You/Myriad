@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 )
-const APP_VERSION = pkg.version || '0.4.0'
+const APP_VERSION = pkg.version || '0.4.1'
 
 /**
  * 自定义 Vite 插件：SPA 路由回退
@@ -90,6 +90,8 @@ const FEDERATION_TRANSFER_PROXY_TIMEOUT_MS = 10 * 60 * 1000
 // visual design). Backend Pro and image-generation sockets stay idle until the
 // model returns. Default 30s proxy timeout surfaces as "Backend proxy timeout".
 const MEROPE_PROXY_TIMEOUT_MS = 15 * 60 * 1000
+// Non-stream /api/agent/process: client waits 120s. Proxy must not die at 30s.
+const AGENT_PROCESS_PROXY_TIMEOUT_MS = 3 * 60 * 1000
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -129,13 +131,18 @@ function isMeropeApiPath(urlPath) {
 }
 
 function isAgentPersonaGenerationPath(urlPath) {
-  const path = requestPathname(urlPath)
-  return (
-    path === '/api/agent/persona/signals' ||
-    path === '/api/agent/persona/draft' ||
-    path === '/api/agent/persona/name' ||
-    path === '/api/agent/persona/visual-design'
-  )
+  // Subpaths are Pro distill jobs (signals / draft / import / name / visual-design).
+  // `/api/agent/persona` itself is GET/PUT/DELETE of the saved record — keep 30s.
+  return requestPathname(urlPath).startsWith('/api/agent/persona/')
+}
+
+function isModel3dLongPath(urlPath) {
+  // Successful task GET also downloads and validates the provider GLB.
+  return requestPathname(urlPath).startsWith('/api/model3d/tasks')
+}
+
+function isAgentProcessPath(urlPath) {
+  return requestPathname(urlPath) === '/api/agent/process'
 }
 
 /**
@@ -459,9 +466,14 @@ function backendDevProxyPlugin() {
                 isFederationTransferContentPath(originalUrl)
               ? FEDERATION_TRANSFER_PROXY_TIMEOUT_MS
               : isMeropeApiPath(originalUrl) ||
-                  isAgentPersonaGenerationPath(originalUrl)
+                  isAgentPersonaGenerationPath(originalUrl) ||
+                  isModel3dLongPath(originalUrl)
                 ? MEROPE_PROXY_TIMEOUT_MS
-                : 30000
+                : isAgentSsePath(originalUrl)
+                  ? PLAYGROUND_PROXY_TIMEOUT_MS
+                  : isAgentProcessPath(originalUrl)
+                    ? AGENT_PROCESS_PROXY_TIMEOUT_MS
+                    : 30000
           // SSE and large transfer downloads must be piped. Buffering a multi-MB
           // GET /transfers/{id}/content (or a long-lived EventSource) hits the
           // ordinary timeout / memory path and turns a healthy stream into 502.

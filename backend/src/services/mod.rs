@@ -10,6 +10,7 @@ pub mod ai_cost_ledger; // Append-only AI cost ledger writes
 pub mod ai_quota; // Daily quota reserve/settle/usage ledger
 pub mod ai_task_context; // Context refs resolve (platform/report/profile)
 pub mod ai_task_execute; // Run loop (provider + quota + ledger)
+pub mod ai_task_image; // Bounded reference-image input and local resolution
 pub mod ai_task_prepare; // Prompt assemble + structured-output normalize
 pub mod ai_task_provider; // Text/image provider execution for AI Tasks
 pub mod ai_task_registry; // Cross-replica register/persist

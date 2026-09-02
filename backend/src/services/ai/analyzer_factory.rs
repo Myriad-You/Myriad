@@ -5,6 +5,30 @@
 use crate::config::ModelTier;
 use crate::services::analyzer::{AiAnalyzer, AiProvider};
 use crate::GLOBAL_DYNAMIC_CONFIG;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// 每档只喊一次。这条在每次 AI 调用上都会命中，喊满日志反而没人看。
+///
+/// 站长改完配置不会立刻再看到它——但这条要提醒的是「你以为开了、其实没开」，
+/// 那是个长期状态，进程起来时说一次就够。
+fn warn_tier_fallback(tier: ModelTier, standard_model: &str) {
+    static WARNED_LITE: AtomicBool = AtomicBool::new(false);
+    static WARNED_PRO: AtomicBool = AtomicBool::new(false);
+    let warned = match tier {
+        ModelTier::Lite => &WARNED_LITE,
+        ModelTier::Pro => &WARNED_PRO,
+        ModelTier::Standard => return,
+    };
+    if warned.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    tracing::warn!(
+        ?tier,
+        standard_model,
+        "该档已启用但没有配置自己的模型，实际会使用 Standard 的模型：\
+         账单与延迟都按 Standard 计，日志里的档位名不代表真正跑的模型"
+    );
+}
 
 /// 创建标准层级的 AI 分析器（默认，向后兼容）
 pub async fn create_ai_analyzer() -> Option<AiAnalyzer> {
@@ -25,6 +49,9 @@ pub async fn create_ai_analyzer_for_tier_with_timeout(
     // Lite jobs must not silently spend Standard when the Lite tier is off.
     if tier == ModelTier::Lite && !config.lite_enabled {
         return None;
+    }
+    if config.tier_falls_back_to_standard(tier) {
+        warn_tier_fallback(tier, &config.openai_model);
     }
     let resolved = config.resolve_ai_config(tier);
 

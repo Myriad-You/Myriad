@@ -1,25 +1,26 @@
 import type { SpeechArticulation } from '../rig/articulation'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { musicSignalAt } from '../singing/musicSignal.test-support'
 import { applySingingWrite } from './applySnapshot'
 import { resolveSingingApply } from './singingApply'
 
 function recordingRig() {
   const singing: boolean[] = []
   const tracks: Array<string | null> = []
-  const spectrum: Array<unknown> = []
+  const signal: Array<unknown> = []
   const articulation: SpeechArticulation[] = []
   const speechActive: boolean[] = []
   return {
     singing,
     tracks,
-    spectrum,
+    signal,
     articulation,
     speechActive,
     rig: {
       setSinging: (value: boolean) => singing.push(value),
       setSingingTrack: (value: string | null) => tracks.push(value),
-      setSingingSpectrum: (value: unknown) => spectrum.push(value),
+      setMusicSignal: (value: unknown) => signal.push(value),
       setSpeechArticulation: (value: SpeechArticulation) =>
         articulation.push(value),
       setSpeechActive: (value: boolean) => speechActive.push(value),
@@ -31,7 +32,7 @@ const rest: SpeechArticulation = { energy: 0, viseme: 'rest', amount: 0 }
 const sung: SpeechArticulation = { energy: 0.6, viseme: 'open', amount: 0.8 }
 const drive = {
   trackId: 'song-a',
-  spectrum: { bass: 0.4, beat: 0.5, vocal: 0.6 },
+  signal: musicSignalAt(1),
   articulation: sung,
 }
 
@@ -50,12 +51,12 @@ test('speech-owned mouth does not clear visemes or speechActive', () => {
   )
   assert.deepEqual(host.singing, [true])
   assert.deepEqual(host.tracks, ['song-a'])
-  assert.deepEqual(host.spectrum, [drive.spectrum])
+  assert.deepEqual(host.signal, [drive.signal])
   assert.deepEqual(host.articulation, [])
   assert.deepEqual(host.speechActive, [])
 })
 
-test('music-owned mouth still writes visemes', () => {
+test('music-owned mouth writes visemes without starting co-speech motion', () => {
   const host = recordingRig()
   applySingingWrite(
     host.rig,
@@ -70,7 +71,7 @@ test('music-owned mouth still writes visemes', () => {
   )
   assert.deepEqual(host.singing, [true])
   assert.deepEqual(host.articulation, [sung])
-  assert.deepEqual(host.speechActive, [true])
+  assert.deepEqual(host.speechActive, [false])
 })
 
 test('yielding the body clears singing without waiting for a full release', () => {
@@ -87,7 +88,7 @@ test('yielding the body clears singing without waiting for a full release', () =
     drive,
   )
   assert.deepEqual(host.singing, [false])
-  assert.deepEqual(host.spectrum, [null])
+  assert.deepEqual(host.signal, [null])
 })
 
 test('stop releases groove and rests a music mouth', () => {
@@ -101,10 +102,10 @@ test('stop releases groove and rests a music mouth', () => {
       mouthOwner: 'music',
       headBodyOwner: 'music',
     }),
-    { trackId: null, spectrum: drive.spectrum, articulation: rest },
+    { trackId: null, signal: drive.signal, articulation: rest },
   )
   assert.deepEqual(host.singing, [false])
-  assert.deepEqual(host.spectrum, [null])
+  assert.deepEqual(host.signal, [null])
   assert.equal(host.articulation[0]?.viseme, 'rest')
   assert.deepEqual(host.speechActive, [false])
   assert.deepEqual(host.tracks, [null])

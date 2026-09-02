@@ -12,7 +12,7 @@ export interface SingingApplyInput {
 export interface SingingApply {
   /** Drop the music lease and clear groove on this rig. */
   release: boolean
-  /** Keep singing=true / spectrum so the player groove continues. */
+  /** Keep singing=true / signal so the player groove continues. */
   writeGroove: boolean
   /** Write visemes onto the shared mouth path. */
   writeMouth: boolean

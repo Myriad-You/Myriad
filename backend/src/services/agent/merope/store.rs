@@ -11,9 +11,20 @@ use crate::models::entities::{
     agent_addressee_state, agent_diary, agent_persona, agent_proactive_messages, agent_sessions,
 };
 
-use super::state::{clamp, persona_affect_baseline, settle, Affect, AffectBaseline};
+use super::state::{
+    apply_music_listening, clamp, persona_affect_baseline, settle, Affect, AffectBaseline,
+};
 
 pub const PERSONA_ROW_ID: &str = "site";
+pub const MUSIC_MOOD_CREDIT_COOLDOWN_SECS: i64 = 30 * 60;
+
+#[derive(Debug)]
+pub struct MusicMoodCredit {
+    pub before: Affect,
+    pub state: agent_addressee_state::Model,
+    pub credited: bool,
+    pub next_credit_in_seconds: i64,
+}
 
 pub async fn get_persona(
     db: &DatabaseConnection,
@@ -419,6 +430,7 @@ where
         dnd_end_minute: Set(None),
         last_user_message_at: Set(None),
         last_proactive_at: Set(None),
+        music_mood_credited_at: Set(None),
         mood_settled_at: Set(now),
         emotion_settled_at: Set(now),
         updated_at: Set(now),
@@ -441,6 +453,7 @@ async fn save_affect_on<C>(
     user_id: i32,
     affect: Affect,
     touch_user_message: bool,
+    touch_music_credit: bool,
 ) -> Result<agent_addressee_state::Model, anyhow::Error>
 where
     C: ConnectionTrait,
@@ -457,6 +470,9 @@ where
     active.updated_at = Set(now);
     if touch_user_message {
         active.last_user_message_at = Set(Some(now));
+    }
+    if touch_music_credit {
+        active.music_mood_credited_at = Set(Some(now));
     }
     Ok(active.update(db).await?)
 }
@@ -480,9 +496,49 @@ where
     let before = affect_from_state(&state);
     let mut after = before;
     update(&mut after);
-    let saved = save_affect_on(&transaction, user_id, after, touch_user_message).await?;
+    let saved = save_affect_on(&transaction, user_id, after, touch_user_message, false).await?;
     transaction.commit().await?;
     Ok((before, saved))
+}
+
+/// Credit one qualified listening block under the same per-addressee database
+/// lock used by chat/task affect writes. Persisting the cooldown on the row
+/// makes rapid events, multiple browser tabs and multiple backend replicas all
+/// converge on one bounded mood change.
+pub async fn credit_music_listening(
+    db: &DatabaseConnection,
+    user_id: i32,
+    listened_seconds: u32,
+) -> Result<MusicMoodCredit, anyhow::Error> {
+    let transaction = db.begin().await?;
+    lock_addressee(&transaction, user_id).await?;
+    let state = get_or_create_state(&transaction, user_id).await?;
+    let before = affect_from_state(&state);
+    let now = Utc::now();
+
+    if let Some(last) = state.music_mood_credited_at {
+        let elapsed = (now - last.with_timezone(&Utc)).num_seconds().max(0);
+        if elapsed < MUSIC_MOOD_CREDIT_COOLDOWN_SECS {
+            transaction.commit().await?;
+            return Ok(MusicMoodCredit {
+                before,
+                state,
+                credited: false,
+                next_credit_in_seconds: MUSIC_MOOD_CREDIT_COOLDOWN_SECS - elapsed,
+            });
+        }
+    }
+
+    let mut after = before;
+    apply_music_listening(&mut after, listened_seconds);
+    let saved = save_affect_on(&transaction, user_id, after, false, true).await?;
+    transaction.commit().await?;
+    Ok(MusicMoodCredit {
+        before,
+        state: saved,
+        credited: true,
+        next_credit_in_seconds: MUSIC_MOOD_CREDIT_COOLDOWN_SECS,
+    })
 }
 
 async fn lock_addressee<C>(db: &C, user_id: i32) -> Result<(), anyhow::Error>

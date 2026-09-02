@@ -44,7 +44,7 @@ export function applyMotionFrame(
     | 'stopBehaviorPlan'
     | 'setSinging'
     | 'setSingingTrack'
-    | 'setSingingSpectrum'
+    | 'setMusicSignal'
   >,
   frame: MotionFrame,
   state: MotionApplyState,
@@ -58,7 +58,7 @@ export function applyMotionFrame(
   //   behavior — the single path that puts transient motion on the body.
   //
   // A second behavior path would be a second scheduler, which is the thing the
-  // behavior protocol exists to prevent. Signals are not that: a spectrum and a
+  // behavior protocol exists to prevent. Signals are not that: a signal and a
   // line of text are inputs, and they compete for nothing.
   applyStanding(rig, frame, state)
   applySignals(rig, frame, state)
@@ -88,7 +88,7 @@ function applySignals(
     | 'enqueueSpeechText'
     | 'setSinging'
     | 'setSingingTrack'
-    | 'setSingingSpectrum'
+    | 'setMusicSignal'
   >,
   frame: MotionFrame,
   state: MotionApplyState,
@@ -210,7 +210,7 @@ function applyMusic(
     RigMotionPort,
     | 'setSinging'
     | 'setSingingTrack'
-    | 'setSingingSpectrum'
+    | 'setMusicSignal'
     | 'setSpeechArticulation'
     | 'setSpeechActive'
   >,
@@ -219,7 +219,7 @@ function applyMusic(
   if (!frame.music) return
   applySingingWrite(rig, frame.music.apply, {
     trackId: frame.music.trackId,
-    spectrum: frame.music.spectrum,
+    signal: frame.music.signal,
     articulation: frame.music.articulation,
   })
 }

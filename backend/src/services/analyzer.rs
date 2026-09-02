@@ -2,7 +2,9 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::future::Future;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::services::http_client::{GeminiApiUrl, ProxyConfig};
@@ -23,6 +25,8 @@ struct GeminiGenerationConfig {
     response_mime_type: String,
     #[serde(rename = "responseSchema", skip_serializing_if = "Option::is_none")]
     response_schema: Option<serde_json::Value>,
+    #[serde(rename = "maxOutputTokens", skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,6 +81,27 @@ struct OpenAIRequest {
     /// calls keep their exact previous request body.
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<serde_json::Value>,
+    /// Only set for bounded calls; see [`OutputBudget`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+}
+
+/// 一次「答案很短」的调用的输出上限。
+///
+/// **这里没有「关掉思考」的参数，是有意的。** 各家的开关不是同一个东西：
+/// OpenRouter 用 `reasoning: { enabled: false }`，OpenAI 用 `reasoning_effort`
+/// （取值随模型代际变，GPT-5 的 `minimal` 在别处不成立），Gemini 用
+/// `thinkingConfig.thinkingBudget`（而 `0` 只在允许关闭的型号上合法），火山
+/// 用 `thinking: { type: "disabled" }`。
+///
+/// 发一个猜来的参数比不发更糟：网关不认就是 4xx，触发
+/// [`AiAnalyzer::analyze_json_short`] 的重试阶梯，每次多跑一个来回——本来是
+/// 为了变快，结果更慢，而且思考照样没关掉。要做就得按 `base_url` 认出具体
+/// 网关再发对应的那一个（`openai_chat_completions_url` 已有这么认的先例）。
+#[derive(Debug, Clone, Copy)]
+pub struct OutputBudget {
+    /// 输出上限。要留得下一整轮思考——多数网关把思考 token 也算进这个额度。
+    pub max_tokens: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -378,7 +403,7 @@ pub fn gemini_stream_deltas(json: &serde_json::Value) -> Vec<StreamDelta> {
 }
 
 // AI Provider Enum
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiProvider {
     Gemini,
     OpenAI,
@@ -406,6 +431,97 @@ pub struct AiAnalyzer {
     api_key: String,
     model: String,
     base_url: Option<String>, // For OpenAI-compatible APIs
+}
+
+/// 对面是哪一家网关。
+///
+/// `AiProvider::from_str` 把 `"openai"` 和 `"openrouter"` 压成同一个值，身份在
+/// 那一步就丢了，analyzer 手里只剩 `base_url`。而结构化输出的支持度、关思考的
+/// 参数名，都是按网关分的——所以这里把身份从 base_url 认回来
+/// （`openai_chat_completions_url` 早就在按 base_url 认 openrouter）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gateway {
+    OpenAi,
+    OpenRouter,
+    Gemini,
+    /// 自建或未知的 OpenAI 兼容端点。只用共通参数，不发任何一家的方言。
+    OpenAiCompatible,
+}
+
+impl Gateway {
+    /// 这一家「别思考」怎么说。`None` = 不确定就什么都不发。
+    ///
+    /// 只写有把握的那一个：OpenRouter 的统一参数是
+    /// `reasoning: { enabled: false }`，而它也是本仓库的默认出口
+    /// （默认 Lite 模型 `openai/gpt-oss-20b:free` 就挂在这儿）。
+    ///
+    /// 其余三家**故意留空**：
+    /// - OpenAI 用 `reasoning_effort`，取值随模型代际变（GPT-5 的 `minimal`
+    ///   在 o 系上不成立），发错就是 4xx；
+    /// - Gemini 用 `thinkingConfig.thinkingBudget`，而 `0` 只在允许关闭的
+    ///   型号上合法，Pro 系的下限不是 0；
+    /// - 自建端点根本不知道后面是谁。
+    ///
+    /// 这些留空是 `uncertain`，不是「不需要」。要补的话补在这里，一处即可。
+    fn thinking_off(self) -> Option<(&'static str, serde_json::Value)> {
+        match self {
+            Self::OpenRouter => Some(("reasoning", serde_json::json!({ "enabled": false }))),
+            Self::OpenAi | Self::Gemini | Self::OpenAiCompatible => None,
+        }
+    }
+}
+
+fn gateway_of(provider: AiProvider, base_url: Option<&str>) -> Gateway {
+    if provider == AiProvider::Gemini {
+        return Gateway::Gemini;
+    }
+    let host = base_url
+        .map(str::trim)
+        .map(|url| {
+            url.trim_start_matches("https://")
+                .trim_start_matches("http://")
+        })
+        .unwrap_or("");
+    if host.starts_with("openrouter.ai") {
+        Gateway::OpenRouter
+    } else if host.is_empty() || host.starts_with("api.openai.com") {
+        Gateway::OpenAi
+    } else {
+        Gateway::OpenAiCompatible
+    }
+}
+
+/// 记住某个 (端点, 模型) 拒过结构化输出。
+///
+/// 阶梯本身没错，错在它没有记忆：不支持 `json_schema` 的网关上，每一次调用都
+/// 要先被拒一次再降级——等于给最弱的那批网关加了一笔常驻的往返税。记下来之后
+/// 这笔钱只付一次。
+///
+/// 只记「请求形状被拒」（4xx，且不含鉴权和限流，见
+/// [`ProviderCallFailure::rejected_request`]）。进程内有效：配置换了、网关升级
+/// 了，重启就重新试一次，不需要另造失效机制。
+static SHAPE_REFUSED: OnceLock<std::sync::RwLock<HashSet<String>>> = OnceLock::new();
+
+fn shape_memo() -> &'static std::sync::RwLock<HashSet<String>> {
+    SHAPE_REFUSED.get_or_init(Default::default)
+}
+
+/// 记忆分两类，因为它们是两组不同的参数，网关可能只拒其中一组。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RequestShape {
+    /// `response_format` / `responseSchema`
+    StructuredOutput,
+    /// 输出上限 + 那一家的「别思考」参数
+    Extras,
+}
+
+impl RequestShape {
+    fn tag(self) -> &'static str {
+        match self {
+            Self::StructuredOutput => "structured",
+            Self::Extras => "extras",
+        }
+    }
 }
 
 fn require_analyze_prompt(profile_data: &serde_json::Value) -> Result<&str> {
@@ -458,13 +574,26 @@ impl JsonMode<'_> {
         text
     }
 
-    fn gemini_generation_config(self) -> Option<GeminiGenerationConfig> {
-        match self {
-            Self::Structured(schema) => Some(GeminiGenerationConfig {
-                response_mime_type: "application/json".to_string(),
-                response_schema: schema.and_then(gemini_response_schema),
-            }),
+    fn gemini_generation_config(
+        self,
+        budget: Option<OutputBudget>,
+    ) -> Option<GeminiGenerationConfig> {
+        let structured = match self {
+            Self::Structured(schema) => Some(schema.and_then(gemini_response_schema)),
             Self::PromptOnly(_) => None,
+        };
+        // 关思考不依赖结构化输出：退回 prompt-only 时预算还在。
+        match (structured, budget) {
+            (None, None) => None,
+            (structured, budget) => Some(GeminiGenerationConfig {
+                response_mime_type: if structured.is_some() {
+                    "application/json".to_string()
+                } else {
+                    "text/plain".to_string()
+                },
+                response_schema: structured.flatten(),
+                max_output_tokens: budget.map(|b| b.max_tokens),
+            }),
         }
     }
 
@@ -611,6 +740,35 @@ pub(crate) fn openai_chat_completions_url(base_url: Option<&str>) -> String {
 }
 
 impl AiAnalyzer {
+    /// 对面是哪一家网关。
+    pub fn gateway(&self) -> Gateway {
+        gateway_of(self.provider, self.base_url.as_deref())
+    }
+
+    /// 记忆的键。同一个网关上不同模型的结构化输出支持度可以不一样
+    /// （OpenRouter 后面挂着几十家），所以端点和模型都要进键。
+    fn capability_key(&self) -> String {
+        format!("{}|{}", self.base_url.as_deref().unwrap_or(""), self.model)
+    }
+
+    fn refused(&self, shape: RequestShape) -> bool {
+        let key = format!("{}#{}", self.capability_key(), shape.tag());
+        shape_memo().read().is_ok_and(|seen| seen.contains(&key))
+    }
+
+    fn remember_refusal(&self, shape: RequestShape) {
+        let key = format!("{}#{}", self.capability_key(), shape.tag());
+        if let Ok(mut seen) = shape_memo().write() {
+            if seen.insert(key) {
+                tracing::warn!(
+                    model = %self.model,
+                    shape = shape.tag(),
+                    "[AiAnalyzer] Endpoint refuses this request shape; skipping it from now on"
+                );
+            }
+        }
+    }
+
     /// Cap Gemini response bodies (success + error) to avoid unbounded buffers.
     async fn read_limited_json<T: serde::de::DeserializeOwned>(
         response: reqwest::Response,
@@ -811,6 +969,7 @@ impl AiAnalyzer {
 
     async fn analyze_with_openai(&self, prompt: &str) -> Result<String> {
         let request_body = OpenAIRequest {
+            max_tokens: None,
             model: self.model.clone(),
             messages: vec![OpenAIMessage {
                 role: "user".to_string(),
@@ -914,6 +1073,7 @@ impl AiAnalyzer {
                     model: self.model.clone(),
                     messages: openai_messages,
                     response_format: None,
+                    max_tokens: None,
                 };
 
                 let url = openai_chat_completions_url(self.base_url.as_deref());
@@ -989,7 +1149,13 @@ impl AiAnalyzer {
         let input_chars = system.len() + prompt.len();
 
         let mut result = self
-            .analyze_json_inner(system, prompt, schema_name, JsonMode::Structured(schema))
+            .analyze_json_inner(
+                system,
+                prompt,
+                schema_name,
+                JsonMode::Structured(schema),
+                None,
+            )
             .await;
 
         if let Err(ref failure) = result {
@@ -1001,13 +1167,89 @@ impl AiAnalyzer {
                     "[AiAnalyzer] Endpoint rejected structured output; retrying prompt-only"
                 );
                 result = self
-                    .analyze_json_inner(system, prompt, schema_name, JsonMode::PromptOnly(schema))
+                    .analyze_json_inner(
+                        system,
+                        prompt,
+                        schema_name,
+                        JsonMode::PromptOnly(schema),
+                        None,
+                    )
                     .await;
             }
         }
 
         let result = result.map_err(|failure| failure.error);
         self.note_ledger(input_chars, &result, "structured").await;
+        result
+    }
+
+    /// 短结构化调用：限制输出、要求不要思考。
+    ///
+    /// 退化阶梯有三级，因为「关思考」和「结构化输出」是两组不同的参数，
+    /// 网关可能只认其中一组：
+    ///
+    /// 1. 预算 + 结构化
+    /// 2. 只结构化（网关不认预算参数时）
+    /// 3. prompt-only（网关连结构化也不认，与 [`Self::analyze_json`] 的末级一致）
+    ///
+    /// 每一级只在上一级被判定为「请求形状被拒」时才走——鉴权失败和限流不重试。
+    pub async fn analyze_json_short(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&serde_json::Value>,
+        budget: OutputBudget,
+    ) -> Result<String> {
+        let input_chars = system.len() + prompt.len();
+
+        // 这个端点拒过什么，就别再每次去撞一遍。
+        let mode = if self.refused(RequestShape::StructuredOutput) {
+            JsonMode::PromptOnly(schema)
+        } else {
+            JsonMode::Structured(schema)
+        };
+        let extras = if self.refused(RequestShape::Extras) {
+            None
+        } else {
+            Some(budget)
+        };
+
+        let mut result = self
+            .analyze_json_inner(system, prompt, schema_name, mode, extras)
+            .await;
+
+        if extras.is_some()
+            && result
+                .as_ref()
+                .is_err_and(ProviderCallFailure::rejected_request)
+        {
+            self.remember_refusal(RequestShape::Extras);
+            result = self
+                .analyze_json_inner(system, prompt, schema_name, mode, None)
+                .await;
+        }
+
+        if matches!(mode, JsonMode::Structured(_))
+            && result
+                .as_ref()
+                .is_err_and(ProviderCallFailure::rejected_request)
+        {
+            self.remember_refusal(RequestShape::StructuredOutput);
+            result = self
+                .analyze_json_inner(
+                    system,
+                    prompt,
+                    schema_name,
+                    JsonMode::PromptOnly(schema),
+                    None,
+                )
+                .await;
+        }
+
+        let result = result.map_err(|failure| failure.error);
+        self.note_ledger(input_chars, &result, "structured-short")
+            .await;
         result
     }
 
@@ -1084,6 +1326,7 @@ impl AiAnalyzer {
             model: self.model.clone(),
             messages,
             response_format: mode.openai_response_format(schema_name),
+            max_tokens: None,
         })
         .map_err(|e| ProviderCallFailure::transport(e.into()))?;
         if let Some(obj) = request_body.as_object_mut() {
@@ -1126,6 +1369,7 @@ impl AiAnalyzer {
         prompt: &str,
         schema_name: &str,
         mode: JsonMode<'_>,
+        budget: Option<OutputBudget>,
     ) -> std::result::Result<String, ProviderCallFailure> {
         match self.provider {
             AiProvider::Gemini => {
@@ -1141,7 +1385,7 @@ impl AiAnalyzer {
                     contents: vec![GeminiContent {
                         parts: vec![GeminiPart { text }],
                     }],
-                    generation_config: mode.gemini_generation_config(),
+                    generation_config: mode.gemini_generation_config(budget),
                 };
 
                 let url = GeminiApiUrl::generate_content_url(&self.model).await;
@@ -1214,7 +1458,19 @@ impl AiAnalyzer {
                     model: self.model.clone(),
                     messages,
                     response_format: mode.openai_response_format(schema_name),
+                    max_tokens: budget.map(|b| b.max_tokens),
                 };
+                // 「别思考」和输出上限同进同退：它们同属「附加参数」这一类，
+                // 被拒时一起丢掉，也一起被记住。
+                let mut request_body = serde_json::to_value(request_body)
+                    .map_err(|e| ProviderCallFailure::transport(e.into()))?;
+                if budget.is_some() {
+                    if let (Some(object), Some((key, value))) =
+                        (request_body.as_object_mut(), self.gateway().thinking_off())
+                    {
+                        object.insert(key.to_string(), value);
+                    }
+                }
 
                 let url = openai_chat_completions_url(self.base_url.as_deref());
                 let response = self
@@ -1423,9 +1679,184 @@ mod tests {
         format_openai_compatible_http_error, gemini_response_schema, gemini_stream_deltas,
         openai_chat_completions_url, openai_stream_deltas, require_analyze_prompt, ChatMessage,
         GeminiContent, GeminiPart, GeminiRequest, JsonMode, OpenAIMessage, OpenAIRequest,
-        OpenAIResponse, ProviderCallFailure, StreamDelta,
+        OpenAIResponse, OutputBudget, ProviderCallFailure, StreamDelta,
     };
     use serde_json::json;
+
+    fn openai_body(mode: JsonMode<'_>, budget: Option<OutputBudget>) -> serde_json::Value {
+        serde_json::to_value(OpenAIRequest {
+            model: "m".to_string(),
+            messages: vec![OpenAIMessage {
+                role: "user".to_string(),
+                content: "hi".to_string(),
+            }],
+            response_format: mode.openai_response_format("s"),
+            max_tokens: budget.map(|b| b.max_tokens),
+        })
+        .expect("serialize")
+    }
+
+    /// 没有预算的调用，报文必须和加这个功能之前一模一样。
+    #[test]
+    fn an_unbudgeted_call_sends_no_new_fields() {
+        let body = openai_body(JsonMode::PromptOnly(None), None);
+        let object = body.as_object().expect("object");
+        assert_eq!(
+            object.keys().map(String::as_str).collect::<Vec<_>>(),
+            // serde_json 这里是 BTreeMap，键按字典序。
+            vec!["messages", "model"],
+            "普通调用的报文不该多出字段"
+        );
+
+        let config = JsonMode::PromptOnly(None).gemini_generation_config(None);
+        assert!(
+            config.is_none(),
+            "没有结构化也没有预算时不该发 generationConfig"
+        );
+    }
+
+    #[test]
+    fn a_budgeted_call_caps_output_and_nothing_else() {
+        let budget = OutputBudget { max_tokens: 2048 };
+        let body = openai_body(JsonMode::Structured(None), Some(budget));
+        assert_eq!(body["max_tokens"], json!(2048));
+        assert_eq!(body["response_format"], json!({ "type": "json_object" }));
+        // 关思考的参数各家不同，猜一个发出去会换来 4xx 和一次多余的重试。
+        // 要加就得先按 base_url 认出网关。
+        assert!(body.get("reasoning_effort").is_none());
+
+        let config = JsonMode::Structured(None)
+            .gemini_generation_config(Some(budget))
+            .expect("generationConfig");
+        let config = serde_json::to_value(config).expect("serialize");
+        assert_eq!(config["maxOutputTokens"], json!(2048));
+        assert_eq!(config["responseMimeType"], json!("application/json"));
+        assert!(config.get("thinkingConfig").is_none());
+    }
+
+    /// 上限和结构化输出是两组参数，网关可能只认一组。退回 prompt-only 之后
+    /// 上限还得在，否则退化路径上又变成没有上限。
+    #[test]
+    fn dropping_structured_output_keeps_the_output_cap() {
+        let budget = OutputBudget { max_tokens: 2048 };
+        let config = JsonMode::PromptOnly(None)
+            .gemini_generation_config(Some(budget))
+            .expect("generationConfig");
+        let config = serde_json::to_value(config).expect("serialize");
+        assert_eq!(config["maxOutputTokens"], json!(2048));
+        assert_eq!(config["responseMimeType"], json!("text/plain"));
+        assert!(config.get("responseSchema").is_none());
+    }
+
+    #[test]
+    fn the_gateway_is_recovered_from_the_base_url() {
+        use super::{gateway_of, AiProvider, Gateway};
+        // AiProvider 把 openai 和 openrouter 压成同一个值，身份只能从 base_url 认。
+        assert_eq!(
+            gateway_of(AiProvider::OpenAI, Some("https://openrouter.ai/api/v1")),
+            Gateway::OpenRouter
+        );
+        assert_eq!(
+            gateway_of(AiProvider::OpenAI, Some("https://api.openai.com/v1")),
+            Gateway::OpenAi
+        );
+        // 没配 base_url 就是官方端点。
+        assert_eq!(gateway_of(AiProvider::OpenAI, None), Gateway::OpenAi);
+        // 自建端点归到「兼容」：只发共通参数，不发任何一家的方言。
+        assert_eq!(
+            gateway_of(AiProvider::OpenAI, Some("https://llm.example.com/v1")),
+            Gateway::OpenAiCompatible
+        );
+        // provider 是 gemini 时 base_url 不参与判断。
+        assert_eq!(gateway_of(AiProvider::Gemini, None), Gateway::Gemini);
+    }
+
+    /// 预算被拒 → 去掉预算重试 → 还被拒 → prompt-only。三级，不能少。
+    #[test]
+    fn the_short_call_has_a_three_step_ladder() {
+        let source = include_str!("analyzer.rs");
+        let body = source
+            .split("pub async fn analyze_json_short(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n    /// ").next())
+            .expect("analyze_json_short body");
+        assert_eq!(
+            body.matches("analyze_json_inner(").count(),
+            3,
+            "短调用的退化阶梯应当是三级"
+        );
+        assert_eq!(
+            body.matches("rejected_request").count(),
+            2,
+            "每一级都只在请求形状被拒时才降级"
+        );
+        // 阶梯要有记忆：拒过一次之后直接跳过那一档，否则不支持的网关每一次
+        // 调用都要先撞一次墙。两类分开记，因为网关可能只拒其中一组。
+        assert!(body.contains("self.refused(RequestShape::StructuredOutput)"));
+        assert!(body.contains("self.refused(RequestShape::Extras)"));
+        assert!(body.contains("remember_refusal(RequestShape::Extras)"));
+        assert!(body.contains("remember_refusal(RequestShape::StructuredOutput)"));
+    }
+
+    /// 「别思考」只发有把握的那一家，其余留空。
+    ///
+    /// 各家参数名不同，发一个猜来的比不发更糟：网关不认就是 4xx，多一个来回。
+    /// 有了记忆之后代价从「每次」降到「一次」，但那不是乱发的理由——不确定
+    /// 就返回 None。
+    #[test]
+    fn only_a_gateway_we_are_sure_about_gets_a_thinking_switch() {
+        use super::Gateway;
+        assert_eq!(
+            Gateway::OpenRouter.thinking_off(),
+            Some(("reasoning", json!({ "enabled": false })))
+        );
+        for unsure in [Gateway::OpenAi, Gateway::Gemini, Gateway::OpenAiCompatible] {
+            assert!(
+                unsure.thinking_off().is_none(),
+                "{unsure:?} 的参数没核实过，不该发"
+            );
+        }
+    }
+
+    /// 关思考跟着输出上限走：被拒时一起丢，不会只丢一半。
+    #[test]
+    fn the_thinking_switch_rides_with_the_budget() {
+        let source = include_str!("analyzer.rs");
+        let inner = source
+            .split("async fn analyze_json_inner(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n    // TODO").next())
+            .expect("analyze_json_inner body");
+        // 只在带预算的那一档附上，跟着一起丢。
+        assert!(inner.contains("if budget.is_some()"));
+        assert!(inner.contains("self.gateway().thinking_off()"));
+    }
+
+    /// 只在「请求形状被拒」时记忆——鉴权失败和限流不是能力问题，记下来会让
+    /// 一次配错的 key 永久关掉这个端点的结构化输出。
+    #[test]
+    fn the_memo_is_keyed_on_endpoint_and_model_and_only_on_shape_refusals() {
+        let source = include_str!("analyzer.rs");
+        let memo = source
+            .split("fn remember_refusal(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n    /// ").next())
+            .expect("memo writer");
+        assert!(memo.contains("capability_key()"));
+
+        let key = source
+            .split("fn capability_key(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n    fn ").next())
+            .expect("capability key");
+        // 同一个网关后面可以挂着几十家模型，支持度不一样。
+        assert!(key.contains("base_url"));
+        assert!(key.contains("self.model"));
+
+        // rejected_request 已经排除了鉴权和限流，记忆挂在它后面即可。
+        assert!(source.contains("StatusCode::UNAUTHORIZED"));
+        assert!(source.contains("StatusCode::TOO_MANY_REQUESTS"));
+    }
 
     fn closed_schema() -> serde_json::Value {
         json!({
@@ -1507,7 +1938,7 @@ mod tests {
     fn structured_mode_sets_json_mime_and_schema_for_gemini() {
         let schema = closed_schema();
         let config = JsonMode::Structured(Some(&schema))
-            .gemini_generation_config()
+            .gemini_generation_config(None)
             .expect("structured mode configures generation");
         assert_eq!(config.response_mime_type, "application/json");
         assert_eq!(
@@ -1520,7 +1951,7 @@ mod tests {
     fn untranslatable_schema_still_enforces_json_on_gemini() {
         let schema = json!({ "type": "object", "properties": { "p": { "type": "object" } } });
         let config = JsonMode::Structured(Some(&schema))
-            .gemini_generation_config()
+            .gemini_generation_config(None)
             .expect("json mime is kept");
         assert_eq!(config.response_mime_type, "application/json");
         assert!(config.response_schema.is_none());
@@ -1551,7 +1982,7 @@ mod tests {
     fn prompt_only_mode_sends_no_structured_parameters() {
         let schema = closed_schema();
         let mode = JsonMode::PromptOnly(Some(&schema));
-        assert!(mode.gemini_generation_config().is_none());
+        assert!(mode.gemini_generation_config(None).is_none());
         assert!(mode.openai_response_format("x").is_none());
     }
 
@@ -1591,6 +2022,7 @@ mod tests {
                 content: "hi".to_string(),
             }],
             response_format: None,
+            max_tokens: None,
         })
         .expect("serialize");
         assert!(openai.get("response_format").is_none());

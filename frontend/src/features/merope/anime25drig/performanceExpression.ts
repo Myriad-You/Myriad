@@ -1,15 +1,14 @@
-import type {
-  PerformanceBaseline,
-} from '../../../services/agent/types'
+import type { PerformanceBaseline } from '../../../services/agent/types'
 import type { BehaviorQuality } from '../motion/behavior'
 import type { Anime25DMotionUnit } from './behaviorMotion'
 import type { Anime25DDriver } from './driver'
 import type { CueIntent } from './performanceCueDefinitions'
-import {
-  PERFORMANCE_CUE_INTENTS,
-} from '../performanceContract'
+import { PERFORMANCE_CUE_INTENTS } from '../performanceContract'
 import { IDENTITY_DRIVER } from './driver'
-import { cueIsSticker, intentExpressionPatch } from './performanceCueDefinitions'
+import {
+  cueIsSticker,
+  intentExpressionPatch,
+} from './performanceCueDefinitions'
 import { MIN_STICKER_FADE_OUT } from './performanceMotion'
 
 export interface PerformanceExpressionOffset {
@@ -607,38 +606,32 @@ function writeBaselineOffset(
     PerformanceBaseline['expression'],
     Partial<PerformanceExpressionOffset>
   > = {
-    // Low-valence standing faces use the same inner-brow direction as the cry
-    // performance, but never turn on its replacement eyes, tears, or sobbing
-    // mouth. The previous pair only lowered the whole brow by 0.09/0.16; that
-    // reads as a faint deadpan inside idle noise, not as two grades of sadness.
-    // Inner-brow rotation supplies the category, while eye closure and mouth
-    // form supply the intensity, so speech and blinking remain fully usable.
+    // At widget scale, bangs can hide most of the brow. Carry low valence in
+    // both the eyelids and mouth corners as well; brow rotation distinguishes
+    // sadness from tiredness. No replacement eyes, tears or sobbing are held.
     withdrawn: {
-      brow: 0.08,
-      browAngSym: -0.62,
-      eyeOpen: -0.2,
-      mouthForm: -0.32,
-      irisScale: -0.055,
+      brow: 0.18,
+      browAngSym: -0.92,
+      eyeOpen: -0.4,
+      mouthForm: -0.82,
+      irisScale: -0.075,
     },
     subdued: {
-      brow: 0.025,
-      browAngSym: -0.34,
-      eyeOpen: -0.1,
-      mouthForm: -0.17,
-      irisScale: -0.025,
+      brow: 0.12,
+      browAngSym: -0.66,
+      eyeOpen: -0.26,
+      mouthForm: -0.55,
+      irisScale: -0.04,
     },
-    // Off the ladder on purpose. `withdrawn`, `subdued`, `steady` and `warm`
-    // are one valence axis: every step down also closes the eyes and softens
-    // the pupils, which reads as shutting down. Irritation is the low-valence
-    // corner with *high* arousal, so it needs the opposite eye — wide, tight
-    // pupils — and a knitted brow. The old ±0.19 brow sat inside idle noise
-    // (~0.5 displayed pixels on the homepage) and read as the flat face.
+    // Irritation stays more alert than sadness: knitted, lowered brows, focused
+    // eyes and a firmer mouth. Eye openness cannot exceed the driver's 1.0;
+    // a positive offset above neutral was clamped away before rendering.
     tense: {
-      brow: -0.32,
-      browAngSym: 0.55,
-      eyeOpen: 0.1,
-      mouthForm: -0.14,
-      irisScale: -0.06,
+      brow: -0.56,
+      browAngSym: 0.82,
+      eyeOpen: -0.08,
+      mouthForm: -0.48,
+      irisScale: -0.1,
     },
     steady: {},
     warm: { brow: 0.12, mouthForm: 0.15, irisScale: 0.015 },
@@ -666,25 +659,22 @@ function ambientScaleForAttention(attention: number): number {
 const MIN_CUE_RELEASE = 0.06
 
 function releaseScheduledCue(cue: ScheduledExpressionCue, at: number): void {
+  // A missing unit is restated on every plan update; it is one release, not
+  // permission to restart the tail (or revive a half-faded cue at full power).
+  if (cue.unitKey === null) return
   cue.unitKey = null
   if (at <= cue.start || at >= cue.end) {
     cue.end = Math.min(cue.end, at)
     return
   }
-  const fadeOut = Math.max(
-    cue.fadeOut,
-    cue.sticker ? MIN_STICKER_FADE_OUT : MIN_CUE_RELEASE,
+  const fadeOut = Math.min(
+    cue.end - at,
+    Math.max(cue.fadeOut, cue.sticker ? MIN_STICKER_FADE_OUT : MIN_CUE_RELEASE),
   )
-  const local = at - cue.start
-  if (local < cue.fadeIn) {
-    scaleOffset(cue.offset, cueEnvelope(cue, at))
-    cue.fadeIn = local
-    cue.hold = 0
-    cue.fadeOut = fadeOut
-    cue.end = at + fadeOut
-    return
-  }
-  cue.hold = local - cue.fadeIn
+  scaleOffset(cue.offset, cueEnvelope(cue, at))
+  cue.start = at
+  cue.fadeIn = 0
+  cue.hold = 0
   cue.fadeOut = fadeOut
   cue.end = at + fadeOut
 }

@@ -1,17 +1,10 @@
 import type { BehaviorQuality } from '../motion/behavior'
-import type { BeatFrame } from './beatClock'
-import { beatAccentLead, beatAnticipation, BeatClock } from './beatClock'
-import { singingVocalEnergy } from './singingClock'
-
-export interface SingingSpectrumDrive {
-  bass: number
-  beat: number
-  vocal: number
-  /** Media clock sample used to keep beat prediction aligned with audio. */
-  sampleTimeSeconds?: number
-  /** Production beat evidence; workbench callers may omit it. */
-  beatFrame?: Readonly<BeatFrame>
-}
+import type { MusicMode, MusicMotionSignal } from './musicSignal'
+import { MinimumJerkMotion } from '../anime25drig/minimumJerk'
+import {
+  MUSIC_PHRASE_PREPARATION_SECONDS,
+  MUSIC_PHRASE_RELEASE_SECONDS,
+} from './musicPhrases'
 
 export interface SingingGroovePose {
   angleX: number
@@ -24,9 +17,20 @@ export interface SingingGroovePose {
   brow: number
 }
 
-interface Spring1 {
-  value: number
-  velocity: number
+export const MIN_SINGING_NOD_INTERVAL_SECONDS = 1.05
+
+export function singingNodBeatStride(bpm: number): 1 | 2 | 4 {
+  if (!(bpm > 0) || !Number.isFinite(bpm)) return 1
+  if (60 / bpm >= MIN_SINGING_NOD_INTERVAL_SECONDS) return 1
+  return 120 / bpm >= MIN_SINGING_NOD_INTERVAL_SECONDS ? 2 : 4
+}
+
+interface Motif {
+  roll: number
+  yaw: number
+  torso: number
+  offset: number
+  nods: number
 }
 
 const ZERO: SingingGroovePose = {
@@ -39,388 +43,325 @@ const ZERO: SingingGroovePose = {
   eyeX: 0,
   brow: 0,
 }
-
-/** A head nod needs at least this long to land and visibly recover. */
-export const MIN_SINGING_NOD_INTERVAL_SECONDS = 0.82
-
-/**
- * Read fast music in half-time (or at the top of the bar) so the body follows
- * the pulse without trying to articulate every beat with its neck.
- */
-export function singingNodBeatStride(bpm: number): 1 | 2 | 4 {
-  if (!Number.isFinite(bpm) || bpm <= 0) return 1
-  const beatPeriod = 60 / bpm
-  if (beatPeriod >= MIN_SINGING_NOD_INTERVAL_SECONDS) return 1
-  if (beatPeriod * 2 >= MIN_SINGING_NOD_INTERVAL_SECONDS) return 2
-  return 4
-}
-
-export function singingSpectrumDrive(
-  bands: readonly number[],
-): SingingSpectrumDrive {
-  const bass = unit(bands[0])
-  const low = unit(bands[1])
-  return {
-    bass,
-    beat: unit(bass * 0.62 + low * 0.38),
-    vocal: singingVocalEnergy(bands),
-  }
-}
+const FIRST: Motif = { roll: 0.8, yaw: 0.3, torso: 0.58, offset: 0, nods: 0.7 }
+const TAU = Math.PI * 2
 
 /**
- * Weight cruises side to side. Nod size comes from the live mix: vocals lift,
- * kick/bass dip, and a punch on rising beats. Turns ease instead of bouncing.
+ * Multilevel entrainment: slow weight transfer, softer head following, optional
+ * committed accents and persistent motifs. No pose springs here: the player's
+ * one C2 response carries actual position/velocity/acceleration across sources.
+ * Research principles (coefficients are rig-space art direction):
+ * Toiviainen & Carlson 2022 — https://doi.org/10.1525/mp.2022.39.3.249
+ * Burger et al. 2014 — https://doi.org/10.3389/fnhum.2014.00903
+ * Livingstone & Palmer 2016 — https://doi.org/10.1037/emo0000106
  */
 export class SingingGrooveController {
-  private readonly output: SingingGroovePose = { ...ZERO }
+  private readonly output = { ...ZERO }
+  private readonly nod = new MinimumJerkMotion()
   private lastTime = Number.NaN
-  private energy = 0.4
-  private vocalFollow = 0
-  private beatFollow = 0
-  private nodPulse = 0
-  private lastFollowerNodAt = Number.NEGATIVE_INFINITY
-  private followerNodWindowUntil = Number.NEGATIVE_INFINITY
-  private leanTarget = 0
-  private leanSpeed = 0
-  private leanDir = 0
-  private cruise = 0.16
-  private spanNow = 0.26
-  private spanGoal = 0.26
-  private turnAt = 0.82
-  private cruiseClock = 0
-  private nextCruiseAt = 0.6
-  private readonly neckX: Spring1 = { value: 0, velocity: 0 }
-  private readonly neckZ: Spring1 = { value: 0, velocity: 0 }
-  private readonly neckY: Spring1 = { value: 0, velocity: 0 }
-  private readonly torso: Spring1 = { value: 0, velocity: 0 }
-  private readonly arm: Spring1 = { value: 0, velocity: 0 }
-  private readonly beat = new BeatClock()
-  private beatFrame = this.beat.sample(0, 0, false)
-  private readonly externalBeatFrame: BeatFrame = { ...this.beatFrame }
-  private externalBeatSampleAt = Number.NaN
-  private externalBeatObservedAt = Number.NaN
+  private observedAt = Number.NaN
+  private sampleTime = Number.NaN
+  private phase = 0
+  private frequency = 0.22
+  private amplitude = 0
+  private phraseAmount = 0
+  private modeAmount = 0
+  private lastNodAt = Number.NEGATIVE_INFINITY
+  private nodReleaseAt = Number.POSITIVE_INFINITY
+  private nodRecovery = 0.6
+  private lastNodBeat = -1
+  private stride: 1 | 2 | 4 = 2
+  private swayBeats: 4 | 8 = 4
+  private previous: Motif = { ...FIRST }
+  private motif: Motif = { ...FIRST }
+  private motifAt = 0
+  private nextMotifAt = 0
+  private lastPhraseStart = Number.NaN
+  private seed = 0x5E71C3
+  private trackId: string | null = null
   private armMotion = false
-  private weyl = 0.41
 
   setArmMotion(enabled: boolean): void {
     this.armMotion = enabled
   }
 
   setTrack(trackId: string | null): void {
-    this.beat.setTrack(trackId)
-    this.externalBeatSampleAt = Number.NaN
-    this.externalBeatObservedAt = Number.NaN
+    if (trackId === this.trackId) return
+    this.trackId = trackId
+    this.seed = 2166136261
+    for (const char of trackId ?? '')
+      this.seed = Math.imul(this.seed ^ char.charCodeAt(0), 16777619) >>> 0
+    this.sampleTime = Number.NaN
+    this.observedAt = Number.NaN
+    this.lastNodBeat = -1
+    this.lastPhraseStart = Number.NaN
+    this.nextMotifAt = 0
+    // The body phase and the in-flight nod belong to the body, not the track.
   }
 
   sample(
     timeSeconds: number,
     enabled: boolean,
-    drive: SingingSpectrumDrive | null,
+    signal: Readonly<MusicMotionSignal> | null,
     quality?: Readonly<BehaviorQuality>,
+    mode: MusicMode = 'listen',
   ): Readonly<SingingGroovePose> {
     const now = Number.isFinite(timeSeconds) ? Math.max(0, timeSeconds) : 0
     const dt = Number.isFinite(this.lastTime)
-      ? clamp(now - this.lastTime, 0, 0.08)
-      : 1 / 60
+      ? clamp(now - this.lastTime, 0, 0.1)
+      : 0
     this.lastTime = now
-    const vocal = unit(drive?.vocal)
-    const beat = unit(drive?.beat)
-    this.energy +=
-      ((enabled ? Math.max(vocal, beat * 0.4, 0.32) : 0) - this.energy) *
-      (1 - Math.exp(-1.6 * dt))
-    this.beatFrame = this.resolveBeatFrame(now, enabled, drive)
-    this.followSpectrum(now, dt, enabled, vocal, beat)
-
-    const pace =
-      relativeQuality(quality?.tempo, 1, 0.72) *
-      relativeQuality(quality?.density, 0.8, 0.12)
-    if (enabled) this.driftLean(dt * pace)
-    else this.settleLean(dt)
-
-    const pitch = enabled ? this.nodPitch() : 0
-    const directness = relativeQuality(quality?.directness, 0.72, 0.22)
-    const fluidity = relativeQuality(quality?.fluidity, 0.8, 0.18)
-    const rebound = relativeQuality(quality?.rebound, 0.35, -0.2)
-    const response = clamp(directness / fluidity, 0.72, 1.35)
-    const damping = clamp(fluidity * rebound, 0.78, 1.24)
-    const asymmetry = relativeQuality(quality?.asymmetry, 0.2, 0.2)
-    const density = relativeQuality(quality?.density, 0.8, 0.16)
-    stepSpring(
-      this.neckZ,
-      this.leanTarget * asymmetry,
-      dt,
-      1.45 * response,
-      1.04 * damping,
-    )
-    stepSpring(
-      this.neckX,
-      (this.leanTarget * 0.42) / directness,
-      dt,
-      1.5 * response,
-      1.04 * damping,
-    )
-    stepSpring(this.neckY, pitch, dt, 2.25 * response, 1.16 * damping)
-    stepSpring(
-      this.torso,
-      this.neckZ.value * 0.55 * density,
-      dt,
-      0.95 * response,
-      1.08 * damping,
-    )
-    const barWave = Math.sin(this.beatFrame.barPhase * Math.PI * 2)
-    const armTarget =
-      enabled && this.armMotion
-        ? (-this.leanTarget * 0.42 + barWave * this.energy * 0.045) * density
+    const fresh =
+      signal !== null && signal.sampleTimeSeconds !== this.sampleTime
+    if (fresh) {
+      this.sampleTime = signal.sampleTimeSeconds
+      this.observedAt = now
+    }
+    const age = Number.isFinite(this.observedAt)
+      ? now - this.observedAt
+      : Infinity
+    const freshness = 1 - smooth((age - 0.15) / 0.3)
+    const evidence = signal?.beatFrame
+    const confidence = enabled ? (evidence?.confidence ?? 0) * freshness : 0
+    const locked = confidence >= 0.45 && (evidence?.bpm ?? 0) > 0
+    const bpm = locked ? evidence!.bpm : 0
+    const mediaTime = signal
+      ? signal.sampleTimeSeconds + Math.min(age, 0.15)
+      : 0
+    const beatPosition =
+      evidence && bpm > 0
+        ? evidence.beatCount +
+          evidence.beatPhase +
+          (Math.min(age, 0.15) * bpm) / 60
         : 0
-    stepSpring(this.arm, armTarget, dt, 0.88 * response, 1.04 * damping)
+    // Unavailable audio permits quiet listening, but never invents a beat.
+    const energy = signal
+      ? (signal.audio?.energy ?? (mode === 'sing' ? 0.38 : 0.1)) * freshness
+      : 0
+    const active = enabled && mode !== 'settle'
+    const targetAmplitude = active ? smooth(energy / 0.55) : 0
+    this.amplitude = approach(
+      this.amplitude,
+      targetAmplitude,
+      dt,
+      targetAmplitude > this.amplitude ? 9 : 2.8,
+    )
+    this.modeAmount = approach(
+      this.modeAmount,
+      mode === 'sing' ? 1 : mode === 'hum' ? 0.4 : 0,
+      dt,
+      7,
+    )
 
-    this.output.angleX = this.neckX.value
-    this.output.angleY = this.neckY.value
-    this.output.angleZ = this.neckZ.value
-    // The renderer gives singing body rotation more range than ordinary idle
-    // motion, but the old 0.22 transfer still collapsed a full lean to only a
-    // few hundredths. Preserve the slower torso spring and transmit enough of
-    // it for the upper body to visibly follow the head.
-    this.output.body = this.torso.value * 0.55
-    this.output.armY = this.arm.value * 0.72
-    this.output.armPos = -this.arm.value * 0.48 + this.torso.value * 0.14
-    // A rhythmic controller realizes body entrainment only. Eye and brow
-    // reactions are sparse semantic behaviors selected above this layer.
+    const phraseStart = signal?.phrase?.start
+    const phraseChanged =
+      phraseStart !== undefined && phraseStart !== this.lastPhraseStart
+    if (active && (now >= this.nextMotifAt || phraseChanged)) {
+      this.chooseMotif(now, bpm)
+      if (phraseStart !== undefined) this.lastPhraseStart = phraseStart
+    }
+    const blend = smooth((now - this.motifAt) / 0.65)
+    const roll = mix(this.previous.roll, this.motif.roll, blend)
+    const yaw = mix(this.previous.yaw, this.motif.yaw, blend)
+    const torso = mix(this.previous.torso, this.motif.torso, blend)
+    const offset = mix(this.previous.offset, this.motif.offset, blend)
+
+    // A full sway spans 4 or 8 pulses, not every neck accent. Soft coupling
+    // permits a stable phase preference instead of snapping on each onset.
+    if (bpm > 118) this.swayBeats = 8
+    else if (bpm > 0 && bpm < 106) this.swayBeats = 4
+    const targetFrequency = locked
+      ? bpm / (60 * this.swayBeats)
+      : 0.18 * clamp((quality?.tempo ?? 0.82) / 0.82, 0.7, 1.25)
+    this.frequency = approach(this.frequency, targetFrequency, dt, 2)
+    this.phase += dt * this.frequency * (active ? 1 : this.amplitude)
+    if (locked && active) {
+      const error = wrap(beatPosition / this.swayBeats + 0.12 - this.phase)
+      this.phase += error * (1 - Math.exp(-dt * 0.75 * confidence))
+    }
+    this.phase %= 1
+
+    if (now >= this.nodReleaseAt) {
+      this.nod.retarget(this.nodReleaseAt, 0, this.nodRecovery)
+      this.nodReleaseAt = Infinity
+    }
+    this.nod.sample(now)
+    if (active && energy > 0.08) {
+      this.planNod(
+        now,
+        bpm,
+        beatPosition,
+        confidence,
+        fresh && !!evidence?.onset,
+        signal?.audio?.pulse ?? 0,
+        quality,
+      )
+    }
+    const phrase = signal?.phrase
+    let phraseTarget = 0
+    if (active && phrase) {
+      const attack = smooth(
+        (mediaTime - phrase.start + MUSIC_PHRASE_PREPARATION_SECONDS) /
+          MUSIC_PHRASE_PREPARATION_SECONDS,
+      )
+      const release =
+        1 - smooth((mediaTime - phrase.end) / MUSIC_PHRASE_RELEASE_SECONDS)
+      phraseTarget = attack * release * phrase.confidence
+    }
+    this.phraseAmount = approach(this.phraseAmount, phraseTarget, dt, 12)
+    const density = clamp(quality?.density ?? 0.7, 0.2, 1.5)
+    const asymmetry = clamp(quality?.asymmetry ?? 0.36, 0, 1.4)
+    const extent =
+      this.amplitude *
+      (0.82 + 0.18 * this.modeAmount) *
+      clamp((quality?.extent ?? 1.08) / 1.08, 0.6, 1.2)
+    const torsoWave = Math.sin(TAU * this.phase)
+    const headDelay = 0.06 + clamp(quality?.fluidity ?? 0.92, 0.2, 1.4) * 0.075
+    const headWave = Math.sin(TAU * (this.phase - this.frequency * headDelay))
+    const arc = Math.sin(TAU * (this.phase - 0.16))
+    this.output.body = extent * (torsoWave * torso + offset * 0.12)
+    this.output.angleZ =
+      extent * (headWave * roll + offset * (0.3 + asymmetry * 0.2))
+    this.output.angleX =
+      extent *
+      ((arc * yaw * clamp(quality?.directness ?? 0.58, 0.3, 1.2)) / 0.58 +
+        offset * 0.14)
+    // Modest downward accents. Phrase lift is not pitch-frequency tracking.
+    this.output.angleY =
+      extent *
+      (this.nod.value +
+        this.phraseAmount * 0.13 +
+        this.modeAmount * 0.025 +
+        arc * 0.025 * density)
+    this.output.armY = this.armMotion
+      ? extent * (Math.abs(torsoWave) * 0.18 + this.phraseAmount * 0.2)
+      : 0
+    this.output.armPos = this.armMotion
+      ? extent * (-torsoWave * 0.25 + offset * 0.1)
+      : 0
     this.output.eyeX = 0
     this.output.brow = 0
     return this.output
   }
 
-  private resolveBeatFrame(
+  private planNod(
     now: number,
-    enabled: boolean,
-    drive: SingingSpectrumDrive | null,
-  ): Readonly<BeatFrame> {
-    const supplied = drive?.beatFrame
-    const mediaTime = drive?.sampleTimeSeconds
-    if (!supplied || mediaTime === undefined || !Number.isFinite(mediaTime)) {
-      return this.beat.sample(now, unit(drive?.bass), enabled)
-    }
-    const fresh = mediaTime !== this.externalBeatSampleAt
-    if (fresh) {
-      Object.assign(this.externalBeatFrame, supplied)
-      this.externalBeatSampleAt = mediaTime
-      this.externalBeatObservedAt = now
-    }
-    if (!enabled || supplied.bpm <= 0 || supplied.confidence <= 0) {
-      this.externalBeatFrame.downbeat = fresh && supplied.downbeat
-      this.externalBeatFrame.onset = fresh && supplied.onset
-      return this.externalBeatFrame
-    }
-    const period = 60 / supplied.bpm
-    const elapsed = Number.isFinite(this.externalBeatObservedAt)
-      ? Math.max(0, now - this.externalBeatObservedAt)
-      : 0
-    const total = supplied.beatPhase + elapsed / period
-    const crossed = Math.floor(total)
-    this.externalBeatFrame.beatPhase = total - crossed
-    this.externalBeatFrame.beatCount = supplied.beatCount + crossed
-    this.externalBeatFrame.barPhase =
-      ((this.externalBeatFrame.beatCount % 4) +
-        this.externalBeatFrame.beatPhase) /
-      4
-    this.externalBeatFrame.downbeat = fresh && supplied.downbeat
-    this.externalBeatFrame.onset = fresh && supplied.onset
-    return this.externalBeatFrame
-  }
-
-  private followSpectrum(
-    now: number,
-    dt: number,
-    enabled: boolean,
-    vocal: number,
-    beat: number,
+    bpm: number,
+    position: number,
+    confidence: number,
+    onset: boolean,
+    pulse: number,
+    quality?: Readonly<BehaviorQuality>,
   ): void {
-    const vocalTarget = enabled ? vocal : 0
-    const beatTarget = enabled ? beat : 0
-    this.vocalFollow +=
-      (vocalTarget - this.vocalFollow) * (1 - Math.exp(-1.35 * dt))
-    const rise = enabled ? Math.max(0, beatTarget - this.beatFollow) : 0
-    const beatRate = beatTarget > this.beatFollow ? 9 : 3.2
-    this.beatFollow +=
-      (beatTarget - this.beatFollow) * (1 - Math.exp(-beatRate * dt))
-    const cadenceLocked =
-      this.beatFrame.confidence >= 0.4 && this.beatFrame.bpm > 0
-    const cadenceBeat = isSingingNodBeat(
-      this.beatFrame.beatCount,
-      this.beatFrame.bpm,
+    if (now - this.lastNodAt < MIN_SINGING_NOD_INTERVAL_SECONDS) return
+    const density = clamp(
+      (quality?.density ?? 0.7) * this.motif.nods,
+      0.15,
+      0.95,
     )
-    const startsNod =
-      rise > 0.01 &&
-      (!cadenceLocked || cadenceBeat) &&
-      now - this.lastFollowerNodAt >= MIN_SINGING_NOD_INTERVAL_SECONDS
-    if (startsNod) {
-      this.lastFollowerNodAt = now
-      // A spectrum attack spans several frames. Admit that short attack as
-      // one gesture so cadence limiting removes extra nods, not their depth.
-      this.followerNodWindowUntil = now + 0.16
+    let lead = 0.16
+    if (confidence >= 0.45 && bpm > 0) {
+      const proposed = singingNodBeatStride(bpm)
+      if (
+        proposed > this.stride ||
+        (60 * proposed) / bpm > MIN_SINGING_NOD_INTERVAL_SECONDS * 1.12
+      ) {
+        this.stride = proposed
+}
+      const beat = Math.ceil(position)
+      const until = ((beat - position) * 60) / bpm
+      if (
+        until > 0.24 ||
+        until < 0.055 ||
+        beat % this.stride !== 0 ||
+        beat === this.lastNodBeat
+      ) {
+        return
+}
+      this.lastNodBeat = beat
+      if (this.random() > density) return
+      // Commit once: subsequent beat corrections cannot retime this accent.
+      lead = Math.max(0.09, until - 0.045)
+    } else if (!onset || pulse < 0.1 || this.random() > density * 0.7) {
+      return
     }
-    if (!enabled) this.followerNodWindowUntil = Number.NEGATIVE_INFINITY
-    if (now <= this.followerNodWindowUntil) this.nodPulse += rise * 14
-    // A cadence-limited nod needs time to reach the slower neck spring. The
-    // old fast release decayed before the head could follow, so reducing nod
-    // frequency also erased almost all of its downward stroke.
-    this.nodPulse +=
-      (0 - this.nodPulse) * (1 - Math.exp(-(enabled ? 3.5 : 8) * dt))
-    this.nodPulse = clamp(this.nodPulse, 0, 1)
+    this.lastNodAt = now
+    const power = clamp((quality?.power ?? 0.78) / 0.78, 0.6, 1.25)
+    const depth =
+      (0.1 + Math.min(1, pulse) * 0.07) * (0.8 + this.random() * 0.3) * power
+    this.nod.retarget(now, -depth, lead)
+    this.nodReleaseAt = now + lead
+    this.nodRecovery =
+      (0.45 + this.random() * 0.26) *
+      clamp(1.15 - (quality?.rebound ?? 0.3) * 0.3, 0.75, 1.2)
   }
 
-  /**
-   * Dip into the beat and come back up.
-   *
-   * `nodPulse` is an envelope follower, so it can only fire after the hit that
-   * caused it — the head always arrived late. When the beat clock finds a
-   * tempo, a phase-timed accent joins it, leaving early enough to land on the
-   * downbeat. They combine by max rather than crossfade: the two peak at
-   * different moments, so averaging them would flatten the very accent this is
-   * meant to sharpen. With no tempo the timed term is zero and the groove is
-   * exactly the envelope follower it always was.
-   */
-  private nodPitch(): number {
-    const spanForNod = Math.max(this.spanNow, 0.16)
-    const edge = clamp(Math.abs(this.leanTarget) / spanForNod, 0, 1)
-    const lift = mix(0.16, 0.32, this.vocalFollow)
-    const grooveDip = mix(0.01, 0.04, this.beatFollow)
-    const locked = this.beatFrame.confidence
-    const lead = beatAccentLead(this.beatFrame.bpm)
-    const accentBeat =
-      this.beatFrame.beatCount + (this.beatFrame.beatPhase >= 1 - lead ? 1 : 0)
-    const timed = isSingingNodBeat(accentBeat, this.beatFrame.bpm)
-      ? beatAnticipation(this.beatFrame.beatPhase, lead)
-      : 0
-    // The follower carries the depth, the timed accent carries the timing, and
-    // they combine by max so neither is traded for the other: suppressing the
-    // follower flattens the dip, and averaging them flattens both, since the
-    // two peak at different moments by construction.
-    //
-    // The neck is still a spring, so the pose trails the drive; the accent
-    // begins earlier than the hit that used to cause it, but this does not on
-    // its own put the head exactly on the beat.
-    const follower = smootherstep(this.nodPulse)
-    const drive = Math.max(follower, timed * locked * 0.82)
-    // Keep the downbeat legible without making the whole head dive. The lift
-    // remains unchanged, so this trims only the downward half of the nod.
-    const hitDip = drive * mix(0.25, 0.38, this.beatFollow)
-    const edgeDip = edge * mix(0.03, 0.06, this.energy)
-    return clamp(lift - grooveDip - hitDip - edgeDip, -0.31, 0.32)
+  private chooseMotif(now: number, bpm: number): void {
+    const blend = smooth((now - this.motifAt) / 0.65)
+    for (const key of Object.keys(this.previous) as (keyof Motif)[])
+      this.previous[key] = mix(this.previous[key], this.motif[key], blend)
+    const choice = this.random()
+    const side = this.random() * 2 - 1
+    this.motif =
+      choice < 0.38
+        ? { roll: 0.82, yaw: 0.24, torso: 0.62, offset: side * 0.15, nods: 0.8 }
+        : choice < 0.65
+          ? {
+              roll: 0.52,
+              yaw: 0.45,
+              torso: 0.4,
+              offset: side * 0.4,
+              nods: 0.55,
+            }
+          : choice < 0.85
+            ? {
+                roll: 0.36,
+                yaw: 0.24,
+                torso: 0.76,
+                offset: side * 0.2,
+                nods: 1,
+              }
+            : {
+                roll: 0.16,
+                yaw: 0.12,
+                torso: 0.18,
+                offset: side * 0.85,
+                nods: 0.25,
+              }
+    this.motifAt = now
+    this.nextMotifAt =
+      now +
+      (bpm > 0
+        ? (60 / bpm) * (this.random() < 0.6 ? 8 : 12)
+        : 3.5 + this.random() * 3)
   }
 
-  private driftLean(dt: number): void {
-    if (this.leanDir === 0) {
-      this.leanDir = this.unit() < 0.5 ? -1 : 1
-      this.pickCruise()
-      this.turnAt = this.mixRange(0.4, 0.96)
-    }
-
-    this.cruiseClock += dt
-    if (this.cruiseClock >= this.nextCruiseAt) {
-      this.cruiseClock = 0
-      this.nextCruiseAt = this.mixRange(0.25, 1.1)
-      this.pickCruise()
-    }
-
-    this.spanNow += (this.spanGoal - this.spanNow) * (1 - Math.exp(-0.7 * dt))
-    if (Math.abs(this.spanNow - this.spanGoal) < 0.004) {
-      this.spanGoal = mix(0.22, 0.3, this.energy) * mix(0.94, 1.08, this.unit())
-    }
-
-    const span = Math.max(this.spanNow, 0.16)
-    const edge = Math.abs(this.leanTarget) / span
-    const outward = Math.sign(this.leanTarget) === this.leanDir
-    if (outward && (edge > this.turnAt || Math.abs(this.leanTarget) >= span)) {
-      this.turnAround()
-    }
-
-    const slow = outward ? mix(1, 0.7, clamp((edge - 0.55) / 0.35, 0, 1)) : 1
-    const desired = this.leanDir * this.cruise * slow
-    this.leanSpeed += (desired - this.leanSpeed) * (1 - Math.exp(-12 * dt))
-    this.leanTarget = clamp(this.leanTarget + this.leanSpeed * dt, -span, span)
-  }
-
-  private settleLean(dt: number): void {
-    this.leanSpeed += (0 - this.leanSpeed) * (1 - Math.exp(-2.1 * dt))
-    this.leanTarget += this.leanSpeed * dt
-    this.leanTarget += (0 - this.leanTarget) * (1 - Math.exp(-1.15 * dt))
-  }
-
-  private turnAround(): void {
-    this.leanDir = -this.leanDir
-    this.turnAt = this.mixRange(0.4, 0.96)
-    this.pickCruise()
-    this.cruiseClock = 0
-    this.nextCruiseAt = this.mixRange(0.25, 1.1)
-  }
-
-  private pickCruise(): void {
-    this.cruise = mix(0.14, 0.24, this.energy) * mix(0.82, 1.22, this.unit())
-  }
-
-  private mixRange(minimum: number, maximum: number): number {
-    return mix(minimum, maximum, this.unit())
-  }
-
-  private unit(): number {
-    this.weyl = (this.weyl + 0.6180339887) % 1
-    return this.weyl
+  private random(): number {
+    this.seed ^= this.seed << 13
+    this.seed ^= this.seed >>> 17
+    this.seed ^= this.seed << 5
+    return (this.seed >>> 0) / 4294967296
   }
 }
 
-function isSingingNodBeat(beatCount: number, bpm: number): boolean {
-  const stride = singingNodBeatStride(bpm)
-  const beat = Math.trunc(Number.isFinite(beatCount) ? beatCount : 0)
-  return ((beat % stride) + stride) % stride === 0
-}
-
-function stepSpring(
-  state: Spring1,
+function approach(
+  value: number,
   target: number,
   dt: number,
-  frequencyHz: number,
-  dampingRatio: number,
-): void {
-  if (dt <= 0) return
-  let remain = dt
-  const omega = Math.PI * 2 * frequencyHz
-  while (remain > 0) {
-    const step = Math.min(1 / 90, remain)
-    const accel =
-      -(omega * omega) * (state.value - target) -
-      2 * dampingRatio * omega * state.velocity
-    state.velocity += accel * step
-    state.value += state.velocity * step
-    remain -= step
-  }
-}
-
-function unit(value: number | undefined): number {
-  if (value == null || !Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(1, value))
-}
-
-function mix(from: number, to: number, amount: number): number {
-  return from + (to - from) * unit(amount)
-}
-
-function smootherstep(value: number): number {
-  const amount = unit(value)
-  return amount * amount * amount * (amount * (amount * 6 - 15) + 10)
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
-}
-
-function relativeQuality(
-  value: number | undefined,
-  neutral: number,
-  influence: number,
+  rate: number,
 ): number {
-  const resolved =
-    typeof value === 'number' && Number.isFinite(value) ? value : neutral
-  return clamp(1 + (resolved - neutral) * influence, 0.65, 1.4)
+  return target + (value - target) * Math.exp(-dt * rate)
+}
+function mix(a: number, b: number, t: number): number {
+  return a + (b - a) * t
+}
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+function smooth(value: number): number {
+  const t = clamp(value, 0, 1)
+  return t * t * t * (t * (t * 6 - 15) + 10)
+}
+function wrap(value: number): number {
+  return ((((value + 0.5) % 1) + 1) % 1) - 0.5
 }

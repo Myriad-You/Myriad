@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crate::config::ModelTier;
 use crate::services::ai::create_ai_analyzer_for_tier_with_timeout;
+use crate::services::analyzer::OutputBudget;
 
 use super::onboarding_prompts::{
     visual_design_system_prompt, IMPORT_PERSONA_SYSTEM_PROMPT, NAME_SYSTEM_PROMPT,
@@ -15,7 +16,46 @@ use super::report_dna::sanitize_onboarding_tags_for_language;
 
 /// Keep in sync with `PERSONA_GENERATION_TIMEOUT_MS` / `MEROPE_PROXY_TIMEOUT_MS`.
 const ONBOARDING_AI_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+/// 起名不是长任务：答案是一个两字段的小对象。用长任务的 15 分钟，网关卡住时
+/// 「换一个」的转圈会转一刻钟。
+///
+/// 两分钟而不是更短：这条路径要容忍冷启动的模型、排队中的共享网关，以及
+/// 被拒一次后重试的那一跳。宁可偶尔等久一点，也不要把一次本来会成功的
+/// 生成判成超时——那对用户来说和「坏了」没区别。
+///
+/// 超时不触发重试阶梯：`rejected_request` 要求有 HTTP 状态码，而超时是
+/// 没有状态码的传输错误。所以最坏情况是一次慢调用，不是三次叠加。
+///
+/// Keep in sync with `NAME_SUGGEST_TIMEOUT_MS`（前端必须比这个大）。
+const NAME_CALL_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+/// 失控保险，不是调优旋钮。
+///
+/// 名字加含义大概四十个 token。这里给到四千，是因为多数网关把思考 token 也
+/// 算进这个额度，而额度卡在答案前面的后果是静默的：JSON 没吐完，
+/// `extract_openai_completion_text` 在 content 为空时又会回落去读
+/// `reasoning_content`，解析拿到的是一段思考文本——曾经设成 512，每次都判成
+/// 「字形不对」，实际是被截断。
+///
+/// 所以这个数字的职责只有一个：挡住无上限地写下去。**不要**拿它去省 token
+/// 或者压思考，压思考是各家自己的参数，`OutputBudget` 的文档里写了为什么这
+/// 里没有那一个。
+const NAME_OUTPUT_BUDGET: OutputBudget = OutputBudget { max_tokens: 4096 };
+/// 带严格校验闸的生成都该自己重试；次数按这一条有多贵来定。
+///
+/// 起草人设有五道闸（不是 JSON / 丰满度 / 语言 / 文艺腔 / 清洗完整性），导入
+/// 同样五道，视觉设定六道——模型在一次正常生成里踩中一道是常态。不重试就等于
+/// 把重试写成给人看的提示，用户看到的是「不可用，请再试一次」。
+///
+/// 名字走 Lite、几十个 token，抽三次也很快；这三条是 Pro 的长文生成，一次几十
+/// 秒，两次够把「这一把没写好」和「配置真有问题」分开，再多就是拿站长的时间
+/// 换概率。
 const VISUAL_DESIGN_ATTEMPTS: u8 = 2;
+const PERSONA_ATTEMPTS: u8 = 2;
+/// 名字的字形闸口很严：中文名要 2–4 个全汉字、不以 阿/小 开头、不在屏蔽名单
+/// 里；拉丁名要全 ASCII 字母、最多一个大写、3–16 字符。模型在一次正常生成里
+/// 交出一个过不了闸的名字是常态，不是异常——不在这里自己再抽一次，就等于把
+/// 重试的活儿丢给用户，界面上表现为「不合规则，请再随机一次」。
+const NAME_ATTEMPTS: u8 = 3;
 const MAX_PERSONA_LIST_ITEMS: usize = 12;
 const MAX_PERSONA_LIST_ITEM_CHARS: usize = 180;
 const MIN_SUMMARY_CHARS: usize = 80;
@@ -68,23 +108,54 @@ pub async fn suggest_display_name(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.chars().take(40).collect::<String>());
-    let input = json!({
-        "task": "name",
-        "language": language,
-        "nameStyle": style,
-        "genderPresentation": normalize_gender(gender),
-        "avoidName": avoid.clone().unwrap_or_default(),
-        "selectedTags": seeds,
-    })
-    .to_string();
-    let raw = run_name_call(NAME_SYSTEM_PROMPT, &input).await?;
-    let name = parse_display_name_suggestion(&raw, avoid.as_deref(), style).ok_or(
-        OnboardingAiError::UnusableResponse("name had no usable meaning or script"),
-    )?;
-    Ok(name)
+    let mut last_reason = "name had no usable meaning or script";
+    for attempt in 0..NAME_ATTEMPTS {
+        let input = json!({
+            "task": "name",
+            "language": language,
+            "nameStyle": style,
+            "genderPresentation": normalize_gender(gender),
+            "avoidName": avoid.clone().unwrap_or_default(),
+            "selectedTags": seeds,
+            // 每次换一个，否则重试只会拿回同一个过不了闸的名字。
+            "rollId": format!("n{}", uuid::Uuid::new_v4().simple()),
+        })
+        .to_string();
+        let raw = run_name_call(NAME_SYSTEM_PROMPT, &input).await?;
+        match parse_display_name_suggestion(&raw, avoid.as_deref(), style) {
+            Ok(name) => return Ok(name),
+            Err(reason) => {
+                // 模型到底回了什么，只有这里知道。不记下来的话，四种失败在
+                // 日志里长得一模一样。这是我们自己的模型输出，进的是服务端
+                // 日志，不是返回给客户端的载荷。
+                tracing::warn!(
+                    reason,
+                    attempt,
+                    name_style = style,
+                    raw = %raw.chars().take(400).collect::<String>(),
+                    "name suggestion was unusable"
+                );
+                last_reason = reason;
+            }
+        }
+    }
+    Err(OnboardingAiError::UnusableResponse(last_reason))
 }
 
 pub async fn suggest_persona(
+    name: &str,
+    language: &str,
+    selected_tags: &[String],
+    gender: &str,
+    extra_requirements: &str,
+) -> Result<Value, OnboardingAiError> {
+    retry_unusable(PERSONA_ATTEMPTS, "persona draft was unusable", || {
+        suggest_persona_once(name, language, selected_tags, gender, extra_requirements)
+    })
+    .await
+}
+
+async fn suggest_persona_once(
     name: &str,
     language: &str,
     selected_tags: &[String],
@@ -150,6 +221,18 @@ pub async fn import_persona(
     gender: &str,
     source: &str,
 ) -> Result<Value, OnboardingAiError> {
+    retry_unusable(PERSONA_ATTEMPTS, "imported persona was unusable", || {
+        import_persona_once(name, language, gender, source)
+    })
+    .await
+}
+
+async fn import_persona_once(
+    name: &str,
+    language: &str,
+    gender: &str,
+    source: &str,
+) -> Result<Value, OnboardingAiError> {
     let source = source.trim();
     if source.is_empty() {
         return Err(OnboardingAiError::UnusableResponse(
@@ -164,6 +247,8 @@ pub async fn import_persona(
         "language": language,
         "genderPresentation": normalize_gender(gender),
         "source": source.chars().take(6_000).collect::<String>(),
+        // 重试时换一个，否则第二次会照抄第一次那份没过闸的稿。
+        "rollId": format!("i{}", uuid::Uuid::new_v4().simple()),
     })
     .to_string();
     let raw = run_onboarding_call(IMPORT_PERSONA_SYSTEM_PROMPT, &input).await?;
@@ -192,6 +277,36 @@ pub async fn import_persona(
         ))
 }
 
+/// 只重试「模型这一把没写好」。
+///
+/// 供应商不可用、调用本身失败，重试只会拖长等待并多烧一次钱——那两种直接
+/// 上抛，交给上层去说「模型没配好」。
+async fn retry_unusable<T, F, Fut>(
+    attempts: u8,
+    fallback_reason: &'static str,
+    mut once: F,
+) -> Result<T, OnboardingAiError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, OnboardingAiError>>,
+{
+    let mut last_error = OnboardingAiError::UnusableResponse(fallback_reason);
+    for attempt in 0..attempts {
+        match once().await {
+            Ok(value) => return Ok(value),
+            Err(
+                error @ (OnboardingAiError::AnalyzerUnavailable
+                | OnboardingAiError::ProviderFailed(_)),
+            ) => return Err(error),
+            Err(error) => {
+                tracing::warn!(attempt, %error, "onboarding draft was unusable; retrying");
+                last_error = error;
+            }
+        }
+    }
+    Err(last_error)
+}
+
 pub async fn suggest_visual_design(
     name: &str,
     language: &str,
@@ -204,9 +319,8 @@ pub async fn suggest_visual_design(
     keep_character: bool,
 ) -> Result<Value, OnboardingAiError> {
     let persona_input = visual_design_persona_input(persona);
-    let mut last_error = OnboardingAiError::UnusableResponse("visual design was unusable");
-    for _ in 0..VISUAL_DESIGN_ATTEMPTS {
-        match suggest_visual_design_once(
+    retry_unusable(VISUAL_DESIGN_ATTEMPTS, "visual design was unusable", || {
+        suggest_visual_design_once(
             name,
             language,
             &persona_input,
@@ -217,17 +331,8 @@ pub async fn suggest_visual_design(
             regenerate,
             keep_character,
         )
-        .await
-        {
-            Ok(identity) => return Ok(identity),
-            Err(
-                error @ (OnboardingAiError::AnalyzerUnavailable
-                | OnboardingAiError::ProviderFailed(_)),
-            ) => return Err(error),
-            Err(error) => last_error = error,
-        }
-    }
-    Err(last_error)
+    })
+    .await
 }
 
 async fn suggest_visual_design_once(
@@ -349,15 +454,72 @@ async fn suggest_visual_design_once(
     Ok(identity)
 }
 
+/// `{"name":..., "meaning":...}` —— 和 `NAME_SYSTEM_PROMPT` 里那句同一个契约，
+/// 只是这一份是发给供应商的，由 API 强制，而不是求模型自觉。
+fn name_response_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "name": { "type": "string" },
+            "meaning": { "type": "string" },
+        },
+        "required": ["name", "meaning"],
+    })
+}
+
 async fn run_name_call(system: &str, input: &str) -> Result<String, OnboardingAiError> {
     if crate::GLOBAL_DYNAMIC_CONFIG.read().await.lite_enabled {
-        match run_onboarding_call_on_tier(ModelTier::Lite, system, input).await {
+        match run_name_call_on_tier(ModelTier::Lite, system, input).await {
             Ok(raw) => return Ok(raw),
             Err(OnboardingAiError::AnalyzerUnavailable) => {}
             Err(error) => return Err(error),
         }
     }
-    run_onboarding_call_on_tier(ModelTier::Standard, system, input).await
+    run_name_call_on_tier(ModelTier::Standard, system, input).await
+}
+
+/// 起名走短结构化调用：限输出、关思考、JSON 由 API 保证。
+///
+/// 和 `run_onboarding_call_on_tier` 分开是因为那条是给人设起草和视觉设定用的
+/// ——那两个确实要写长文，给它们套预算会截断。
+async fn run_name_call_on_tier(
+    tier: ModelTier,
+    system: &str,
+    input: &str,
+) -> Result<String, OnboardingAiError> {
+    let Some(analyzer) =
+        create_ai_analyzer_for_tier_with_timeout(tier, Some(NAME_CALL_TIMEOUT)).await
+    else {
+        return Err(OnboardingAiError::AnalyzerUnavailable);
+    };
+    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    let schema = name_response_schema();
+    match crate::services::ai_cost_ledger::with_site_ai_ledger(
+        owner,
+        "merope",
+        "onboarding",
+        analyzer.analyze_json_short(
+            system,
+            input,
+            "persona_name",
+            Some(&schema),
+            NAME_OUTPUT_BUDGET,
+        ),
+    )
+    .await
+    {
+        Ok(raw) if !raw.trim().is_empty() => Ok(raw),
+        Ok(_) => {
+            tracing::warn!(?tier, "name model returned empty text");
+            Err(OnboardingAiError::ProviderFailed(
+                "name model returned empty text".into(),
+            ))
+        }
+        Err(error) => {
+            tracing::error!(%error, ?tier, "name model call failed");
+            Err(OnboardingAiError::ProviderFailed(error.to_string()))
+        }
+    }
 }
 
 async fn run_onboarding_call(system: &str, input: &str) -> Result<String, OnboardingAiError> {
@@ -443,17 +605,23 @@ fn parse_json_object(raw: &str) -> Option<Value> {
     serde_json::from_str(&raw[start..=end]).ok()
 }
 
+/// 四种失败各自有名字。
+///
+/// 它们原本共用一句「name had no usable meaning or script」，而这句话会经
+/// `public_detail` 直接给到站长——于是「模型被截断了」和「模型给了个拉丁名
+/// 但要求是中文名」在界面上长得一模一样，谁也没法判断该重试还是该改配置。
 fn parse_display_name_suggestion(
     raw: &str,
     avoid: Option<&str>,
     name_style: &str,
-) -> Option<String> {
-    let parsed = parse_json_object(raw)?;
+) -> Result<String, &'static str> {
+    let parsed = parse_json_object(raw).ok_or("name response was not JSON")?;
     parsed
         .get("meaning")
         .and_then(Value::as_str)
         .map(str::trim)
-        .filter(|value| value.chars().count() >= 2)?;
+        .filter(|value| value.chars().count() >= 2)
+        .ok_or("name came back without a meaning")?;
     let candidates = if let Some(name) = parsed.get("name").and_then(Value::as_str) {
         vec![name.to_string()]
     } else if let Some(arr) = parsed.get("names").and_then(Value::as_array) {
@@ -462,7 +630,7 @@ fn parse_display_name_suggestion(
             .map(str::to_string)
             .collect()
     } else {
-        return None;
+        return Err("name response carried no name");
     };
     let avoid_norm = avoid.map(str::trim).filter(|v| !v.is_empty());
     for candidate in candidates {
@@ -473,9 +641,9 @@ fn parse_display_name_suggestion(
         if avoid_norm.is_some_and(|avoid| cleaned == avoid) {
             continue;
         }
-        return Some(cleaned);
+        return Ok(cleaned);
     }
-    None
+    Err("name did not fit the requested script")
 }
 
 fn sanitize_display_name_candidate(raw: &str, name_style: &str) -> String {
@@ -954,19 +1122,139 @@ mod tests {
 
     #[test]
     fn name_parser_requires_a_meaning_clause() {
-        assert!(parse_display_name_suggestion(
-            r#"{"name":"晚衡","meaning":"晚来仍能把方向稳住"}"#,
-            None,
-            "chinese",
-        )
-        .is_some());
-        assert!(parse_display_name_suggestion(r#"{"name":"晚衡"}"#, None, "chinese").is_none());
-        assert!(parse_display_name_suggestion(
-            r#"{"name":"晚衡","meaning":" " }"#,
-            None,
-            "chinese",
-        )
-        .is_none());
+        assert_eq!(
+            parse_display_name_suggestion(
+                r#"{"name":"晚衡","meaning":"晚来仍能把方向稳住"}"#,
+                None,
+                "chinese",
+            ),
+            Ok("晚衡".to_string())
+        );
+        assert_eq!(
+            parse_display_name_suggestion(r#"{"name":"晚衡"}"#, None, "chinese"),
+            Err("name came back without a meaning")
+        );
+        assert_eq!(
+            parse_display_name_suggestion(r#"{"name":"晚衡","meaning":" " }"#, None, "chinese"),
+            Err("name came back without a meaning")
+        );
+    }
+
+    /// 名字不合规则时宿主自己再抽，不把重试丢给用户。
+    ///
+    /// 字形闸口很严（中文 2–4 个全汉字、拉丁最多一个大写、外加屏蔽名单），
+    /// 模型交出一个过不了闸的名字是常态。没有这一层的话，界面上就是「不合
+    /// 规则，请再随机一次」——那是把系统该做的事写成了给人看的提示。
+    #[test]
+    fn the_name_call_retries_itself_with_a_fresh_roll() {
+        let source = include_str!("onboarding_ai.rs");
+        let body = source
+            .split("pub async fn suggest_display_name(")
+            .nth(1)
+            .and_then(|rest| rest.split("\npub ").next())
+            .expect("suggest_display_name body");
+
+        assert!(body.contains("for attempt in 0..NAME_ATTEMPTS"));
+        assert!(NAME_ATTEMPTS > 1, "只抽一次等于没有重试");
+        // 每次要换 rollId，否则重试拿回同一个过不了闸的名字。
+        assert!(body.contains("\"rollId\""));
+        // 供应商真的失败（没配模型、网关挂了）不该被重试掩盖成「不合规则」。
+        assert!(body.contains("run_name_call(NAME_SYSTEM_PROMPT, &input).await?"));
+
+        // 提示词得说清楚新的 rollId 意味着换一个名字，否则模型会忽略它。
+        assert!(
+            crate::services::agent::merope::onboarding_prompts::NAME_SYSTEM_PROMPT
+                .contains("rollId")
+        );
+    }
+
+    /// 每一条带校验闸的生成都得自己重试，不能只有名字和视觉设定有。
+    ///
+    /// 起草人设五道闸、导入五道、视觉设定六道。少了重试，模型踩中任何一道
+    /// 都会变成界面上的一句「不可用」——那是把系统该做的事写给人看。
+    #[test]
+    fn every_gated_draft_retries_itself() {
+        let source = include_str!("onboarding_ai.rs");
+        for (entry, attempts) in [
+            ("pub async fn suggest_persona(", PERSONA_ATTEMPTS),
+            ("pub async fn import_persona(", PERSONA_ATTEMPTS),
+            (
+                "pub async fn suggest_visual_design(",
+                VISUAL_DESIGN_ATTEMPTS,
+            ),
+        ] {
+            let body = source
+                .split(entry)
+                .nth(1)
+                .and_then(|rest| rest.split("\nasync fn ").next())
+                .unwrap_or_else(|| panic!("{entry} body"));
+            assert!(
+                body.contains("retry_unusable("),
+                "{entry} 没有重试，模型踩中任何一道闸都会直接失败"
+            );
+            assert!(attempts > 1, "{entry} 的次数是 1，等于没有重试");
+        }
+
+        // 重试壳只吃「这一把没写好」。供应商不可用 / 调用失败要立刻上抛，
+        // 否则一个没配好的模型会被重试拖成三倍等待。
+        let shell = source
+            .split("async fn retry_unusable")
+            .nth(1)
+            .and_then(|rest| rest.split("\npub async fn ").next())
+            .expect("retry shell");
+        assert!(shell.contains("OnboardingAiError::AnalyzerUnavailable"));
+        assert!(shell.contains("OnboardingAiError::ProviderFailed(_)"));
+        assert!(shell.contains("return Err(error)"));
+    }
+
+    /// 重试要换一个 roll，否则第二次照抄第一次那份没过闸的稿。
+    #[test]
+    fn every_retried_draft_varies_its_roll() {
+        let source = include_str!("onboarding_ai.rs");
+        for entry in [
+            "async fn suggest_persona_once(",
+            "async fn import_persona_once(",
+        ] {
+            let body = source
+                .split(entry)
+                .nth(1)
+                .and_then(|rest| rest.split("\npub async fn ").next())
+                .unwrap_or_else(|| panic!("{entry} body"));
+            assert!(body.contains("\"rollId\""), "{entry} 重试时不会变");
+        }
+        // 视觉设定用 regenerate 而不是 rollId，提示词里两者都认。
+        assert!(visual_design_system_prompt().contains("rollId"));
+    }
+
+    /// 四种失败必须各自可辨。
+    ///
+    /// 它们原本共用一句「name had no usable meaning or script」，而这句会经
+    /// `public_detail` 直接给到站长——「模型被 max_tokens 截断了」和「模型给
+    /// 了个拉丁名但要的是中文名」在界面上长得一模一样，谁也判断不了该重试
+    /// 还是该改配置。这条真实发生过：把上限设成 512，推理模型把额度花在思考
+    /// 上，回来的是一段思考文本，报的却是「script」不对。
+    #[test]
+    fn each_name_failure_says_which_stage_failed() {
+        let reasons = [
+            // 截断 / 回落到 reasoning 文本：根本不是 JSON
+            ("我先想想这个名字应该", "name response was not JSON"),
+            // 有 JSON 没含义
+            (r#"{"name":"晚衡"}"#, "name came back without a meaning"),
+            // 有含义没名字
+            (r#"{"meaning":"稳住方向"}"#, "name response carried no name"),
+            // 名字在，但不是要求的字形
+            (
+                r#"{"name":"Evelyn","meaning":"稳住方向"}"#,
+                "name did not fit the requested script",
+            ),
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for (raw, expected) in reasons {
+            let reason = parse_display_name_suggestion(raw, None, "chinese")
+                .expect_err("these are all failures");
+            assert_eq!(reason, expected, "raw = {raw}");
+            assert!(seen.insert(reason), "两种失败共用了同一句话：{reason}");
+        }
     }
 
     #[test]

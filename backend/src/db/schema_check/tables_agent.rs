@@ -524,6 +524,12 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: None,
                 },
                 ColumnDef {
+                    name: "music_mood_credited_at".into(),
+                    data_type: "timestamp with time zone".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
                     name: "mood_settled_at".into(),
                     data_type: "timestamp with time zone".into(),
                     is_nullable: false,

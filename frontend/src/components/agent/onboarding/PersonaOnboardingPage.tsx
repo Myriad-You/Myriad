@@ -9,9 +9,11 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { useI18n } from '../../../contexts/I18nContext'
 import { agentService } from '../../../services/agent'
 import {
+  CHOICE_STEP,
   completedPersonaResumeStep,
   parseFlattenedPersona,
   personaFromApi,
+  previousOnboardingStep,
   structuredPersonaIsComplete,
 } from './onboardingTypes'
 import OnboardingWizard from './OnboardingWizard'
@@ -42,6 +44,14 @@ function samePageChrome(left: OnboardingPageChrome, right: OnboardingPageChrome)
 
 interface Props {
   onBack: () => void
+  /**
+   * 主立绘到手之后去哪。
+   *
+   * 后端的立绘流水线还没走完——出图之后还要分层、编译、激活，那一段在动作
+   * 工作台里。引导原本走完就退回上一层，站长得自己知道另一个子页的存在，
+   * 不知道的话拿到的是一张不会动的立绘。
+   */
+  onFinished: () => void
   onChromeChange: (chrome: OnboardingPageChrome) => void
   meropeOn: boolean
   gateLead: string
@@ -49,6 +59,7 @@ interface Props {
 
 export default function PersonaOnboardingPage({
   onBack,
+  onFinished,
   onChromeChange,
   meropeOn,
   gateLead,
@@ -66,7 +77,7 @@ export default function PersonaOnboardingPage({
     unknown
   > | null>(null)
   const [ready, setReady] = useState(false)
-  const [step, setStep] = useState<OnboardingStep>(1)
+  const [step, setStep] = useState<OnboardingStep>(CHOICE_STEP)
   const [wizardBusy, setWizardBusy] = useState(false)
   const [header, setHeader] = useState<OnboardingHeaderChrome>({
     description: '',
@@ -76,17 +87,30 @@ export default function PersonaOnboardingPage({
   const onChromeChangeRef = useRef(onChromeChange)
   onChromeChangeRef.current = onChromeChange
   const chromeRef = useRef<OnboardingPageChrome | null>(null)
+  // 按 step 取，不是 step - 1：0 是分岔口、1 是导入，生成链从 2 起。
   const pageTitle = meropeOn
-    ? [o.step1Title, o.step2Title, o.step3Title, o.step4Title, o.step5Title][
-        step - 1
-      ]
+    ? [
+        o.choiceTitle,
+        o.importTitle,
+        o.step1Title,
+        o.step2Title,
+        o.step3Title,
+        o.step4Title,
+        o.step5Title,
+      ][step]
     : t.config.agentPersona
   const pageLead =
     header.description ||
     (meropeOn
-      ? [o.step1Lead, o.step2Lead, o.step3Lead, o.step4Lead, o.step5Lead][
-          step - 1
-        ]
+      ? [
+          o.choiceLead,
+          o.importLead,
+          o.step1Lead,
+          o.step2Lead,
+          o.step3Lead,
+          o.step4Lead,
+          o.step5Lead,
+        ][step]
       : gateLead)
 
   const loadSaved = useCallback(async () => {
@@ -116,7 +140,8 @@ export default function PersonaOnboardingPage({
         setStep(
           hasStructuredPersona
             ? completedPersonaResumeStep(persona?.visualProfile)
-            : 3,
+            // 有正文但结构化人设不完整：回到「起草人设」那页让站长补齐。
+            : 4,
         )
       } else {
         setSavedPersona(null)
@@ -161,14 +186,18 @@ export default function PersonaOnboardingPage({
     })
   }, [])
 
+  const previousStep = meropeOn ? previousOnboardingStep(step) : null
+
   const handleBack = useCallback(() => {
     if (header.onBack?.()) return
-    if (meropeOn && step > 1) {
-      if (!wizardBusy) setStep((current) => (current - 1) as OnboardingStep)
+    // `step - 1` 会让生成链的第一页后退到导入页——它们是分岔口的两条路，
+    // 不是前后关系。上一页由 previousOnboardingStep 说了算。
+    if (previousStep !== null) {
+      if (!wizardBusy) setStep(previousStep)
       return
     }
     onBack()
-  }, [header.onBack, meropeOn, onBack, step, wizardBusy])
+  }, [header.onBack, onBack, previousStep, wizardBusy])
 
   useEffect(() => {
     if (!isOwner) return
@@ -184,19 +213,21 @@ export default function PersonaOnboardingPage({
             onClick: () => actionClickRef.current?.(),
           }
         : undefined,
-      backDisabled: wizardBusy && step > 1,
+      backDisabled: wizardBusy && previousStep !== null,
       backAria: header.onBack
         ? o.visualBackToStyle
-        : meropeOn && step > 1
+        : previousStep !== null
           ? o.backTo.replace(
               '{step}',
               [
+                o.choiceShort,
+                o.importShort,
                 o.step1Short,
                 o.step2Short,
                 o.step3Short,
                 o.step4Short,
                 o.step5Short,
-              ][step - 2] || '',
+              ][previousStep] || '',
             )
           : t.common.back,
       onBack: handleBack,
@@ -212,6 +243,8 @@ export default function PersonaOnboardingPage({
     o.visualBackToStyle,
     meropeOn,
     o.backTo,
+    o.choiceShort,
+    o.importShort,
     o.step1Short,
     o.step2Short,
     o.step3Short,
@@ -219,7 +252,7 @@ export default function PersonaOnboardingPage({
     o.step5Short,
     pageLead,
     pageTitle,
-    step,
+    previousStep,
     t.common.back,
     wizardBusy,
   ])
@@ -235,7 +268,7 @@ export default function PersonaOnboardingPage({
       onStepChange={setStep}
       onBusyChange={setWizardBusy}
       onHeaderChange={handleHeaderChange}
-      onFinished={onBack}
+      onFinished={onFinished}
     />
   ) : null
 }

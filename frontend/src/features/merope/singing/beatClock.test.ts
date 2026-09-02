@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { beatAnticipation, BeatClock, MAX_BEAT_PERIOD } from './beatClock'
+import { BeatClock, MAX_BEAT_PERIOD } from './beatClock'
 
 /** Feeds a steady kick at `bpm` for `seconds`, at 60fps. */
 function play(
@@ -35,11 +35,11 @@ test('tracks a different tempo without carrying the old one over', () => {
   assert.ok(Math.abs(fast.bpm - 150) < 8, `got ${fast.bpm}`)
 })
 
-test('counts beats into bars so a phrase has a top', () => {
+test('counts pulses without claiming to know the meter or bar downbeat', () => {
   const clock = new BeatClock()
   const frame = play(clock, 120, 12)
   assert.ok(frame.beatCount >= 18, `counted ${frame.beatCount}`)
-  assert.ok(frame.barPhase >= 0 && frame.barPhase < 1)
+  assert.equal('barPhase' in frame, false)
   assert.ok(frame.beatPhase >= 0 && frame.beatPhase < 1)
 })
 
@@ -76,13 +76,14 @@ test('stopping the music drops the tempo instead of freezing it', () => {
   assert.equal(stopped.confidence, 0)
 })
 
-// The whole point: the accent has to leave before the beat to arrive on it.
-test('anticipation peaks at the downbeat, not after it', () => {
-  assert.ok(beatAnticipation(0.95) > beatAnticipation(0.5))
-  assert.ok(beatAnticipation(0.99) > beatAnticipation(0.85))
-  assert.ok(beatAnticipation(0.02) > beatAnticipation(0.3))
-  assert.equal(beatAnticipation(0.5), 0)
-  assert.equal(beatAnticipation(Number.NaN), 0)
+test('a seek invalidates the old phase rather than counting skipped beats', () => {
+  const clock = new BeatClock()
+  play(clock, 120, 12)
+  assert.equal(clock.sample(2, 0, true).confidence, 0)
+  play(clock, 120, 12, 2)
+  const forward = clock.sample(90, 0, true)
+  assert.equal(forward.confidence, 0)
+  assert.equal(forward.beatCount, 0)
 })
 
 // The rig holds its pose for up to 12s across a track switch, so `singing`

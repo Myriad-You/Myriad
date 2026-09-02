@@ -1,13 +1,13 @@
 import type { SpeechArticulation } from '../rig/articulation'
 import type { RigMotionPort } from '../rig/motionPort'
-import type { SingingSpectrumDrive } from '../singing/singingGroove'
+import type { MusicMotionSignal } from '../singing/musicSignal'
 import type { SingingApply } from './singingApply'
 import { restSingingArticulation } from '../singing/singingClock'
 
 export interface SingingRigWrite {
   trackId: string | null
   singing: boolean
-  spectrum: SingingSpectrumDrive | null
+  signal: MusicMotionSignal | null
   articulation: SpeechArticulation | null
   restMouth: boolean
   speechActive: boolean | null
@@ -22,35 +22,37 @@ export function applySingingWrite(
     RigMotionPort,
     | 'setSinging'
     | 'setSingingTrack'
-    | 'setSingingSpectrum'
+    | 'setMusicSignal'
     | 'setSpeechArticulation'
     | 'setSpeechActive'
   >,
   apply: SingingApply,
   drive: {
     trackId: string | null
-    spectrum: SingingSpectrumDrive | null
+    signal: MusicMotionSignal | null
     articulation: SpeechArticulation
   },
 ): SingingRigWrite {
   const write: SingingRigWrite = {
     trackId: drive.trackId,
     singing: apply.writeGroove,
-    spectrum: apply.writeGroove ? drive.spectrum : null,
+    signal: apply.writeGroove ? drive.signal : null,
     articulation: apply.writeMouth ? drive.articulation : null,
     restMouth: apply.restMouth,
-    speechActive: apply.writeMouth ? true : apply.restMouth ? false : null,
+    speechActive: apply.writeMouth || apply.restMouth ? false : null,
   }
   rig.setSingingTrack(drive.trackId)
   if (apply.writeGroove) {
     rig.setSinging(true)
-    rig.setSingingSpectrum(drive.spectrum)
+    rig.setMusicSignal(drive.signal)
   } else {
     rig.setSinging(false)
-    rig.setSingingSpectrum(null)
+    rig.setMusicSignal(null)
   }
   if (apply.writeMouth) {
-    rig.setSpeechActive(true)
+    // Singing articulation must not start the independent co-speech gesture
+    // generator or make speech occupancy override musical body participation.
+    rig.setSpeechActive(false)
     rig.setSpeechArticulation(drive.articulation)
   } else if (apply.restMouth) {
     rig.setSpeechArticulation(restSingingArticulation())

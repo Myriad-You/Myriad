@@ -265,6 +265,25 @@ pub async fn generate_image_with_background(
     reference: Option<&ImageReference>,
     background: Option<ImageBackground>,
 ) -> Result<GeneratedImage, ImageGenerationError> {
+    generate_image_with_references(
+        config,
+        prompt,
+        width,
+        height,
+        reference.map(std::slice::from_ref).unwrap_or_default(),
+        background,
+    )
+    .await
+}
+
+pub async fn generate_image_with_references(
+    config: &ImageGenerationConfig,
+    prompt: &str,
+    width: u32,
+    height: u32,
+    references: &[ImageReference],
+    background: Option<ImageBackground>,
+) -> Result<GeneratedImage, ImageGenerationError> {
     let prompt = prompt.trim();
     if prompt.is_empty() || prompt.chars().count() > MAX_PROMPT_CHARS {
         return Err(ImageGenerationError::Provider(format!(
@@ -274,7 +293,7 @@ pub async fn generate_image_with_background(
     let width = width.clamp(256, 2048);
     let height = height.clamp(256, 2048);
     let result =
-        generate_image_provider(config, prompt, width, height, reference, background).await;
+        generate_image_provider(config, prompt, width, height, references, background).await;
     let (input_tokens, output_tokens) =
         crate::services::ai_cost_ledger::estimate_image_tokens(prompt, width, height);
     let error_code = result.as_ref().err().map(image_generation_failure_code);
@@ -310,65 +329,44 @@ async fn generate_image_provider(
     prompt: &str,
     width: u32,
     height: u32,
-    reference: Option<&ImageReference>,
+    references: &[ImageReference],
     background: Option<ImageBackground>,
 ) -> Result<GeneratedImage, ImageGenerationError> {
     if config.provider == "gemini" {
         return crate::services::gemini_media::generate_image(
-            config, prompt, width, height, reference,
+            config, prompt, width, height, references,
         )
         .await;
     }
     let client = get_long_running_client().await;
     let response = if config.provider == "openai" {
-        if let Some(reference) = reference {
-            let options = request_options(config, background);
+        if !references.is_empty() {
             let endpoint = format!("{}/images/edits", config.base_url);
-            let part = reqwest::multipart::Part::bytes(reference.bytes.clone())
-                .file_name(reference_file_name(&reference.media_type))
-                .mime_str(&reference.media_type)
-                .map_err(|error| ImageGenerationError::Provider(error.to_string()))?;
-            let mut form = reqwest::multipart::Form::new()
-                .text("model", strip_openai_prefix(&config.model).to_string())
-                .text("prompt", prompt.to_string())
-                .text("size", image_size_param(config, width, height));
-            // gpt-image-2 always uses high-fidelity references and rejects this field.
-            if !is_gpt_image_2(&config.model) {
-                form = form.text("input_fidelity", "high");
-            }
-            if options.include_n {
-                form = form.text("n", "1");
-            }
-            if let Some(background) = options.background {
-                form = form.text("background", background);
-            }
-            if let Some(output_format) = options.output_format {
-                form = form.text("output_format", output_format);
-            }
-            if let Some(quality) = options.quality {
-                form = form.text("quality", quality);
-            }
-            let form = form.part("image", part);
+            let form = image_edit_form(config, prompt, width, height, references, background)?;
             apply_image_headers(client.post(endpoint).bearer_auth(&config.api_key))
                 .multipart(form)
                 .send()
                 .await
         } else {
             let (endpoint, body) =
-                request_parts_with_background(config, prompt, width, height, None, background)?;
+                request_parts_with_background(config, prompt, width, height, &[], background)?;
             apply_image_headers(client.post(endpoint).bearer_auth(&config.api_key))
                 .json(&body)
                 .send()
                 .await
         }
     } else {
-        let reference_data_url = reference.map(ImageReference::data_url);
+        let reference_data_urls: Vec<String> =
+            references.iter().map(ImageReference::data_url).collect();
         let (endpoint, body) = request_parts_with_background(
             config,
             prompt,
             width,
             height,
-            reference_data_url.as_deref(),
+            &reference_data_urls
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
             background,
         )?;
         apply_image_headers(client.post(endpoint).bearer_auth(&config.api_key))
@@ -380,7 +378,54 @@ async fn generate_image_provider(
     read_image_api_response(response, &config.provider, width, height).await
 }
 
-/// Persist a provider result into the local image cache and return a serveable URL.
+fn image_edit_form(
+    config: &ImageGenerationConfig,
+    prompt: &str,
+    width: u32,
+    height: u32,
+    references: &[ImageReference],
+    background: Option<ImageBackground>,
+) -> Result<reqwest::multipart::Form, ImageGenerationError> {
+    let options = request_options(config, background);
+    let mut form = reqwest::multipart::Form::new()
+        .text("model", strip_openai_prefix(&config.model).to_string())
+        .text("prompt", prompt.to_string())
+        .text("size", image_size_param(config, width, height));
+    // Only these GPT Image models expose configurable input fidelity.
+    if matches!(
+        strip_openai_prefix(&config.model),
+        "gpt-image-1" | "gpt-image-1.5"
+    ) {
+        form = form.text("input_fidelity", "high");
+    }
+    if options.include_n {
+        form = form.text("n", "1");
+    }
+    if let Some(background) = options.background {
+        form = form.text("background", background);
+    }
+    if let Some(output_format) = options.output_format {
+        form = form.text("output_format", output_format);
+    }
+    if let Some(quality) = options.quality {
+        form = form.text("quality", quality);
+    }
+    let field = if references.len() == 1 {
+        "image"
+    } else {
+        "image[]"
+    };
+    for reference in references {
+        let part = reqwest::multipart::Part::bytes(reference.bytes.clone())
+            .file_name(reference_file_name(&reference.media_type))
+            .mime_str(&reference.media_type)
+            .map_err(|error| ImageGenerationError::Provider(error.to_string()))?;
+        form = form.part(field, part);
+    }
+    Ok(form)
+}
+
+/// Load a reference from the site's image cache without an outbound request.
 pub async fn load_local_reference(url: &str) -> Result<ImageReference, ImageGenerationError> {
     let (bytes, media_type) = ImageCacheService::new()
         .read_local_public_url(url)
@@ -497,7 +542,14 @@ fn request_parts(
     height: u32,
     reference_data_url: Option<&str>,
 ) -> Result<(String, Value), ImageGenerationError> {
-    request_parts_with_background(config, prompt, width, height, reference_data_url, None)
+    request_parts_with_background(
+        config,
+        prompt,
+        width,
+        height,
+        reference_data_url.as_slice(),
+        None,
+    )
 }
 
 fn request_parts_with_background(
@@ -505,13 +557,18 @@ fn request_parts_with_background(
     prompt: &str,
     width: u32,
     height: u32,
-    reference_data_url: Option<&str>,
+    reference_data_urls: &[&str],
     background: Option<ImageBackground>,
 ) -> Result<(String, Value), ImageGenerationError> {
     let size = format!("{width}x{height}");
     let options = request_options(config, background);
     match config.provider.as_str() {
         "openai" => {
+            if !reference_data_urls.is_empty() {
+                return Err(ImageGenerationError::Provider(
+                    "OpenAI image references require the image edits endpoint".to_string(),
+                ));
+            }
             let mut body = json!({
                 "model": strip_openai_prefix(&config.model),
                 "prompt": prompt,
@@ -538,11 +595,14 @@ fn request_parts_with_background(
                 body["n"] = json!(1);
             }
             apply_background_options(&mut body, options);
-            if let Some(reference) = reference_data_url {
-                body["input_references"] = json!([{
-                    "type": "image_url",
-                    "image_url": { "url": reference }
-                }]);
+            if !reference_data_urls.is_empty() {
+                body["input_references"] = json!(reference_data_urls
+                    .iter()
+                    .map(|reference| json!({
+                        "type": "image_url",
+                        "image_url": { "url": reference }
+                    }))
+                    .collect::<Vec<_>>());
             }
             Ok((format!("{}/images", config.base_url), body))
         }
@@ -555,8 +615,8 @@ fn request_parts_with_background(
             body.insert("sequential_image_generation".to_string(), json!("disabled"));
             body.insert("watermark".to_string(), json!(false));
             body.insert("stream".to_string(), json!(false));
-            if let Some(reference) = reference_data_url {
-                body.insert("image".to_string(), json!([reference]));
+            if !reference_data_urls.is_empty() {
+                body.insert("image".to_string(), json!(reference_data_urls));
             }
             Ok((
                 format!("{}/images/generations", config.base_url),
@@ -1195,7 +1255,7 @@ mod tests {
             "portrait",
             1152,
             1536,
-            None,
+            &[],
             Some(ImageBackground::Opaque),
         )
         .unwrap();
@@ -1218,7 +1278,7 @@ mod tests {
             "portrait",
             1152,
             1536,
-            None,
+            &[],
             Some(ImageBackground::Opaque),
         )
         .unwrap();
@@ -1247,6 +1307,98 @@ mod tests {
     #[test]
     fn image_reference_rejects_spoofed_media_type() {
         assert!(ImageReference::new(b"not png".to_vec(), "image/png").is_err());
+    }
+
+    #[test]
+    fn json_providers_keep_all_references_in_order() {
+        let references = [
+            "data:image/png;base64,first",
+            "data:image/jpeg;base64,second",
+        ];
+        for provider in ["openrouter", "volcengine", "ark", "seedream"] {
+            let config = ImageGenerationConfig {
+                provider: provider.into(),
+                model: "model".into(),
+                api_key: "secret".into(),
+                base_url: "https://example.com/v1".into(),
+            };
+            let (_, body) =
+                request_parts_with_background(&config, "combine", 1024, 1024, &references, None)
+                    .unwrap();
+            if provider == "openrouter" {
+                assert_eq!(body["input_references"].as_array().unwrap().len(), 2);
+                for (index, reference) in references.iter().enumerate() {
+                    assert_eq!(
+                        body["input_references"][index]["image_url"]["url"],
+                        *reference
+                    );
+                }
+            } else {
+                assert_eq!(body["image"], json!(references));
+            }
+            let (_, text_only) = request_parts(&config, "draw", 1024, 1024, None).unwrap();
+            assert!(text_only.get("image").is_none());
+            assert!(text_only.get("input_references").is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn openai_edit_multipart_preserves_single_and_multiple_references() {
+        use http_body_util::BodyExt;
+        let references = [
+            ImageReference::new(b"\x89PNG\r\n\x1a\nfirst".to_vec(), "image/png").unwrap(),
+            ImageReference::new(b"\xff\xd8\xffsecond".to_vec(), "image/jpeg").unwrap(),
+        ];
+        for model in [
+            "gpt-image-2",
+            "gpt-image-1",
+            "gpt-image-1.5",
+            "gpt-image-1-mini",
+            "compatible-model",
+        ] {
+            for count in [1, 2] {
+                let config = ImageGenerationConfig {
+                    provider: "openai".into(),
+                    model: model.into(),
+                    api_key: "secret".into(),
+                    base_url: "https://example.com/v1".into(),
+                };
+                let form =
+                    image_edit_form(&config, "combine", 1024, 1024, &references[..count], None)
+                        .unwrap();
+                let mut request = reqwest::Client::new()
+                    .post("https://example.com/v1/images/edits")
+                    .multipart(form)
+                    .build()
+                    .unwrap();
+                let bytes = request
+                    .body_mut()
+                    .take()
+                    .unwrap()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes();
+                let body = String::from_utf8_lossy(&bytes);
+                let field = if count == 1 {
+                    "name=\"image\""
+                } else {
+                    "name=\"image[]\""
+                };
+                assert_eq!(body.matches(field).count(), count, "{model}");
+                assert!(
+                    body.contains("Content-Type: image/png")
+                        || body.contains("content-type: image/png")
+                );
+                if count == 2 {
+                    assert!(body.find("first").unwrap() < body.find("second").unwrap());
+                }
+                assert_eq!(
+                    body.contains("input_fidelity"),
+                    matches!(model, "gpt-image-1" | "gpt-image-1.5")
+                );
+            }
+        }
     }
 
     #[test]

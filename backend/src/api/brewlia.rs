@@ -305,94 +305,98 @@ async fn generate_and_save_annotations(
 
     let prompt = build_annotation_prompt(truncated);
 
-    match crate::services::ai_cost_ledger::with_site_ai_ledger(
-        crate::services::ai_cost_ledger::resolve_site_owner_id().await,
-        "brewlia",
-        "annotate",
-        ai_analyzer.analyze(&prompt),
+    // `json_object` 而不是 schema：提示词里已经写清了形状，这里只要求「必须是
+    // 合法 JSON」——把最常撞的那道闸从源头消掉，又不会和提示词的形状打架。
+    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    match ai_parse_with_retry(
+        || {
+            crate::services::ai_cost_ledger::with_site_ai_ledger(
+                owner,
+                "brewlia",
+                "annotate",
+                ai_analyzer.analyze_json("", &prompt, "brew_annotations", None),
+            )
+        },
+        parse_annotations,
     )
     .await
     {
-        Ok(response) => {
-            match parse_annotations(&response) {
-                Ok((annotations, detected_language)) => {
-                    tracing::info!(
-                        "Parsed {} annotations from AI response for item {}",
-                        annotations.len(),
-                        item_id
-                    );
+        Ok((annotations, detected_language)) => {
+            tracing::info!(
+                "Parsed {} annotations from AI response for item {}",
+                annotations.len(),
+                item_id
+            );
 
-                    // 保存到数据库
-                    let mut saved_annotations = Vec::new();
-                    for ann in &annotations {
-                        let annotation_type = match ann.annotation_type.as_str() {
-                            "reference" => AnnotationType::Reference,
-                            "implicit" => AnnotationType::Implicit,
-                            "context" => AnnotationType::Context,
-                            "abbreviation" => AnnotationType::Abbreviation,
-                            _ => AnnotationType::Term,
-                        };
+            // 保存到数据库
+            let mut saved_annotations = Vec::new();
+            for ann in &annotations {
+                let annotation_type = match ann.annotation_type.as_str() {
+                    "reference" => AnnotationType::Reference,
+                    "implicit" => AnnotationType::Implicit,
+                    "context" => AnnotationType::Context,
+                    "abbreviation" => AnnotationType::Abbreviation,
+                    _ => AnnotationType::Term,
+                };
 
-                        let active = brew_annotations::ActiveModel {
-                            item_id: Set(item_id),
-                            annotation_type: Set(annotation_type),
-                            term: Set(ann.term.clone()),
-                            explanation: Set(ann.explanation.clone()),
-                            position: Set(ann.position),
-                            context_hint: Set(ann.context_hint.clone()),
-                            created_at: Set(Utc::now().into()),
-                            ..Default::default()
-                        };
+                let active = brew_annotations::ActiveModel {
+                    item_id: Set(item_id),
+                    annotation_type: Set(annotation_type),
+                    term: Set(ann.term.clone()),
+                    explanation: Set(ann.explanation.clone()),
+                    position: Set(ann.position),
+                    context_hint: Set(ann.context_hint.clone()),
+                    created_at: Set(Utc::now().into()),
+                    ..Default::default()
+                };
 
-                        match active.insert(db).await {
-                            Ok(saved) => {
-                                saved_annotations.push(AnnotationItem {
-                                    id: Some(saved.id),
-                                    annotation_type: ann.annotation_type.clone(),
-                                    term: ann.term.clone(),
-                                    explanation: ann.explanation.clone(),
-                                    position: ann.position,
-                                    context_hint: ann.context_hint.clone(),
-                                });
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to save annotation '{}': {}", ann.term, e);
-                            }
-                        }
+                match active.insert(db).await {
+                    Ok(saved) => {
+                        saved_annotations.push(AnnotationItem {
+                            id: Some(saved.id),
+                            annotation_type: ann.annotation_type.clone(),
+                            term: ann.term.clone(),
+                            explanation: ann.explanation.clone(),
+                            position: ann.position,
+                            context_hint: ann.context_hint.clone(),
+                        });
                     }
-
-                    tracing::info!(
-                        "Returning {} annotations for item {}",
-                        saved_annotations.len(),
-                        item_id
-                    );
-
-                    (
-                        StatusCode::OK,
-                        Json(json!(AnnotationsResponse {
-                            success: true,
-                            annotations: saved_annotations,
-                            from_cache: false,
-                            detected_language,
-                        })),
-                    )
-                        .into_response()
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to parse AI annotations: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({
-                            "success": false,
-                            "error": "Failed to parse AI response",
-                            "code": "ai_response_invalid"
-                        })),
-                    )
-                        .into_response()
+                    Err(e) => {
+                        tracing::warn!("Failed to save annotation '{}': {}", ann.term, e);
+                    }
                 }
             }
+
+            tracing::info!(
+                "Returning {} annotations for item {}",
+                saved_annotations.len(),
+                item_id
+            );
+
+            (
+                StatusCode::OK,
+                Json(json!(AnnotationsResponse {
+                    success: true,
+                    annotations: saved_annotations,
+                    from_cache: false,
+                    detected_language,
+                })),
+            )
+                .into_response()
         }
-        Err(e) => {
+        Err(BrewliaAiFailure::Unusable(e)) => {
+            tracing::warn!("Failed to parse AI annotations: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": "Failed to parse AI response",
+                    "code": "ai_response_invalid"
+                })),
+            )
+                .into_response()
+        }
+        Err(BrewliaAiFailure::Provider(e)) => {
             tracing::error!("AI annotation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -405,6 +409,53 @@ async fn generate_and_save_annotations(
                 .into_response()
         }
     }
+}
+
+/// 长文生成，两次够把「这一把没写好」和「提示词/模型真有问题」分开。
+const BREWLIA_AI_ATTEMPTS: u8 = 2;
+
+/// 模型没写好 vs 供应商挂了。两者在界面上不是一回事：前者再抽一次可能就好，
+/// 后者是站长要去配的。
+enum BrewliaAiFailure {
+    Provider(String),
+    Unusable(String),
+}
+
+/// 一次「调模型 → 严格解析」，模型这一把没写好就再抽一次。
+///
+/// 这三个端点原本是「自由文本 → 严格解析 → 解析不了就 500」。模型一次没把
+/// JSON 写对，读者就在文章页上吃一个 `ai_response_invalid`——那是把重试写成了
+/// 给人看的错误。
+///
+/// 供应商本身失败（没配 key、网关挂了）立刻上抛：那不是这一把的问题，重试
+/// 只会多烧一次钱、多等一轮。
+async fn ai_parse_with_retry<T, F, Fut>(
+    mut call: F,
+    parse: impl Fn(&str) -> Result<T, String>,
+) -> Result<T, BrewliaAiFailure>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<String>>,
+{
+    let mut last = String::from("empty response");
+    for attempt in 0..BREWLIA_AI_ATTEMPTS {
+        let raw = call()
+            .await
+            .map_err(|error| BrewliaAiFailure::Provider(error.to_string()))?;
+        match parse(&raw) {
+            Ok(value) => return Ok(value),
+            Err(reason) => {
+                tracing::warn!(
+                    attempt,
+                    reason,
+                    raw = %raw.chars().take(400).collect::<String>(),
+                    "Brewlia AI response was unusable"
+                );
+                last = reason;
+            }
+        }
+    }
+    Err(BrewliaAiFailure::Unusable(last))
 }
 
 // AI 提示词
@@ -881,72 +932,76 @@ async fn get_podcast_script(
     let prompt = build_podcast_prompt(&title, content);
 
     // 调用 AI 生成
-    match crate::services::ai_cost_ledger::with_site_ai_ledger(
-        crate::services::ai_cost_ledger::resolve_site_owner_id().await,
-        "brewlia",
-        "podcast",
-        ai_analyzer.analyze(&prompt),
+    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    match ai_parse_with_retry(
+        || {
+            crate::services::ai_cost_ledger::with_site_ai_ledger(
+                owner,
+                "brewlia",
+                "podcast",
+                ai_analyzer.analyze_json("", &prompt, "brew_podcast", None),
+            )
+        },
+        parse_podcast_script,
     )
     .await
     {
-        Ok(response) => match parse_podcast_script(&response) {
-            Ok((dialogues, language)) => {
-                // 估算时长：平均每个字符 0.15 秒（中文），0.06 秒（英文）
-                let is_chinese = language.as_deref().is_some_and(|l| l.starts_with("zh"));
-                let char_count: usize = dialogues.iter().map(|d| d.text.len()).sum();
-                let estimated_duration = if is_chinese {
-                    (char_count as f32 * 0.15) as i32
-                } else {
-                    (char_count as f32 * 0.06) as i32
-                };
-                let estimated_duration = estimated_duration.max(60); // 最少 60 秒
+        Ok((dialogues, language)) => {
+            // 估算时长：平均每个字符 0.15 秒（中文），0.06 秒（英文）
+            let is_chinese = language.as_deref().is_some_and(|l| l.starts_with("zh"));
+            let char_count: usize = dialogues.iter().map(|d| d.text.len()).sum();
+            let estimated_duration = if is_chinese {
+                (char_count as f32 * 0.15) as i32
+            } else {
+                (char_count as f32 * 0.06) as i32
+            };
+            let estimated_duration = estimated_duration.max(60); // 最少 60 秒
 
-                let podcast_title = format!("深度解读：{}", title);
+            let podcast_title = format!("深度解读：{}", title);
 
-                // 保存到数据库
-                let podcast_model = brew_podcasts::ActiveModel {
-                    item_id: Set(item_id),
-                    title: Set(podcast_title.clone()),
-                    language: Set(language.clone()),
-                    dialogues: Set(serde_json::to_value(&dialogues).unwrap_or_default()),
-                    estimated_duration: Set(Some(estimated_duration)),
-                    created_at: Set(Utc::now().into()),
-                    ..Default::default()
-                };
+            // 保存到数据库
+            let podcast_model = brew_podcasts::ActiveModel {
+                item_id: Set(item_id),
+                title: Set(podcast_title.clone()),
+                language: Set(language.clone()),
+                dialogues: Set(serde_json::to_value(&dialogues).unwrap_or_default()),
+                estimated_duration: Set(Some(estimated_duration)),
+                created_at: Set(Utc::now().into()),
+                ..Default::default()
+            };
 
-                if let Err(e) = podcast_model.insert(&db).await {
-                    tracing::warn!("Failed to save podcast to database: {}", e);
-                    // 保存失败不影响返回结果
-                } else {
-                    tracing::info!("Saved podcast for item {} to database", item_id);
-                }
-
-                (
-                    StatusCode::OK,
-                    Json(json!(PodcastResponse {
-                        success: true,
-                        title: podcast_title,
-                        dialogues,
-                        language,
-                        estimated_duration,
-                    })),
-                )
-                    .into_response()
+            if let Err(e) = podcast_model.insert(&db).await {
+                tracing::warn!("Failed to save podcast to database: {}", e);
+                // 保存失败不影响返回结果
+            } else {
+                tracing::info!("Saved podcast for item {} to database", item_id);
             }
-            Err(e) => {
-                tracing::warn!("Failed to parse podcast script: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({
-                        "success": false,
-                        "error": "Failed to parse AI response",
-                        "code": "ai_response_invalid"
-                    })),
-                )
-                    .into_response()
-            }
-        },
-        Err(e) => {
+
+            (
+                StatusCode::OK,
+                Json(json!(PodcastResponse {
+                    success: true,
+                    title: podcast_title,
+                    dialogues,
+                    language,
+                    estimated_duration,
+                })),
+            )
+                .into_response()
+        }
+        Err(BrewliaAiFailure::Unusable(e)) => {
+            tracing::warn!("Failed to parse podcast script: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": "Failed to parse AI response",
+                    "code": "ai_response_invalid"
+                })),
+            )
+                .into_response()
+        }
+        Err(BrewliaAiFailure::Provider(e)) => {
             tracing::error!("AI podcast generation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1328,53 +1383,61 @@ async fn generate_style_tags(
     let prompt = build_style_tags_prompt(&source.name, &articles_summary);
 
     // 调用 AI 生成
-    match crate::services::ai_cost_ledger::with_site_ai_ledger(
-        crate::services::ai_cost_ledger::resolve_site_owner_id().await,
-        "brewlia",
-        "style_tags",
-        ai_analyzer.analyze(&prompt),
+    // 这一处不换成 `json_object`：`parse_style_tags` 解析的是顶层数组，强制
+    // 对象会直接砸掉它。改输出形状要连提示词和解析器一起动，那是另一件事。
+    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    match ai_parse_with_retry(
+        || {
+            crate::services::ai_cost_ledger::with_site_ai_ledger(
+                owner,
+                "brewlia",
+                "style_tags",
+                ai_analyzer.analyze(&prompt),
+            )
+        },
+        parse_style_tags,
     )
     .await
     {
-        Ok(response) => match parse_style_tags(&response) {
-            Ok(tags) => {
-                // 保存到数据库
-                let tags_json = serde_json::to_value(&tags).unwrap_or_default();
-                let mut active: brew_sources::ActiveModel = source.into();
-                active.ai_style_tags = Set(Some(tags_json));
-                active.updated_at = Set(Utc::now().into());
+        Ok(tags) => {
+            // 保存到数据库
+            let tags_json = serde_json::to_value(&tags).unwrap_or_default();
+            let mut active: brew_sources::ActiveModel = source.into();
+            active.ai_style_tags = Set(Some(tags_json));
+            active.updated_at = Set(Utc::now().into());
 
-                if let Err(e) = active.update(&db).await {
-                    tracing::warn!("Failed to save style tags: {}", e);
-                } else {
-                    tracing::info!("Saved style tags for source {}: {:?}", source_id, tags);
-                }
+            if let Err(e) = active.update(&db).await {
+                tracing::warn!("Failed to save style tags: {}", e);
+            } else {
+                tracing::info!("Saved style tags for source {}: {:?}", source_id, tags);
+            }
 
-                (
-                    StatusCode::OK,
-                    Json(json!(StyleTagsResponse {
-                        success: true,
-                        tags,
-                        from_cache: false,
-                    })),
-                )
-                    .into_response()
-            }
-            Err(e) => {
-                tracing::warn!("Failed to parse style tags: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({
-                        "success": false,
-                        "error": "Failed to parse AI response",
-                        "code": "ai_response_invalid",
-                        "raw_response": response
-                    })),
-                )
-                    .into_response()
-            }
-        },
-        Err(e) => {
+            (
+                StatusCode::OK,
+                Json(json!(StyleTagsResponse {
+                    success: true,
+                    tags,
+                    from_cache: false,
+                })),
+            )
+                .into_response()
+        }
+        Err(BrewliaAiFailure::Unusable(e)) => {
+            tracing::warn!("Failed to parse style tags: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "error": "Failed to parse AI response",
+                    "code": "ai_response_invalid",
+                    // 原本这里回的是整段模型输出。改成解析原因：更短，
+                    // 也不再把任意模型文本原样吐给客户端。
+                    "reason": e
+                })),
+            )
+                .into_response()
+        }
+        Err(BrewliaAiFailure::Provider(e)) => {
             tracing::error!("AI style tags generation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1454,4 +1517,63 @@ fn extract_json_array_from_response(response: &str) -> Result<String, String> {
     }
 
     Err("No JSON array found in response".to_string())
+}
+
+#[cfg(test)]
+mod ai_retry_tests {
+    /// 三个读者可见的 AI 端点都不许「解析不了就 500」。
+    ///
+    /// 它们原本是「自由文本 → 严格解析 → `ai_response_invalid`」。模型一次没
+    /// 把 JSON 写对，读者在文章页上就吃一个 500——那是把重试写成了给人看的
+    /// 错误。和引导那边的名字生成是同一个病。
+    #[test]
+    fn every_reader_facing_call_retries_before_failing() {
+        let source = include_str!("brewlia.rs");
+        // 按字符取，不按字节：这个文件里全是中文注释，字节切片会切进半个字。
+        let after_calls: Vec<String> = source
+            .split("ai_parse_with_retry(")
+            .skip(1)
+            .map(|segment| segment.chars().take(300).collect())
+            .collect();
+        for op in ["\"annotate\"", "\"podcast\"", "\"style_tags\""] {
+            assert!(
+                after_calls.iter().any(|segment| segment.contains(op)),
+                "{op} 仍然是一次调用就定生死"
+            );
+        }
+        assert!(super::BREWLIA_AI_ATTEMPTS > 1, "次数是 1 等于没有重试");
+    }
+
+    /// 供应商失败不重试：那不是「这一把没写好」。
+    #[test]
+    fn a_broken_provider_is_not_retried() {
+        let source = include_str!("brewlia.rs");
+        let shell = source
+            .split("async fn ai_parse_with_retry")
+            .nth(1)
+            .and_then(|rest| rest.split("\n// AI 提示词").next())
+            .expect("retry shell");
+        // 调用失败直接 `?` 上抛，不进循环的下一轮。
+        assert!(shell.contains("BrewliaAiFailure::Provider(error.to_string()))?"));
+        assert!(shell.contains("BrewliaAiFailure::Unusable(last)"));
+    }
+
+    /// 两个对象根的端点改走 `json_object`，把「不是 JSON」那道闸从源头消掉；
+    /// 风格标签解析的是顶层数组，强制对象会砸掉它，所以保持自由文本。
+    #[test]
+    fn only_the_object_rooted_calls_ask_for_json_mode() {
+        let source = include_str!("brewlia.rs");
+        assert!(source.contains(r#"analyze_json("", &prompt, "brew_annotations", None)"#));
+        assert!(source.contains(r#"analyze_json("", &prompt, "brew_podcast", None)"#));
+
+        let tags = source
+            .split("\"style_tags\"")
+            .nth(1)
+            .and_then(|rest| rest.get(..200))
+            .expect("style tags call");
+        assert!(
+            tags.contains("analyze(&prompt)"),
+            "风格标签是顶层数组，不能强制 json_object"
+        );
+    }
 }

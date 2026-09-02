@@ -38,6 +38,12 @@ pub struct PutPersonaRequest {
     pub visual_profile: Option<Option<Value>>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicListeningRequest {
+    pub listened_seconds: u32,
+}
+
 fn present_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -514,6 +520,58 @@ pub async fn put_addressee(
     })))
 }
 
+/// POST /api/agent/addressee/music-listening — credit a meaningful block of
+/// actual playback. The client reports time, never a mood delta; the backend
+/// owns the effect, ceiling and cross-process cooldown.
+pub async fn post_music_listening(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<MusicListeningRequest>,
+) -> Result<Json<Value>, HttpError> {
+    require_merope_enabled().await?;
+    let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
+    if !merope::is_logged_in_addressee(user_id) {
+        return Err(HttpError::from((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Guests cannot change addressee mood",
+                "code": "login_required"
+            })),
+        )));
+    }
+    if body.listened_seconds < merope::MUSIC_LISTENING_MIN_SECS {
+        return Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Listening block is too short",
+                "code": "music_listening_too_short",
+                "minimumSeconds": merope::MUSIC_LISTENING_MIN_SECS,
+            })),
+        )));
+    }
+
+    let credit = merope::credit_music_listening(&db, user_id, body.listened_seconds)
+        .await
+        .map_err(|error| persona_store_http("credit music listening", error))?;
+    let after = merope::store::affect_from_state(&credit.state);
+    let mood = merope::MoodTransition::from_affect(
+        &credit.before,
+        &after,
+        "music_listening",
+        credit
+            .state
+            .updated_at
+            .with_timezone(&chrono::Utc)
+            .timestamp_millis(),
+    );
+    Ok(Json(json!({
+        "credited": credit.credited,
+        "nextCreditInSeconds": credit.next_credit_in_seconds,
+        "mood": mood,
+        "activity": merope::current_activity(&credit.state),
+    })))
+}
+
 /// POST /api/agent/persona/signals
 /// Distill spoken personality tags from the owner's latest reports. No visual assets.
 pub async fn report_signals(
@@ -985,7 +1043,12 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
         }
         profile.insert("gender".into(), json!(gender));
     }
-    if let Some(clothing_style) = source.get("clothingStyle").and_then(Value::as_str) {
+    // 显式 `null` 是「清掉」，和 `visualIdentity` 同一套写法。
+    // 没有它的话前端无法清除这个字段：`merge_visual_profile` 会把缺席的键从
+    // 旧值补上，于是上一次生成挑的服装风格会一直粘在后来的人设身上。
+    if source.get("clothingStyle").is_some_and(Value::is_null) {
+        profile.insert("clothingStyle".into(), Value::Null);
+    } else if let Some(clothing_style) = source.get("clothingStyle").and_then(Value::as_str) {
         let clothing_style =
             myriad_merope::normalize_clothing_style(clothing_style).ok_or_else(|| {
                 HttpError::from((
@@ -1094,6 +1157,60 @@ fn visual_profile_error() -> HttpError {
 
 #[cfg(test)]
 mod tests {
+    /// 导入的人设不该继承上一次生成留下的视觉痕迹。
+    ///
+    /// `merge_visual_profile` 会把「缺席」的键从旧值补上，所以导入必须把这
+    /// 四个键显式写空。曾经它只发 `{gender, language}`，结果上一次生成的
+    /// visualIdentity / clothingStyle / sourceTags / personaExtraRequirements
+    /// 整套跟到导入的人设身上——那份视觉设定描述的是另一个角色，而且会让
+    /// 恢复直接跳到主立绘那一步，跳过从没做过的视觉设定。
+    #[test]
+    fn an_imported_persona_inherits_nothing_from_a_generated_one() {
+        let previous = json!({
+            "gender": "female",
+            "language": "zh-CN",
+            "clothingStyle": "uniform",
+            "visualIdentity": {"character": {"faceDesign": "生成出来的脸"}},
+            "sourceTags": ["生成链选的词条"],
+            "personaExtraRequirements": "生成链填的补充"
+        });
+        // 导入页真正发出去的载荷，键名与 OnboardingWizard 的提交一致。
+        let incoming = json!({
+            "gender": "female",
+            "language": "zh-CN",
+            "visualIdentity": null,
+            "clothingStyle": null,
+            "sourceTags": [],
+            "personaExtraRequirements": ""
+        });
+        let merged = merge_visual_profile(
+            sanitize_visual_profile(&incoming).expect("import payload is valid"),
+            Some(&previous),
+        );
+
+        assert_eq!(merged["visualIdentity"], Value::Null);
+        assert_eq!(merged["clothingStyle"], Value::Null);
+        assert_eq!(merged["sourceTags"], json!([]));
+        assert_eq!(merged["personaExtraRequirements"], json!(""));
+        // 身份留着：性别是导入页自己填的，不是继承来的。
+        assert_eq!(merged["gender"], json!("female"));
+    }
+
+    /// 显式 `null` 才是清除。少了这一条，前端根本没有办法清掉这个字段。
+    #[test]
+    fn an_explicit_null_clears_the_clothing_style() {
+        let cleared = sanitize_visual_profile(&json!({ "clothingStyle": null }))
+            .expect("null is a valid clear");
+        assert_eq!(cleared["clothingStyle"], Value::Null);
+
+        let kept = sanitize_visual_profile(&json!({ "clothingStyle": "uniform" }))
+            .expect("a real style still normalizes");
+        assert_eq!(kept["clothingStyle"], json!("uniform"));
+
+        // 乱填仍然是 400，不会被 null 分支放过去。
+        assert!(sanitize_visual_profile(&json!({ "clothingStyle": "not-a-style" })).is_err());
+    }
+
     use super::*;
 
     #[test]

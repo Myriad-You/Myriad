@@ -63,7 +63,7 @@ test('maps semantic baselines and cues to legible expression offsets', () => {
   const lovestruck = intentExpressionOffset('lovestruck', 1)
 
   assert.ok(warm.mouthForm > 0 && warm.mouthForm <= 0.16)
-  assert.ok(withdrawn.eyeOpen <= -0.16 && withdrawn.eyeOpen >= -0.22)
+  assert.ok(withdrawn.eyeOpen <= -0.35 && withdrawn.eyeOpen >= -0.45)
   assert.ok(Math.abs(delight.mouthForm) <= 0.26)
   assert.ok(Math.abs(delight.angleY) > 0.16)
   assert.ok(Math.abs(delight.angleY) <= 0.18)
@@ -114,23 +114,25 @@ test('maps semantic baselines and cues to legible expression offsets', () => {
   ])
 })
 
-test('irritation is the one baseline that opens the eye while the brow drops', () => {
+test('irritation keeps alert eyes within the actual driver range while knitting the brow', () => {
   const ladder = (['withdrawn', 'subdued', 'steady', 'warm'] as const).map(
     (expression) => baselineExpressionOffset({ ...steadyBaseline, expression }),
   )
-  const tense = baselineExpressionOffset({ ...steadyBaseline, expression: 'tense' })
+  const tense = baselineExpressionOffset({
+    ...steadyBaseline,
+    expression: 'tense',
+  })
 
-  // The four-rung ladder is one valence axis: nothing on it can lower the brow
-  // without also closing the eye, so low mood with high arousal had nowhere to
-  // land and wore the flat face instead.
+  // Alertness is relative to the sad faces, not an impossible >1 open eye.
   for (const rung of ladder) {
     assert.ok(rung.eyeOpen <= 0, 'a ladder rung opened the eye')
   }
-  assert.ok(tense.eyeOpen > 0)
+  assert.ok(tense.eyeOpen <= 0 && tense.eyeOpen >= -0.12)
+  assert.ok(tense.eyeOpen > ladder[1].eyeOpen)
   assert.ok(tense.brow < Math.min(...ladder.map((rung) => rung.brow)))
-  assert.ok(tense.brow <= -0.28)
-  assert.ok(tense.browAngSym >= 0.4)
-  assert.ok(tense.mouthForm < 0)
+  assert.ok(tense.brow <= -0.5)
+  assert.ok(tense.browAngSym >= 0.75)
+  assert.ok(tense.mouthForm <= -0.4)
   assert.ok(tense.irisScale < Math.min(...ladder.map((rung) => rung.irisScale)))
   // A bearing, not the angry sticker: knitted brow without the vein mark.
   assert.equal(tense.anger ?? 0, 0)
@@ -148,8 +150,10 @@ test('the two low-valence standing faces use distinct sad brow geometry', () => 
 
   // Negative symmetric rotation lifts the inner ends of the two brows — the
   // same readable sad direction as `cry`, without taking over eyes or mouth.
-  assert.ok(withdrawn.browAngSym <= -0.55)
-  assert.ok(subdued.browAngSym <= -0.28)
+  assert.ok(withdrawn.browAngSym <= -0.85)
+  assert.ok(subdued.browAngSym <= -0.6)
+  assert.ok(subdued.eyeOpen <= -0.24)
+  assert.ok(subdued.mouthForm <= -0.5)
   assert.ok(withdrawn.browAngSym < subdued.browAngSym)
   assert.ok(withdrawn.eyeOpen < subdued.eyeOpen)
   assert.ok(withdrawn.mouthForm < subdued.mouthForm)
@@ -210,16 +214,16 @@ test('maps additive bearing offsets onto absolute driver neutrals', () => {
   assert.equal(steady.eyeOpenL, 1)
   assert.equal(steady.eyeOpenR, 1)
   assert.equal(steady.irisScale, 1)
-  assert.equal(withdrawn.eyeOpenL, 0.8)
-  assert.equal(withdrawn.eyeOpenR, 0.8)
-  assert.equal(withdrawn.irisScale, 0.945)
+  assert.equal(withdrawn.eyeOpenL, 0.6)
+  assert.equal(withdrawn.eyeOpenR, 0.6)
+  assert.equal(withdrawn.irisScale, 0.925)
   const tense = bearingDriverPatch({
     ...steadyBaseline,
     expression: 'tense',
   })
-  assert.ok((tense.brow ?? 0) <= -0.28)
-  assert.ok((tense.browAngSym ?? 0) >= 0.4)
-  assert.ok((tense.eyeOpenL ?? 0) > 1)
+  assert.ok((tense.brow ?? 0) <= -0.5)
+  assert.ok((tense.browAngSym ?? 0) >= 0.75)
+  assert.equal(tense.eyeOpenL, 0.92)
   assert.equal(cleared.eyeOpenL, 1)
   assert.equal(cleared.irisScale, 1)
   assert.equal('bust' in steady, false)
@@ -518,7 +522,8 @@ test('stop releases every scheduled behavior and restores ambient motion', () =>
   playUnits(expression, [cue('greet')])
   assert.ok(poseMagnitude(expression.sample(0.3)) > 0)
   expression.stop(0.3)
-  for (let frame = 1; frame <= 120; frame += 1) expression.sample(0.3 + frame / 60)
+  for (let frame = 1; frame <= 120; frame += 1)
+    expression.sample(0.3 + frame / 60)
   assert.equal(poseMagnitude(expression.sample(3)), 0)
   assert.ok(expression.getAmbientMotionScale() > 0.99)
 })
@@ -538,7 +543,10 @@ test('replacing a behavior releases face and body together', () => {
   expression.sample(0.2)
   playUnits(expression, [], 0.2)
   const settled = expression.sample(3)
-  assert.equal(Math.abs(settled.brow) + Math.abs(settled.angleY) + Math.abs(settled.body), 0)
+  assert.equal(
+    Math.abs(settled.brow) + Math.abs(settled.angleY) + Math.abs(settled.body),
+    0,
+  )
 })
 
 function poseMagnitude(
@@ -581,14 +589,18 @@ test('a performance unit holds through its stroke plateau, not up to it', () => 
 
   const controller = new PerformanceExpressionController()
   controller.playBehaviorUnits(realized.units, 0, 0)
-  const peak = poseMagnitude(controller.sample(unit.timing.strokePeakMs / 1_000))
+  const peak = poseMagnitude(
+    controller.sample(unit.timing.strokePeakMs / 1_000),
+  )
   assert.ok(peak > 0)
   const atRelax = poseMagnitude(controller.sample(unit.timing.relaxMs! / 1_000))
   assert.ok(
     Math.abs(atRelax - peak) < 1e-6,
     `full amplitude ended early: ${atRelax} at relax vs ${peak} at peak`,
   )
-  assert.ok(poseMagnitude(controller.sample(unit.timing.endMs! / 1_000 - 0.01)) > 0)
+  assert.ok(
+    poseMagnitude(controller.sample(unit.timing.endMs! / 1_000 - 0.01)) > 0,
+  )
   assert.equal(poseMagnitude(controller.sample(unit.timing.endMs! / 1_000)), 0)
 })
 
@@ -622,6 +634,44 @@ test('a behavior dropped from the plan releases instead of playing on', () => {
   controller.playBehaviorUnits([], peakSeconds, peakSeconds * 1_000)
   const released = unit.timing.endMs! / 1_000
   assert.equal(poseMagnitude(controller.sample(released)), 0)
+})
+
+test('removing a half-faded behavior never revives its full pose or prolongs its end', () => {
+  const controller = new PerformanceExpressionController()
+  const [unit] = playUnits(controller, [cue('think')])
+  const at = (unit.timing.relaxMs! + unit.timing.endMs!) / 2_000
+  const before = { ...controller.sample(at) }
+  assert.ok(poseMagnitude(before) > 0)
+  controller.playBehaviorUnits([], at, at * 1_000)
+  assert.deepEqual(controller.sample(at), before)
+  let previous = poseMagnitude(before)
+  for (
+    let now = at + 0.01;
+    now < unit.timing.endMs! / 1_000 + 0.5;
+    now += 0.01
+  ) {
+    controller.playBehaviorUnits([], now, now * 1_000)
+    const amount = poseMagnitude(controller.sample(now))
+    assert.ok(amount <= previous + 1e-10, `release revived at ${now}`)
+    previous = amount
+  }
+  assert.equal(previous, 0)
+  assert.equal(controller.getScheduledCueCount(), 0)
+})
+
+test('repeated cancellation during preparation preserves the current pose and releases once', () => {
+  const controller = new PerformanceExpressionController()
+  const [unit] = playUnits(controller, [cue('greet')])
+  const at = unit.timing.strokePeakMs / 2_000
+  const before = { ...controller.sample(at) }
+  controller.stopBehaviors(at)
+  assert.deepEqual(controller.sample(at), before)
+  for (let now = at; now < 2; now += 0.025) {
+    controller.stopBehaviors(now)
+    controller.sample(now)
+  }
+  assert.equal(controller.getScheduledCueCount(), 0)
+  assert.equal(poseMagnitude(controller.sample(2)), 0)
 })
 
 test('a beat restated with more force reaches the face, not only the body', () => {
@@ -680,5 +730,7 @@ test('a beat that leaves the plan and returns is scheduled again', () => {
   // for the cue that is already fading out.
   controller.playBehaviorUnits([], 0.05, 50)
   controller.playBehaviorUnits(realized.units, 0.05, 50)
-  assert.ok(poseMagnitude(controller.sample(unit.timing.strokePeakMs / 1_000)) > 0)
+  assert.ok(
+    poseMagnitude(controller.sample(unit.timing.strokePeakMs / 1_000)) > 0,
+  )
 })

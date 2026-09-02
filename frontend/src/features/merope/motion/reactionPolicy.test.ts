@@ -37,7 +37,7 @@ function activeMusic(): BehaviorSnapshot {
     source: 'music',
     resources: ['body.head', 'body.torso'],
     channels: ['headBody'],
-    form: { family: 'music', id: 'groove' },
+    form: { family: 'music', id: 'listen' },
     phase: 'holding',
     startedAtMs: 0,
     strokeAtMs: 100,

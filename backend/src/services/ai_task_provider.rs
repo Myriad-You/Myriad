@@ -129,12 +129,13 @@ pub async fn run_image_provider<F>(
     prompt: &str,
     width: u32,
     height: u32,
+    references: &[crate::services::image_generation::ImageReference],
     mut _on_progress: F,
 ) -> Result<Value, ProviderError>
 where
     F: FnMut(u32, u32) + Send,
 {
-    let generated = crate::services::image_generation::generate_image(
+    let generated = crate::services::image_generation::generate_image_with_references(
         &crate::services::image_generation::ImageGenerationConfig {
             provider: config.provider,
             model: config.model,
@@ -144,13 +145,14 @@ where
         prompt,
         width,
         height,
+        references,
         None,
     )
     .await
-    .map_err(|error| ProviderError::new("AI_PROVIDER_ERROR", error.to_string()))?;
+    .map_err(image_provider_error)?;
     let url = crate::services::image_generation::persist_generated(&generated)
         .await
-        .map_err(|error| ProviderError::new("AI_PROVIDER_ERROR", error.to_string()))?;
+        .map_err(image_provider_error)?;
     Ok(json!({
         "format": "image",
         "value": {
@@ -162,10 +164,31 @@ where
     }))
 }
 
+fn image_provider_error(
+    _: crate::services::image_generation::ImageGenerationError,
+) -> ProviderError {
+    // Provider bodies / download errors can echo credentials and reference data.
+    // Task snapshots and events are sandbox payloads: only expose a fixed message.
+    ProviderError::new(
+        "AI_PROVIDER_ERROR",
+        "Image provider failed to complete the task",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{image_size_from_input, parse_image_dim, ProviderError};
     use serde_json::json;
+
+    #[test]
+    fn image_errors_do_not_expose_provider_echoes_to_the_sandbox() {
+        use crate::services::image_generation::ImageGenerationError;
+        let error = super::image_provider_error(ImageGenerationError::Provider(
+            "HTTP 400: key=host-secret image=data:image/png;base64,private".into(),
+        ));
+        assert_eq!(error.code, "AI_PROVIDER_ERROR");
+        assert_eq!(error.message, "Image provider failed to complete the task");
+    }
 
     #[test]
     fn parse_image_dim_accepts_number_and_string() {

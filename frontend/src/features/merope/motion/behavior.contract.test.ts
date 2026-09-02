@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { arbitrateFaceSpeech } from '../faceSpeechArbitration'
 import { PERFORMANCE_CUE_INTENTS } from '../performanceContract'
+import { musicSignalAt } from '../singing/musicSignal.test-support'
 import { applyMotionFrame, createMotionApplyState } from './applyFrame'
 import { applySingingWrite } from './applySnapshot'
 import { RigMotionCoordinator } from './coordinator'
@@ -43,7 +44,7 @@ function recordingRig() {
       stopBehaviorPlan: () => calls.push('stop'),
       setSinging: (value: boolean) => calls.push(`singing:${value}`),
       setSingingTrack: () => undefined,
-      setSingingSpectrum: () => undefined,
+      setMusicSignal: () => undefined,
     },
   }
 }
@@ -91,18 +92,18 @@ test('Chat speech occupies only the mouth; music keeps head and body', () => {
     {
       setSingingTrack: (value) => writes.push(`track:${value}`),
       setSinging: (value) => writes.push(`singing:${value}`),
-      setSingingSpectrum: (value) => writes.push(`spectrum:${value !== null}`),
+      setMusicSignal: (value) => writes.push(`signal:${value !== null}`),
       setSpeechArticulation: () => writes.push('articulation'),
       setSpeechActive: () => writes.push('speechActive'),
     },
     apply,
     {
       trackId: 'song-a',
-      spectrum: { bass: 0.4, beat: 0.5, vocal: 0.6 },
+      signal: musicSignalAt(1),
       articulation: { energy: 0.6, viseme: 'open', amount: 0.8 },
     },
   )
-  assert.deepEqual(writes, ['track:song-a', 'singing:true', 'spectrum:true'])
+  assert.deepEqual(writes, ['track:song-a', 'singing:true', 'signal:true'])
 })
 
 test('background Work cannot take the visible Chat face', () => {
@@ -269,13 +270,17 @@ test('the behavior vocabulary is exactly what a producer can emit', () => {
   assert.deepEqual([...functions].sort(), [...BEHAVIOR_FUNCTIONS].sort())
   assert.deepEqual([...sources].sort(), [...BEHAVIOR_SOURCES].sort())
 
-  const contract = source('../../../../../crates/myriad-merope/src/rig_state.rs')
-  assert.deepEqual(rustList(contract, 'RIG_STATE_BEHAVIOR_FUNCTIONS').sort(), [
-    ...functions,
-  ].sort())
-  assert.deepEqual(rustList(contract, 'RIG_STATE_BEHAVIOR_SOURCES').sort(), [
-    ...sources,
-  ].sort())
+  const contract = source(
+    '../../../../../crates/myriad-merope/src/rig_state.rs',
+  )
+  assert.deepEqual(
+    rustList(contract, 'RIG_STATE_BEHAVIOR_FUNCTIONS').sort(),
+    [...functions].sort(),
+  )
+  assert.deepEqual(
+    rustList(contract, 'RIG_STATE_BEHAVIOR_SOURCES').sort(),
+    [...sources].sort(),
+  )
 })
 
 function rustList(contract: string, name: string): string[] {

@@ -5,15 +5,15 @@ import { agentService } from '../../../../services/agent'
 import { InputItem, SettingsButton } from '../../../settings'
 import { generationFailureMessage } from '../generationError'
 import { personaFromApi } from '../onboardingTypes'
-import { GhostButton } from './Chrome'
 import { ErrorNote } from './Feedback'
-import { Field, TextArea } from './Field'
+import { TextArea } from './Field'
 
 interface Props {
   appearance?: 'onboarding' | 'settings'
   name: string
   gender?: string
   disabled?: boolean
+  ready?: boolean
   onImported: (persona: StructuredPersona) => void | Promise<void>
 }
 
@@ -22,6 +22,7 @@ export default function PersonaImportPanel({
   name,
   gender,
   disabled = false,
+  ready = false,
   onImported,
 }: Props) {
   const { t, locale } = useI18n()
@@ -88,9 +89,17 @@ export default function PersonaImportPanel({
   }
 
   return (
-    <Field label={o.importPersona} hint={o.importPersonaHint}>
+    <div className="merope-ob-import__persona">
+      <span className="merope-ob-field__label">{o.importPersona}</span>
+      {ready ? (
+        <p className="merope-ob-import__ready" aria-live="polite">
+          {o.importPersonaReady}
+        </p>
+      ) : (
+        <p className="merope-ob-field__hint">{o.importPersonaHint}</p>
+      )}
       <TextArea
-        rows={4}
+        rows={6}
         maxLength={6000}
         value={source}
         disabled={blocked}
@@ -98,13 +107,16 @@ export default function PersonaImportPanel({
         onChange={(event) => setSource(event.target.value)}
       />
       <div className="merope-ob-field__actions">
-        <GhostButton
-          label={submitLabel}
+        <button
+          type="button"
+          className="merope-ob-import__submit"
           disabled={blocked || !source.trim()}
           onClick={() => void importPersona()}
-        />
+        >
+          {submitLabel}
+        </button>
       </div>
       {error ? <ErrorNote>{error}</ErrorNote> : null}
-    </Field>
+    </div>
   )
 }

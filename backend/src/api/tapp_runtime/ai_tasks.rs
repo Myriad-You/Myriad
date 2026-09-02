@@ -29,6 +29,7 @@ use crate::{
             default_output, execute_task, hash_request, parse_ai_manifest, prepare_task,
             validate_output, AiTaskExecution, PreparedModel, PreparedTask,
         },
+        ai_task_image::{load_image_references, validate_task_input},
         ai_task_prepare::{
             permission_for_operation, validate_idempotency_key, AiTaskLogicError, MAX_INPUT_BYTES,
         },
@@ -61,18 +62,6 @@ pub use crate::services::ai_task_registry::{AiTaskDelivery, AiTaskSnapshot};
 
 type ApiError = HttpError;
 
-fn value_size(value: &Value) -> Result<usize, ApiError> {
-    serde_json::to_vec(value)
-        .map(|value| value.len())
-        .map_err(|_| {
-            api_error(
-                StatusCode::BAD_REQUEST,
-                "INVALID_AI_TASK_INPUT",
-                "AI task input cannot be serialized",
-            )
-        })
-}
-
 fn api_error(status: StatusCode, code: &str, message: impl Into<String>) -> ApiError {
     HttpError::from((
         status,
@@ -94,7 +83,9 @@ fn quota_api_error(err: AiQuotaError) -> ApiError {
 
 fn logic_api_error(err: AiTaskLogicError) -> ApiError {
     let status = match err.code.as_str() {
-        "AI_TASK_PROMPT_LIMIT" => StatusCode::PAYLOAD_TOO_LARGE,
+        "AI_TASK_PROMPT_LIMIT" | "AI_TASK_INPUT_LIMIT" | "AI_IMAGE_REFERENCE_LIMIT" => {
+            StatusCode::PAYLOAD_TOO_LARGE
+        }
         "AI_V2_NOT_DECLARED" => StatusCode::FORBIDDEN,
         "INVALID_AI_V2_MANIFEST" => StatusCode::UNPROCESSABLE_ENTITY,
         "AI_OUTPUT_NOT_DECLARED" => StatusCode::FORBIDDEN,
@@ -308,6 +299,7 @@ async fn execute_governed_text_impl(
                 schema: None,
             },
             provenance: Vec::new(),
+            image_references: Vec::new(),
         },
         model,
         system_prompt: Some(system_prompt),
@@ -346,7 +338,7 @@ pub async fn create_ai_task(
     runtime: RuntimeGrantContext,
     headers: HeaderMap,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    Json(request): Json<CreateAiTaskRequest>,
+    Json(mut request): Json<CreateAiTaskRequest>,
 ) -> Result<(StatusCode, Json<AiTaskSnapshot>), ApiError> {
     if request.version != 2 {
         return Err(api_error(
@@ -355,13 +347,7 @@ pub async fn create_ai_task(
             "AI task version must be 2",
         ));
     }
-    if value_size(&request.input)? > MAX_INPUT_BYTES {
-        return Err(api_error(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "AI_TASK_INPUT_LIMIT",
-            "AI task input exceeds 128 KiB",
-        ));
-    }
+    validate_task_input(request.operation, &request.input).map_err(logic_api_error)?;
     if request
         .idempotency_key
         .as_deref()
@@ -481,7 +467,17 @@ pub async fn create_ai_task(
         resolve_context(&db, &context_subject, &declaration, &request.context)
             .await
             .map_err(context_api_error)?;
-    let prepared = prepare_task(&request, context, provenance).map_err(logic_api_error)?;
+    let mut prepared = prepare_task(&request, context, provenance).map_err(logic_api_error)?;
+    if request.operation == TappAiOperation::Image {
+        prepared.image_references = load_image_references(&request.input)
+            .await
+            .map_err(logic_api_error)?;
+        // The original sources already participate in request_hash. Keep only
+        // resolved bytes during execution instead of also retaining their base64.
+        if let Some(input) = request.input.as_object_mut() {
+            input.remove("referenceImages");
+        }
+    }
     let tier = match declaration.model_tier {
         TappAiModelTier::Standard => crate::config::ModelTier::Standard,
         TappAiModelTier::Pro => crate::config::ModelTier::Pro,

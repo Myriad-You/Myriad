@@ -443,6 +443,22 @@ Manifest operation/model tier/context/output 声明，并将任务绑定 subject
 最终任务注册在 subject advisory-lock 事务中原子检查并发数、保留数和幂等键；未成功注册的
 请求完整回滚 calls/token 预留，不会留下只计费但未执行的任务。
 
+创建生图任务时使用 `version: 2`、`operation: "image"`、`output: { format: "image" }`。
+`input` 可为提示词字符串，或 `{ prompt, width?, height?, referenceImages? }`。
+`referenceImages` 是有序字符串数组：最多 4 张 PNG/JPEG/WebP，解码后合计 10 MiB；
+支持 base64 data URL 和 `/api/brew/image-cache/...` 路径，后端不抓取调用方提供的外部 URL。
+参考图在预留额度及注册任务前解析；原始参考图来源与顺序参与请求幂等哈希。
+生图任务的 `context` 必须为空，`delivery` 使用默认 `result`；进度仍可通过任务 SSE 订阅。
+
+| 生图输入错误 | HTTP | 处理 |
+| ------------ | ---- | ---- |
+| `INVALID_AI_IMAGE_REFERENCE` | 400 | 检查数组/来源、base64、MIME、文件头，或本地缓存图片是否仍存在 |
+| `AI_IMAGE_REFERENCE_LIMIT` | 413 | 限制为最多 4 张，并将解码后的图片总大小压到 10 MiB 以内 |
+| `AI_TASK_INPUT_LIMIT` | 413 | 缩小请求；`input` 除 `referenceImages` 外仍受 256 KiB 限制，含参考图时另有 base64 序列化总上限 |
+
+供应商调用失败体现在任务的 `failed` 状态和 `AI_PROVIDER_ERROR` 中，错误详情不会原样返回应用。
+完整参数、上传转换和复用生成图片示例见 [AI API](API_REFERENCE.md#ai-api)。
+
 除按日聚合的配额计数外，每次受治理的 AI 调用（完成/失败/取消）都会追加一条
 `tapp_ai_cost_ledger` 流水：subject、安装 owner、Tapp、任务、来源（runtime 或
 scheduler）、operation、provider/model、输入/输出 token 估算与终态。同一账本也接收

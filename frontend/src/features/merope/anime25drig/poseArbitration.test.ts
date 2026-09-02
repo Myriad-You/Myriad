@@ -195,6 +195,7 @@ test('a missing behavior unit leaves the occupancy gate alone, never zeroes it',
     music: 0,
     musicPower: 0,
     musicQuality: quality,
+    musicMode: 'listen',
   })
   // Talking with no realized co-speech behavior must still move the face: a
   // moving mouth on a frozen body is the failure, not the fallback.
@@ -210,6 +211,7 @@ test('a missing behavior unit leaves the occupancy gate alone, never zeroes it',
     music: 0,
     musicPower: 0,
     musicQuality: quality,
+    musicMode: 'listen',
   })
   assert.equal(withUnit.coSpeech.expression, 0.5)
   assert.ok(withUnit.coSpeech.expression < speaking.coSpeech.expression)
@@ -219,6 +221,24 @@ test('behaviorMotionScale modulates but never inverts a live unit', () => {
   assert.equal(behaviorMotionScale(0, 0), 1)
   assert.equal(behaviorMotionScale(1, 1), 1)
   assert.ok(behaviorMotionScale(0.2, 0) < 1)
+})
+
+test('musical stilling quiets body fidgets but preserves gaze and explicit acting', () => {
+  const gate = resolvePoseGate(policy(), busy, unscaled)
+  const quality = completeBehaviorQuality(undefined)
+  applyBehaviorMotionGate(gate, {
+    coSpeech: 0,
+    coSpeechPower: 0,
+    coSpeechQuality: quality,
+    music: 1,
+    musicPower: 1,
+    musicQuality: quality,
+    musicMode: 'settle',
+  })
+  assert.equal(gate.ambient.headBody, 0.18)
+  assert.equal(gate.random.headBody, 0.18)
+  assert.equal(gate.ambient.gaze, 1)
+  assert.equal(gate.performance.headBody, UNOWNED_POSE_KEEP)
 })
 
 test('the gate stays a weight, so no strength is silently clamped away', () => {
@@ -248,8 +268,10 @@ function fullGate(): PoseGate {
     coSpeech: weights(),
     groove: weights(),
     performance: weights(),
-    randomAmbient: weights(),
+    random: weights(),
     stylized: weights(),
     thinking: weights(),
-  } as unknown as PoseGate
+    speechMouth: 1,
+    grooveMouth: 1,
+  }
 }

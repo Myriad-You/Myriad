@@ -12,7 +12,7 @@ function unit(
   return {
     behaviorId: `${family}:unit`,
     family,
-    form: family === 'music' ? 'groove' : 'accent',
+    form: family === 'music' ? 'listen' : 'accent',
     kind: family === 'music' ? 'rhythmic' : 'oneShot',
     timing: {
       startMs: 1_100,

@@ -140,6 +140,14 @@ const card = await Tapp.persona.get();
 生成安装后才有意义的能力时：
 
 - 可在 Manifest 声明真实权限与正式运行时代码（见 [API_REFERENCE](./API_REFERENCE.md)）；
+- AI 生图使用 `Tapp.ai.tasks.create({ version: 2, operation: "image", input: { prompt,
+  referenceImages }, output: { format: "image" } })`；不需要参考图时省略 `referenceImages`。
+  Manifest 同时声明 `ai:image`、
+  `ai.operations: ["image"]` 和 `ai.outputFormats: ["image"]`（`ai.protocolVersion: 2`）。
+  参考图放在 `input.referenceImages` 有序数组中，支持 PNG/JPEG/WebP base64 data URL 或
+  `/api/brew/image-cache/...` 路径，最多 4 张、解码后合计 10 MiB。不要放到 `context`，
+  不要直接传 `blob:`/外部 URL，不要指定供应商或模型。文件选择后可用 `FileReader.readAsDataURL`
+  转换；临时预览仍不执行 AI 任务，完整示例见 [AI API](./API_REFERENCE.md#ai-api)。
 - 声明式 HTTP API 必须申请 `network:fetch`。请求体默认使用 `bodyMode: "json"`；纯文本、XML
   使用 UTF-8 `raw`，表单使用 `form`。第三方密钥用 Manifest `credentials` +
   `apis.*.credential`（`in`: `header` / `query` / `form` / `sign`）；密钥不进
@@ -166,7 +174,8 @@ const card = await Tapp.persona.get();
 
 Bridge 默认 payload 约 **1 MiB**；正式运行特例：`file.download` 内容 **10 MiB**，
 `federation.uploadMedia` 对齐图片 10 MiB / 视频 50 MiB 的 base64 预算（见
-[SANDBOX](./SANDBOX.md#payload-大小)）。预览侧勿假设可上传大媒体。
+[SANDBOX](./SANDBOX.md#payload-大小)）；带 `input.referenceImages` 数组的生图任务 JSON payload
+上限为 **14 MiB**，后端另检查图片数量、解码后总大小与文本大小。预览侧勿假设可上传大媒体。
 
 ## Manifest 质量字段（可选但推荐）
 

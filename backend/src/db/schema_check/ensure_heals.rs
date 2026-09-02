@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS agent_addressee_state (
     dnd_end_minute INTEGER,
     last_user_message_at TIMESTAMPTZ,
     last_proactive_at TIMESTAMPTZ,
+    music_mood_credited_at TIMESTAMPTZ,
     mood_settled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     emotion_settled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL

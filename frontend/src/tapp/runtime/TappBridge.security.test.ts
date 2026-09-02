@@ -88,7 +88,8 @@ describe('TappBridge session token + inbound event allowlist', () => {
     action: string,
     payload: unknown,
   ): { valid: boolean; error?: string } {
-    const [api, method] = action.split('.', 2)
+    const [api, ...methodParts] = action.split('.')
+    const method = methodParts.join('.')
     return (
       bridge as unknown as {
         validateMessage: (message: Record<string, unknown>) => {
@@ -255,6 +256,21 @@ describe('TappBridge session token + inbound event allowlist', () => {
     })
 
     assert.equal(result.valid, true)
+  })
+
+  it('allows inline image references beyond the generic bridge budget', () => {
+    const request = {
+      version: 2,
+      operation: 'image',
+      input: { prompt: 'draw', referenceImages: [`data:image/png;base64,${'A'.repeat(2 * 1024 * 1024)}`] },
+    }
+    assert.equal(validateRequest('ai.tasks.create', { args: [request] }).valid, true)
+    assert.equal(validateRequest('ai.tasks.create', {
+      args: [{ ...request, operation: 'generate' }],
+    }).valid, false)
+    assert.equal(validateRequest('storage.set', { args: ['image', request] }).valid, false)
+    request.input.referenceImages = ['A'.repeat(14 * 1024 * 1024)]
+    assert.equal(validateRequest('ai.tasks.create', { args: [request] }).valid, false)
   })
 
   it('resolves bridge via contentWindow scan when source map is cold', async () => {
