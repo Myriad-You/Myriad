@@ -52,6 +52,8 @@ export interface BrewTopicTileProps {
   /** 进入 topic-feed（跨源列表） */
   onOpenTopic?: (topic: BrewTopic) => void
   onOpenItem?: (item: TopicItem) => void
+  /** 表面；磁贴墙传 solid，见 TileShell.css */
+  surface?: 'glass' | 'solid'
 }
 
 /** i18n key → 文案。未知 key 回落到 key 本身，不写死中文。 */
@@ -70,6 +72,7 @@ export const BrewTopicTile = memo(
     containerRef,
     onOpenTopic,
     onOpenItem,
+    surface,
   }: BrewTopicTileProps) => {
     const { t } = useI18n()
     const name = useTopicName(topic.nameKey)
@@ -92,6 +95,7 @@ export const BrewTopicTile = memo(
       return (
         <TileShell
           color={color}
+          surface={surface}
           scale={scale}
           containerRef={containerRef}
           label={name}
@@ -138,6 +142,7 @@ export const BrewTopicTile = memo(
     return (
       <TileShell
         color={color}
+        surface={surface}
         scale={scale}
         containerRef={containerRef}
         label={name}
@@ -179,8 +184,8 @@ export const BrewTopicTile = memo(
         />
 
         <div
-          className="flex min-h-0 flex-1 flex-col justify-start"
-          style={{ gap: sp(5, scale), marginTop: sp(8, scale) }}
+          className="flex min-h-0 flex-1 flex-col justify-evenly"
+          style={{ marginTop: sp(6, scale) }}
         >
           {topic.items.slice(0, 4).map((item, i) => (
             <MinorRow

@@ -47,7 +47,6 @@ export const BrewPager = memo(
         <div
           className="glass flex items-center gap-0.5 rounded-full px-1 py-1 shadow-sm"
           role="tablist"
-          aria-label={labels?.page}
         >
           <button
             type="button"

@@ -21,7 +21,21 @@ import type { BrewCard, PackedCard } from './logic/pack'
 import type { BrewViewerRole } from './logic/score'
 import type { BrewTopic } from './logic/topics'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  LuCheck as Check,
+  LuEdit3 as Edit3,
+  LuLock as Lock,
+  LuRefreshCw as RefreshCw,
+} from '@lib/icons'
+
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import { useMediaQuery } from '../../hooks/useSharedEventListener'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
@@ -90,6 +104,21 @@ function readLayoutCache(scope: string, cols: number): CachedLayout | null {
 }
 
 /** 只缓存第一页：骨架的意义是「首屏别重排」，后面的页翻到了再说。 */
+/** 清掉旧版本的布局缓存，别让 localStorage 里堆着永远读不到的 v1/v2 键。 */
+function sweepStaleLayoutCache(): void {
+  try {
+    const ls = globalThis.localStorage
+    if (!ls) return
+    const prefix = `brew:wall:v${LAYOUT_CACHE_VERSION}:`
+    for (let i = ls.length - 1; i >= 0; i--) {
+      const k = ls.key(i)
+      if (k && k.startsWith('brew:wall:v') && !k.startsWith(prefix)) ls.removeItem(k)
+    }
+  } catch {
+    // 读不了就算了
+  }
+}
+
 function writeLayoutCache(
   scope: string,
   cols: number,
@@ -97,6 +126,7 @@ function writeLayoutCache(
   firstPage: PackedCard[],
 ): void {
   try {
+    sweepStaleLayoutCache()
     const payload: CachedLayout = {
       rows,
       slots: firstPage.map((c) => ({ key: c.key, size: c.size, x: c.x, y: c.y })),
@@ -211,6 +241,23 @@ export interface BrewTileWallProps {
   nextPageLabel?: string
   /** `{n}` 替换成页码 */
   pageLabel?: string
+  /** 编辑态：批量选择（老网格的整卡点击即选中） */
+  selectedIds?: ReadonlySet<number>
+  onToggleSelect?: (sourceId: number) => void
+  /** 编辑态：打开 EditModal */
+  onEditSource?: (source: BrewSource) => void
+  /** 编辑态：单源刷新（友链没有） */
+  onRefreshSource?: (sourceId: number) => void
+  /** 图标加载后提到的主题色写回 */
+  onThemeColorExtracted?: (sourceId: number, color: string) => void
+  /** 编辑态操作条的无障碍标签 */
+  editLabels?: {
+    select?: string
+    edit?: string
+    refresh?: string
+    lock?: string
+    unlock?: string
+  }
 }
 
 export default function BrewTileWall({
@@ -234,6 +281,12 @@ export default function BrewTileWall({
   prevPageLabel,
   nextPageLabel,
   pageLabel,
+  selectedIds,
+  onToggleSelect,
+  onEditSource,
+  onRefreshSource,
+  onThemeColorExtracted,
+  editLabels,
 }: BrewTileWallProps) {
   const band = useViewportBand()
   const cols = homeGridColsForBand(band)
@@ -244,8 +297,12 @@ export default function BrewTileWall({
    * 按可用高度派生行数。格子边长不变（还是首页那一套），只是一页多放几行 ——
    * /brew 是整页视图，固定 4 行会白扔掉半屏，还把源硬拆成更多页。
    */
-  const [rows, setRows] = useState(ROWS_MIN)
-  useEffect(() => {
+  // 首帧就用上次缓存的行数，再在 paint 前实测一次：useState(4) + useEffect
+  // 会先画一版 4 行的墙再跳成 8 行，每次进页面都闪一下。
+  const [rows, setRows] = useState(
+    () => readLayoutCache(scope, cols)?.rows ?? ROWS_MIN,
+  )
+  useLayoutEffect(() => {
     const measure = () => {
       const el = viewportRef.current
       if (!el) return
@@ -311,14 +368,63 @@ export default function BrewTileWall({
   const pageCount = Math.max(1, pages.length)
   const clampedPage = Math.min(page, pageCount - 1)
 
+  /**
+   * 翻页 = 让 viewport 滚到那一页。用原生滚动而不是给轨道加 transform：
+   * 一个被提升成合成层的祖先包着二十多张卡，会让整面墙的区域比周围暗一截
+   * （像素实测边界亮度跳 ~20，去掉 transform 后与「隐藏整面墙」的对照组一致）。
+   * 原生滚动还顺带把触控板横滑、触屏滑动都交给浏览器。
+   */
+  const scrollToPage = useCallback((index: number, smooth: boolean) => {
+    const el = viewportRef.current
+    if (!el) return
+    el.scrollTo({ left: index * el.clientWidth, behavior: smooth ? 'smooth' : 'auto' })
+  }, [])
+
   const goToPage = useCallback(
     (next: number) => {
       const bounded = Math.max(0, Math.min(next, pageCount - 1))
       setPage(bounded)
       writeStoredPage(scope, bounded)
+      scrollToPage(bounded, true)
     },
-    [pageCount, scope],
+    [pageCount, scope, scrollToPage],
   )
+
+  // 首次渲染 / 换 scope 时，把已记住的页码对齐到滚动位置（不带动画）
+  useLayoutEffect(() => {
+    // 故意不依赖 page：这里只在换 scope / 页数变化时对齐一次，
+    // 用户翻页由 goToPage 自己滚，别让它再触发一次跳变
+    scrollToPage(Math.min(page, Math.max(0, pageCount - 1)), false)
+  }, [scope, pageCount])
+
+  // 用户自己滑（触控板 / 触屏 / 横向滚轮）时，把页码同步回来
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    let raf = 0
+    const sync = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const w = el.clientWidth
+        if (w <= 0) return
+        const idx = Math.max(0, Math.min(pageCount - 1, Math.round(el.scrollLeft / w)))
+        setPage((prev) => {
+          if (prev === idx) return prev
+          writeStoredPage(scope, idx)
+          return idx
+        })
+      })
+    }
+    el.addEventListener('scroll', sync, { passive: true })
+    // 窗口变宽变窄后 scrollLeft 会落在两页之间，按当前页重新对齐
+    const realign = () => scrollToPage(Math.round(el.scrollLeft / Math.max(1, el.clientWidth)), false)
+    window.addEventListener('resize', realign)
+    return () => {
+      cancelAnimationFrame(raf)
+      el.removeEventListener('scroll', sync)
+      window.removeEventListener('resize', realign)
+    }
+  }, [pageCount, scope, scrollToPage])
 
   // ←/→ 切页。这两个键原本没被占用；j/k 仍是一维、按装箱顺序。
   useEffect(() => {
@@ -344,47 +450,6 @@ export default function BrewTileWall({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [isSearching, pageCount, clampedPage, goToPage])
-
-  /**
-   * 翻页手势。只有 ←→ 和一排小圆点太难发现也太难用（用户反馈「很难切页」），
-   * 这里补上滚轮/触控板横向滚动、Shift+滚轮、触屏横滑，外加两侧的箭头按钮。
-   */
-  const wheelLockRef = useRef(0)
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
-      if (isSearching || pageCount <= 1) return
-      // 只吃横向意图，纵向留给页面滚动
-      const dx = e.shiftKey ? e.deltaY : e.deltaX
-      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(e.deltaY) * 0.8) return
-      const now = Date.now()
-      // 触控板一次滑动会连发几十个事件，加个节流免得一路翻到底
-      if (now - wheelLockRef.current < 420) return
-      wheelLockRef.current = now
-      e.preventDefault()
-      goToPage(clampedPage + (dx > 0 ? 1 : -1))
-    },
-    [isSearching, pageCount, clampedPage, goToPage],
-  )
-
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
-  const onTouchStart = useCallback((e: React.TouchEvent) => {
-    const t = e.touches[0]
-    touchStartRef.current = { x: t.clientX, y: t.clientY }
-  }, [])
-  const onTouchEnd = useCallback(
-    (e: React.TouchEvent) => {
-      const start = touchStartRef.current
-      touchStartRef.current = null
-      if (!start || isSearching || pageCount <= 1) return
-      const t = e.changedTouches[0]
-      const dx = start.x - t.clientX
-      const dy = Math.abs(start.y - t.clientY)
-      // 横向位移要明显压过纵向，否则是在滚页面
-      if (Math.abs(dx) < 48 || Math.abs(dx) < dy) return
-      goToPage(clampedPage + (dx > 0 ? 1 : -1))
-    },
-    [isSearching, pageCount, clampedPage, goToPage],
-  )
 
   // 非当前页 / 滚出视口 / 标签页隐藏 → 暂停列表轮播
   const [offscreen, setOffscreen] = useState(false)
@@ -430,6 +495,7 @@ export default function BrewTileWall({
               size="2x2"
               render={({ scale, fontScale, containerRef }) => (
                 <BrewSourceTile
+                  surface="solid"
                   source={src}
                   size="2x2"
                   role={role}
@@ -447,22 +513,28 @@ export default function BrewTileWall({
     )
   }
 
+  // category 排序：每页就是一个分类，标题写在页上方，而不是网格里塞一条横幅
+  const pageTitle = breakOnCategory
+    ? pageCategoryTitle(pages[clampedPage] ?? [], uncategorizedLabel ?? '')
+    : null
+
   return (
     <div className="relative">
+      {pageTitle ? (
+        <div className="mb-2 flex items-baseline gap-2 px-1">
+          <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-200">
+            {pageTitle}
+          </span>
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">
+            {pages[clampedPage]?.length ?? 0}
+          </span>
+        </div>
+      ) : null}
       <div
         className="brew-wall-viewport"
         ref={viewportRef}
-        onWheel={onWheel}
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
       >
-        <div
-          className="brew-wall-track"
-          style={{
-            width: `${pageCount * 100}%`,
-            transform: `translateX(-${(clampedPage * 100) / pageCount}%)`,
-          }}
-        >
+        <div className="brew-wall-track" style={{ width: `${pageCount * 100}%` }}>
           {pages.map((packed, pageIndex) => {
             const paused = pageIndex !== clampedPage || offscreen || tabHidden
             return (
@@ -480,6 +552,7 @@ export default function BrewTileWall({
                           size={card.size}
                           render={({ scale, fontScale, containerRef }) => (
                             <BrewTopicTile
+                              surface="solid"
                               topic={card.topic}
                               size={card.size}
                               scale={scale}
@@ -496,6 +569,8 @@ export default function BrewTileWall({
                   const src = card.src
                   const dragging = draggingSourceId === src.id
                   const dropTarget = dragOverSourceId === src.id
+                  const selected = Boolean(selectedIds?.has(src.id))
+                  const tileColor = src.theme_color ?? 'currentcolor'
                   return (
                     <div
                       key={card.key}
@@ -522,36 +597,84 @@ export default function BrewTileWall({
                           className="brew-wall-drop-target"
                           style={{
                             inset: TILE_PADDING,
-                            color: src.theme_color ?? 'currentcolor',
+                            color: tileColor,
                           }}
                         />
                       ) : null}
-                      {isEditMode && onToggleSizeLock ? (
-                        <button
-                          type="button"
-                          className="absolute z-[3] rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] leading-none text-white/90 backdrop-blur-sm"
+                      {/* 选中环：老网格用 inset box-shadow，这里一样 */}
+                      {selected ? (
+                        <span
+                          className="brew-wall-selected"
                           style={{
-                            right: TILE_PADDING + 6,
-                            bottom: TILE_PADDING + 6,
+                            inset: TILE_PADDING,
+                            boxShadow: `inset 0 0 0 2px ${tileColor}`,
                           }}
-                          title={src.card_size ? undefined : card.size}
+                        />
+                      ) : null}
+                      {isEditMode ? (
+                        <div
+                          className="brew-wall-edit-bar"
+                          style={{ right: TILE_PADDING + 6, top: TILE_PADDING + 6 }}
+                          // 别让操作条上的按下变成拖拽
                           onMouseDown={(e) => e.stopPropagation()}
                           onTouchStart={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onToggleSizeLock(
-                              src,
-                              src.card_size ? null : card.size,
-                            )
-                          }}
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          {src.card_size ? '🔒' : card.size}
-                        </button>
+                          {onToggleSelect ? (
+                            <button
+                              type="button"
+                              aria-label={editLabels?.select}
+                              aria-pressed={selected}
+                              onClick={() => onToggleSelect(src.id)}
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                          {onEditSource ? (
+                            <button
+                              type="button"
+                              aria-label={editLabels?.edit}
+                              onClick={() => onEditSource(src)}
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                          {onRefreshSource && src.source_type !== 'link' ? (
+                            <button
+                              type="button"
+                              aria-label={editLabels?.refresh}
+                              onClick={() => onRefreshSource(src.id)}
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                          {onToggleSizeLock ? (
+                            <button
+                              type="button"
+                              aria-label={
+                                src.card_size ? editLabels?.unlock : editLabels?.lock
+                              }
+                              aria-pressed={Boolean(src.card_size)}
+                              onClick={() =>
+                                onToggleSizeLock(src, src.card_size ? null : card.size)
+                              }
+                            >
+                              {src.card_size ? (
+                                <Lock className="h-3.5 w-3.5" />
+                              ) : (
+                                <span className="text-[10px] font-medium tabular-nums">
+                                  {card.size}
+                                </span>
+                              )}
+                            </button>
+                          ) : null}
+                        </div>
                       ) : null}
                       <TileSlot
                         size={card.size}
                         render={({ scale, fontScale, containerRef }) => (
                           <BrewSourceTile
+                            surface="solid"
                             source={src}
                             size={card.size}
                             role={role}
@@ -559,8 +682,16 @@ export default function BrewTileWall({
                             scale={scale}
                             fontScale={fontScale}
                             containerRef={containerRef}
-                            onOpenSource={isEditMode ? undefined : onSourceClick}
+                            editMode={isEditMode}
+                            onOpenSource={
+                              isEditMode
+                                ? onToggleSelect
+                                  ? (x) => onToggleSelect(x.id)
+                                  : undefined
+                                : onSourceClick
+                            }
                             onOpenItem={isEditMode ? undefined : onOpenItem}
+                            onThemeColorExtracted={onThemeColorExtracted}
                           />
                         )}
                       />

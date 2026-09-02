@@ -15,6 +15,7 @@ import { isExlight, useAnimationLevel } from '../../../hooks/useAnimationLevel'
 import { GlowBackground } from '../../widgets/shared/GlowBackground'
 import { WidgetShell } from '../../widgets/shared/WidgetShell'
 import { fs, MARK_SIZE, sp, T_META, T_TITLE } from './tokens'
+import './TileShell.css'
 
 export interface TileShellProps {
   children: ReactNode
@@ -30,6 +31,11 @@ export interface TileShellProps {
   label?: string
   /** 光晕布局；2×2 用 single，通栏用 dual */
   glow?: 'single' | 'dual' | 'single-left' | 'none'
+  /**
+   * 表面：首页几张 widget 用默认毛玻璃；磁贴墙一屏二十多张必须用 solid ——
+   * 大量 backdrop-filter 兄弟会被 Chrome 合并成整面墙的一块矩形色块。
+   */
+  surface?: 'glass' | 'solid'
 }
 
 export const TileShell = memo(
@@ -44,6 +50,7 @@ export const TileShell = memo(
     onClick,
     label,
     glow = 'single',
+    surface = 'glass',
   }: TileShellProps) => {
     const anim = useAnimationLevel()
     // exlight 与 prefers-reduced-motion 一律不渲染光晕（不是「渲染但不动」）：
@@ -58,6 +65,7 @@ export const TileShell = memo(
         scale={scale}
         className={[
           interactive && 'cursor-pointer',
+          surface === 'solid' && 'brew-tile-solid',
           'text-left',
           className,
         ]
@@ -111,6 +119,7 @@ export function TileMark({
   scale,
   size = MARK_SIZE,
   icon,
+  onIconLoad,
 }: {
   name: string
   color: string
@@ -118,6 +127,8 @@ export function TileMark({
   size?: number
   /** 已经过 getIconUrl 的图标地址；缺失或加载失败时退回字标 */
   icon?: string | null
+  /** 图标真正加载成功后回调（已排除 1×1 软失败占位）—— 主题色提取挂这里 */
+  onIconLoad?: (img: HTMLImageElement) => void
 }) {
   const px = sp(size, scale)
   const initial = name.trim().slice(0, 1) || '·'
@@ -149,7 +160,9 @@ export function TileMark({
             const img = e.currentTarget
             if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
               img.style.display = 'none'
+              return
             }
+            onIconLoad?.(img)
           }}
           onError={(e) => {
             e.currentTarget.style.display = 'none'
@@ -176,12 +189,14 @@ export function TileHeader({
   unread,
   alert,
   trailing,
+  onIconLoad,
 }: {
   name: string
   color: string
   scale: number
   fontScale: number
   icon?: string | null
+  onIconLoad?: (img: HTMLImageElement) => void
   /** null = 不显示（游客 / 无未读） */
   unread?: number | null
   /** 管理员视图下的失败态 */
@@ -194,7 +209,13 @@ export function TileHeader({
       className="flex min-w-0 items-center"
       style={{ gap: sp(7, scale), marginBottom: sp(8, scale) }}
     >
-      <TileMark name={name} color={color} scale={scale} icon={icon} />
+      <TileMark
+        name={name}
+        color={color}
+        scale={scale}
+        icon={icon}
+        onIconLoad={onIconLoad}
+      />
       <span
         className="min-w-0 flex-1 truncate font-semibold text-gray-800 dark:text-gray-100"
         style={{ fontSize: fs(T_TITLE, fontScale), lineHeight: 1.25 }}

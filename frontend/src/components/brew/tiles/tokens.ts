@@ -22,8 +22,6 @@ export const T_NUM_HERO_WIDE = 30
 
 /** 站名行字标边长 */
 export const MARK_SIZE = 18
-/** 次条缩略图边长 */
-export const MINOR_THUMB_SIZE = 20
 /** 4×4 列表头条方图边长 */
 export const LEAD_THUMB_SIZE = 52
 /** icon 型的大字标边长 */

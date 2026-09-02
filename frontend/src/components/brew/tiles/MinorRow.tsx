@@ -8,8 +8,7 @@
 import type { MouseEvent } from 'react'
 import { memo } from 'react'
 
-import { TileCover } from './TileCover'
-import { fs, MINOR_THUMB_SIZE, sp, T_META, T_MINOR } from './tokens'
+import { fs, sp, T_META, T_MINOR } from './tokens'
 
 export type MinorDim = 0 | 1 | 2
 
@@ -23,26 +22,21 @@ export interface MinorRowProps {
   title: string
   /** 已格式化的相对时间；空串则不渲染 */
   time?: string
-  /** 原始 image 字段；无图不画占位（TileCover 返回 null） */
-  image?: string | null
   scale: number
   fontScale: number
   dim?: MinorDim
   /** 点开这一篇。必须 stopPropagation，否则会连带触发整卡点击 */
   onClick?: () => void
-  showThumb?: boolean
 }
 
 export const MinorRow = memo(
   ({
     title,
     time,
-    image,
     scale,
     fontScale,
     dim = 0,
     onClick,
-    showThumb = false,
   }: MinorRowProps) => {
     const handleClick = onClick
       ? (e: MouseEvent) => {
@@ -69,13 +63,6 @@ export const MinorRow = memo(
             : undefined
         }
       >
-        {showThumb ? (
-          <TileCover
-            image={image}
-            square={sp(MINOR_THUMB_SIZE, scale)}
-            radiusClassName="rounded-md"
-          />
-        ) : null}
         <span
           className={`min-w-0 flex-1 truncate ${DIM_CLASS[dim]}`}
           style={{ fontSize: fs(T_MINOR, fontScale), lineHeight: 1.35 }}

@@ -15,7 +15,9 @@
  * - 图片懒加载
  */
 
-import type { AddSourceInput, BrewSource, CardSize } from '../../types/brew'
+import type { AddSourceInput, BrewItemPreview, BrewSource,
+  CardSize,
+} from '../../types/brew'
 
 import type { SortMode } from './manager/ControlIsland'
 import { LuRss as Rss, LuSearch as Search } from '@lib/icons'
@@ -48,6 +50,8 @@ interface BrewSourceGridProps {
   onAddSource?: (input: AddSourceInput) => Promise<void>
   /** 点主题卡：进入跨源列表（viewMode: 'topic-feed'） */
   onTopicClick?: (topicKey: string, topicNameKey: string) => void
+  /** 点磁贴上的文章行：直接进阅读器（老网格的 ItemCard 也是整卡即开） */
+  onOpenItem?: (item: BrewItemPreview, source: BrewSource) => void
   isAuthenticated?: boolean // 是否已登录（用于已读状态等普通用户功能）
   isAdmin?: boolean // 是否是管理员（用于添加、编辑、删除等管理功能）
 }
@@ -61,6 +65,7 @@ export default function BrewSourceGrid({
   onSourcesChange,
   onAddSource,
   onTopicClick,
+  onOpenItem,
   isAuthenticated = false, // 默认游客模式（用于已读状态）
   isAdmin = false, // 默认非管理员（用于管理功能）
 }: BrewSourceGridProps) {
@@ -1011,6 +1016,19 @@ export default function BrewSourceGrid({
           draggingSourceId={draggingSourceId}
           dragOverSourceId={dragOverSourceId}
           onToggleSizeLock={handleToggleSizeLock}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelect}
+          onEditSource={isAdmin ? setEditingSource : undefined}
+          onRefreshSource={isAdmin ? onRefreshSource : undefined}
+          onThemeColorExtracted={handleThemeColorExtracted}
+          onOpenItem={onOpenItem}
+          editLabels={{
+            select: t.brew.tileSelectSource,
+            edit: t.brew.editSubscription,
+            refresh: t.brew.refreshSubscription,
+            lock: t.brew.tileLockSize,
+            unlock: t.brew.tileUnlockSize,
+          }}
         />
       )}
 

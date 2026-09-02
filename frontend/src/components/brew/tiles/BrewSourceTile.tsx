@@ -8,11 +8,12 @@
  * （list）。上下堆封面再堆标题的「瘦条」是上一版被否掉的形态。
  */
 
+import type { KeyboardEvent, MouseEvent } from 'react'
 import type { BrewItemPreview, BrewSource } from '../../../types/brew'
 import type { WidgetComponentProps } from '../../WidgetGrid'
 import type { BrewTileLayout, BrewTileSize } from '../logic/layout'
-import type { BrewViewerRole } from '../logic/score'
 
+import type { BrewViewerRole } from '../logic/score'
 import { LuExternalLink as ExternalLink } from '@lib/icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -23,6 +24,7 @@ import { useHomeVisibilityInterval } from '../../../hooks/animation'
 import { isExlight, useAnimationLevel } from '../../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../../hooks/useWidgetSize'
 import { getSources } from '../../../services/brewApi'
+import { extractColorsFromLoadedImage } from '../../../utils/colorExtractor'
 import {
   DEFAULT_THEME_COLOR,
   getIconUrl,
@@ -77,6 +79,15 @@ export interface BrewSourceTileProps {
   items?: BrewItemPreview[]
   /** 构图覆盖，仅 DEV 预览用；生产一律走派生 */
   layoutOverride?: BrewTileLayout
+  /**
+   * 编辑模式：整卡点击交给 onOpenSource（选中切换），友链也不再开外站，
+   * 条目行不可点。这是渲染态开关，不是布局决策 —— 布局仍全由 size 决定。
+   */
+  editMode?: boolean
+  /** 图标加载后提取到主题色（源没有 theme_color 时才会调用） */
+  onThemeColorExtracted?: (sourceId: number, color: string) => void
+  /** 表面；磁贴墙传 solid，见 TileShell.css */
+  surface?: 'glass' | 'solid'
 }
 
 /** 相对时间。与 SourceCard 的口径一致，但只吃 t.brew 的四个键。 */
@@ -89,6 +100,7 @@ function relTime(
     hoursAgo: string
     daysAgo: string
   },
+  locale: string,
 ): string {
   if (!ts) return ''
   const diff = now - ts
@@ -102,7 +114,8 @@ function relTime(
   if (diff < 604_800_000) {
     return t.daysAgo.replace('{days}', String(Math.floor(diff / 86_400_000)))
   }
-  return new Date(ts).toLocaleDateString(undefined, {
+  // 跟界面语言走，不跟浏览器：否则 en-US 界面里会冒出「8月16日」
+  return new Date(ts).toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
   })
@@ -146,8 +159,11 @@ export const BrewSourceTile = memo(
     onOpenItem,
     items,
     layoutOverride,
+    editMode = false,
+    onThemeColorExtracted,
+    surface,
   }: BrewSourceTileProps) => {
-    const { t } = useI18n()
+    const { t, locale } = useI18n()
     const anim = useAnimationLevel()
     const color = normalizeThemeColor(source.theme_color)
     const icon = getIconUrl(source.icon)
@@ -171,6 +187,27 @@ export const BrewSourceTile = memo(
       daysAgo: t.brew.daysAgo,
     }
 
+    // 源没有主题色时，从图标里提一次主色写回 —— 老 SourceCard 也是这样做的，
+    // 不接的话新墙里没主题色的源会一直是灰的
+    const handleIconLoad = useCallback(
+      (img: HTMLImageElement) => {
+        if (source.theme_color || !source.icon || !onThemeColorExtracted) return
+        try {
+          const palette = extractColorsFromLoadedImage(img)
+          if (
+            palette.primary &&
+            palette.primary !== DEFAULT_THEME_COLOR &&
+            palette.primary !== '#6b7280'
+          ) {
+            onThemeColorExtracted(source.id, palette.primary)
+          }
+        } catch {
+          // 提取失败就保持默认色
+        }
+      },
+      [source.id, source.theme_color, source.icon, onThemeColorExtracted],
+    )
+
     const header = (
       <TileHeader
         name={source.name}
@@ -180,11 +217,33 @@ export const BrewSourceTile = memo(
         icon={icon}
         unread={unread}
         alert={alert}
+        onIconLoad={handleIconLoad}
       />
     )
 
     const openSource = onOpenSource ? () => onOpenSource(source) : undefined
     const openItem = (item: BrewItemPreview) => onOpenItem?.(item, source)
+    /**
+     * 头条标题 / 缩略图的「可点」语义：跟 MinorRow 一致 —— role=link、可 Tab 到、
+     * Enter / 空格触发。之前只有 onClick，键盘和读屏用户点不到头条。
+     */
+    const leadLinkProps = (item: BrewItemPreview) =>
+      onOpenItem
+        ? {
+            role: 'link' as const,
+            tabIndex: 0,
+            onClick: (e: MouseEvent) => {
+              e.stopPropagation()
+              openItem(item)
+            },
+            onKeyDown: (e: KeyboardEvent) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return
+              e.preventDefault()
+              e.stopPropagation()
+              openItem(item)
+            },
+          }
+        : {}
 
     // 2×2 既不放封面（面积不够，§10.2）也不左右拆栏（拆完文字只剩 ~90px，
     // 比上下瘦条更糟）。拆栏那条规则针对的是 4×2 那个扁矩形。
@@ -200,27 +259,40 @@ export const BrewSourceTile = memo(
       return (
         <TileShell
           color={color}
+          surface={surface}
           scale={scale}
           containerRef={containerRef}
           label={source.name}
           glow="single"
           contentClassName="flex min-h-0 items-center"
           onClick={
-            /^https?:\/\//i.test(target)
-              ? () => window.open(target, '_blank', 'noopener,noreferrer')
-              : undefined
+            editMode
+              ? openSource
+              : /^https?:\/\//i.test(target)
+                ? () => window.open(target, '_blank', 'noopener,noreferrer')
+                : undefined
           }
         >
-          <div className="flex min-w-0 flex-1 items-center" style={{ gap: sp(11, scale) }}>
+          <div
+            className="flex min-w-0 flex-1 items-center"
+            style={{ gap: sp(11, scale) }}
+          >
             <TileMark
               name={source.name}
               color={color}
               scale={scale}
               size={size === '2x2' ? ICON_MARK_SIZE * 0.7 : ICON_MARK_SIZE}
               icon={icon}
+              onIconLoad={handleIconLoad}
             />
-            <div className="flex min-w-0 flex-1 flex-col" style={{ gap: sp(3, scale) }}>
-              <div className="flex min-w-0 items-center" style={{ gap: sp(4, scale) }}>
+            <div
+              className="flex min-w-0 flex-1 flex-col"
+              style={{ gap: sp(3, scale) }}
+            >
+              <div
+                className="flex min-w-0 items-center"
+                style={{ gap: sp(4, scale) }}
+              >
                 <span
                   className="min-w-0 truncate font-semibold text-gray-800 dark:text-gray-100"
                   style={{ fontSize: fs(T_TITLE, fontScale), lineHeight: 1.25 }}
@@ -264,7 +336,10 @@ export const BrewSourceTile = memo(
       const heroSize = heroNumberSize(size)
       const rows = size === '4x4' ? list.slice(0, 5) : list.slice(0, 4)
       const hero = (
-        <div className="flex min-w-0 items-baseline" style={{ gap: sp(4, scale) }}>
+        <div
+          className="flex min-w-0 items-baseline"
+          style={{ gap: sp(4, scale) }}
+        >
           <span
             className={alert ? 'text-red-500 dark:text-red-400' : ''}
             style={{
@@ -291,6 +366,7 @@ export const BrewSourceTile = memo(
         return (
           <TileShell
             color={color}
+            surface={surface}
             scale={scale}
             containerRef={containerRef}
             label={source.name}
@@ -313,6 +389,7 @@ export const BrewSourceTile = memo(
         return (
           <TileShell
             color={color}
+            surface={surface}
             scale={scale}
             containerRef={containerRef}
             label={source.name}
@@ -353,6 +430,7 @@ export const BrewSourceTile = memo(
       return (
         <TileShell
           color={color}
+          surface={surface}
           scale={scale}
           containerRef={containerRef}
           label={source.name}
@@ -367,7 +445,7 @@ export const BrewSourceTile = memo(
               <MinorRow
                 key={item.id}
                 title={item.title}
-                time={relTime(item.published_at, now, timeKeys)}
+                time={relTime(item.published_at, now, timeKeys, locale)}
                 scale={scale}
                 fontScale={fontScale}
                 dim={i >= 2 ? 1 : 0}
@@ -393,11 +471,20 @@ export const BrewSourceTile = memo(
       const latest = list[0]
 
       const axis = (
-        <TileMeta fontScale={fontScale} scale={scale} className="justify-between">
-          <span>{t.brew.tileQuietMonths.replace('{months}', String(months))}</span>
+        <TileMeta
+          fontScale={fontScale}
+          scale={scale}
+          className="justify-between"
+        >
+          <span>
+            {t.brew.tileQuietMonths.replace('{months}', String(months))}
+          </span>
           <span className={alert ? 'text-red-500 dark:text-red-400' : ''}>
             {alert
-              ? t.brew.tileFailedTimes.replace('{count}', String(source.error_count))
+              ? t.brew.tileFailedTimes.replace(
+                  '{count}',
+                  String(source.error_count),
+                )
               : t.brew.tileToday}
           </span>
         </TileMeta>
@@ -408,6 +495,7 @@ export const BrewSourceTile = memo(
         return (
           <TileShell
             color={color}
+            surface={surface}
             scale={scale}
             containerRef={containerRef}
             label={source.name}
@@ -431,6 +519,7 @@ export const BrewSourceTile = memo(
         return (
           <TileShell
             color={color}
+            surface={surface}
             scale={scale}
             containerRef={containerRef}
             label={source.name}
@@ -441,11 +530,7 @@ export const BrewSourceTile = memo(
               className="flex shrink-0 flex-col justify-end"
               style={{ width: SPLIT_MEDIA_WIDTH, paddingRight: sp(10, scale) }}
             >
-              <Cadence
-                pulses={pulses}
-                color={color}
-                height={sp(34, scale)}
-              />
+              <Cadence pulses={pulses} color={color} height={sp(34, scale)} />
             </div>
             <div
               className="flex min-w-0 flex-1 flex-col justify-center"
@@ -474,6 +559,7 @@ export const BrewSourceTile = memo(
       return (
         <TileShell
           color={color}
+          surface={surface}
           scale={scale}
           containerRef={containerRef}
           label={source.name}
@@ -489,7 +575,7 @@ export const BrewSourceTile = memo(
             <div style={{ marginTop: sp(8, scale) }}>
               <MinorRow
                 title={latest.title}
-                time={relTime(latest.published_at, now, timeKeys)}
+                time={relTime(latest.published_at, now, timeKeys, locale)}
                 scale={scale}
                 fontScale={fontScale}
                 onClick={onOpenItem ? () => openItem(latest) : undefined}
@@ -504,7 +590,8 @@ export const BrewSourceTile = memo(
     if (layout === 'list') {
       const pageSize = size === '4x4' ? LIST_PAGE_4X4 : LIST_PAGE_4X2
       const pages = paginate(list, pageSize)
-      const rotating = pages.length > 1 && !isExlight(anim) && anim.widgetUiRotation
+      const rotating =
+        pages.length > 1 && !isExlight(anim) && anim.widgetUiRotation
       // 每张卡不同的负 delay 错峰；用 id 派生，保证同一张卡每次一样
       const stagger = -((source.id * 1300) % (ROTATE_PAGE_MS * pages.length))
 
@@ -513,6 +600,7 @@ export const BrewSourceTile = memo(
         return (
           <TileShell
             color={color}
+            surface={surface}
             scale={scale}
             containerRef={containerRef}
             label={source.name}
@@ -532,22 +620,24 @@ export const BrewSourceTile = memo(
                         animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
                         animationDelay: `${stagger}ms`,
                       }
-                    // 不轮播时也要显式给 100% 高：轨道 auto 高会让里面的
-                    // `height: 100%` 退化成内容高，几条标题全挤在卡片上半部
-                    : { height: '100%' }
+                    : // 不轮播时也要显式给 100% 高：轨道 auto 高会让里面的
+                      // `height: 100%` 退化成内容高，几条标题全挤在卡片上半部
+                      { height: '100%' }
                 }
               >
                 {(rotating ? pages : pages.slice(0, 1)).map((page, pi) => (
                   <div
                     key={pi}
                     className="flex flex-col justify-evenly"
-                    style={{ height: rotating ? `${100 / pages.length}%` : '100%' }}
+                    style={{
+                      height: rotating ? `${100 / pages.length}%` : '100%',
+                    }}
                   >
                     {page.map((item) => (
                       <MinorRow
                         key={item.id}
                         title={item.title}
-                        time={relTime(item.published_at, now, timeKeys)}
+                        time={relTime(item.published_at, now, timeKeys, locale)}
                         scale={scale}
                         fontScale={fontScale}
                         onClick={onOpenItem ? () => openItem(item) : undefined}
@@ -564,6 +654,7 @@ export const BrewSourceTile = memo(
       return (
         <TileShell
           color={color}
+          surface={surface}
           scale={scale}
           containerRef={containerRef}
           label={source.name}
@@ -590,23 +681,19 @@ export const BrewSourceTile = memo(
               {(rotating ? pages : pages.slice(0, 1)).map((page, pi) => (
                 <div
                   key={pi}
-                  className="flex flex-col"
+                  // justify-evenly：不满 5 条时也铺满整张卡，别在下半张留洞
+                  className="flex flex-col justify-evenly"
                   style={{
                     height: rotating ? `${100 / pages.length}%` : '100%',
-                    gap: sp(6, scale),
                   }}
                 >
                   {page.map((item, i) =>
                     i === 0 ? (
                       <div
                         key={item.id}
-                        className="flex min-w-0 cursor-pointer items-start"
+                        className={`flex min-w-0 items-start ${onOpenItem ? 'cursor-pointer' : ''}`}
                         style={{ gap: sp(9, scale) }}
-                        onClick={(e) => {
-                          if (!onOpenItem) return
-                          e.stopPropagation()
-                          openItem(item)
-                        }}
+                        {...leadLinkProps(item)}
                       >
                         {/* 无图不画灰块，但行高要保住：否则有图页 52px、
                             无图页塌成一行，轮播过去像在抽搐 */}
@@ -622,7 +709,10 @@ export const BrewSourceTile = memo(
                             square={sp(LEAD_THUMB_SIZE, scale)}
                           />
                         </div>
-                        <div className="flex min-w-0 flex-1 flex-col" style={{ gap: sp(3, scale) }}>
+                        <div
+                          className="flex min-w-0 flex-1 flex-col"
+                          style={{ gap: sp(3, scale) }}
+                        >
                           <span
                             className="min-w-0 font-medium text-gray-800 dark:text-gray-100"
                             style={{
@@ -637,7 +727,14 @@ export const BrewSourceTile = memo(
                             {item.title}
                           </span>
                           <TileMeta fontScale={fontScale} scale={scale}>
-                            <span>{relTime(item.published_at, now, timeKeys)}</span>
+                            <span>
+                              {relTime(
+                                item.published_at,
+                                now,
+                                timeKeys,
+                                locale,
+                              )}
+                            </span>
                           </TileMeta>
                         </div>
                       </div>
@@ -645,7 +742,7 @@ export const BrewSourceTile = memo(
                       <MinorRow
                         key={item.id}
                         title={item.title}
-                        time={relTime(item.published_at, now, timeKeys)}
+                        time={relTime(item.published_at, now, timeKeys, locale)}
                         scale={scale}
                         fontScale={fontScale}
                         dim={i >= 2 ? 1 : 0}
@@ -666,7 +763,7 @@ export const BrewSourceTile = memo(
     const second = list[1]
     const summary = getPlainText(lead?.summary ?? null)
     const readingHint = lead?.published_at
-      ? relTime(lead.published_at, now, timeKeys)
+      ? relTime(lead.published_at, now, timeKeys, locale)
       : ''
 
     // 4×2 拆栏：左封面 + 右站名 / 标题两行 / meta。
@@ -675,6 +772,7 @@ export const BrewSourceTile = memo(
       return (
         <TileShell
           color={color}
+          surface={surface}
           scale={scale}
           containerRef={containerRef}
           label={source.name}
@@ -738,6 +836,7 @@ export const BrewSourceTile = memo(
     return (
       <TileShell
         color={color}
+        surface={surface}
         scale={scale}
         containerRef={containerRef}
         label={source.name}
@@ -750,10 +849,13 @@ export const BrewSourceTile = memo(
             <TileCover image={lead.image} height={sp(COVER_H_FEATURE, scale)} />
           </div>
         ) : null}
-        <div className="flex min-h-0 flex-1 flex-col" style={{ gap: sp(5, scale) }}>
+        <div
+          className="flex min-h-0 flex-1 flex-col"
+          style={{ gap: sp(5, scale) }}
+        >
           {lead ? (
             <span
-              className="cursor-pointer font-medium text-gray-800 dark:text-gray-100"
+              className={`font-medium text-gray-800 dark:text-gray-100 ${onOpenItem ? 'cursor-pointer' : ''}`}
               style={{
                 fontSize: fs(T_TITLE, fontScale),
                 lineHeight: 1.35,
@@ -762,11 +864,7 @@ export const BrewSourceTile = memo(
                 WebkitLineClamp: lead.image ? 2 : 3,
                 overflow: 'hidden',
               }}
-              onClick={(e) => {
-                if (!onOpenItem) return
-                e.stopPropagation()
-                openItem(lead)
-              }}
+              {...leadLinkProps(lead)}
             >
               {lead.title}
             </span>
@@ -812,7 +910,7 @@ export const BrewSourceTile = memo(
             {second ? (
               <MinorRow
                 title={second.title}
-                time={relTime(second.published_at, now, timeKeys)}
+                time={relTime(second.published_at, now, timeKeys, locale)}
                 scale={scale}
                 fontScale={fontScale}
                 dim={1}

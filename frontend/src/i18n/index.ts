@@ -4209,6 +4209,9 @@ export interface TranslationKeys {
     tilePagePrev: string
     tilePageNext: string
     tilePageNth: string
+    tileSelectSource: string
+    tileLockSize: string
+    tileUnlockSize: string
     topicAggregate: string
     topicSourceCount: string
     topicFeedTitle: string
