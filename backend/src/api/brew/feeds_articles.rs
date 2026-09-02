@@ -211,7 +211,7 @@ pub(crate) async fn list_sources(
         }
     };
 
-    // 获取所有订阅源的最新文章（每个源最多3篇）
+    // 获取所有订阅源的最新文章（每个源最多 8 篇）
     let source_ids: Vec<i32> = sources.iter().map(|s| s.id).collect();
 
     // 并行执行两个 SQL 查询，均只传输必要字段：
@@ -253,7 +253,8 @@ pub(crate) async fn list_sources(
             }
             counts
         },
-        // (b) 每源最新3篇预览：ROW_NUMBER() OVER PARTITION，只选预览字段
+        // (b) 每源最新 8 篇预览：ROW_NUMBER() OVER PARTITION，只选预览字段。
+        // 磁贴的列表构图每页 4~5 条、满两页才轮播；3 条永远撑不起一张 4x4。
         async {
             let mut map: std::collections::HashMap<i32, Vec<ItemPreview>> =
                 std::collections::HashMap::new();
@@ -278,7 +279,7 @@ pub(crate) async fn list_sources(
                          ON s.item_id = i.id AND s.user_id = $1 \
                        WHERE i.source_id IN ({src_ph}) \
                      ) ranked \
-                     WHERE rn <= 3"
+                     WHERE rn <= 8"
                 );
                 let uid_val: i32 = user_id.unwrap_or(-1);
                 let mut values: Vec<sea_orm::Value> = vec![uid_val.into()];

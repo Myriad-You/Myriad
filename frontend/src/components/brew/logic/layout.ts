@@ -30,6 +30,8 @@ export const CADENCE_QUIET_DAYS = 60
 export const CADENCE_MIN_PULSES = 6
 /** 条目少到这个数就走 feature（列表撑不起来）。 */
 export const FEATURE_MAX_ITEMS = 2
+/** 没有封面的源要有这么多条才配得上 4x4：少于一页列表的量，中间必然是空的。 */
+export const FULL_TILE_MIN_ITEMS = 5
 
 /** 源少于这个数时一律撑满，不留空格子。 */
 export const FULL_BLEED_SOURCE_COUNT = 6
@@ -121,7 +123,18 @@ export function tileSize(
   // 友链是入口不是内容，给不了 4x4 的信息量
   if (s.source_type === 'link') return downgradeForBand('4x2', band)
 
-  if (score >= SIZE_SCORE_LARGE) return downgradeForBand('4x4', band)
+  // 内容撑不起来的源不给 4x4：一张封面都没有、条目又不够铺满一页列表时，
+  // 4x4 的下半张必然是空的（管理员视图里被 fail 权重抬上来的失败源、只有三四
+  // 条纯文字的小源都是这样）。有封面的 4x4 靠图撑得住。
+  // 「源太少一律撑满」走在前面不受影响 —— 那是有意留白，不是没排完。
+  const count = s.recent_items?.length ?? 0
+  const hasCover = Boolean(s.recent_items?.some((i) => i.image))
+  // 4x4 只有两种填法：满一页列表（≥5 条），或 feature 构图的通栏大图（≤2 条
+  // 且有封面）。三四条配一张 52px 小方图撑不起 320px，那是最空的一种卡。
+  const thin = count < FULL_TILE_MIN_ITEMS && !(count <= FEATURE_MAX_ITEMS && hasCover)
+  if (score >= SIZE_SCORE_LARGE) {
+    return downgradeForBand(thin ? '4x2' : '4x4', band)
+  }
   if (score >= SIZE_SCORE_MEDIUM) return downgradeForBand('4x2', band)
   return downgradeForBand('2x2', band)
 }

@@ -147,7 +147,9 @@ describe('downgradeForBand', () => {
 })
 
 describe('tileSize', () => {
-  const s = () => makeSource({ id: 1 })
+  // 3 条预览 = 正常的 list 源。空源会被「内容撑不起来」那条压到 4x2，
+  // 那是另一个用例要验的事。
+  const s = () => makeSource({ id: 1, recent_items: makePreviews(5) })
 
   it('源太少（< 6）一律撑满', () => {
     assert.equal(tileSize(0, s(), 'desktop', 1), '4x4')
@@ -191,6 +193,29 @@ describe('tileSize', () => {
   it('锁定尺寸也要套 band 降档', () => {
     const full = makeSource({ card_size: 'full' })
     assert.equal(tileSize(0, full, 'tablet', 20), '4x2')
+  })
+
+  it('内容撑不起来的源不给 4x4：无封面且不满一页列表 → 最多 4x2', () => {
+    const thin = makeSource({ recent_items: makePreviews(2), error_count: 7 })
+    assert.equal(tileSize(0.9, thin, 'desktop', 20), '4x2')
+    // 三四条纯文字也撑不起 320px
+    const few = makeSource({ recent_items: makePreviews(4) })
+    assert.equal(tileSize(0.9, few, 'desktop', 20), '4x2')
+    // ≤2 条 + 封面 = feature 通栏大图，撑得起 4x4
+    const covered = makeSource({
+      recent_items: makePreviews(2, { image: 'https://example.com/c.png' }),
+    })
+    assert.equal(tileSize(0.9, covered, 'desktop', 20), '4x4')
+    // 三四条只配 52px 小方图，有封面也撑不起
+    const fewCovered = makeSource({
+      recent_items: makePreviews(4, { image: 'https://example.com/c.png' }),
+    })
+    assert.equal(tileSize(0.9, fewCovered, 'desktop', 20), '4x2')
+    // 够铺满一页列表（5 条）也行
+    const listy = makeSource({ recent_items: makePreviews(5) })
+    assert.equal(tileSize(0.9, listy, 'desktop', 20), '4x4')
+    // 「源太少一律撑满」不受这条影响
+    assert.equal(tileSize(0.9, thin, 'desktop', 3), '4x4')
   })
 
   it('锁定优先于「源太少一律撑满」', () => {
