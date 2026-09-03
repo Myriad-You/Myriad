@@ -31,6 +31,7 @@ import { TileCoverMosaic } from './TileCover'
 import { TileMark, TileMeta, TileShell } from './TileShell'
 import {
   COVER_H_TOPIC,
+  COVER_H_TOPIC_WIDE,
   fs,
   sp,
   SPLIT_MEDIA_WIDTH,
@@ -103,12 +104,12 @@ export const BrewTopicTile = memo(
           contentClassName="flex min-h-0 flex-row items-stretch"
         >
           <div
-            className="shrink-0"
+            className="flex shrink-0 flex-col justify-center"
             style={{ width: SPLIT_MEDIA_WIDTH, paddingRight: sp(10, scale) }}
           >
             <TileCoverMosaic
               images={covers}
-              height={sp(56, scale)}
+              height={sp(COVER_H_TOPIC_WIDE, scale)}
               gap={sp(2, scale)}
             />
           </div>

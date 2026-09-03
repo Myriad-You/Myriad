@@ -31,6 +31,8 @@ export const ICON_MARK_SIZE = 50
 export const COVER_H_FEATURE = 96
 /** 4×4 主题拼贴高 */
 export const COVER_H_TOPIC = 84
+/** 4×2 主题拼贴高（在左视觉栏内居中，不吃满栏高） */
+export const COVER_H_TOPIC_WIDE = 56
 
 /** 4×2 左视觉栏占宽（feature / cadence） */
 export const SPLIT_MEDIA_WIDTH = '40%'
