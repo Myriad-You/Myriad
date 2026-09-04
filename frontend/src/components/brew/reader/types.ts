@@ -190,6 +190,11 @@ export interface ReaderLeftPanelProps {
   isAuthenticated: boolean
   isAdmin: boolean
   isBrewlia: boolean
+  /**
+   * 编辑这篇手记。只有站长打开自己写的那篇时才有值 —— 抓来的文章不能改，
+   * 所以这个回调的存在与否本身就是「能不能改」的答案。
+   */
+  onEditNote?: () => void
 
   // 主题
   currentTheme: ThemeConfig

@@ -11,6 +11,7 @@ import {
   LuChevronLeft as ChevronLeft,
   LuChevronRight as ChevronRight,
   LuCloud as Cloud,
+  LuEdit3 as Edit3,
   LuExternalLink as ExternalLink,
   LuEye as Eye,
   LuEyeOff as EyeOff,
@@ -57,6 +58,7 @@ export default memo(
     activeHeadingId,
     scrollToHeading,
     onToggleStar,
+    onEditNote,
     annotations,
     annotationsLoading,
     showAnnotations,
@@ -369,6 +371,18 @@ export default memo(
                       className={`w-5 h-5 ${podcastState === 'playing' || (showPodcastPlayer && podcastDialogues.length > 0) ? 'fill-current' : ''}`}
                     />
                   )}
+                </button>
+              )}
+
+              {/* 编辑手记。只有站长打开自己写的那篇时才有 */}
+              {onEditNote && (
+                <button
+                  onClick={onEditNote}
+                  className={sideButtonClass}
+                  title={t.brew.noteEdit}
+                  aria-label={t.brew.noteEdit}
+                >
+                  <Edit3 className="w-5 h-5" />
                 </button>
               )}
 

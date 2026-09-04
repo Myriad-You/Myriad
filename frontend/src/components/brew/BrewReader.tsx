@@ -1746,6 +1746,7 @@ export default function BrewReader({
             activeHeadingId={activeHeadingId}
             scrollToHeading={scrollToHeading}
             onToggleStar={onToggleStar}
+            onEditNote={onEditNote}
             annotations={annotations}
             annotationsLoading={annotationsLoading}
             showAnnotations={showAnnotations}

@@ -17,7 +17,6 @@ import type { WidgetComponentProps } from '../../WidgetGrid'
 import type { BrewTileLayout, BrewTileSize } from '../logic/layout'
 
 import type { BrewViewerRole } from '../logic/score'
-import { LuExternalLink as ExternalLink } from '@lib/icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -252,12 +251,15 @@ export const BrewSourceTile = memo(
     // 比上下瘦条更糟）。拆栏那条规则针对的是 4×2 那个扁矩形。
     const isSmall = size === '2x2'
 
-    // icon 型：站点入口。整卡点击直接开外站，不进阅读器
+    // icon 型：站点入口。整卡点击直接开外站，不进阅读器。
+    //
+    // 排版参照社交平台的链接卡：站点头像是主体，站名一行，域名一行灰的。
+    // 这里**不点光晕** —— 一面墙二十个入口各带一团身份色，整块屏就成了色卡。
+    // 身份色只留在头像上。
     if (layout === 'icon') {
       const host = siteHost(source)
       const target = source.site_url || source.url
-      const desc = source.description?.trim() || host
-      const tag = source.ai_style_tags?.find((x) => x.trim())?.trim()
+      const desc = source.description?.trim()
       const openTarget =
         editMode
           ? openSource
@@ -265,32 +267,39 @@ export const BrewSourceTile = memo(
             ? () => window.open(target, '_blank', 'noopener,noreferrer')
             : undefined
 
-      // 竖条：图标在上、站名在下。一屏能排满一行入口，代价是放不下描述。
-      // 安全内边距压到 6/10 —— 14px 的默认值会把 61px 宽的卡挤到只剩 36px 正文。
+      const avatar = (px: number) => (
+        <TileMark
+          variant="avatar"
+          name={source.name}
+          color={color}
+          scale={scale}
+          size={px}
+          icon={icon}
+          onIconLoad={handleIconLoad}
+        />
+      )
+
+      // 竖条：头像在上、站名在下，像桌面上的一个图标。
+      // 61px 宽放不下域名，所以这一档只给名字 —— 挤进去只会变成两行省略号。
+      // 安全内边距压到 6/10：14px 的默认值会吃掉将近一半宽度。
       if (size === '1x2') {
         return (
           <TileShell
             color={color}
             surface={surface}
             scale={scale}
-            padding={{ x: 6, y: 10 }}
+            padding={{ x: 6, y: 12 }}
             containerRef={containerRef}
             label={source.name}
-            glow="single"
+            glow="none"
             contentClassName="flex min-h-0 flex-col items-center justify-center"
             onClick={openTarget}
           >
-            <TileMark
-              name={source.name}
-              color={color}
-              scale={scale}
-              size={ICON_MARK_SIZE * 0.7}
-              icon={icon}
-              onIconLoad={handleIconLoad}
-            />
+            {avatar(ICON_MARK_SIZE * 0.76)}
             <span
-              className="mt-auto w-full pt-2 text-center font-medium text-gray-700 dark:text-gray-200"
+              className="w-full text-center font-medium text-gray-700 dark:text-gray-200"
               style={{
+                marginTop: sp(9, scale),
                 fontSize: fs(T_MINOR, fontScale),
                 lineHeight: 1.3,
                 display: '-webkit-box',
@@ -306,105 +315,71 @@ export const BrewSourceTile = memo(
         )
       }
 
-      // 横条：图标在左、站名在右。一行高，只放得下名字。
-      if (size === '2x1') {
-        return (
-          <TileShell
-            color={color}
-            surface={surface}
-            scale={scale}
-            padding={{ x: 10, y: 8 }}
-            containerRef={containerRef}
-            label={source.name}
-            glow="single"
-            contentClassName="flex min-h-0 items-center"
-            onClick={openTarget}
-          >
-            <div
-              className="flex min-w-0 flex-1 items-center"
-              style={{ gap: sp(8, scale) }}
-            >
-              <TileMark
-                name={source.name}
-                color={color}
-                scale={scale}
-                size={ICON_MARK_SIZE * 0.56}
-                icon={icon}
-                onIconLoad={handleIconLoad}
-              />
-              <span
-                className="min-w-0 flex-1 truncate font-semibold text-gray-800 dark:text-gray-100"
-                style={{ fontSize: fs(T_MINOR, fontScale), lineHeight: 1.25 }}
-              >
-                {source.name}
-              </span>
-            </div>
-          </TileShell>
-        )
-      }
-
+      // 横条与 2×2 以上：头像在左，右边站名压域名。域名是这张卡的身份 ——
+      // 三个都叫「朋友的站」的入口，靠它才分得出谁是谁。
+      const isBar = size === '2x1'
       return (
         <TileShell
           color={color}
           surface={surface}
           scale={scale}
+          padding={isBar ? { x: 11, y: 8 } : undefined}
           containerRef={containerRef}
           label={source.name}
-          glow="single"
+          glow="none"
           contentClassName="flex min-h-0 items-center"
           onClick={openTarget}
         >
           <div
             className="flex min-w-0 flex-1 items-center"
-            style={{ gap: sp(11, scale) }}
+            style={{ gap: sp(isBar ? 9 : 11, scale) }}
           >
-            <TileMark
-              name={source.name}
-              color={color}
-              scale={scale}
-              size={size === '2x2' ? ICON_MARK_SIZE * 0.7 : ICON_MARK_SIZE}
-              icon={icon}
-              onIconLoad={handleIconLoad}
-            />
-            <div
-              className="flex min-w-0 flex-1 flex-col"
-              style={{ gap: sp(3, scale) }}
-            >
-              <div
-                className="flex min-w-0 items-center"
-                style={{ gap: sp(4, scale) }}
+            {/* 头像随卡高走：4×2 有 160px 可用，50px 的头像会让整张卡看起来
+                是空的，左边的分量要压得住右边那三行字 */}
+            {avatar(
+              isBar
+                ? ICON_MARK_SIZE * 0.62
+                : size === '2x2'
+                  ? ICON_MARK_SIZE * 0.78
+                  : ICON_MARK_SIZE * 1.28,
+            )}
+            <div className="flex min-w-0 flex-1 flex-col" style={{ gap: sp(2, scale) }}>
+              <span
+                className="min-w-0 truncate font-semibold text-gray-800 dark:text-gray-100"
+                style={{
+                  fontSize: fs(isBar ? T_MINOR : T_TITLE, fontScale),
+                  lineHeight: 1.3,
+                }}
               >
+                {source.name}
+              </span>
+              {host ? (
                 <span
-                  className="min-w-0 truncate font-semibold text-gray-800 dark:text-gray-100"
-                  style={{ fontSize: fs(T_TITLE, fontScale), lineHeight: 1.25 }}
+                  className="min-w-0 truncate text-gray-400 dark:text-gray-500"
+                  style={{
+                    fontSize: fs(isBar ? T_META : T_MINOR, fontScale),
+                    lineHeight: 1.35,
+                  }}
                 >
-                  {source.name}
+                  {host}
                 </span>
-                <ExternalLink
-                  className="shrink-0 text-gray-400 dark:text-gray-500"
-                  style={{ width: sp(11, scale), height: sp(11, scale) }}
-                  aria-label={t.brew.tileOpenSite}
-                />
-              </div>
-              {desc ? (
+              ) : null}
+              {/* 简介只有 4×2 放得下：2×2 加上它就成了三行挤在一起 */}
+              {desc && size === '4x2' ? (
                 <span
                   className="text-gray-500 dark:text-gray-400"
                   style={{
+                    marginTop: sp(3, scale),
                     fontSize: fs(T_MINOR, fontScale),
-                    lineHeight: 1.4,
+                    lineHeight: 1.45,
                     display: '-webkit-box',
                     WebkitBoxOrient: 'vertical',
-                    WebkitLineClamp: size === '2x2' ? 2 : 3,
+                    WebkitLineClamp: 2,
                     overflow: 'hidden',
                   }}
                 >
                   {desc}
                 </span>
-              ) : null}
-              {tag && size !== '2x2' ? (
-                <TileMeta fontScale={fontScale} scale={scale}>
-                  <span>{tag}</span>
-                </TileMeta>
               ) : null}
             </div>
           </div>
