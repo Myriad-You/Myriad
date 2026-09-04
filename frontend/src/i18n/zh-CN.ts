@@ -4345,6 +4345,28 @@ export const zhCN: TranslationKeys = {
     boardSites: '站点',
     boardSitesTitle: '站点与友情链接',
 
+    // 手记编辑器
+    noteWrite: '写手记',
+    noteEdit: '编辑手记',
+    noteDelete: '删除手记',
+    notePublish: '发布',
+    noteTitlePlaceholder: '标题',
+    noteBodyPlaceholder: '用 Markdown 写点什么…',
+    notePreviewEmpty: '开始写，这里会显示预览。',
+    noteTitleRequired: '标题不能为空',
+    noteDeleteConfirm: '删除这篇手记？删掉之后找不回来。',
+    noteDiscardConfirm: '有还没保存的改动，确定关掉？',
+    noteTabWrite: '写',
+    noteTabPreview: '预览',
+    noteToolHeading: '标题',
+    noteToolBold: '粗体',
+    noteToolItalic: '斜体',
+    noteToolLink: '链接',
+    noteToolCode: '代码块',
+    noteToolQuote: '引用',
+    noteToolList: '列表',
+    noteToolImage: '插入图片',
+
     // 时间相关
     justNow: '刚刚',
     minutesAgo: '{minutes} 分钟前',

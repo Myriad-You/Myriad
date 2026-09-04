@@ -301,6 +301,8 @@ interface ControlIslandProps {
     unreadCount: number
     onBack: () => void
     onMarkAllRead: () => void
+    /** 写一篇新手记。只有管理员会拿到这个回调 */
+    onWriteNote?: () => void
   }
   starredMode?: {
     total: number
@@ -873,6 +875,7 @@ export default function ControlIsland({
               totalArticles: brewT.totalArticles,
               tipUnreadCount: brewT.tipUnreadCount,
               markAllAsRead: brewT.markAllAsRead,
+              noteWrite: brewT.noteWrite,
             }}
           />
         )

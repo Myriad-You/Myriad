@@ -4598,6 +4598,28 @@ export const enUS: TranslationKeys = {
     boardSites: 'Sites',
     boardSitesTitle: 'Sites and friend links',
 
+    // Note editor
+    noteWrite: 'Write a note',
+    noteEdit: 'Edit note',
+    noteDelete: 'Delete note',
+    notePublish: 'Publish',
+    noteTitlePlaceholder: 'Title',
+    noteBodyPlaceholder: 'Write something in Markdown…',
+    notePreviewEmpty: 'Start writing and the preview shows up here.',
+    noteTitleRequired: 'A title is required',
+    noteDeleteConfirm: 'Delete this note? It cannot be recovered.',
+    noteDiscardConfirm: 'There are unsaved changes. Close anyway?',
+    noteTabWrite: 'Write',
+    noteTabPreview: 'Preview',
+    noteToolHeading: 'Heading',
+    noteToolBold: 'Bold',
+    noteToolItalic: 'Italic',
+    noteToolLink: 'Link',
+    noteToolCode: 'Code block',
+    noteToolQuote: 'Quote',
+    noteToolList: 'List',
+    noteToolImage: 'Insert image',
+
     // Time related
     justNow: 'Just now',
     minutesAgo: '{minutes} minutes ago',

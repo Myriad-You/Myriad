@@ -63,7 +63,7 @@ export interface FeedModeConfig {
   isRefreshing?: boolean
 }
 
-/** 分类 Feed 模式配置 */
+/** 分类 Feed 模式配置（手记板块用） */
 export interface CategoryFeedModeConfig {
   categoryName: string
   categoryLabel: string
@@ -71,6 +71,8 @@ export interface CategoryFeedModeConfig {
   unreadCount: number
   onBack: () => void
   onMarkAllRead: () => void
+  /** 写一篇新手记。只有管理员会拿到这个回调 */
+  onWriteNote?: () => void
 }
 
 /** 主题 Feed 模式配置 */

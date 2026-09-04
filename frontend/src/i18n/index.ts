@@ -4134,6 +4134,28 @@ export interface TranslationKeys {
     boardSites: string
     boardSitesTitle: string
 
+    // 手记编辑器
+    noteWrite: string
+    noteEdit: string
+    noteDelete: string
+    notePublish: string
+    noteTitlePlaceholder: string
+    noteBodyPlaceholder: string
+    notePreviewEmpty: string
+    noteTitleRequired: string
+    noteDeleteConfirm: string
+    noteDiscardConfirm: string
+    noteTabWrite: string
+    noteTabPreview: string
+    noteToolHeading: string
+    noteToolBold: string
+    noteToolItalic: string
+    noteToolLink: string
+    noteToolCode: string
+    noteToolQuote: string
+    noteToolList: string
+    noteToolImage: string
+
     // 时间相关
     justNow: string
     minutesAgo: string

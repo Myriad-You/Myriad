@@ -15,7 +15,8 @@ export type FeedType = 'rss' | 'atom' | 'json_feed' | 'notion' | 'rsshub'
 // - rss: 标准订阅（适用于 RSS/Atom/JSON Feed/Notion）
 // - brewlia: AI 增强订阅（适用于 RSS 和 Notion），提供词汇注释等增强功能
 // - rsshub: RSSHub 订阅（支持多实例切换，独立于传统订阅）
-export type SourceType = 'link' | 'rss' | 'brewlia' | 'rsshub'
+// - note: 手记源。站长写第一篇时由后端建出来，添加界面里没有这个选项
+export type SourceType = 'link' | 'rss' | 'brewlia' | 'rsshub' | 'note'
 
 /** 从 Brew 添加界面提交的订阅源参数。 */
 export interface AddSourceInput {

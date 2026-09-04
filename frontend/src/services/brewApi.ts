@@ -4,12 +4,12 @@
 
 import type {
   AddSourceRequest,
-  BrewNoteDraft,
-  BrewNoteInput,
   BrewCategoriesResponse,
   BrewItem,
   BrewItemsQuery,
   BrewItemsResponse,
+  BrewNoteDraft,
+  BrewNoteInput,
   BrewSource,
   BrewSourcesResponse,
   BrewStats,

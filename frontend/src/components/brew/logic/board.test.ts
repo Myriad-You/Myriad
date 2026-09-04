@@ -54,6 +54,15 @@ describe('sourcesForBoard', () => {
     assert.deepEqual(sourcesForBoard(all, 'notes'), [])
   })
 
+  it('手记源落在订阅板块 —— 它是一张能点进去的磁贴，不是入口', () => {
+    const note = makeSource({ id: 4, source_type: 'note', category: '我' })
+    assert.deepEqual(
+      sourcesForBoard([note], 'feeds').map((s) => s.id),
+      [4],
+    )
+    assert.deepEqual(sourcesForBoard([note], 'sites'), [])
+  })
+
   it('保持输入顺序 —— 排序由调用方决定', () => {
     const reversed = [mine, rss, link]
     assert.deepEqual(

@@ -4592,6 +4592,28 @@ export const jaJP: TranslationKeys = {
     boardSites: 'サイト',
     boardSitesTitle: 'サイトと相互リンク',
 
+    // 手記エディタ
+    noteWrite: '手記を書く',
+    noteEdit: '手記を編集',
+    noteDelete: '手記を削除',
+    notePublish: '公開',
+    noteTitlePlaceholder: 'タイトル',
+    noteBodyPlaceholder: 'Markdown で書いてみましょう…',
+    notePreviewEmpty: '書き始めるとここにプレビューが出ます。',
+    noteTitleRequired: 'タイトルを入力してください',
+    noteDeleteConfirm: 'この手記を削除しますか？元には戻せません。',
+    noteDiscardConfirm: '保存していない変更があります。閉じますか？',
+    noteTabWrite: '編集',
+    noteTabPreview: 'プレビュー',
+    noteToolHeading: '見出し',
+    noteToolBold: '太字',
+    noteToolItalic: '斜体',
+    noteToolLink: 'リンク',
+    noteToolCode: 'コードブロック',
+    noteToolQuote: '引用',
+    noteToolList: 'リスト',
+    noteToolImage: '画像を挿入',
+
     // 時間関連
     justNow: 'たった今',
     minutesAgo: '{minutes} 分前',

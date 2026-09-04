@@ -7,6 +7,7 @@ import type { CategoryFeedModeConfig } from './types'
 import {
   LuCheckCircle as CheckCircle,
   LuChevronLeft as ChevronLeft,
+  LuEdit3 as Edit3,
 } from '@lib/icons'
 import { IslandShell } from '../../../shared/control-island'
 import { ISLAND_BTN, ISLAND_DIVIDER } from './constants'
@@ -20,6 +21,7 @@ export interface CategoryFeedModeProps {
     totalArticles: string
     tipUnreadCount: string
     markAllAsRead: string
+    noteWrite: string
   }
 }
 
@@ -80,6 +82,22 @@ export function CategoryFeedMode({
           </div>
         </div>
       </div>
+
+      {/* 写手记。只有管理员拿得到这个回调 */}
+      {categoryFeedMode.onWriteNote && (
+        <>
+          <div className={ISLAND_DIVIDER} />
+          <button
+            onClick={categoryFeedMode.onWriteNote}
+            className="flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-xl bg-linear-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-medium shadow-sm shadow-orange-500/25 transition-all duration-200 ease-out"
+            title={t.noteWrite}
+            aria-label={t.noteWrite}
+          >
+            <Edit3 className="w-4 h-4" />
+            <span className="hidden sm:inline">{t.noteWrite}</span>
+          </button>
+        </>
+      )}
 
       {/* 全部已读按钮 */}
       {isAuthenticated && categoryFeedMode.unreadCount > 0 && (

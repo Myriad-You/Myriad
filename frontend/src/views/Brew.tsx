@@ -46,6 +46,7 @@ import {
 import { boardEntry, resolveBoardParam } from '../components/brew/logic/board'
 import { topicHue, topicNameKey } from '../components/brew/logic/topics'
 import ControlIsland from '../components/brew/manager/ControlIsland'
+import NoteEditor from '../components/brew/notes/NoteEditor'
 import { isBrewTileGridEnabled } from '../components/brew/tileGridFlag'
 import { Spinner } from '../components/Spinner'
 import { useAuth } from '../contexts/AuthContext'
@@ -181,6 +182,11 @@ export default function Brew() {
    * 都先经 `resolveBoardParam` 归一到这里，视图落点由 `applyBoardEntry` 决定。
    */
   const [board, setBoard] = useState<BrewBoard>('feeds')
+  /**
+   * 手记编辑器。`null` = 关着，`'new'` = 写新的，数字 = 改那一篇。
+   * 只有管理员进得来（入口本身按 isAdmin 渲染），组件里不再判角色。
+   */
+  const [noteEditor, setNoteEditor] = useState<number | 'new' | null>(null)
 
   // UI 状态
   const [loading, setLoading] = useState(true)
@@ -1581,6 +1587,9 @@ export default function Brew() {
                     .reduce((sum, s) => sum + s.unread_count, 0),
                   onBack: handleBackFromCategoryFeed,
                   onMarkAllRead: handleMarkAllRead,
+                  onWriteNote: isAdmin
+                    ? () => setNoteEditor('new')
+                    : undefined,
                 }}
               />
 
@@ -1696,6 +1705,13 @@ export default function Brew() {
                 isAuthenticated={isAuthenticated}
                 isAdmin={isAdmin}
                 sourceType={selectedItemSource?.source_type}
+                // 只有站长打开自己写的那篇才给编辑口。抓来的文章改不了 ——
+                // 这里传不传值就是「能不能改」的唯一判据
+                onEditNote={
+                  isAdmin && selectedItemSource?.source_type === 'note'
+                    ? () => setNoteEditor(selectedItem.id)
+                    : undefined
+                }
                 // 仅自有文章用站内规范 URL 分享；外部订阅仍复制原文链接
                 shareUrl={
                   selectedItemIsOwn
@@ -1712,6 +1728,37 @@ export default function Brew() {
               />
             )}
           </AnimatePresence>
+
+          {/* 手记编辑器 */}
+          {noteEditor !== null && (
+            <NoteEditor
+              noteId={noteEditor === 'new' ? undefined : noteEditor}
+              onClose={() => setNoteEditor(null)}
+              onSaved={async (id) => {
+                setNoteEditor(null)
+                // 源列表要重取：条目数变了，手记源可能刚刚才被建出来
+                await Promise.all([loadSources(), loadStats()])
+                // 正在读的就是这篇时，把阅读器里的正文换成新渲染的那份
+                if (selectedItem?.id === id) {
+                  try {
+                    setSelectedItem(await brewApi.getItem(id))
+                  } catch {
+                    // 取不回来就保持原样，不要把阅读器清空
+                  }
+                }
+                if (viewMode === 'category-feed') {
+                  loadItems(true, undefined, viewMode, BREW_MINE_CATEGORY)
+                }
+              }}
+              onDeleted={(id) => {
+                setNoteEditor(null)
+                setItems((prev) => prev.filter((i) => i.id !== id))
+                if (selectedItem?.id === id) setSelectedItem(null)
+                void loadSources()
+                void loadStats()
+              }}
+            />
+          )}
 
           {/* 错误提示 */}
           {error && (

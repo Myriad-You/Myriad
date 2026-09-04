@@ -258,6 +258,10 @@ interface BrewReaderProps {
    * 缺省则复制原文 `item.link`（外部订阅，避免把别人的文章当本站 SEO 页分享）。
    */
   shareUrl?: string
+  /**
+   * 编辑这篇手记。上层只在「站长 + 这篇是手记」时传值，阅读器不自己判断。
+   */
+  onEditNote?: () => void
   // 阅读列表导航回调（从 Brew.tsx 传入）
   onNavigateToArticle?: (articleId: number) => void
   // 全局文章列表导航（非阅读列表时使用）
@@ -280,6 +284,7 @@ export default function BrewReader({
   isAdmin = false,
   sourceType,
   shareUrl,
+  onEditNote,
   onNavigateToArticle,
   articleList,
   currentArticleIndex,
@@ -2984,6 +2989,7 @@ export default function BrewReader({
         adjustLineHeight={adjustLineHeight}
         currentFont={currentFont}
         handleShare={handleShare}
+        onEditNote={onEditNote}
         enableAnimations={enableAnimations}
         onTouchStart={() => {
           isHoveringControlsRef.current = true
