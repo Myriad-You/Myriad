@@ -179,15 +179,8 @@ export function tileSize(
   if (locked) return downgradeForBand(locked, band)
 
   // 入口型来源不进分数派生：它没有条目也没有未读，信息量恒定是「一个入口」。
-  // 但站点太少时给竖条会更糟 —— 三粒碎屑挂在墙角，比留白还难看。少于一屏
-  // 一行的量就摊开成链接卡（头像 + 站名 + 域名 + 简介），刚好铺满一行。
-  // 上限是 4x2 不是 4x4：一个入口撑不起 320px 高。
-  if (isSiteSource(s)) {
-    return downgradeForBand(
-      sourceCount < FULL_BLEED_SOURCE_COUNT ? '4x2' : '1x2',
-      band,
-    )
-  }
+  // 这一支必须在「源太少一律撑满」前面 —— 三个友链各占 4x4 是一整屏的空白。
+  if (isSiteSource(s)) return downgradeForBand('1x2', band)
 
   if (sourceCount < FULL_BLEED_SOURCE_COUNT) {
     return downgradeForBand('4x4', band)

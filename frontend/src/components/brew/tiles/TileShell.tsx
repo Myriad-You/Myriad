@@ -120,11 +120,6 @@ TileShell.displayName = 'TileShell'
 
 /**
  * 扁字标：站名首字 + 身份色。没有图标时不画灰块，直接用色底的首字。
- *
- * 两种形态：
- * - `mark` 行内小字标，跟在站名左边，只是个记号
- * - `avatar` 站点头像。入口型磁贴上它就是整张卡的主体，所以更大、更圆、
- *   底色更淡，并补一圈发丝描边把没有图标的那些也框成一个「头像」
  */
 export function TileMark({
   name,
@@ -133,7 +128,6 @@ export function TileMark({
   size = MARK_SIZE,
   icon,
   onIconLoad,
-  variant = 'mark',
 }: {
   name: string
   color: string
@@ -143,26 +137,20 @@ export function TileMark({
   icon?: string | null
   /** 图标真正加载成功后回调（已排除 1×1 软失败占位）—— 主题色提取挂这里 */
   onIconLoad?: (img: HTMLImageElement) => void
-  variant?: 'mark' | 'avatar'
 }) {
   const px = sp(size, scale)
   const initial = name.trim().slice(0, 1) || '·'
-  const avatar = variant === 'avatar'
 
   return (
     <span
-      className={`relative flex shrink-0 items-center justify-center overflow-hidden ${
-        avatar ? 'rounded-[28%]' : 'rounded-md'
-      }`}
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-md"
       style={{
         width: px,
         height: px,
-        // 头像底色压到很淡：一墙入口如果每张都是饱和色块，整面墙就成了色卡
-        background: avatar ? `${color}18` : `${color}22`,
-        boxShadow: avatar ? `inset 0 0 0 1px ${color}28` : undefined,
+        background: `${color}22`,
         color,
-        fontSize: `${Math.round(px * (avatar ? 0.42 : 0.56))}px`,
-        fontWeight: avatar ? 500 : 600,
+        fontSize: `${Math.round(px * 0.56)}px`,
+        fontWeight: 600,
         lineHeight: 1,
       }}
       aria-hidden

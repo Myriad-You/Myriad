@@ -175,19 +175,16 @@ describe('tileSize', () => {
     assert.equal(tileSize(0, s(), 'phone', 3), '4x2')
   })
 
-  it('入口型来源不看分数：够一屏一行的量就一律竖条', () => {
+  it('入口型来源固定竖条，不看分数', () => {
     const link = makeSource({ source_type: 'link' })
     assert.equal(tileSize(0.99, link, 'desktop', 20), '1x2')
     assert.equal(tileSize(0, link, 'desktop', 20), '1x2')
   })
 
-  it('站点太少时摊成链接卡，但绝不到 4x4 —— 一个入口撑不起 320px', () => {
+  it('入口型来源不吃「源太少一律撑满」—— 三个友链不该各占 4x4', () => {
     const link = makeSource({ source_type: 'link' })
-    assert.equal(tileSize(0, link, 'desktop', 3), '4x2')
-    assert.equal(tileSize(0, link, 'desktop', 5), '4x2')
-    assert.equal(tileSize(0.99, link, 'desktop', 5), '4x2')
-    // 够一行了就回到竖条
-    assert.equal(tileSize(0, link, 'desktop', 6), '1x2')
+    assert.equal(tileSize(0, link, 'desktop', 3), '1x2')
+    assert.equal(tileSize(0, link, 'phone', 1), '1x2')
   })
 
   it('入口型来源仍认用户锁定', () => {
