@@ -288,6 +288,14 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     is_nullable: true,
                     default_value: None,
                 },
+                // 手记原文（Markdown）。抓来的文章恒为 NULL；渲染后的 HTML
+                // 仍然落在 content 上，全站只认那一列。
+                ColumnDef {
+                    name: "content_md".into(),
+                    data_type: "text".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
             ],
         },
         TableDef {

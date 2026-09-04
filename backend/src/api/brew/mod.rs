@@ -5,6 +5,7 @@
 mod comments_rsshub;
 mod feeds_articles;
 mod helpers;
+mod notes;
 mod reading_sync_ws;
 
 pub use feeds_articles::create_brew_routes;

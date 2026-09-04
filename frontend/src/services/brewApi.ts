@@ -4,6 +4,8 @@
 
 import type {
   AddSourceRequest,
+  BrewNoteDraft,
+  BrewNoteInput,
   BrewCategoriesResponse,
   BrewItem,
   BrewItemsQuery,
@@ -378,6 +380,90 @@ export async function getItem(
 /**
  * 清除单篇文章缓存
  */
+/**
+ * 写一篇手记。返回新条目 id 与站内链接。
+ */
+export async function createNote(
+  req: BrewNoteInput,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<{ id: number; link: string }> {
+  const data = await request<{ success: boolean; id: number; link: string }>(
+    '/notes',
+    {
+      method: 'POST',
+      body: JSON.stringify(req),
+      headers: attributionHeaders,
+    },
+  )
+  invalidateSourcesCache()
+  return { id: data.id, link: data.link }
+}
+
+/**
+ * 改一篇手记。改完必须让这篇文章的缓存失效，否则阅读器还显示旧正文。
+ */
+export async function updateNote(
+  id: number,
+  req: BrewNoteInput,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<{ id: number; link: string }> {
+  const data = await request<{ success: boolean; id: number; link: string }>(
+    `/notes/${id}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(req),
+      headers: attributionHeaders,
+    },
+  )
+  invalidateItemCache(id)
+  invalidateSourcesCache()
+  return { id: data.id, link: data.link }
+}
+
+/**
+ * 删一篇手记。
+ */
+export async function deleteNote(
+  id: number,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<void> {
+  await request(`/notes/${id}`, {
+    method: 'DELETE',
+    headers: attributionHeaders,
+  })
+  invalidateItemCache(id)
+  invalidateSourcesCache()
+}
+
+/**
+ * 取回原文供编辑。阅读器拿到的是渲染后的 HTML，改稿要的是 Markdown。
+ */
+export async function getNoteDraft(id: number): Promise<BrewNoteDraft> {
+  const data = await request<{ success: boolean; note: BrewNoteDraft }>(
+    `/notes/${id}`,
+  )
+  return data.note
+}
+
+/**
+ * 编辑器预览。与发布走同一个后端渲染函数 —— 前端不自己解析 Markdown，
+ * 预览里看到的就是发出去之后的那份 HTML。
+ */
+export async function previewNote(
+  contentMd: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const data = await request<{ success: boolean; html: string }>(
+    '/notes/preview',
+    {
+      method: 'POST',
+      body: JSON.stringify({ content_md: contentMd }),
+      signal,
+    },
+  )
+  return data.html
+}
+
 export function invalidateItemCache(id: number): void {
   requestCache.delete(`brew:item:${id}`)
 }

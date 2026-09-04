@@ -30,6 +30,7 @@ use crate::services::data_paths::paths;
 use crate::services::icon_service::IconService;
 
 use super::comments_rsshub;
+use super::notes;
 use super::helpers::{
     brew_http_err, brew_store_http, build_feed_discovery_candidates, generate_opml,
     get_admin_user_id_from_headers, get_user_and_admin_status, parse_opml,
@@ -56,6 +57,15 @@ pub fn create_brew_routes(app_state: crate::state::AppState) -> Router<crate::st
         .route(
             "/categories/{id}",
             put(update_category).delete(delete_category),
+        )
+        // 手记（站长自写内容；写路径一律管理员）
+        .route("/notes", post(notes::create_note))
+        .route("/notes/preview", post(notes::preview_note))
+        .route(
+            "/notes/{id}",
+            get(notes::get_note_draft)
+                .put(notes::update_note)
+                .delete(notes::delete_note),
         )
         // 文章获取
         .route("/items", get(list_items))
@@ -1039,6 +1049,9 @@ pub(crate) async fn export_opml(
     let (_, is_admin) = get_user_and_admin_status(&headers, &db).await;
 
     let mut query = brew_sources::Entity::find()
+        // 手记源的 url 是 `myriad:notes`，不是一个可订阅的 feed。导出来别人
+        // 导进去只会得到一个永远抓不动的源。
+        .filter(brew_sources::Column::SourceType.ne(brew_sources::SourceType::Note))
         .order_by_asc(brew_sources::Column::Category)
         .order_by_asc(brew_sources::Column::Name);
 

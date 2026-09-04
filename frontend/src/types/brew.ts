@@ -175,6 +175,34 @@ export interface BrewItem {
   topic?: string | null
 }
 
+/**
+ * 手记的写入载荷。字段名与后端 `NoteWriteRequest` 一一对应。
+ *
+ * 手记就是 `brew_items` 里的一条，所以写完之后它在阅读器、收藏、评论、
+ * 订阅列表里的表现与抓来的文章完全一致。
+ */
+export interface BrewNoteInput {
+  title: string
+  /** Markdown 原文。渲染成 HTML 是后端的事，前端不自己解析。 */
+  content_md: string
+  /** 预定义主题 key；留空表示不参与主题聚类。 */
+  topic?: string | null
+  /** 封面。不给就取正文里第一张图。 */
+  image?: string | null
+  /** 发布时间（毫秒）。改稿时不给则保持原值。 */
+  published_at?: number | null
+}
+
+/** 编辑器读回的那份原文。 */
+export interface BrewNoteDraft {
+  id: number
+  title: string
+  content_md: string
+  topic: string | null
+  image: string | null
+  published_at: number
+}
+
 // 分类
 export interface BrewCategory {
   id: number

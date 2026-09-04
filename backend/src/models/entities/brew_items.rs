@@ -57,6 +57,12 @@ pub struct Model {
     /// NULL = 未分类，不参与主题聚类；关键词入库同步写，AI 每小时补。
     #[sea_orm(column_type = "Text", nullable)]
     pub topic: Option<String>,
+    /// 手记原文（Markdown）。只有手记源下的条目有值，抓来的文章恒为 NULL。
+    ///
+    /// 渲染后的 HTML 在 `content` 上 —— 阅读器、RSS、联邦、SEO 都只读那一列，
+    /// 这一列的唯一用途是把原文取回编辑器。
+    #[sea_orm(column_type = "Text", nullable)]
+    pub content_md: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

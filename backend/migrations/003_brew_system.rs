@@ -249,6 +249,10 @@ impl MigrationTrait for Migration {
                     // 预定义主题 key（关键词或 AI 离线写入）。NULL = 未分类，
                     // 聚类侧靠 NULL 把文章留在源磁贴里，不建「其他」桶。
                     .col(ColumnDef::new(BrewItems::Topic).text())
+                    // 手记原文（Markdown）。只有 source_type = note 的源下的
+                    // 条目有值；抓来的文章恒为 NULL。`content` 存的是渲染后的
+                    // HTML，全站只认它 —— 阅读器、RSS、联邦、SEO 都读 content。
+                    .col(ColumnDef::new(BrewItems::ContentMd).text())
                     .to_owned(),
             )
             .await?;
@@ -974,6 +978,7 @@ enum BrewItems {
     ReadingTime,
     FulltextFetched,
     Topic,
+    ContentMd,
 }
 
 #[derive(DeriveIden)]

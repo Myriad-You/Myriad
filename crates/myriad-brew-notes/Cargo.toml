@@ -1,0 +1,11 @@
+[package]
+name = "myriad-brew-notes"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Pure Brew note rules: Markdown rendering, sanitization, and derived article fields."
+authors = ["Myriad Contributors"]
+
+[dependencies]
+ammonia = "4.1"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }

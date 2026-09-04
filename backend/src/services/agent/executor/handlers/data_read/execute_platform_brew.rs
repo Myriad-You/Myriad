@@ -831,14 +831,6 @@ async fn execute_brew_sources(
 
     let total_in_system = all_sources.len();
 
-    fn source_type_str(st: &brew_sources::SourceType) -> &'static str {
-        match st {
-            brew_sources::SourceType::Link => "link",
-            brew_sources::SourceType::Rss => "rss",
-            brew_sources::SourceType::Brewlia => "brewlia",
-        }
-    }
-
     fn feed_type_str(ft: &brew_sources::FeedType) -> &'static str {
         match ft {
             brew_sources::FeedType::Rss => "rss",
@@ -856,7 +848,7 @@ async fn execute_brew_sources(
             "url": s.url,
             "siteUrl": s.site_url,
             "category": s.category,
-            "sourceType": source_type_str(&s.source_type),
+            "sourceType": s.source_type.as_str(),
             "feedType": feed_type_str(&s.feed_type),
             "enabled": s.enabled,
             "itemCount": s.item_count,
@@ -903,7 +895,7 @@ async fn execute_brew_sources(
                 }
             }
             if let Some(ref st) = source_type_filter {
-                if source_type_str(&s.source_type) != st.as_str() {
+                if s.source_type.as_str() != st.as_str() {
                     return false;
                 }
             }
@@ -2495,11 +2487,7 @@ async fn execute_fuzzy_search(
                             "icon": source.icon,
                             "siteUrl": source.site_url,
                             "category": source.category,
-                            "sourceType": match source.source_type {
-                                brew_sources::SourceType::Link => "link",
-                                brew_sources::SourceType::Rss => "rss",
-                                brew_sources::SourceType::Brewlia => "brewlia",
-                            }
+                            "sourceType": source.source_type.as_str()
                         }
                     }));
                 }
@@ -3243,11 +3231,7 @@ async fn execute_brew_page_content(
                         "siteUrl": s.site_url.clone(),
                         "icon": s.icon.clone(),
                         "category": s.category.clone(),
-                        "sourceType": match s.source_type {
-                            brew_sources::SourceType::Link => "link",
-                            brew_sources::SourceType::Rss => "rss",
-                            brew_sources::SourceType::Brewlia => "brewlia",
-                        },
+                        "sourceType": s.source_type.as_str(),
                         "unreadCount": s.unread_count,
                         "itemCount": s.item_count,
                         "lastUpdated": s.updated_at.to_string()
