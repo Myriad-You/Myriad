@@ -7,8 +7,8 @@
  * 4×2 的硬规则：左右拆栏（feature / cadence / numeric / icon）或单行列表
  * （list）。上下堆封面再堆标题的「瘦条」是上一版被否掉的形态。
  *
- * `1x2`（竖条）与 `2x1`（横条）只有 icon 构图会遇到 —— 它们是入口型来源
- * 专属的两档，`tileSize` 不会把它们派给有条目的源。
+ * `2x1`（横条）只有 icon 构图会遇到 —— 它是入口型来源专属的一档，
+ * `tileSize` 不会把它派给有条目的源。
  */
 
 import type { KeyboardEvent, MouseEvent } from 'react'
@@ -264,47 +264,6 @@ export const BrewSourceTile = memo(
           : /^https?:\/\//i.test(target)
             ? () => window.open(target, '_blank', 'noopener,noreferrer')
             : undefined
-
-      // 竖条：图标在上、站名在下。一屏能排满一行入口，代价是放不下描述。
-      // 安全内边距压到 6/10 —— 14px 的默认值会把 61px 宽的卡挤到只剩 36px 正文。
-      if (size === '1x2') {
-        return (
-          <TileShell
-            color={color}
-            surface={surface}
-            scale={scale}
-            padding={{ x: 6, y: 10 }}
-            containerRef={containerRef}
-            label={source.name}
-            glow="single"
-            contentClassName="flex min-h-0 flex-col items-center justify-center"
-            onClick={openTarget}
-          >
-            <TileMark
-              name={source.name}
-              color={color}
-              scale={scale}
-              size={ICON_MARK_SIZE * 0.7}
-              icon={icon}
-              onIconLoad={handleIconLoad}
-            />
-            <span
-              className="mt-auto w-full pt-2 text-center font-medium text-gray-700 dark:text-gray-200"
-              style={{
-                fontSize: fs(T_MINOR, fontScale),
-                lineHeight: 1.3,
-                display: '-webkit-box',
-                WebkitBoxOrient: 'vertical',
-                WebkitLineClamp: 2,
-                overflow: 'hidden',
-                overflowWrap: 'anywhere',
-              }}
-            >
-              {source.name}
-            </span>
-          </TileShell>
-        )
-      }
 
       // 横条：图标在左、站名在右。一行高，只放得下名字。
       if (size === '2x1') {

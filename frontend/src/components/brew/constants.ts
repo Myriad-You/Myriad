@@ -75,13 +75,12 @@ export const DEFAULT_THEME_COLOR = '#6b7280'
 /**
  * 尺寸对应的 row-span（老 CSS Grid 用；磁贴墙走 logic/layout.ts）。
  *
- * 老网格的列宽由 CSS Grid 定，宽度锁不住，所以入口型来源的两个新档位
- * 只能按高度近似：竖条当 mini，横条当 tiny。
+ * 老网格的列宽由 CSS Grid 定，宽度锁不住，所以入口型来源的横条档
+ * 只能按高度近似成 tiny。
  */
 export const SIZE_TO_ROWS: Record<CardSize, number> = {
   full: 8, // 8 × 24px = 192px
   mini: 4, // 4 × 24px = 96px
-  chip: 4, // 竖条在老网格里只能按 mini 高度近似
   tiny: 2, // 2 × 24px = 48px
   bar: 2, // 横条在老网格里只能按 tiny 高度近似
 }

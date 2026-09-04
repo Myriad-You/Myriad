@@ -37,8 +37,8 @@ export interface TileShellProps {
    */
   surface?: 'glass' | 'solid'
   /**
-   * 覆盖安全内边距。只有 `1x2` / `2x1` 这两档窄卡需要 —— 默认的 14px
-   * 在 61px 宽的竖条上会吃掉将近一半，正文放不下一个站名。
+   * 覆盖安全内边距。只有 `2x1` 这一档窄卡需要 —— 默认的 14px 在只有一行
+   * 高的横条上会把正文挤到没有位置。
    * 其余尺寸一律用默认值，不要在这里调版。
    */
   padding?: number | { x: number; y: number }

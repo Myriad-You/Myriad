@@ -29,7 +29,6 @@ const daysAgo = (d: number) => NOW - d * MS_PER_DAY
 /** 磁贴在 16×4 网格里的物理尺寸（桌面 cell ≈ 80px）。 */
 const CELL = 82
 const SIZE_PX: Record<BrewTileSize, { width: number; height: number }> = {
-  '1x2': { width: CELL, height: CELL * 2 },
   '2x1': { width: CELL * 2, height: CELL },
   '2x2': { width: CELL * 2, height: CELL * 2 },
   '4x2': { width: CELL * 4, height: CELL * 2 },

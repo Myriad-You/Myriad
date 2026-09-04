@@ -4,12 +4,12 @@
  * 两条硬约束：
  * 1. 窄屏降档**只在这里**做。组件内部禁止再写第二套窄屏判断，
  *    否则同一个 `4x4` 会在两处得出不同结论。
- * 2. 内容磁贴最小仍是 `2x2`。`1x2` / `2x1` 是**入口型来源专属**的两档 ——
+ * 2. 内容磁贴最小仍是 `2x2`。`2x1` 是**入口型来源专属**的一档 ——
  *    站点板块一整墙都是入口，给 `4x2` 会把一屏能放的入口砍到四分之一。
- *    别把它们放开给有条目的源：一行标题都塞不下。
+ *    别把它放开给有条目的源：一行标题都塞不下。
  *
- * 记法是 `宽x高`（列 × 行），与 `WidgetSize` 同源：`1x2` 是竖条，
- * `2x1` 是横条。
+ * 记法是 `宽x高`（列 × 行），与 `WidgetSize` 同源，所以 `2x1` 是横条。
+ * 竖条 `1x2` 试过一版，站名只能立着排两行，比横条难读，已经撤掉。
  */
 
 import type { BrewSource, CardSize } from '../../../types/brew'
@@ -20,17 +20,17 @@ import { isSiteSource } from './board'
 import { daysSinceLastPublish } from './score'
 
 /** 生产用的尺寸档。是 `WidgetSize` 的子集（下方 satisfies 守住这点）。 */
-export type BrewTileSize = '1x2' | '2x1' | '2x2' | '4x2' | '4x4'
+export type BrewTileSize = '2x1' | '2x2' | '4x2' | '4x4'
 
-export const BREW_TILE_SIZES = ['1x2', '2x1', '2x2', '4x2', '4x4'] as const satisfies
+export const BREW_TILE_SIZES = ['2x1', '2x2', '4x2', '4x4'] as const satisfies
   readonly WidgetSize[]
 
 /** 内容磁贴可用的档位（有条目、有未读、要读的源）。 */
 export const CONTENT_TILE_SIZES = ['2x2', '4x2', '4x4'] as const satisfies
   readonly BrewTileSize[]
 
-/** 入口型来源可用的档位。竖条在前 —— 它是站点板块的默认形态。 */
-export const SITE_TILE_SIZES = ['1x2', '2x1', '2x2', '4x2'] as const satisfies
+/** 入口型来源可用的档位。横条在前 —— 它是站点板块的默认形态。 */
+export const SITE_TILE_SIZES = ['2x1', '2x2', '4x2'] as const satisfies
   readonly BrewTileSize[]
 
 /** 这个源能锁到哪些档。用户手动挑尺寸时按这个列表轮转。 */
@@ -118,11 +118,10 @@ export function downgradeForBand(
 
 /**
  * `card_size`（旧的手工尺寸）现在的语义是「用户锁定」。零 migration ——
- * `tiny` / `mini` / `full` 是老网格留下的三个值，`chip` / `bar` 是入口型
- * 来源的两个新值。库里这一列是自由 varchar，加值不需要迁移。
+ * `tiny` / `mini` / `full` 是老网格留下的三个值，`bar` 是入口型来源的
+ * 新值。库里这一列是自由 varchar，加值不需要迁移。
  */
 const CARD_SIZE_TO_TILE: Record<CardSize, BrewTileSize> = {
-  chip: '1x2',
   bar: '2x1',
   tiny: '2x2',
   mini: '4x2',
@@ -180,7 +179,7 @@ export function tileSize(
 
   // 入口型来源不进分数派生：它没有条目也没有未读，信息量恒定是「一个入口」。
   // 这一支必须在「源太少一律撑满」前面 —— 三个友链各占 4x4 是一整屏的空白。
-  if (isSiteSource(s)) return downgradeForBand('1x2', band)
+  if (isSiteSource(s)) return downgradeForBand('2x1', band)
 
   if (sourceCount < FULL_BLEED_SOURCE_COUNT) {
     return downgradeForBand('4x4', band)

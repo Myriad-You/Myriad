@@ -721,7 +721,7 @@ export default function BrewSourceGrid({
       const deltaY = clientY - resizingSource.startY
 
       // 计算目标尺寸
-      // 入口型来源的 chip / bar 不在老网格的三档里；认不出就从最小档起算，
+      // 入口型来源的 bar 不在老网格的三档里；认不出就从最小档起算，
       // 而不是让 indexOf 的 -1 参与运算
       const startIndex = Math.max(0, SIZE_ORDER.indexOf(resizingSource.startSize))
       const sizeChange = Math.round(deltaY / RESIZE_THRESHOLD)

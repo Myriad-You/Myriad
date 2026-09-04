@@ -151,9 +151,8 @@ describe('downgradeForBand', () => {
     }
   })
 
-  it('竖条 / 横条各档都不降 —— 手机 4 列也放得下', () => {
+  it('横条各档都不降 —— 手机 4 列也放得下', () => {
     for (const band of ['tablet', 'phone'] as const) {
-      assert.equal(downgradeForBand('1x2', band), '1x2')
       assert.equal(downgradeForBand('2x1', band), '2x1')
     }
   })
@@ -175,16 +174,16 @@ describe('tileSize', () => {
     assert.equal(tileSize(0, s(), 'phone', 3), '4x2')
   })
 
-  it('入口型来源固定竖条，不看分数', () => {
+  it('入口型来源固定横条，不看分数', () => {
     const link = makeSource({ source_type: 'link' })
-    assert.equal(tileSize(0.99, link, 'desktop', 20), '1x2')
-    assert.equal(tileSize(0, link, 'desktop', 20), '1x2')
+    assert.equal(tileSize(0.99, link, 'desktop', 20), '2x1')
+    assert.equal(tileSize(0, link, 'desktop', 20), '2x1')
   })
 
   it('入口型来源不吃「源太少一律撑满」—— 三个友链不该各占 4x4', () => {
     const link = makeSource({ source_type: 'link' })
-    assert.equal(tileSize(0, link, 'desktop', 3), '1x2')
-    assert.equal(tileSize(0, link, 'phone', 1), '1x2')
+    assert.equal(tileSize(0, link, 'desktop', 3), '2x1')
+    assert.equal(tileSize(0, link, 'phone', 1), '2x1')
   })
 
   it('入口型来源仍认用户锁定', () => {
@@ -299,22 +298,20 @@ describe('尺寸锁', () => {
     )
   })
 
-  it('内容源拿不到竖条 / 横条', () => {
+  it('内容源拿不到横条', () => {
     const content = allowedTileSizes({ source_type: 'rss' })
-    assert.equal(content.includes('1x2'), false)
     assert.equal(content.includes('2x1'), false)
   })
 
   it('轮转：未锁 → 逐档 → 回到未锁', () => {
-    assert.equal(nextLockedSize(null, SITE_TILE_SIZES), '1x2')
-    assert.equal(nextLockedSize('1x2', SITE_TILE_SIZES), '2x1')
+    assert.equal(nextLockedSize(null, SITE_TILE_SIZES), '2x1')
     assert.equal(nextLockedSize('2x1', SITE_TILE_SIZES), '2x2')
     assert.equal(nextLockedSize('2x2', SITE_TILE_SIZES), '4x2')
     assert.equal(nextLockedSize('4x2', SITE_TILE_SIZES), null)
   })
 
   it('轮转：当前档不在列表里就从头开始，用户点得回未锁定', () => {
-    assert.equal(nextLockedSize('1x2', CONTENT_TILE_SIZES), '2x2')
+    assert.equal(nextLockedSize('2x1', CONTENT_TILE_SIZES), '2x2')
   })
 
   it('空列表恒为未锁', () => {

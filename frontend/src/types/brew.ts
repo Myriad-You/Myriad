@@ -94,12 +94,12 @@ export interface BrewItemPreview {
 /**
  * 用户锁定的磁贴档位（库里是自由 varchar，加值不需要迁移）。
  *
- * - `chip` 竖条 1x2、`bar` 横条 2x1：入口型来源专属
+ * - `bar` 横条 2x1：入口型来源专属
  * - `tiny` 2x2、`mini` 4x2、`full` 4x4：老网格留下的三档，内容磁贴用
  *
  * 档位到尺寸的映射只有一份，在 `components/brew/logic/layout.ts`。
  */
-export type CardSize = 'chip' | 'bar' | 'tiny' | 'mini' | 'full'
+export type CardSize = 'bar' | 'tiny' | 'mini' | 'full'
 
 // 订阅源
 export interface BrewSource {
