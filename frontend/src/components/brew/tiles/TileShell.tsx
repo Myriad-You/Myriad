@@ -36,6 +36,12 @@ export interface TileShellProps {
    * 大量 backdrop-filter 兄弟会被 Chrome 合并成整面墙的一块矩形色块。
    */
   surface?: 'glass' | 'solid'
+  /**
+   * 覆盖安全内边距。只有 `1x2` / `2x1` 这两档窄卡需要 —— 默认的 14px
+   * 在 61px 宽的竖条上会吃掉将近一半，正文放不下一个站名。
+   * 其余尺寸一律用默认值，不要在这里调版。
+   */
+  padding?: number | { x: number; y: number }
 }
 
 export const TileShell = memo(
@@ -51,6 +57,7 @@ export const TileShell = memo(
     label,
     glow = 'single',
     surface = 'glass',
+    padding,
   }: TileShellProps) => {
     const anim = useAnimationLevel()
     // exlight 与 prefers-reduced-motion 一律不渲染光晕（不是「渲染但不动」）：
@@ -63,6 +70,7 @@ export const TileShell = memo(
       <WidgetShell
         containerRef={containerRef}
         scale={scale}
+        padding={padding}
         className={[
           interactive && 'cursor-pointer',
           surface === 'solid' && 'brew-tile-solid',

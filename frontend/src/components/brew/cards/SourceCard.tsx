@@ -347,11 +347,20 @@ export const SourceCard = React.memo(
         return 'hover:-translate-y-px'
       }, [enableHover, isDragging, isDragOver])
 
-      // 尺寸相关的样式类
+      // 尺寸相关的样式类。入口型来源的 chip / bar 在老网格里没有独立形态
+      // （列宽由 CSS Grid 定，锁不住宽度），按高度最接近的一档取样式
       const sizeClasses = useMemo(() => {
-        const paddingMap = { tiny: 'p-2.5 px-3.5', mini: 'p-4', full: 'p-5' }
-        const roundedMap = {
+        const paddingMap: Record<CardSize, string> = {
+          bar: 'p-2.5 px-3.5',
+          tiny: 'p-2.5 px-3.5',
+          chip: 'p-4',
+          mini: 'p-4',
+          full: 'p-5',
+        }
+        const roundedMap: Record<CardSize, string> = {
+          bar: 'rounded-xl',
           tiny: 'rounded-xl',
+          chip: 'rounded-xl',
           mini: 'rounded-xl',
           full: 'rounded-2xl',
         }

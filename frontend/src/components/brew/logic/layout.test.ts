@@ -9,8 +9,14 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { daysAgo, makePreviews, makeSource, NOW } from './fixtures.ts'
 import {
+  allowedTileSizes,
   BREW_TILE_SIZES,
+  cardSizeForTile,
+  CONTENT_TILE_SIZES,
   downgradeForBand,
+  lockedTileSize,
+  nextLockedSize,
+  SITE_TILE_SIZES,
   tileLayout,
   tileSize,
   topicTileSize,
@@ -144,6 +150,13 @@ describe('downgradeForBand', () => {
       assert.equal(downgradeForBand('2x2', band), '2x2')
     }
   })
+
+  it('竖条 / 横条各档都不降 —— 手机 4 列也放得下', () => {
+    for (const band of ['tablet', 'phone'] as const) {
+      assert.equal(downgradeForBand('1x2', band), '1x2')
+      assert.equal(downgradeForBand('2x1', band), '2x1')
+    }
+  })
 })
 
 describe('tileSize', () => {
@@ -162,10 +175,23 @@ describe('tileSize', () => {
     assert.equal(tileSize(0, s(), 'phone', 3), '4x2')
   })
 
-  it('友链固定 4x2，不看分数', () => {
+  it('入口型来源固定竖条，不看分数', () => {
     const link = makeSource({ source_type: 'link' })
-    assert.equal(tileSize(0.99, link, 'desktop', 20), '4x2')
-    assert.equal(tileSize(0, link, 'desktop', 20), '4x2')
+    assert.equal(tileSize(0.99, link, 'desktop', 20), '1x2')
+    assert.equal(tileSize(0, link, 'desktop', 20), '1x2')
+  })
+
+  it('入口型来源不吃「源太少一律撑满」—— 三个友链不该各占 4x4', () => {
+    const link = makeSource({ source_type: 'link' })
+    assert.equal(tileSize(0, link, 'desktop', 3), '1x2')
+    assert.equal(tileSize(0, link, 'phone', 1), '1x2')
+  })
+
+  it('入口型来源仍认用户锁定', () => {
+    const bar = makeSource({ source_type: 'link', card_size: 'bar' })
+    const mini = makeSource({ source_type: 'link', card_size: 'mini' })
+    assert.equal(tileSize(0, bar, 'desktop', 20), '2x1')
+    assert.equal(tileSize(0, mini, 'desktop', 20), '4x2')
   })
 
   it('分数分三档', () => {
@@ -240,5 +266,58 @@ describe('topicTileSize', () => {
         assert.equal(topicTileSize(i, 'topic', band), '4x2')
       }
     }
+  })
+})
+
+describe('尺寸锁', () => {
+  it('card_size 与档位互为反向', () => {
+    for (const size of BREW_TILE_SIZES) {
+      const card = cardSizeForTile(size)
+      assert.equal(lockedTileSize({ card_size: card }), size)
+    }
+  })
+
+  it('没锁就是 null', () => {
+    assert.equal(lockedTileSize({ card_size: null }), null)
+  })
+
+  it('认不出的 card_size 当没锁 —— 不要抛，也不要静默变成某一档', () => {
+    assert.equal(
+      lockedTileSize({ card_size: 'nope' as never }),
+      null,
+    )
+  })
+
+  it('入口型来源与内容源的可选档位不同', () => {
+    assert.deepEqual(
+      allowedTileSizes({ source_type: 'link' }),
+      SITE_TILE_SIZES,
+    )
+    assert.deepEqual(
+      allowedTileSizes({ source_type: 'rss' }),
+      CONTENT_TILE_SIZES,
+    )
+  })
+
+  it('内容源拿不到竖条 / 横条', () => {
+    const content = allowedTileSizes({ source_type: 'rss' })
+    assert.equal(content.includes('1x2'), false)
+    assert.equal(content.includes('2x1'), false)
+  })
+
+  it('轮转：未锁 → 逐档 → 回到未锁', () => {
+    assert.equal(nextLockedSize(null, SITE_TILE_SIZES), '1x2')
+    assert.equal(nextLockedSize('1x2', SITE_TILE_SIZES), '2x1')
+    assert.equal(nextLockedSize('2x1', SITE_TILE_SIZES), '2x2')
+    assert.equal(nextLockedSize('2x2', SITE_TILE_SIZES), '4x2')
+    assert.equal(nextLockedSize('4x2', SITE_TILE_SIZES), null)
+  })
+
+  it('轮转：当前档不在列表里就从头开始，用户点得回未锁定', () => {
+    assert.equal(nextLockedSize('1x2', CONTENT_TILE_SIZES), '2x2')
+  })
+
+  it('空列表恒为未锁', () => {
+    assert.equal(nextLockedSize('2x2', []), null)
   })
 })

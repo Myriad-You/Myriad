@@ -1,11 +1,14 @@
 /**
- * 订阅源磁贴：5 种构图 × 3 档尺寸。
+ * 订阅源磁贴：5 种构图 × 5 档尺寸。
  *
  * 构图由 `logic/layout.tileLayout` 派生，尺寸由 `logic/layout.tileSize` 派生 ——
  * 这个组件**不判断窄屏**，只按传进来的 `config.size` 排版。
  *
  * 4×2 的硬规则：左右拆栏（feature / cadence / numeric / icon）或单行列表
  * （list）。上下堆封面再堆标题的「瘦条」是上一版被否掉的形态。
+ *
+ * `1x2`（竖条）与 `2x1`（横条）只有 icon 构图会遇到 —— 它们是入口型来源
+ * 专属的两档，`tileSize` 不会把它们派给有条目的源。
  */
 
 import type { KeyboardEvent, MouseEvent } from 'react'
@@ -249,12 +252,96 @@ export const BrewSourceTile = memo(
     // 比上下瘦条更糟）。拆栏那条规则针对的是 4×2 那个扁矩形。
     const isSmall = size === '2x2'
 
-    // icon 型：友链入口。整卡点击直接开外站，不进阅读器
+    // icon 型：站点入口。整卡点击直接开外站，不进阅读器
     if (layout === 'icon') {
       const host = siteHost(source)
       const target = source.site_url || source.url
       const desc = source.description?.trim() || host
       const tag = source.ai_style_tags?.find((x) => x.trim())?.trim()
+      const openTarget =
+        editMode
+          ? openSource
+          : /^https?:\/\//i.test(target)
+            ? () => window.open(target, '_blank', 'noopener,noreferrer')
+            : undefined
+
+      // 竖条：图标在上、站名在下。一屏能排满一行入口，代价是放不下描述。
+      // 安全内边距压到 6/10 —— 14px 的默认值会把 61px 宽的卡挤到只剩 36px 正文。
+      if (size === '1x2') {
+        return (
+          <TileShell
+            color={color}
+            surface={surface}
+            scale={scale}
+            padding={{ x: 6, y: 10 }}
+            containerRef={containerRef}
+            label={source.name}
+            glow="single"
+            contentClassName="flex min-h-0 flex-col items-center justify-center"
+            onClick={openTarget}
+          >
+            <TileMark
+              name={source.name}
+              color={color}
+              scale={scale}
+              size={ICON_MARK_SIZE * 0.7}
+              icon={icon}
+              onIconLoad={handleIconLoad}
+            />
+            <span
+              className="mt-auto w-full pt-2 text-center font-medium text-gray-700 dark:text-gray-200"
+              style={{
+                fontSize: fs(T_MINOR, fontScale),
+                lineHeight: 1.3,
+                display: '-webkit-box',
+                WebkitBoxOrient: 'vertical',
+                WebkitLineClamp: 2,
+                overflow: 'hidden',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {source.name}
+            </span>
+          </TileShell>
+        )
+      }
+
+      // 横条：图标在左、站名在右。一行高，只放得下名字。
+      if (size === '2x1') {
+        return (
+          <TileShell
+            color={color}
+            surface={surface}
+            scale={scale}
+            padding={{ x: 10, y: 8 }}
+            containerRef={containerRef}
+            label={source.name}
+            glow="single"
+            contentClassName="flex min-h-0 items-center"
+            onClick={openTarget}
+          >
+            <div
+              className="flex min-w-0 flex-1 items-center"
+              style={{ gap: sp(8, scale) }}
+            >
+              <TileMark
+                name={source.name}
+                color={color}
+                scale={scale}
+                size={ICON_MARK_SIZE * 0.56}
+                icon={icon}
+                onIconLoad={handleIconLoad}
+              />
+              <span
+                className="min-w-0 flex-1 truncate font-semibold text-gray-800 dark:text-gray-100"
+                style={{ fontSize: fs(T_MINOR, fontScale), lineHeight: 1.25 }}
+              >
+                {source.name}
+              </span>
+            </div>
+          </TileShell>
+        )
+      }
 
       return (
         <TileShell
@@ -265,13 +352,7 @@ export const BrewSourceTile = memo(
           label={source.name}
           glow="single"
           contentClassName="flex min-h-0 items-center"
-          onClick={
-            editMode
-              ? openSource
-              : /^https?:\/\//i.test(target)
-                ? () => window.open(target, '_blank', 'noopener,noreferrer')
-                : undefined
-          }
+          onClick={openTarget}
         >
           <div
             className="flex min-w-0 flex-1 items-center"

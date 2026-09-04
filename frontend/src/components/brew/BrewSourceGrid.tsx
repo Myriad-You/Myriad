@@ -20,9 +20,10 @@ import type { AddSourceInput, BrewItemPreview, BrewSource,
 } from '../../types/brew'
 
 import type { BrewBoard } from './logic/board'
+import type { BrewTileSize } from './logic/layout'
 import type { SortMode } from './manager/ControlIsland'
-import { LuRss as Rss, LuSearch as Search } from '@lib/icons'
 
+import { LuRss as Rss, LuSearch as Search } from '@lib/icons'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import * as brewApi from '../../services/brewApi'
@@ -34,7 +35,7 @@ import { SourceCard } from './cards'
 // 共享常量
 import { brewMainCategory, PRESET_CATEGORY_DB_VALUES } from './constants'
 import { sourcesForBoard } from './logic/board'
-import { TOPIC_LARGE_COUNT_SMART } from './logic/layout'
+import { cardSizeForTile, TOPIC_LARGE_COUNT_SMART } from './logic/layout'
 import { compareByScore, roleFromAuth } from './logic/score'
 import { clusterTopics, previewsToTopicItems } from './logic/topics'
 import ControlIsland from './manager/ControlIsland'
@@ -720,7 +721,9 @@ export default function BrewSourceGrid({
       const deltaY = clientY - resizingSource.startY
 
       // 计算目标尺寸
-      const startIndex = SIZE_ORDER.indexOf(resizingSource.startSize)
+      // 入口型来源的 chip / bar 不在老网格的三档里；认不出就从最小档起算，
+      // 而不是让 indexOf 的 -1 参与运算
+      const startIndex = Math.max(0, SIZE_ORDER.indexOf(resizingSource.startSize))
       const sizeChange = Math.round(deltaY / RESIZE_THRESHOLD)
       const targetIndex = Math.max(
         0,
@@ -818,15 +821,8 @@ export default function BrewSourceGrid({
    * 变成「用户锁定」，映射见 logic/layout。
    */
   const handleToggleSizeLock = useCallback(
-    async (source: BrewSource, next: '2x2' | '4x2' | '4x4' | null) => {
-      const CARD_SIZE_BY_TILE = {
-        '2x2': 'tiny',
-        '4x2': 'mini',
-        '4x4': 'full',
-      } as const
-      const nextCardSize: CardSize | null = next
-        ? CARD_SIZE_BY_TILE[next]
-        : null
+    async (source: BrewSource, next: BrewTileSize | null) => {
+      const nextCardSize: CardSize | null = next ? cardSizeForTile(next) : null
 
       // 乐观更新：磁贴尺寸立刻生效，失败再回滚
       onSourceUpdate?.({ ...source, card_size: nextCardSize })

@@ -15,7 +15,7 @@ import type { BrewItemPreview, BrewSource } from '../types/brew'
 
 import { useMemo, useState } from 'react'
 
-import { BREW_TILE_SIZES } from '../components/brew/logic/layout'
+import { allowedTileSizes } from '../components/brew/logic/layout'
 import { clusterTopics } from '../components/brew/logic/topics'
 import { BrewFeaturedTile } from '../components/brew/tiles/BrewFeaturedTile'
 import { BrewSourceTile } from '../components/brew/tiles/BrewSourceTile'
@@ -29,6 +29,8 @@ const daysAgo = (d: number) => NOW - d * MS_PER_DAY
 /** 磁贴在 16×4 网格里的物理尺寸（桌面 cell ≈ 80px）。 */
 const CELL = 82
 const SIZE_PX: Record<BrewTileSize, { width: number; height: number }> = {
+  '1x2': { width: CELL, height: CELL * 2 },
+  '2x1': { width: CELL * 2, height: CELL },
   '2x2': { width: CELL * 2, height: CELL * 2 },
   '4x2': { width: CELL * 4, height: CELL * 2 },
   '4x4': { width: CELL * 4, height: CELL * 4 },
@@ -241,7 +243,9 @@ export default function BrewTilePreview() {
         <section key={`${c.label}-${c.src.id}`} className="mb-8">
           <h2 className="mb-2 text-xs text-gray-500">{c.label}</h2>
           <div className="flex flex-wrap items-start gap-4">
-            {BREW_TILE_SIZES.map((size) => (
+            {/* 只铺这个源真会被派到的档位 —— 竖条 / 横条是入口型来源专属，
+                内容源永远拿不到，摆出来只是噪音 */}
+            {allowedTileSizes(c.src).map((size) => (
               <div key={size} className="flex flex-col gap-1">
                 <span className="text-[10px] text-gray-400">{size}</span>
                 <div style={SIZE_PX[size]}>

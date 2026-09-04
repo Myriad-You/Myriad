@@ -43,7 +43,13 @@ import { homeGridColsForBand, VIEWPORT_MQ } from '../../utils/viewportBands'
 import { standardCellSizeForBand } from '../../utils/widgetSizeScale'
 import { BrewPager } from './BrewPageDots'
 import { brewMainCategory } from './constants'
-import { tileSize, topicTileSize } from './logic/layout'
+import {
+  allowedTileSizes,
+  lockedTileSize,
+  nextLockedSize,
+  tileSize,
+  topicTileSize,
+} from './logic/layout'
 import { packBrewCards, parseTileSize } from './logic/pack'
 import { brewScore } from './logic/score'
 import { BrewSourceTile } from './tiles/BrewSourceTile'
@@ -649,6 +655,8 @@ export default function BrewTileWall({
                             </button>
                           ) : null}
                           {onToggleSizeLock ? (
+                            // 点一次进下一档，走到头回到未锁定。入口型来源的
+                            // 档位列表与内容源不同（见 logic/layout.ts）
                             <button
                               type="button"
                               aria-label={
@@ -656,11 +664,22 @@ export default function BrewTileWall({
                               }
                               aria-pressed={Boolean(src.card_size)}
                               onClick={() =>
-                                onToggleSizeLock(src, src.card_size ? null : card.size)
+                                onToggleSizeLock(
+                                  src,
+                                  nextLockedSize(
+                                    lockedTileSize(src),
+                                    allowedTileSizes(src),
+                                  ),
+                                )
                               }
                             >
                               {src.card_size ? (
-                                <Lock className="h-3.5 w-3.5" />
+                                <span className="flex items-center gap-0.5">
+                                  <Lock className="h-3 w-3" />
+                                  <span className="text-[10px] font-medium tabular-nums">
+                                    {card.size}
+                                  </span>
+                                </span>
                               ) : (
                                 <span className="text-[10px] font-medium tabular-nums">
                                   {card.size}
