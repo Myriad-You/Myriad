@@ -4126,6 +4126,14 @@ export interface TranslationKeys {
     me: string
     expandMenu: string
 
+    // 板块（二级导航）
+    boardFeeds: string
+    boardFeedsTitle: string
+    boardNotes: string
+    boardNotesTitle: string
+    boardSites: string
+    boardSitesTitle: string
+
     // 时间相关
     justNow: string
     minutesAgo: string
@@ -4309,6 +4317,7 @@ export interface TranslationKeys {
 
     // 空状态
     emptyNoSources: string
+    emptyNoSites: string
     addSourceHint: string
     emptyCategoryNoSources: string
 

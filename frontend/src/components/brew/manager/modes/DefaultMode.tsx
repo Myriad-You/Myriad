@@ -12,6 +12,7 @@ import {
   LuKeyboard as Keyboard,
   LuPlus as Plus,
   LuSearch as Search,
+  LuStar as Star,
 } from '@lib/icons'
 import {
   AnimatePresenceShim as AnimatePresence,
@@ -40,6 +41,11 @@ export interface DefaultModeProps {
   onSortModeChange?: (mode: SortMode) => void
   // 模式切换
   onModeChange: (mode: ControlMode) => void
+  /**
+   * 打开收藏视图。收藏不是二级导航板块 —— 游客没有收藏，入口不该常驻在
+   * 板块栏里。传 undefined 就不渲染这颗按钮（游客 / 非源墙板块）。
+   */
+  onOpenStarred?: () => void
   // 权限
   isAdmin: boolean
   hasAddSource: boolean
@@ -70,6 +76,7 @@ export function DefaultMode({
   sortDropdownRef,
   onSortModeChange,
   onModeChange,
+  onOpenStarred,
   isAdmin,
   hasAddSource,
   t,
@@ -287,6 +294,21 @@ export function DefaultMode({
             )}
           </AnimatePresence>
         </div>
+
+        {/* 收藏入口 - 仅登录用户可见 */}
+        {onOpenStarred && (
+          <button
+            onClick={onOpenStarred}
+            className={ISLAND_BTN}
+            title={t.starred}
+            aria-label={t.starred}
+          >
+            <Star className="w-4 h-4" />
+            <span className="text-xs font-medium hidden sm:inline">
+              {t.starred}
+            </span>
+          </button>
+        )}
 
         {/* 搜索按钮 */}
         <button

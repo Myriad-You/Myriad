@@ -4590,6 +4590,14 @@ export const enUS: TranslationKeys = {
     me: 'Me',
     expandMenu: 'Expand Brew Menu',
 
+    // Boards (secondary nav)
+    boardFeeds: 'Feeds',
+    boardFeedsTitle: 'Subscribed sources',
+    boardNotes: 'Notes',
+    boardNotesTitle: 'What I write and what is mine',
+    boardSites: 'Sites',
+    boardSitesTitle: 'Sites and friend links',
+
     // Time related
     justNow: 'Just now',
     minutesAgo: '{minutes} minutes ago',
@@ -4778,6 +4786,7 @@ export const enUS: TranslationKeys = {
 
     // Empty states
     emptyNoSources: 'No sources yet',
+    emptyNoSites: 'No sites yet',
     addSourceHint: 'Click the add button to start subscribing',
     emptyCategoryNoSources: 'No sources in "{category}"',
 

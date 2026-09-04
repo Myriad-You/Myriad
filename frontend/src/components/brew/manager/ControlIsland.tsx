@@ -321,6 +321,8 @@ interface ControlIslandProps {
   isAuthenticated?: boolean
   /** 当期成卡的主题数；< 3 时 `topic` 排序置灰 */
   topicCount?: number
+  /** 打开收藏视图。收藏不再是二级导航项，入口在这里（仅登录用户可见） */
+  onOpenStarred?: () => void
 }
 
 export default function ControlIsland({
@@ -352,6 +354,7 @@ export default function ControlIsland({
   isAdmin = false,
   isAuthenticated = false,
   topicCount = 0,
+  onOpenStarred,
 }: ControlIslandProps) {
   const { t } = useI18n()
 
@@ -1037,6 +1040,9 @@ export default function ControlIsland({
             sortDropdownRef={sortDropdownRef}
             onSortModeChange={onSortModeChange}
             onModeChange={handleModeChange}
+            onOpenStarred={
+              isAuthenticated && onOpenStarred ? onOpenStarred : undefined
+            }
             isAdmin={isAdmin}
             hasAddSource={!!onAddSource}
             t={{

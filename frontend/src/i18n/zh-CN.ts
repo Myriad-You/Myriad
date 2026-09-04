@@ -4337,6 +4337,14 @@ export const zhCN: TranslationKeys = {
     me: '我',
     expandMenu: '展开 Brew 菜单',
 
+    // 板块（二级导航）
+    boardFeeds: '订阅',
+    boardFeedsTitle: '订阅源',
+    boardNotes: '手记',
+    boardNotesTitle: '我写的与我的内容',
+    boardSites: '站点',
+    boardSitesTitle: '站点与友情链接',
+
     // 时间相关
     justNow: '刚刚',
     minutesAgo: '{minutes} 分钟前',
@@ -4521,6 +4529,7 @@ export const zhCN: TranslationKeys = {
 
     // 空状态
     emptyNoSources: '暂无订阅源',
+    emptyNoSites: '暂无站点',
     addSourceHint: '点击右下角的添加按钮开始订阅',
     emptyCategoryNoSources: '「{category}」分类暂无订阅源',
 

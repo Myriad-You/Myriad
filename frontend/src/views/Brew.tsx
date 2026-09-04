@@ -14,8 +14,9 @@
  * - 登录用户可编辑、收藏、标记已读等
  */
 
-import type { SecondaryNavItem } from '../contexts/NavigationContext'
+import type { BrewBoard } from '../components/brew/logic/board'
 
+import type { SecondaryNavItem } from '../contexts/NavigationContext'
 import type {
   AddSourceInput,
   BrewItem,
@@ -23,8 +24,8 @@ import type {
   BrewSource,
   BrewStats,
 } from '../types/brew'
-import { AnimatePresenceShim as AnimatePresence } from '@lib/motionShim'
 
+import { AnimatePresenceShim as AnimatePresence } from '@lib/motionShim'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   useMatch,
@@ -38,9 +39,11 @@ import BrewSourceGrid from '../components/brew/BrewSourceGrid'
 import { BrewWallSkeleton } from '../components/brew/BrewTileWall'
 import {
   BREW_MINE_CATEGORY,
+  brewCategoryParts,
   brewOwnItemPath,
   isOwnBrewSource,
 } from '../components/brew/constants'
+import { boardEntry, resolveBoardParam } from '../components/brew/logic/board'
 import { topicHue, topicNameKey } from '../components/brew/logic/topics'
 import ControlIsland from '../components/brew/manager/ControlIsland'
 import { isBrewTileGridEnabled } from '../components/brew/tileGridFlag'
@@ -65,7 +68,8 @@ import { userFacingError } from '../utils/userFacingError'
 
 // 导航图标
 const NavIcons = {
-  all: (
+  // 订阅：磁贴墙
+  feeds: (
     <svg
       className="w-5 h-5"
       fill="none"
@@ -80,22 +84,8 @@ const NavIcons = {
       />
     </svg>
   ),
-  friends: (
-    <svg
-      className="w-5 h-5"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-      />
-    </svg>
-  ),
-  mine: (
+  // 手记：自己写
+  notes: (
     <svg
       className="w-5 h-5"
       fill="none"
@@ -110,7 +100,8 @@ const NavIcons = {
       />
     </svg>
   ),
-  starred: (
+  // 站点：外站入口
+  sites: (
     <svg
       className="w-5 h-5"
       fill="none"
@@ -121,37 +112,17 @@ const NavIcons = {
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={2}
-        d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
       />
     </svg>
   ),
 }
 
-// 预置分类 ID（用于前端逻辑判断）
-const _PRESET_CATEGORY_IDS = {
-  friends: 'friends',
-  mine: 'mine',
-} as const
-
-type PresetCategoryId =
-  (typeof _PRESET_CATEGORY_IDS)[keyof typeof _PRESET_CATEGORY_IDS]
-
-// 预置分类的数据库存储值（后端使用的固定值，不要改动）
-// 这些值与数据库中存储的分类名称一致（与 brew/constants 同源）
-const PRESET_CATEGORY_DB_VALUES: Record<PresetCategoryId, string> = {
-  friends: '友情链接',
-  mine: BREW_MINE_CATEGORY,
-}
-
-// 需要合并展示文章的特殊分类（不显示网站卡片）
-
-type CategoryKey = PresetCategoryId | 'all'
-
 // 视图模式
 // - sources: 显示网站卡片网格
 // - items: 单个订阅源的文章列表
 // - starred: 收藏文章列表
-// - category-feed: 分类下所有文章的合并列表（特殊分类使用）
+// - category-feed: 分类下所有文章的合并列表（手记板块使用）
 // - topic-feed: 一个主题下的跨源文章列表（主题磁贴进入）
 type ViewMode =
   | 'sources'
@@ -159,20 +130,6 @@ type ViewMode =
   | 'starred'
   | 'category-feed'
   | 'topic-feed'
-
-/** Secondary-nav ids accepted via `/brew?category=` deep-link */
-const BREW_CATEGORY_QUERY_IDS = new Set([
-  'all',
-  'friends',
-  'mine',
-  'starred',
-] as const)
-
-type BrewCategoryQueryId = 'all' | 'friends' | 'mine' | 'starred'
-
-function isBrewCategoryQueryId(value: string): value is BrewCategoryQueryId {
-  return BREW_CATEGORY_QUERY_IDS.has(value as BrewCategoryQueryId)
-}
 
 export default function Brew() {
   // 初始化动画调度器
@@ -190,21 +147,6 @@ export default function Brew() {
   )
   /** 源列表是否至少加载过一次（用于区分「未知」与「非自有」；用 state 触发重算） */
   const [sourcesLoaded, setSourcesLoaded] = useState(false)
-
-  // 获取预置分类的显示名称（国际化）
-  const getCategoryName = useCallback(
-    (categoryId: PresetCategoryId): string => {
-      switch (categoryId) {
-        case 'friends':
-          return t.brew.friendLinks
-        case 'mine':
-          return t.brew.me
-        default:
-          return categoryId
-      }
-    },
-    [t],
-  )
 
   // 获取登录状态和管理员状态
   // - isAuthenticated: 用于已读状态等普通用户功能
@@ -234,7 +176,11 @@ export default function Brew() {
   } | null>(null)
   const [selectedSource, setSelectedSource] = useState<BrewSource | null>(null)
   const [selectedItem, setSelectedItem] = useState<BrewItem | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState<CategoryKey>('all')
+  /**
+   * 当前板块。二级导航的 activeId 与它同源；`?board=` / 旧 `?category=` 深链
+   * 都先经 `resolveBoardParam` 归一到这里，视图落点由 `applyBoardEntry` 决定。
+   */
+  const [board, setBoard] = useState<BrewBoard>('feeds')
 
   // UI 状态
   const [loading, setLoading] = useState(true)
@@ -381,52 +327,42 @@ export default function Brew() {
     return map
   }, [sources])
 
-  // 构建二级导航项
+  /**
+   * 二级导航 = 三个板块。收藏不在这里 —— 它是登录态功能，游客点进去恒为空，
+   * 入口挂在订阅板块的控制岛上（见 ControlIsland 的 onOpenStarred）。
+   */
   const navItems: SecondaryNavItem[] = useMemo(
     () => [
       {
-        id: 'all',
-        icon: NavIcons.all,
-        label: t.brew.all,
-        title: t.brew.all + t.brew.sources,
-        ariaLabel: t.brew.all + t.brew.sources,
+        id: 'feeds',
+        icon: NavIcons.feeds,
+        label: t.brew.boardFeeds,
+        title: t.brew.boardFeedsTitle,
+        ariaLabel: t.brew.boardFeedsTitle,
       },
       {
-        id: 'friends',
-        icon: NavIcons.friends,
-        label: t.brew.friendLinks,
-        title: t.brew.friendLinks,
-        ariaLabel: t.brew.friendLinks,
+        id: 'notes',
+        icon: NavIcons.notes,
+        label: t.brew.boardNotes,
+        title: t.brew.boardNotesTitle,
+        ariaLabel: t.brew.boardNotesTitle,
       },
       {
-        id: 'mine',
-        icon: NavIcons.mine,
-        label: t.brew.me,
-        title: t.brew.me,
-        ariaLabel: t.brew.me,
+        id: 'sites',
+        icon: NavIcons.sites,
+        label: t.brew.boardSites,
+        title: t.brew.boardSitesTitle,
+        ariaLabel: t.brew.boardSitesTitle,
       },
-      // 收藏是登录态功能：游客点进去主区恒为空（viewMode === 'starred' 还要
-      // 求 isAuthenticated），所以入口本身就不该出现。
-      ...(isAuthenticated
-        ? [
-            {
-              id: 'starred',
-              icon: NavIcons.starred,
-              label: t.brew.starred,
-              title: t.brew.starred,
-              ariaLabel: t.brew.starred,
-            },
-          ]
-        : []),
     ],
-    [t, isAuthenticated],
+    [t],
   )
 
   // 使用二级导航 Hook
   const { activeId, setActiveId, setExpanded } = useSecondaryNav({
     routePath: '/brew',
     items: navItems,
-    defaultActiveId: 'all',
+    defaultActiveId: 'feeds',
     expandHint: t.brew.expandMenu,
   })
 
@@ -755,33 +691,21 @@ export default function Brew() {
     }
   }, [])
 
-  // 根据二级导航 id 同步视图模式 / 分类筛选
-  const applyNavCategory = useCallback(
-    (navId: string) => {
-      if (navId === 'starred') {
-        // 游客没有收藏：deep-link ?category=starred 回落到「全部」而不是空白主区
-        if (!isAuthenticated) {
-          setViewMode('sources')
-          setSelectedCategory('all')
-          setSelectedSource(null)
-          return
-        }
-        setViewMode('starred')
-        setSelectedSource(null)
-      } else if (navId === 'friends') {
-        setViewMode('sources')
-        setSelectedCategory('friends')
-        setSelectedSource(null)
-      } else if (navId === 'mine') {
-        // "我"分类特殊处理：直接展示合并的文章列表，不显示网站卡片
-        setViewMode('category-feed')
-        setSelectedCategory('mine')
-        setSelectedSource(null)
-      } else if (navId === 'all') {
-        setViewMode('sources')
-        setSelectedCategory('all')
-        setSelectedSource(null)
+  /**
+   * 落地一个板块入口：设板块、设视图、清掉源选择。
+   *
+   * 收藏入口（旧 `?category=starred`）解析出的是「订阅板块 + starred 视图」，
+   * 游客没有收藏，降到板块本身的落点而不是留一块空白主区。
+   */
+  const applyBoardEntry = useCallback(
+    (entry: ReturnType<typeof boardEntry>) => {
+      setBoard(entry.board)
+      setSelectedSource(null)
+      if (entry.view === 'starred' && !isAuthenticated) {
+        setViewMode(boardEntry(entry.board).view)
+        return
       }
+      setViewMode(entry.view)
     },
     [isAuthenticated],
   )
@@ -797,29 +721,37 @@ export default function Brew() {
       return
     }
     prevActiveIdRef.current = activeId
-    applyNavCategory(activeId)
-  }, [activeId, applyNavCategory])
+    const entry = resolveBoardParam(activeId)
+    if (entry) applyBoardEntry(entry)
+  }, [activeId, applyBoardEntry])
 
-  // Deep-link: /brew?category=friends|mine|all|starred
-  // Must apply category state even when activeId already matches (prevActiveIdRef
-  // would early-return), then consume the query so refresh/back stays clean.
+  /**
+   * 深链：`/brew?board=feeds|notes|sites`，以及改板块前就存在的
+   * `?category=all|friends|mine|starred`（别名表在 logic/board.ts）。
+   *
+   * 即使 activeId 已经等于目标也要走一遍 —— 上面那个 effect 会 early-return。
+   * 落地后把 query 吃掉，刷新和后退不会再触发一次。
+   */
   useEffect(() => {
-    const categoryParam = searchParams.get('category')
-    if (!categoryParam || !isBrewCategoryQueryId(categoryParam)) return
+    const raw = searchParams.get('board') ?? searchParams.get('category')
+    if (!raw) return
+    const entry = resolveBoardParam(raw)
+    if (!entry) return
 
-    applyNavCategory(categoryParam)
-    prevActiveIdRef.current = categoryParam
-    setActiveId(categoryParam)
+    applyBoardEntry(entry)
+    prevActiveIdRef.current = entry.board
+    setActiveId(entry.board)
 
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
+        next.delete('board')
         next.delete('category')
         return next
       },
       { replace: true },
     )
-  }, [searchParams, applyNavCategory, setActiveId, setSearchParams])
+  }, [searchParams, applyBoardEntry, setActiveId, setSearchParams])
 
   // 加载订阅源列表
   const loadSources = useCallback(async () => {
@@ -978,16 +910,14 @@ export default function Brew() {
       loadItems(true, selectedSource.id, viewMode)
     } else if (viewMode === 'starred') {
       loadItems(true, undefined, viewMode)
-    } else if (viewMode === 'category-feed' && selectedCategory !== 'all') {
-      // 分类合并文章视图：加载该分类下所有文章
-      const categoryDbValue =
-        PRESET_CATEGORY_DB_VALUES[selectedCategory as PresetCategoryId]
-      loadItems(true, undefined, viewMode, categoryDbValue)
+    } else if (viewMode === 'category-feed') {
+      // 手记：「我」分类下的合并文章流（自写手记 + 自有外部源）
+      loadItems(true, undefined, viewMode, BREW_MINE_CATEGORY)
     } else if (viewMode === 'topic-feed' && selectedTopic) {
       // 主题跨源列表：只按 topic 过滤，不限源
       loadItems(true, undefined, viewMode, undefined, selectedTopic.key)
     }
-  }, [viewMode, selectedSource, selectedCategory, selectedTopic, loadItems])
+  }, [viewMode, selectedSource, selectedTopic, loadItems])
 
   // 处理源点击 - 进入该源的文章列表
   const handleSourceClick = useCallback((source: BrewSource) => {
@@ -1022,15 +952,15 @@ export default function Brew() {
     setSelectedSource(null)
     setSelectedItem(null)
     setViewMode('sources')
-    setActiveId(selectedCategory)
-  }, [selectedCategory, setActiveId])
+    setActiveId(board)
+  }, [board, setActiveId])
 
-  // 处理从分类合并文章视图返回
+  // 手记板块的返回：回到订阅板块的源墙
   const handleBackFromCategoryFeed = useCallback(() => {
     setSelectedItem(null)
+    setBoard('feeds')
     setViewMode('sources')
-    setSelectedCategory('all')
-    setActiveId('all')
+    setActiveId('feeds')
   }, [setActiveId])
 
   /** 主题磁贴 → 跨源列表 */
@@ -1340,11 +1270,9 @@ export default function Brew() {
   // 处理全部标记已读
   const handleMarkAllRead = async () => {
     try {
-      // 分类合并文章视图时，按分类标记已读
+      // 手记板块时，按「我」分类标记已读
       const categoryFilter =
-        viewMode === 'category-feed' && selectedCategory !== 'all'
-          ? PRESET_CATEGORY_DB_VALUES[selectedCategory as PresetCategoryId]
-          : undefined
+        viewMode === 'category-feed' ? BREW_MINE_CATEGORY : undefined
 
       const marked = await brewApi.markAllRead({
         source_id: selectedSource?.id || undefined,
@@ -1437,31 +1365,31 @@ export default function Brew() {
   }, [starredSelectedIds, handleStarredExitEditMode, t.brew.starFailed])
 
   const handleStarredBack = useCallback(() => {
+    // 收藏是从订阅板块的控制岛进的，退出就退回那里
+    setBoard('feeds')
     setViewMode('sources')
-    setActiveId('all')
+    setActiveId('feeds')
     handleStarredExitEditMode()
   }, [setActiveId, handleStarredExitEditMode])
+
+  /** 控制岛的收藏入口。只有登录用户看得到，所以这里不再判角色。 */
+  const handleOpenStarred = useCallback(() => {
+    setSelectedSource(null)
+    setSelectedItem(null)
+    setViewMode('starred')
+  }, [])
 
   // 加载更多 - useCallback 缓存
   const handleLoadMore = useCallback(() => {
     if (!itemsLoading && hasMore) {
       pageRef.current += 1
       setPage(pageRef.current)
-      // 分类合并文章视图需要传递分类筛选
+      // 手记板块需要传递分类筛选
       const categoryFilter =
-        viewMode === 'category-feed' && selectedCategory !== 'all'
-          ? PRESET_CATEGORY_DB_VALUES[selectedCategory as PresetCategoryId]
-          : undefined
+        viewMode === 'category-feed' ? BREW_MINE_CATEGORY : undefined
       loadItems(false, selectedSource?.id, viewMode, categoryFilter)
     }
-  }, [
-    itemsLoading,
-    hasMore,
-    selectedSource?.id,
-    viewMode,
-    selectedCategory,
-    loadItems,
-  ])
+  }, [itemsLoading, hasMore, selectedSource?.id, viewMode, loadItems])
 
   // 关闭阅读器 - useCallback 缓存
   const handleCloseReader = useCallback(() => {
@@ -1547,15 +1475,11 @@ export default function Brew() {
   if (loading) {
     // 二次进入：先按上次的装箱结果铺一层骨架，避免整屏重排。没有缓存
     // （首次访问 / flag 关）时 BrewWallSkeleton 返回 null，回落到 spinner。
-    // 与 BrewSourceGrid 传给磁贴墙的 scope 保持同一口径（分类 + 排序模式），
+    // 与 BrewSourceGrid 传给磁贴墙的 scope 保持同一口径（板块 + 排序模式），
     // 否则读的是另一把缓存键，骨架和真实布局对不上
-    const skeletonScope =
-      selectedCategory === 'all'
-        ? 'all'
-        : PRESET_CATEGORY_DB_VALUES[selectedCategory as PresetCategoryId]
     const skeleton =
       viewMode === 'sources' && isBrewTileGridEnabled() ? (
-        <BrewWallSkeleton scope={`${skeletonScope}:smart`} />
+        <BrewWallSkeleton scope={`${board}:smart`} />
       ) : null
 
     return (
@@ -1581,13 +1505,7 @@ export default function Brew() {
           {viewMode === 'sources' && (
             <BrewSourceGrid
               sources={sources}
-              category={
-                selectedCategory === 'all'
-                  ? undefined
-                  : PRESET_CATEGORY_DB_VALUES[
-                      selectedCategory as PresetCategoryId
-                    ]
-              }
+              board={board}
               onSourceClick={handleSourceClick}
               onRefreshSource={handleRefreshSource}
               onSourceUpdate={handleSourceUpdate}
@@ -1598,6 +1516,7 @@ export default function Brew() {
               onAddSource={handleAddSource}
               onTopicClick={handleTopicClick}
               onOpenItem={handleOpenPreview}
+              onOpenStarred={isAuthenticated ? handleOpenStarred : undefined}
               isAuthenticated={isAuthenticated}
               isAdmin={isAdmin}
             />
@@ -1639,10 +1558,10 @@ export default function Brew() {
             </div>
           )}
 
-          {/* 分类合并文章视图 - 用于"我"等特殊分类 */}
-          {viewMode === 'category-feed' && selectedCategory !== 'all' && (
+          {/* 手记：「我」分类的合并文章流 */}
+          {viewMode === 'category-feed' && (
             <div className="relative pb-24 sm:pb-16">
-              {/* 控制岛 - 分类合并文章列表模式 */}
+              {/* 控制岛 - 手记模式 */}
               <ControlIsland
                 sources={sources}
                 filteredSources={sources}
@@ -1650,26 +1569,15 @@ export default function Brew() {
                 isAdmin={isAdmin}
                 isAuthenticated={isAuthenticated}
                 categoryFeedMode={{
-                  categoryName:
-                    PRESET_CATEGORY_DB_VALUES[
-                      selectedCategory as PresetCategoryId
-                    ],
-                  categoryLabel: getCategoryName(
-                    selectedCategory as PresetCategoryId,
-                  ),
+                  categoryName: BREW_MINE_CATEGORY,
+                  categoryLabel: t.brew.boardNotes,
                   total,
                   unreadCount: sources
-                    .filter((s) => {
-                      const targetCat =
-                        PRESET_CATEGORY_DB_VALUES[
-                          selectedCategory as PresetCategoryId
-                        ]
-                      if (!s.category) return false
-                      return s.category
-                        .split(',')
-                        .map((c) => c.trim())
-                        .includes(targetCat)
-                    })
+                    .filter((s) =>
+                      brewCategoryParts(s.category).includes(
+                        BREW_MINE_CATEGORY,
+                      ),
+                    )
                     .reduce((sum, s) => sum + s.unread_count, 0),
                   onBack: handleBackFromCategoryFeed,
                   onMarkAllRead: handleMarkAllRead,

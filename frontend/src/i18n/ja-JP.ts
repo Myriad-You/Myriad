@@ -4584,6 +4584,14 @@ export const jaJP: TranslationKeys = {
     me: '自分',
     expandMenu: 'Brew メニューを展開',
 
+    // ボード（二次ナビ）
+    boardFeeds: '購読',
+    boardFeedsTitle: '購読元',
+    boardNotes: '手記',
+    boardNotesTitle: '自分が書いたもの・自分のもの',
+    boardSites: 'サイト',
+    boardSitesTitle: 'サイトと相互リンク',
+
     // 時間関連
     justNow: 'たった今',
     minutesAgo: '{minutes} 分前',
@@ -4773,6 +4781,7 @@ export const jaJP: TranslationKeys = {
 
     // 空の状態
     emptyNoSources: '購読元がありません',
+    emptyNoSites: 'サイトがありません',
     addSourceHint: '追加ボタンをクリックして購読を開始',
     emptyCategoryNoSources: '「{category}」にはソースがありません',
 

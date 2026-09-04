@@ -19,10 +19,11 @@ import type { AddSourceInput, BrewItemPreview, BrewSource,
   CardSize,
 } from '../../types/brew'
 
+import type { BrewBoard } from './logic/board'
 import type { SortMode } from './manager/ControlIsland'
 import { LuRss as Rss, LuSearch as Search } from '@lib/icons'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import * as brewApi from '../../services/brewApi'
 import { userFacingError } from '../../utils/userFacingError'
@@ -32,6 +33,7 @@ import BrewTileWall from './BrewTileWall'
 import { SourceCard } from './cards'
 // 共享常量
 import { brewMainCategory, PRESET_CATEGORY_DB_VALUES } from './constants'
+import { sourcesForBoard } from './logic/board'
 import { TOPIC_LARGE_COUNT_SMART } from './logic/layout'
 import { compareByScore, roleFromAuth } from './logic/score'
 import { clusterTopics, previewsToTopicItems } from './logic/topics'
@@ -42,7 +44,11 @@ import { isBrewTileGridEnabled } from './tileGridFlag'
 
 interface BrewSourceGridProps {
   sources: BrewSource[]
-  category?: string // 分类筛选
+  /**
+   * 当前板块。决定这面墙收哪些源 —— `feeds` 收订阅源，`sites` 收入口型来源。
+   * 过滤依据是 `source_type`，不是分类（见 logic/board.ts）。
+   */
+  board: BrewBoard
   onSourceClick: (source: BrewSource) => void
   onRefreshSource: (sourceId: number) => void
   onSourceUpdate?: (source: BrewSource) => void
@@ -52,13 +58,15 @@ interface BrewSourceGridProps {
   onTopicClick?: (topicKey: string, topicNameKey: string) => void
   /** 点磁贴上的文章行：直接进阅读器（老网格的 ItemCard 也是整卡即开） */
   onOpenItem?: (item: BrewItemPreview, source: BrewSource) => void
+  /** 打开收藏视图。收藏不再是板块，入口挂在控制岛上（仅登录用户） */
+  onOpenStarred?: () => void
   isAuthenticated?: boolean // 是否已登录（用于已读状态等普通用户功能）
   isAdmin?: boolean // 是否是管理员（用于添加、编辑、删除等管理功能）
 }
 
 export default function BrewSourceGrid({
   sources,
-  category,
+  board,
   onSourceClick,
   onRefreshSource,
   onSourceUpdate,
@@ -66,6 +74,7 @@ export default function BrewSourceGrid({
   onAddSource,
   onTopicClick,
   onOpenItem,
+  onOpenStarred,
   isAuthenticated = false, // 默认游客模式（用于已读状态）
   isAdmin = false, // 默认非管理员（用于管理功能）
 }: BrewSourceGridProps) {
@@ -186,17 +195,9 @@ export default function BrewSourceGrid({
     return Array.from(cats)
   }, [sources])
 
-  // 根据分类和搜索筛选源
+  // 按板块和搜索筛选源
   const filteredSources = useMemo(() => {
-    let result = sources
-    if (category) {
-      // 支持多分类：检查 category 字段是否包含目标分类（用逗号分隔）
-      result = result.filter((s) => {
-        if (!s.category) return false
-        const cats = s.category.split(',').map((c) => c.trim())
-        return cats.includes(category)
-      })
-    }
+    let result = sourcesForBoard(sources, board)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
       result = result.filter(
@@ -207,7 +208,7 @@ export default function BrewSourceGrid({
       )
     }
     return result
-  }, [sources, category, searchQuery])
+  }, [sources, board, searchQuery])
 
   // 初始化自定义排序顺序（从数据库加载或默认）
   useEffect(() => {
@@ -657,8 +658,8 @@ export default function BrewSourceGrid({
 
     setIsMarkingAllRead(true)
     try {
-      // 按当前分类过滤
-      await brewApi.markAllRead({ category: category || undefined })
+      // 板块不是分类：订阅板块的「全部已读」就是全站已读
+      await brewApi.markAllRead({})
       // 触发刷新
       onSourcesChange?.()
     } catch (err) {
@@ -675,7 +676,7 @@ export default function BrewSourceGrid({
     } finally {
       setIsMarkingAllRead(false)
     }
-  }, [isAuthenticated, category, onSourcesChange, t.errors.readingStateFailed])
+  }, [isAuthenticated, onSourcesChange, t.errors.readingStateFailed])
 
   // Resize 状态
   const [resizingSource, setResizingSource] = useState<{
@@ -915,10 +916,11 @@ export default function BrewSourceGrid({
           onSourcesChange={onSourcesChange}
           sortMode={sortMode}
           onSortModeChange={handleSortModeChange}
-          isSubCategory={!!category}
+          isSubCategory={board !== 'feeds'}
           isAdmin={isAdmin}
           isAuthenticated={isAuthenticated}
           topicCount={topics.length}
+          onOpenStarred={onOpenStarred}
         />
 
         <div className="flex flex-col items-start py-8">
@@ -928,12 +930,7 @@ export default function BrewSourceGrid({
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                {category
-                  ? t.brew.emptyCategoryNoSources.replace(
-                      '{category}',
-                      category,
-                    )
-                  : t.brew.emptyNoSources}
+                {board === 'sites' ? t.brew.emptyNoSites : t.brew.emptyNoSources}
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-snug">
                 {t.brew.addSourceHint}
@@ -968,10 +965,11 @@ export default function BrewSourceGrid({
         onSourcesChange={onSourcesChange}
         sortMode={sortMode}
         onSortModeChange={handleSortModeChange}
-        isSubCategory={!!category}
+        isSubCategory={board !== 'feeds'}
         isAdmin={isAdmin}
         isAuthenticated={isAuthenticated}
         topicCount={topics.length}
+        onOpenStarred={onOpenStarred}
       />
 
       {/* 空搜索结果 */}
@@ -1003,7 +1001,7 @@ export default function BrewSourceGrid({
           onTopicClick={handleTopicClick}
           role={viewerRole}
           isSearching={Boolean(searchQuery.trim())}
-          scope={`${category ?? 'all'}:${sortMode}`}
+          scope={`${board}:${sortMode}`}
           breakOnCategory={sortMode === 'category'}
           uncategorizedLabel={t.brew.uncategorized}
           prevPageLabel={t.brew.tilePagePrev}
