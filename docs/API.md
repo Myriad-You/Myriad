@@ -44,6 +44,7 @@ Base URL:
 | Tapp REST（含宿主 AI/Agent 路由） | [tapp/REST_API.md](development/tapp/REST_API.md) |
 | Tapp 总体 | [TAPP_DEVELOPMENT.md](development/TAPP_DEVELOPMENT.md) |
 | Brew / Agent | 前端服务与 `backend/src/api/brew`、`backend/src/api/agent` |
+| Agent Channel | [办事运输适配与 QQ 单聊](design/agent-channel.md) |
 
 ## 约定
 
