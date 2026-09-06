@@ -73,7 +73,7 @@ ChannelAdapter
 
 未声明的能力，core 按不支持处理。碰到确认或 `frontendAction` 不能静默当成功。
 
-不要引入 chat-system / botkit / Easybot 当依赖。Easybot 是 GPL-3 IM 网关，形状可抄（能力声明、session key、幂等、Transient/Permanent），产品边界不是 Agent。
+不要引入 chat-system / botkit 当依赖。Easybot 是 GPL-3 IM 网关，产品边界不是 Agent，但 QQ 运输实现可以写入本仓库：能力声明、`platform:chat[:thread]` 会话键、被动 `msg_id`/`msg_seq`、文件上传、401/403 永久失败与网络抖动的 Transient/Permanent、出站幂等。组合作品仍是 AGPL-3；从 Easybot 搬来的文件保留 GPL-3 声明与来源。不要把 Easybot 的 REST/WebSocket 网关、计费、插件加载器整仓引进 `Cargo.toml`。
 [Easybot](https://github.com/EasyIndie/Easybot)
 
 ## 办事出站格式
@@ -191,7 +191,7 @@ QQ 是三种场景三套接口。第一版只认 **单聊（C2C）**。
 
 主动消息频控（未认证单聊）：约 5/qps 且 30/qpm，每用户每天 1000 条。数字以官方文档为准，会变。
 
-实现对照可读 Easybot 的 `easybot-adapter-qq`（手写 Gateway + reqwest，GPL-3，不当依赖引进）。
+实现对照可读 Easybot 的 `easybot-adapter-qq`（手写 Gateway + reqwest）。QQ 运输可按该 crate 写入；Gateway/鉴权优先用 MIT 的 [`qq-bot-rs`](https://github.com/yenharvey/qq-bot-rs)（无流式发送，第一刀本来就不做流式草稿）。
 已知坑：`msg_type: 7` 带空 `content` 会多空行；C2C 不走旧图文混合；群/C2C 不能 edit。
 
 ### QQ 单聊能力相对办事格式
@@ -208,14 +208,16 @@ QQ 是三种场景三套接口。第一版只认 **单聊（C2C）**。
 | `typing` | 无 |
 | `frontend_action` | 无，声明 false |
 
-### 第一版收敛
+### 第一刀（奥卡姆）
 
-1. 只接 C2C。session key：`qq:{user_openid}` → 配对后的用户 → 一个 Work 会话。
-2. 入站只处理 `C2C_MESSAGE_CREATE` 和按钮回调。留下 `msg_id`，后续被动回复带它，`msg_seq` 递增。
-3. 一次办事尽量用完 4 次被动：计划、确认/提问、完成、图或文件。`step_started` 全部吞掉。
-4. `summary_token` 走单聊 stream；没有权限就等 `done` 再发。
-5. 确认用回调按钮。解析失败再问。过期取消任务。
-6. 碰到 `frontendAction`：回「请到站点面板完成这一步」，取消或让该步失败。
+只保证四件事：QQ 单聊能收纯文本、已配对用户走办事、终态文本能回、没有入站时也能主动发一条。
+
+1. 只接 C2C 文本。session key：`qq:{user_openid}` → 配对后的用户 → 一个 Work 会话。群、频道、附件、按钮第一刀忽略。
+2. 入站只处理 `C2C_MESSAGE_CREATE`。留下 `msg_id`，被动回复带它，`msg_seq` 递增。同一 `msg_id` 不双开任务。
+3. 过程事件全部吞掉。只投终态 `message`：`answer` / `error` / 「请到面板确认或完成页面动作」。
+4. 有被动窗口就被动回；没有就主动发。设置里可对已配对 QQ 测一条主动消息。
+5. 碰到确认或 `frontendAction`：回「请到站点面板完成这一步」，取消或让该步失败，不要默认同意。
+6. 流式草稿、按钮回程、图片、Markdown 表格不在第一刀。
 
 ## 不要做
 
@@ -223,4 +225,4 @@ QQ 是三种场景三套接口。第一版只认 **单聊（C2C）**。
 - 为通道伪造 `rig_state` / `current_route`
 - 群或频道作为第一版办事表面
 - 在通道里默认同意确认
-- 把 Easybot / chat-system 引进 Cargo.toml
+- 把 Easybot 的网关进程、REST/WebSocket API、计费或 chat-system 引进 Cargo.toml
