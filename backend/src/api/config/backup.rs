@@ -151,6 +151,9 @@ pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
     "psn_npsso",
     "psn_online_id",
     "pwa_enabled",
+    "qq_bot_app_id",
+    "qq_bot_app_secret",
+    "qq_bot_enabled",
     "report_settings",
     "site_description",
     "site_favicon",
@@ -1031,6 +1034,43 @@ mod settings_backup_tests {
             placeholder: String::new(),
             required: false,
         }
+    }
+
+    #[test]
+    fn saves_qq_bot_write_only_credentials() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("qq_bot_enabled", "true"),
+            ui_field("qq_bot_app_id", "102123456"),
+            ui_field("qq_bot_app_secret", "qq-secret-value"),
+        ];
+        let set = collect_database_updates(&config);
+        assert_eq!(set.get("qq_bot_enabled"), Some(&json!(true)));
+        assert_eq!(set.get("qq_bot_app_id"), Some(&json!("102123456")));
+        assert_eq!(set.get("qq_bot_app_secret"), Some(&json!("qq-secret-value")));
+
+        config.ai_config.config_fields = vec![
+            ui_field("qq_bot_enabled", "true"),
+            ui_field("qq_bot_app_id", "102123456"),
+            ui_field("qq_bot_app_secret", "••••••••"),
+        ];
+        let masked = collect_database_updates(&config);
+        assert_eq!(masked.get("qq_bot_enabled"), Some(&json!(true)));
+        assert_eq!(masked.get("qq_bot_app_id"), Some(&json!("102123456")));
+        assert!(
+            !masked.contains_key("qq_bot_app_secret"),
+            "mask must keep the stored secret"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("qq_bot_enabled", "false"),
+            ui_field("qq_bot_app_id", ""),
+            ui_field("qq_bot_app_secret", ""),
+        ];
+        let cleared = collect_database_updates(&config);
+        assert_eq!(cleared.get("qq_bot_enabled"), Some(&json!(false)));
+        assert_eq!(cleared.get("qq_bot_app_id"), Some(&json!("")));
+        assert_eq!(cleared.get("qq_bot_app_secret"), Some(&Value::Null));
     }
 
     #[test]

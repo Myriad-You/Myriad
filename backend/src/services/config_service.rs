@@ -680,6 +680,18 @@ impl ConfigService {
                 config.agora_api_base = s.to_string();
             }
         }
+        if let Some(v) = map.get("qq_bot_enabled") {
+            config.qq_bot_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.qq_bot_enabled);
+        }
+        if let Some(v) = map.get("qq_bot_app_id") {
+            config.qq_bot_app_id = v.as_str().map(str::trim).unwrap_or("").to_string();
+        }
+        if let Some(v) = map.get("qq_bot_app_secret") {
+            config.qq_bot_app_secret = opt_nonempty_string(v);
+        }
 
         if let Some(v) = map.get("enable_auto_fetch") {
             if let Some(b) = v.as_bool() {
@@ -1457,6 +1469,38 @@ mod tests {
         assert_eq!(config.speech_stt_model, "gpt-transcribe");
         assert_eq!(config.speech_tts_model, "gpt-4o-mini-tts");
         assert_eq!(config.speech_tts_voice, "marin");
+    }
+
+    #[test]
+    fn parses_qq_bot_fields_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([
+            ("qq_bot_enabled".into(), json!(true)),
+            ("qq_bot_app_id".into(), json!("102123456")),
+            ("qq_bot_app_secret".into(), json!("qq-secret-value")),
+        ]));
+        assert!(configured.qq_bot_enabled);
+        assert_eq!(configured.qq_bot_app_id, "102123456");
+        assert_eq!(
+            configured.qq_bot_app_secret.as_deref(),
+            Some("qq-secret-value")
+        );
+
+        let from_str = ConfigService::parse_config(HashMap::from([
+            ("qq_bot_enabled".into(), json!("true")),
+            ("qq_bot_app_id".into(), json!("  ")),
+            ("qq_bot_app_secret".into(), json!("  ")),
+        ]));
+        assert!(from_str.qq_bot_enabled);
+        assert_eq!(from_str.qq_bot_app_id, "");
+        assert_eq!(from_str.qq_bot_app_secret, None);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "qq_bot_enabled".into(),
+            json!(false),
+        )]));
+        assert!(!off.qq_bot_enabled);
+        assert!(off.qq_bot_app_id.is_empty());
+        assert_eq!(off.qq_bot_app_secret, None);
     }
 
     #[test]

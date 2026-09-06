@@ -1772,7 +1772,7 @@ export const jaJP: TranslationKeys = {
     memorySaverHint:
       '均衡プロファイルからもう一段締めます。転送チャンク同時量、プロセス内キャッシュ、DB プール、パスワードハッシュ同時数、動画／音声のピークを下げます。日常のメッセージは使えます。大きなメディアは分割転送を、ロスレス音声は節約オフを検討。MYRIAD_MEMORY_PROFILE で上書き可。DB プールは再起動後に完全適用。',
     agentOptions: 'Agent',
-    agentOptionsDesc: 'ペルソナ、話す、定期実行、スキル、記憶。',
+    agentOptionsDesc: 'ペルソナ、話す、QQ ボット、定期実行、スキル、記憶。',
     agentHeartbeatTitle: '定期実行',
     agentHeartbeatDesc: '時間になったら自分で動きます。',
     agentSkillsTitle: 'スキル',
@@ -1798,6 +1798,11 @@ export const jaJP: TranslationKeys = {
     agentPersonaDeleteFailed: 'ペルソナを削除できませんでした',
     agentPersonaSpeech: '話す',
     agentPersonaSpeechHint: '返信を音声で読む。オフ時は口の動きのみ。',
+    qqBotTitle: 'QQ ボット',
+    qqBotDesc: '個チャットの用事チャネル。オンにして AppID / AppSecret を保存すると Gateway に接続します。',
+    qqBotAppId: 'QQ ボット AppID',
+    qqBotAppSecret: 'QQ ボット AppSecret',
+    qqBotHint: '秘密は書き込み専用で、読み返すとマスクされます。空にすると消去。オフまたは資格情報が無効ならボットはオフラインです。',
     enableProxy: 'ネットワークプロキシを有効化',
     enableProxyHint:
       '有効にすると、外部APIリクエストはプロキシ経由で送信されます',

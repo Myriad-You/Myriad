@@ -574,6 +574,13 @@ export const zh: SettingGuidesCatalog = {
       frontend: '设置 → AI → Agent → 说话。保存后下一轮聊天生效。',
       notes: '语音会消耗额度。关上不等于关掉人设。',
     },
+    qqBot: {
+      what: '用 QQ 单聊把一句话交给站点办事，结果回到同一条私聊。',
+      chain:
+        '① 打开开关并填 AppID / AppSecret，保存后后台连上开放平台 Gateway。\n② 密钥只写：读回是掩码，空值清除，掩码再提交不覆盖库里的值。\n③ 关掉、没填齐或 401/403 时工人停掉；网络抖动会重连，不会当成没配过。\n④ 配对和办事回信是后面的票。这页只负责机器人在不在线。',
+      frontend: '设置 → AI → Agent → QQ 机器人。',
+      notes: '不要把 Discord 数据平台 OAuth 填到这里。AppSecret 不会出现在页面明文或报错里。',
+    },
     liteEnable: {
       what: '要不要启用轻量这一档。',
       chain:

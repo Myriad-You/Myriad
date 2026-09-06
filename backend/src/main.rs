@@ -754,6 +754,9 @@ async fn run_server() -> anyhow::Result<()> {
                 federation::delivery::spawn_delivery_worker(db.clone());
                 tracing::info!("✅ Federation delivery worker started");
 
+                services::qq_bot::spawn_worker();
+                tracing::info!("✅ QQ bot Gateway worker started");
+
                 // 密钥迁移：把存量明文配置与 v0 联邦私钥升级到数据密钥信封。
                 //
                 // 两者都幂等可重入，中断了下次启动接着做，不需要维护窗口。

@@ -117,6 +117,7 @@ export interface SettingGuidesCatalog {
     liteEnable: SettingGuideEntry
     agentPersona: SettingGuideEntry
     agentPersonaSpeech: SettingGuideEntry
+    qqBot: SettingGuideEntry
     pro: SettingGuideEntry
     proEnable: SettingGuideEntry
     image: SettingGuideEntry

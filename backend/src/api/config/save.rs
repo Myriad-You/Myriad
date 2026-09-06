@@ -487,6 +487,15 @@ pub(crate) fn collect_database_updates(
                 JsonValue::String(field.value.clone()),
             ),
             "agora_api_base" => ("agora_api_base", JsonValue::String(field.value.clone())),
+            "qq_bot_enabled" => (
+                "qq_bot_enabled",
+                JsonValue::Bool(field.value == "true" || field.value == "1"),
+            ),
+            "qq_bot_app_id" => ("qq_bot_app_id", JsonValue::String(field.value.clone())),
+            "qq_bot_app_secret" => (
+                "qq_bot_app_secret",
+                JsonValue::String(field.value.clone()),
+            ),
             "ai_vendor_sources" => {
                 let parsed = serde_json::from_str::<JsonValue>(&field.value)
                     .unwrap_or_else(|_| JsonValue::Array(Vec::new()));
@@ -514,6 +523,8 @@ pub(crate) fn collect_database_updates(
                 | "agora_app_id"
                 | "agora_customer_id"
                 | "agora_api_base"
+                | "qq_bot_enabled"
+                | "qq_bot_app_id"
         );
         if is_masked(&field.value) {
             continue;

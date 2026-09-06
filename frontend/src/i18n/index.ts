@@ -1510,6 +1510,11 @@ export interface TranslationKeys {
     agentPersonaDeleteFailed: string
     agentPersonaSpeech: string
     agentPersonaSpeechHint: string
+    qqBotTitle: string
+    qqBotDesc: string
+    qqBotAppId: string
+    qqBotAppSecret: string
+    qqBotHint: string
     enableProxy: string
     enableProxyHint: string
     proxyUrl: string

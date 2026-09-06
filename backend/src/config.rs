@@ -378,6 +378,11 @@ pub struct DynamicConfig {
     /// 默认中国区 `https://api.agora.io/cn`
     pub agora_api_base: String,
 
+    /// QQ 机器人办事通道。默认关；凭证只写，不复用 Discord OAuth。
+    pub qq_bot_enabled: bool,
+    pub qq_bot_app_id: String,
+    pub qq_bot_app_secret: Option<String>,
+
     // UI 配置
     pub ui_wallpaper_url: Option<String>,
     pub ui_wallpaper_blur: i32,
@@ -750,6 +755,9 @@ impl Default for DynamicConfig {
             agora_customer_id: String::new(),
             agora_customer_secret: None,
             agora_api_base: String::new(),
+            qq_bot_enabled: false,
+            qq_bot_app_id: String::new(),
+            qq_bot_app_secret: None,
 
             ui_wallpaper_url: None,
             ui_wallpaper_blur: 3,

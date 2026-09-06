@@ -1792,7 +1792,7 @@ export const enUS: TranslationKeys = {
     memorySaverHint:
       'A second notch below the bounded default: smaller chunk inflight, process caches, DB pool, password-hash concurrency, and video/audio peaks. Everyday messages still fit; large media should use chunked transfer, and lossless audio may reject sooner. Env MYRIAD_MEMORY_PROFILE can override. DB pool fully applies after backend restart.',
     agentOptions: 'Agent',
-    agentOptionsDesc: 'Persona, speaking, scheduled tasks, skills, and memories.',
+    agentOptionsDesc: 'Persona, speaking, QQ bot, scheduled tasks, skills, and memories.',
     agentHeartbeatTitle: 'Scheduled tasks',
     agentHeartbeatDesc: 'Have it do something on its own when the time comes.',
     agentSkillsTitle: 'Skills',
@@ -1819,6 +1819,11 @@ export const enUS: TranslationKeys = {
     agentPersonaDeleteFailed: 'Could not delete the persona',
     agentPersonaSpeech: 'Speak',
     agentPersonaSpeechHint: 'Speak chat replies aloud. Off: mouth movement only.',
+    qqBotTitle: 'QQ bot',
+    qqBotDesc: 'C2C Work channel. Turn on and save AppID / AppSecret to connect the Gateway.',
+    qqBotAppId: 'QQ bot AppID',
+    qqBotAppSecret: 'QQ bot AppSecret',
+    qqBotHint: 'The secret is write-only and reads back masked. Empty clears it. The bot stays offline if the switch is off or credentials fail.',
     enableProxy: 'Enable Network Proxy',
     enableProxyHint:
       'External API requests will be sent through the proxy when enabled',

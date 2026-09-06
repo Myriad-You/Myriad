@@ -5,10 +5,11 @@
 //! turn is delivered, dropped, or failed visibly.
 
 use myriad_agent_rules::channel::{
-    classify_connect_failure, ingest_c2c_text, next_passive_seq, outbound_idempotency_key,
-    plan_delivery, qq_c2c_capabilities, session_key, worker_intent, ChannelEvent, ConnectFailure,
-    DeliveryContext, DeliveryPlan, InboundC2cText, InboundDecision, PairingLookup, WorkerIntent,
-    PANEL_REQUIRED_REPLY, PAIRING_REQUIRED_REPLY,
+    classify_connect_failure, classify_gateway_close, ingest_c2c_text, next_passive_seq,
+    outbound_idempotency_key, parse_access_token_response, parse_gateway_url_response,
+    plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh, session_key, worker_intent,
+    ChannelEvent, ConnectFailure, DeliveryContext, DeliveryPlan, InboundC2cText, InboundDecision,
+    PairingLookup, WorkerIntent, GROUP_AND_C2C_EVENT, PANEL_REQUIRED_REPLY, PAIRING_REQUIRED_REPLY,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -285,8 +286,67 @@ fn connect_failures_split_permanent_from_transient() {
     assert_eq!(
         classify_connect_failure(&ConnectFailure::HttpStatus {
             status: 200,
-            body: r#"{"code":100001,"message":"rate limited"}"#,
+            body: r#"{"code":100001,"message":"rate limited"}"#, 
         }),
         myriad_agent_rules::channel::ConnectFailureKind::Transient
+    );
+    assert_eq!(
+        classify_connect_failure(&ConnectFailure::HttpStatus {
+            status: 200,
+            body: r#"{"code":100016,"message":"invalid appid"}"#, 
+        }),
+        myriad_agent_rules::channel::ConnectFailureKind::Permanent
+    );
+    assert_eq!(
+        classify_gateway_close(4009),
+        myriad_agent_rules::channel::ConnectFailureKind::Transient
+    );
+    assert_eq!(
+        classify_gateway_close(4915),
+        myriad_agent_rules::channel::ConnectFailureKind::Permanent
+    );
+    assert_eq!(GROUP_AND_C2C_EVENT, 1 << 25);
+}
+
+#[test]
+fn access_token_and_gateway_url_parse_without_leaking_secrets() {
+    let (token, ttl) = parse_access_token_response(
+        200,
+        r#"{"access_token":"tok-abc","expires_in":7200}"#, 
+    )
+    .expect("token");
+    assert_eq!(token, "tok-abc");
+    assert_eq!(ttl, 7200);
+    assert_eq!(
+        parse_access_token_response(200, r#"{"code":100001,"message":"busy"}"#),
+        Err(myriad_agent_rules::channel::ConnectFailureKind::Transient)
+    );
+    assert_eq!(
+        parse_access_token_response(200, r#"{"code":100016,"message":"bad app"}"#),
+        Err(myriad_agent_rules::channel::ConnectFailureKind::Permanent)
+    );
+    assert_eq!(
+        parse_access_token_response(200, r#"{"message":"no token"}"#),
+        Err(myriad_agent_rules::channel::ConnectFailureKind::Permanent)
+    );
+    assert_eq!(
+        parse_gateway_url_response(200, r#"{"url":"wss://api.bot.qq.com/websocket"}"#)
+            .as_deref(),
+        Ok("wss://api.bot.qq.com/websocket")
+    );
+    assert_eq!(
+        parse_gateway_url_response(
+            500,
+            r#"{"code":11244,"message":"token not exist or expire"}"#, 
+        ),
+        Err(myriad_agent_rules::channel::ConnectFailureKind::Permanent)
+    );
+    assert!(qq_token_needs_refresh(
+        500,
+        r#"{"code":11242,"message":"retry"}"#, 
+    ));
+    assert_eq!(
+        parse_gateway_url_response(500, r#"{"code":11242,"message":"retry"}"#),
+        Err(myriad_agent_rules::channel::ConnectFailureKind::Transient)
     );
 }

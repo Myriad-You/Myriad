@@ -524,6 +524,7 @@ mod tests {
             "psn_npsso",
             "agora_app_certificate",
             "agora_customer_secret",
+            "qq_bot_app_secret",
         ] {
             assert!(
                 is_sensitive_config_key(secret),
@@ -538,6 +539,8 @@ mod tests {
             "github_username",
             "enabled",
             "base_url",
+            "qq_bot_enabled",
+            "qq_bot_app_id",
         ] {
             assert!(
                 !is_sensitive_config_key(non_secret),

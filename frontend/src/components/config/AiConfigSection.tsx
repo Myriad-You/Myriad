@@ -1146,6 +1146,39 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             title: t.config.agentPersonaSpeechHint,
           }}
         />
+        <AgentNestedSection
+          title={t.config.qqBotTitle}
+          description={t.config.qqBotDesc}
+          {...bindGuide('ai.qqBot', g.ai.qqBot)}
+          toggle={{
+            checked: getFieldValue('qq_bot_enabled') === 'true',
+            onChange: (value) =>
+              updateValue('qq_bot_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.qqBotTitle,
+            title: t.config.qqBotHint,
+          }}
+        >
+          <InputItem
+            itemKey="qq_bot_app_id"
+            label={t.config.qqBotAppId}
+            value={getFieldValue('qq_bot_app_id')}
+            onChange={(value) => updateValue('qq_bot_app_id', value)}
+            placeholder="102..."
+            hint={t.config.qqBotHint}
+            layout="vertical"
+            {...bindGuide('ai.qqBot', g.ai.qqBot)}
+          />
+          <InputItem
+            itemKey="qq_bot_app_secret"
+            label={t.config.qqBotAppSecret}
+            value={getFieldValue('qq_bot_app_secret')}
+            onChange={(value) => updateValue('qq_bot_app_secret', value)}
+            inputType="password"
+            autoSelectOnMask
+            layout="vertical"
+            {...bindGuide('ai.qqBot', g.ai.qqBot)}
+          />
+        </AgentNestedSection>
         <AgentOptionsPanel />
       </SettingGroup>
 

@@ -243,6 +243,11 @@ pub fn worker_intent(enabled: bool, app_id: &str, has_app_secret: bool) -> Worke
     }
 }
 
+/// Official `GROUP_AND_C2C_EVENT`. One bit covers C2C and group events.
+/// First-cut worker only needs C2C; do not add guild intents (4014 on 公域).
+/// <https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/event-emit.html>
+pub const GROUP_AND_C2C_EVENT: u32 = 1 << 25;
+
 /// Transport-level failure after attempting to connect or refresh a token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectFailure<'a> {
@@ -258,25 +263,136 @@ pub enum ConnectFailureKind {
     Transient,
 }
 
+/// Unified-platform token endpoint JSON `code` values (EasyBot QQ adapter).
+/// 100001 is rate-limit; 100016 / 100007 / 10004 are credential / bot-state.
+pub fn classify_access_token_code(code: i64) -> ConnectFailureKind {
+    match code {
+        100001 => ConnectFailureKind::Transient,
+        100016 | 100007 | 10004 => ConnectFailureKind::Permanent,
+        _ => ConnectFailureKind::Permanent,
+    }
+}
+
+/// Token is expired or the auth service asked for a refresh.
+/// 401 / 11244 are expire; 11242 is "retry once" (EasyBot `is_qq_token_invalid_response`).
+pub fn qq_token_needs_refresh(status: u16, body: &str) -> bool {
+    status == 401
+        || body.contains("11244")
+        || body.contains("token not exist or expire")
+        || body.contains("11242")
+}
+
+/// Official Node SDK close codes that must not reconnect.
+/// 4004 token; 4013/4014 intents; 4914 delisted; 4915 banned.
+/// <https://github.com/tencent-connect/bot-node-sdk/blob/main/src/types/websocket-types.ts>
+pub fn classify_gateway_close(close_code: u16) -> ConnectFailureKind {
+    match close_code {
+        4004 | 4013 | 4014 | 4914 | 4915 => ConnectFailureKind::Permanent,
+        _ => ConnectFailureKind::Transient,
+    }
+}
+
+/// Parse `POST /app/getAppAccessToken`. Never returns the secret; errors are kinds only.
+pub fn parse_access_token_response(
+    status: u16,
+    body: &str,
+) -> Result<(String, u64), ConnectFailureKind> {
+    let data = match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(value) => value,
+        Err(_) => {
+            return Err(classify_connect_failure(&ConnectFailure::HttpStatus {
+                status,
+                body,
+            }));
+        }
+    };
+    if let Some(code) = json_code(&data) {
+        return Err(classify_access_token_code(code));
+    }
+    if !(200..300).contains(&status) {
+        return Err(classify_connect_failure(&ConnectFailure::HttpStatus {
+            status,
+            body,
+        }));
+    }
+    let access_token = data
+        .get("access_token")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(ConnectFailureKind::Permanent)?;
+    let expires_in = data
+        .get("expires_in")
+        .and_then(json_u64)
+        .unwrap_or(7200);
+    Ok((access_token.to_string(), expires_in))
+}
+
+/// Parse `GET /gateway/bot` `{ "url": "wss://..." }`.
+/// 401 / 11244 stop; 11242 is retry-once so the worker can refresh the token.
+pub fn parse_gateway_url_response(status: u16, body: &str) -> Result<String, ConnectFailureKind> {
+    if body.contains("11242") {
+        return Err(ConnectFailureKind::Transient);
+    }
+    if qq_token_needs_refresh(status, body) {
+        return Err(ConnectFailureKind::Permanent);
+    }
+    if !(200..300).contains(&status) {
+        return Err(classify_connect_failure(&ConnectFailure::HttpStatus {
+            status,
+            body,
+        }));
+    }
+    let data: serde_json::Value =
+        serde_json::from_str(body).map_err(|_| ConnectFailureKind::Transient)?;
+    data.get("url")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|url| url.starts_with("ws://") || url.starts_with("wss://"))
+        .map(str::to_string)
+        .ok_or(ConnectFailureKind::Transient)
+}
+
+fn json_code(data: &serde_json::Value) -> Option<i64> {
+    data.get("code").and_then(|value| {
+        value
+            .as_i64()
+            .or_else(|| value.as_u64().map(|n| n as i64))
+            .or_else(|| value.as_str().and_then(|s| s.parse().ok()))
+    })
+}
+
+fn json_u64(value: &serde_json::Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()))
+        .or_else(|| value.as_str().and_then(|s| s.parse().ok()))
+}
+
 /// 401/403, gateway auth close codes, and token rejection are permanent.
 /// Network jitter and 5xx stay transient so a configured bot is not treated
 /// as "never configured".
 pub fn classify_connect_failure(failure: &ConnectFailure<'_>) -> ConnectFailureKind {
     match failure {
         ConnectFailure::Transport => ConnectFailureKind::Transient,
-        ConnectFailure::AuthRejected { close_code } => {
-            if matches!(*close_code, 4004 | 4014) {
-                ConnectFailureKind::Permanent
-            } else {
-                ConnectFailureKind::Transient
-            }
-        }
+        ConnectFailure::AuthRejected { close_code } => classify_gateway_close(*close_code),
         ConnectFailure::TokenRejected { .. } => ConnectFailureKind::Permanent,
         ConnectFailure::HttpStatus { status, body } => {
-            if *status == 401 || *status == 403 {
+            if body.contains("11242") {
+                return ConnectFailureKind::Transient;
+            }
+            if *status == 401
+                || *status == 403
+                || body.contains("11244")
+                || body.contains("token not exist or expire")
+            {
                 return ConnectFailureKind::Permanent;
             }
-            if body.contains("\"code\":100001") || body.contains("code\":100001") {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(body) {
+                if let Some(code) = json_code(&data) {
+                    return classify_access_token_code(code);
+                }
+            } else if body.contains("\"code\":100001") || body.contains("code\":100001") {
                 return ConnectFailureKind::Transient;
             }
             if *status >= 500 || *status == 429 {

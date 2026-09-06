@@ -191,7 +191,7 @@ QQ 是三种场景三套接口。第一版只认 **单聊（C2C）**。
 
 主动消息频控（未认证单聊）：约 5/qps 且 30/qpm，每用户每天 1000 条。数字以官方文档为准，会变。
 
-实现对照可读 Easybot 的 `easybot-adapter-qq`（手写 Gateway + reqwest）。QQ 运输可按该 crate 写入；Gateway/鉴权优先用 MIT 的 [`qq-bot-rs`](https://github.com/yenharvey/qq-bot-rs)（无流式发送，第一刀本来就不做流式草稿）。
+实现对照 Easybot 的 `easybot-adapter-qq`（统一平台 `getAppAccessToken` + 手写 Gateway）和官方 [bot-node-sdk](https://github.com/tencent-connect/bot-node-sdk) 的 opcode / 关闭码。鉴权走 `https://bots.qq.com/app/getAppAccessToken`（`Authorization: QQBot <token>`），不要用 Node SDK 仍保留的旧 `Bot appID.token` / `api.sgroup.qq.com`。第一刀只订 `GROUP_AND_C2C_EVENT`（`1 << 25`），不订频道 intent。
 已知坑：`msg_type: 7` 带空 `content` 会多空行；C2C 不走旧图文混合；群/C2C 不能 edit。
 
 ### QQ 单聊能力相对办事格式

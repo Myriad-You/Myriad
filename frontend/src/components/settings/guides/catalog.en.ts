@@ -581,6 +581,13 @@ export const en: SettingGuidesCatalog = {
       frontend: 'Settings → AI → Agent → Speak. Takes effect on the next chat turn after save.',
       notes: 'Voice uses quota. Turning this off does not turn off the persona.',
     },
+    qqBot: {
+      what: 'Send a QQ private message into site Work and get the result back in the same chat.',
+      chain:
+        '1) Turn on and save AppID / AppSecret; the backend then connects the open-platform Gateway.\n2) The secret is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n3) Off, incomplete credentials, or 401/403 stop the worker. Network jitter reconnects and is not treated as never configured.\n4) Pairing and Work replies are later tickets. This page only decides whether the bot is online.',
+      frontend: 'Settings → AI → Agent → QQ bot.',
+      notes: 'Do not paste Discord data-platform OAuth here. AppSecret never appears in page plaintext or error text.',
+    },
     liteEnable: {
       what: 'Whether to enable the Lite tier.',
       chain:
