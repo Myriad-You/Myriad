@@ -67,6 +67,7 @@ import { PERMISSION_CONFIG } from '../constants/permissions'
 import { useTappShellPresence } from '../hooks/useTappShellPresence'
 import { getTappRuntime } from '../runtime'
 import { PERMISSION_LEVELS } from '../runtime/permissionConfig'
+import { emitHostSettingsChange } from '../runtime/WidgetRuntimeSignals'
 import * as TappApiService from '../services/TappApiService'
 import {
   summarizeCredentialBindings,
@@ -250,6 +251,7 @@ export function TappDetailPage() {
       setSettingsSaving(key)
       try {
         await TappApiService.setTappSetting(tappId, key, value)
+        emitHostSettingsChange(tappId, key)
         setSettingsValues((prev) => ({ ...prev, [key]: value }))
         delete pendingChangesRef.current[key]
         if (showHint) {
@@ -773,25 +775,29 @@ export function TappDetailPage() {
     }
 
     if (setting.type === 'color') {
+      const hex = String(settingsValues[setting.key] ?? '#6366f1')
       return (
-        <SettingItemWrapper
+        <InputItem
           key={setting.key}
           itemKey={setting.key}
           label={setting.label}
           description={setting.description}
+          value={hex}
+          onChange={(v) => void saveSetting(setting.key, v)}
+          placeholder="#6366f1"
           disabled={disabled}
+          loading={busy}
           layout="horizontal"
-        >
-          <input
-            type="color"
-            className="tapp-detail-color-input"
-            value={String(settingsValues[setting.key] ?? '#6366f1')}
-            onChange={(e) => void saveSetting(setting.key, e.target.value)}
-            disabled={disabled}
-            aria-label={setting.label}
-            title={setting.label}
-          />
-        </SettingItemWrapper>
+          labelAccessory={
+            <span
+              className="tapp-detail-color-swatch"
+              style={{
+                background: /^#[0-9a-f]{3,8}$/i.test(hex) ? hex : 'transparent',
+              }}
+              aria-hidden
+            />
+          }
+        />
       )
     }
 
@@ -1010,6 +1016,7 @@ export function TappDetailPage() {
         }
       >
         {/* 应用信息 + 主操作 */}
+        <div data-tour="tapp-detail-overview">
         <SettingGroup
           id="tapp-overview"
           title={t.tapp.appInfo}
@@ -1022,9 +1029,11 @@ export function TappDetailPage() {
             actions={overviewActions}
           />
         </SettingGroup>
+        </div>
 
         {/* 应用设置 */}
         {showSettingsGroup && (
+          <div data-tour="tapp-detail-settings">
           <SettingGroup
             id="tapp-app-settings"
             title={t.tapp.appSettings}
@@ -1070,6 +1079,7 @@ export function TappDetailPage() {
                   </p>
                 )}
           </SettingGroup>
+          </div>
         )}
 
         {canManageSettings && hasManifestCredentials && (
@@ -1293,6 +1303,7 @@ export function TappDetailPage() {
         )}
 
         {/* 权限：按等级分组，等级内部三列 */}
+        <div data-tour="tapp-detail-permissions">
         <SettingGroup
           id="tapp-permissions"
           title={t.tapp.permissions}
@@ -1385,6 +1396,7 @@ export function TappDetailPage() {
             </div>
           )}
         </SettingGroup>
+        </div>
       </SettingSection>
 
       {toastMessage && (

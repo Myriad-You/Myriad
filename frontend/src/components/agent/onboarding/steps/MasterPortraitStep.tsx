@@ -49,6 +49,8 @@ export default function MasterPortraitStep({
   const portraitErrors = {
     pro_unavailable: o.proUnavailable,
     visual_design_required: o.visualDesignRequired,
+    visual_gender_mismatch: o.visualGenderMismatch,
+    visual_identity_unusable: o.visualIdentityUnusableForPortrait,
     visual_gender_required: o.genderRequired,
     image_provider_unconfigured: o.imageProviderUnconfigured,
     image_provider_credits: o.imageProviderCredits,

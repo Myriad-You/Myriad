@@ -11,6 +11,7 @@ import {
 } from '../utils/httpRateLimitToast'
 import { checkRateLimit, RateLimitError } from '../utils/rateLimiter'
 import TokenManager from '../utils/tokenManager'
+import { aiRequestTimeoutMs } from '../utils/aiRequestTimeout.mjs'
 import { isUselessErrorText, userFacingError } from '../utils/userFacingError'
 
 // 智能 API URL 检测（与 config.ts 保持一致）
@@ -105,6 +106,10 @@ const api = axios.create({
 // Add request interceptor to include auth token
 api.interceptors.request.use(
   async (config) => {
+    const aiTimeoutMs = aiRequestTimeoutMs(config.url || '')
+    if (aiTimeoutMs) {
+      config.timeout = Math.max(config.timeout ?? 0, aiTimeoutMs)
+    }
     // 异步获取 CSRF Token（从服务器）
     // 只有状态变更请求需要：后端 csrf_middleware 仅校验 POST/PUT/PATCH/DELETE。
     // Guest contract: GET /api/csrf-token returns 200 + csrf_token:null (not 401).

@@ -143,20 +143,21 @@ export function deformAnime25DMouthPoint(
     source.fade === 'mouthClose' ||
     source.fade === 'mouthManiac'
   ) {
-    const halfWidth = (mouth.x1 - mouth.x0) / 2
-    const q = Math.abs(point.x - mouth.cx) / (halfWidth + 4)
-    let formScale = 1
-    if (source.fade === 'mouthRound') formScale = 0.35
-    else if (source.fade === 'mouthNarrow') formScale = 0.7
-    else if (source.fade === 'mouthOpen') formScale = 0.8
-    else if (source.fade === 'mouthClose') formScale = 0.65
-    else if (source.fade === 'mouthManiac') formScale = 0.28
-    point.y -=
-      expression.mouthForm *
-      formScale *
-      6 *
-      frame.faceScale *
-      (q ** 1.5 - 0.35)
+    if (source.fade === 'mouthManiac') {
+      // Authored extreme expression keeps its own small curvature response.
+      const halfWidth = (mouth.x1 - mouth.x0) / 2
+      const q = Math.abs(point.x - mouth.cx) / (halfWidth + 4)
+      point.y -= expression.mouthForm * 0.28 * 6 * frame.faceScale * (q ** 1.5 - 0.35)
+    } else {
+      // Ordinary materials share one curve throughout the crossfade. Measure
+      // it in the live mouth's space, not an anchor or a fixed pixel gain:
+      // the old closed-mouth attenuation left authored smiles smiling even
+      // with a negative bearing. Width-relative curvature scales with assets.
+      const localX = clamp((restX - source.x - source.w / 2) / Math.max(1, source.w / 2), -1, 1)
+      const articulation = 1 - morph.openMix * (0.2 + morph.round * 0.45 + morph.narrow * 0.1)
+      const amplitude = morph.width * expression.mouthScale * 0.28 * articulation
+      point.y -= expression.mouthForm * amplitude * (Math.abs(localX) ** 1.5 - 0.4)
+    }
   }
   if (source.fade === 'mouthCry') {
     const halfWidth = (mouth.x1 - mouth.x0) / 2

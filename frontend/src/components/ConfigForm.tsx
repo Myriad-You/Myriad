@@ -10,7 +10,7 @@ import {
   LuRefreshCw,
 } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
-import React, { useCallback, useEffect } from 'react'
+import React, { useCallback, useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { testSpeechService } from '../lib/api'
@@ -57,6 +57,10 @@ import './ConfigForm.css'
 const ModernConfigForm: React.FC = () => {
   const { t, locale } = useI18n()
   const { user, isAdmin } = useAuth()
+  const speechTestAudioRef = useRef<{
+    audio: HTMLAudioElement
+    url: string
+  } | null>(null)
 
   const { message, messageType, showMessage } = useConfigMessage()
 
@@ -288,6 +292,18 @@ const ModernConfigForm: React.FC = () => {
     }
   }, [handleSave, handleReset])
 
+  const releaseSpeechTestAudio = useCallback(() => {
+    const current = speechTestAudioRef.current
+    if (!current) return
+    speechTestAudioRef.current = null
+    current.audio.pause()
+    current.audio.removeAttribute('src')
+    current.audio.load()
+    URL.revokeObjectURL(current.url)
+  }, [])
+
+  useEffect(() => () => releaseSpeechTestAudio(), [releaseSpeechTestAudio])
+
   const handleSpeechTest = useCallback(async (): Promise<{
     success: boolean
     message: string
@@ -314,12 +330,16 @@ const ModernConfigForm: React.FC = () => {
                 ? 'audio/wav'
                 : 'audio/mpeg',
           })
+          releaseSpeechTestAudio()
           const url = URL.createObjectURL(blob)
           const audio = new Audio(url)
-          audio.addEventListener('ended', () => URL.revokeObjectURL(url), {
-            once: true,
-          })
-          void audio.play().catch(() => URL.revokeObjectURL(url))
+          speechTestAudioRef.current = { audio, url }
+          const release = () => {
+            if (speechTestAudioRef.current?.url !== url) return
+            releaseSpeechTestAudio()
+          }
+          audio.addEventListener('ended', release, { once: true })
+          void audio.play().catch(release)
         } catch {
           // Playback is best-effort; the API result still stands.
         }
@@ -343,7 +363,7 @@ const ModernConfigForm: React.FC = () => {
     } catch {
       return { success: false, message: t.config.speechTestFailed }
     }
-  }, [config, t])
+  }, [config, releaseSpeechTestAudio, t])
 
   const handleModuleMessage = useCallback(
     (msg: string, type: 'success' | 'error' | 'info' = 'info') =>
@@ -599,6 +619,7 @@ const ModernConfigForm: React.FC = () => {
           <motion.aside
             className="config-sidebar"
             aria-label={t.config.title}
+            data-tour="config-sidebar"
             initial={SETTINGS_SIDEBAR_MOTION.initial}
             animate={SETTINGS_SIDEBAR_MOTION.animate}
             transition={SETTINGS_SIDEBAR_MOTION.transition}
@@ -614,7 +635,7 @@ const ModernConfigForm: React.FC = () => {
             </div>
 
             <div className="config-sidebar-search">
-              <div className="search-input-wrapper">
+              <div className="search-input-wrapper" data-tour="config-search">
                 <FaSearch className="search-icon" />
                 <input
                   type="search"
@@ -731,7 +752,7 @@ const ModernConfigForm: React.FC = () => {
         ) : null}
 
         {!(isMobileLayout && mobilePane === 'nav') ? (
-          <div className="config-content">
+          <div className="config-content" data-tour="config-content">
             <SettingsPageActionsProvider
               value={{
                 resetCurrentPage: handleResetCurrentPage,

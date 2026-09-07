@@ -153,6 +153,24 @@ pub fn build_llms_txt(
     body
 }
 
+/// Append a markdown link list. `items` are (label, url). Empty list is a no-op.
+pub fn append_llms_link_section(body: &mut String, heading: &str, items: &[(String, String)]) {
+    if items.is_empty() {
+        return;
+    }
+    body.push_str("\n## ");
+    body.push_str(heading.trim());
+    body.push_str("\n\n");
+    for (label, url) in items {
+        let safe_label = label.replace(['[', ']', '(', ')'], "");
+        body.push_str("- [");
+        body.push_str(&safe_label);
+        body.push_str("](");
+        body.push_str(url);
+        body.push_str(")\n");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,5 +236,17 @@ mod tests {
         );
         assert!(body.contains("[Brew](/brew)"));
         assert!(!body.contains("https://"));
+    }
+
+    #[test]
+    fn llms_appends_named_entries() {
+        let mut body = String::from("# Site\n");
+        append_llms_link_section(
+            &mut body,
+            "Apps",
+            &[("Todo".into(), "https://ex.com/tapp/run/todo".into())],
+        );
+        assert!(body.contains("## Apps"));
+        assert!(body.contains("[Todo](https://ex.com/tapp/run/todo)"));
     }
 }

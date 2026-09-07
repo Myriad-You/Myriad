@@ -5,7 +5,7 @@
 
 import type { AnimationConfig } from '../../hooks/useAnimationLevel'
 import type { LyricLine, WordLyricLine } from '../../utils/musicPlayer'
-import type { WidgetConfig } from '../WidgetGrid'
+import type { WidgetConfig } from '../widgetGridTypes'
 
 import { LuMusic } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'

@@ -74,6 +74,8 @@ interface ScheduledExpressionCue {
   fadeOut: number
   end: number
   sticker: boolean
+  /** Manner this beat was authored with, read by the pose response filter. */
+  quality: BehaviorQuality
   offset: PerformanceExpressionOffset
 }
 
@@ -126,6 +128,13 @@ const ZERO_OFFSET: PerformanceExpressionOffset = {
 }
 
 const AMBIENT_SCALE_RATE = 5.2
+/**
+ * Matches what a focused bearing and a large random action each take out of
+ * the idle layer, so no source is quietly privileged over the others. The cue
+ * envelope is already smootherstep-shaped and continuous, so this needs no
+ * easing of its own.
+ */
+const LIVE_CUE_AMBIENT_DAMP = 0.3
 const EYE_CLOSED_GUARD = 0.12
 const EXTREME_SOFT_LIMIT_START = 0.8
 /**
@@ -139,6 +148,8 @@ export class PerformanceExpressionController {
   private lastTime = Number.NaN
   private ambientScale = 1
   private ambientScaleTarget = 1
+  private activeLevel = 0
+  private activeQuality: BehaviorQuality | null = null
 
   /**
    * Restates the live performance units on the player clock.
@@ -159,6 +170,13 @@ export class PerformanceExpressionController {
     nowMs: number,
   ): boolean {
     const now = finiteTime(timeSeconds)
+    // Scheduling maps wall time onto the write clock, which is correct: the
+    // read clock's lead is what makes a cue land on time. A release is the
+    // other direction — it continues from the value already on screen, which
+    // belongs to the read clock. Starting it on the write clock put a whole
+    // lead into the fade before its first frame, and a short `fadeOut` lost
+    // most of itself there: 79% in one frame, which reads as snapping to rest.
+    const releaseAt = this.releaseClock(now)
     this.pruneExpiredCues(now)
     if (!Number.isFinite(this.lastTime)) this.lastTime = now
     const live = new Map<string, Anime25DMotionUnit>()
@@ -170,7 +188,7 @@ export class PerformanceExpressionController {
     for (const cue of this.cues) {
       const unit = live.get(cue.behaviorId)
       if (!unit) {
-        releaseScheduledCue(cue, now)
+        releaseScheduledCue(cue, releaseAt)
         changed = true
         continue
       }
@@ -207,16 +225,24 @@ export class PerformanceExpressionController {
 
   /** Releases transient cues without erasing the persistent bearing. */
   stopBehaviors(timeSeconds: number): void {
-    const now = finiteTime(timeSeconds)
-    this.lastTime = now
-    this.releaseActiveCues(now)
+    this.releaseActiveCues(this.releaseClock(finiteTime(timeSeconds)))
   }
 
   stop(timeSeconds: number): void {
-    const now = finiteTime(timeSeconds)
-    this.lastTime = now
-    this.releaseActiveCues(now)
+    this.releaseActiveCues(this.releaseClock(finiteTime(timeSeconds)))
     this.ambientScaleTarget = 1
+  }
+
+  /**
+   * The moment the pose currently on screen belongs to.
+   *
+   * Never behind the last sample: rewinding it would also hand the next frame
+   * a second copy of the lead as elapsed time.
+   */
+  private releaseClock(candidate: number): number {
+    return Number.isFinite(this.lastTime)
+      ? Math.max(this.lastTime, candidate)
+      : candidate
   }
 
   sample(timeSeconds: number): Readonly<PerformanceExpressionOffset> {
@@ -235,10 +261,16 @@ export class PerformanceExpressionController {
     for (const key of OFFSET_KEYS) this.output[key] = 0
 
     this.pruneExpiredCues(now)
+    this.activeLevel = 0
+    this.activeQuality = null
     for (const cue of this.cues) {
       if (now < cue.start || now >= cue.end) continue
       const envelope = cueEnvelope(cue, now)
       if (envelope <= 0) continue
+      if (envelope > this.activeLevel) {
+        this.activeLevel = envelope
+        this.activeQuality = cue.quality
+      }
       for (const key of OFFSET_KEYS) {
         this.output[key] =
           (this.output[key] ?? 0) + (cue.offset[key] ?? 0) * envelope
@@ -247,8 +279,27 @@ export class PerformanceExpressionController {
     return this.output
   }
 
+  /**
+   * How much of the idle layer survives underneath the director.
+   *
+   * Three sources can cover the rig's own drift, and the pose gate multiplies
+   * all three: a sticker holds the face, a large random action damps the drift
+   * beneath it, and this. Until the live term was added this one answered only
+   * to the persistent bearing, so the director's own beats were the single
+   * covering motion that left the idle layer running at full amplitude.
+   */
   getAmbientMotionScale(): number {
-    return this.ambientScale
+    return this.ambientScale * (1 - LIVE_CUE_AMBIENT_DAMP * this.activeLevel)
+  }
+
+  /** Envelope of the loudest live beat, as its share of the composed pose. */
+  getActiveLevel(): number {
+    return this.activeLevel
+  }
+
+  /** Manner of that beat, so the response filter can move at its speed. */
+  getActiveQuality(): Readonly<BehaviorQuality> | null {
+    return this.activeQuality
   }
 
   getScheduledCueCount(): number {
@@ -387,6 +438,7 @@ function scheduledCueFromUnit(
     // An absent end means the behavior holds until something replaces it.
     end: end ?? Number.POSITIVE_INFINITY,
     sticker: cueIsSticker(intent),
+    quality: unit.quality,
     offset: intentExpressionOffset(
       intent,
       performanceUnitAmount(unit.intensity, unit.quality),

@@ -120,7 +120,8 @@ test('semantic and staged expression extras honor independent ownership', () => 
     stylized = controller.sample(frame / 60, 0, 0, 1, 0, 0)
   }
 
-  applyAnime25DStylizedExpression(target, semantic, stylized, false, 0, 0.25)
+  // 1 = no voice on the mouth, which is what the old `speaking: false` meant.
+  applyAnime25DStylizedExpression(target, semantic, stylized, 1, 0, 0.25)
 
   assert.equal(target.eyeDizzy, 0)
   assert.equal(target.maniac, 0)
@@ -219,12 +220,11 @@ test('working target preparation reuses its output and preserves legacy math', (
     idle: true,
   }
   const output = { ...IDENTITY_DRIVER }
-  const time = 3.7
   const actual = prepareAnime25DWorkingTarget(
     output,
     authored,
     { x: 0.46, y: -0.33, inside: true },
-    time,
+    1,
   )
 
   assert.equal(actual, output)
@@ -234,6 +234,41 @@ test('working target preparation reuses its output and preserves legacy math', (
   assert.equal(actual.eyeX, 0.46 * 1.2)
   assert.equal(actual.eyeY, 0.33 * 0.8)
   assert.equal(actual.body, 0.25)
+})
+
+test('pointer gaze is a weight, so leaving eases off instead of dropping', () => {
+  const authored: Anime25DDriver = {
+    ...IDENTITY_DRIVER,
+    angleX: -0.2,
+    angleY: 0.1,
+    eyeX: 0.05,
+    eyeY: -0.05,
+    mouse: true,
+  }
+  const pointer = { x: 0.46, y: -0.33, inside: true }
+  const at = (authority: number) =>
+    prepareAnime25DWorkingTarget({ ...IDENTITY_DRIVER }, authored, pointer, authority)
+
+  // Losing the cursor used to drop the whole tracked goal in one frame, which
+  // the pose filter then chased as a snap back to rest. Skimming the edge of
+  // the character did it twice a second.
+  const held = at(1)
+  const half = at(0.5)
+  const released = at(0)
+  assert.equal(released.angleX, authored.angleX)
+  assert.equal(released.eyeY, authored.eyeY)
+  assert.ok(
+    Math.abs(half.angleX - (authored.angleX + held.angleX) / 2) < 1e-12,
+  )
+  assert.ok(Math.abs(half.eyeX - (authored.eyeX + held.eyeX) / 2) < 1e-12)
+  // An authored pose with no pointer at all is untouched at any authority.
+  const ignored = prepareAnime25DWorkingTarget(
+    { ...IDENTITY_DRIVER },
+    { ...authored, mouse: false },
+    pointer,
+    1,
+  )
+  assert.equal(ignored.angleX, authored.angleX)
 })
 
 test('stylized target resolution reuses output and keeps special-eye blocking', () => {
@@ -459,6 +494,18 @@ test('new pose response leaves mouth, expression, blink and physics flags unchan
   }
 })
 
+/**
+ * Second implementation of the blink machine, kept to pin its arithmetic.
+ *
+ * This was a byte-for-byte copy of the version extracted from the player. One
+ * clause is deliberately no longer identical: the original abandoned a blink
+ * in flight the moment `suppressed` or `!enabled` arrived, returning without
+ * writing the lid, so a sticker crossing its 0.03 threshold — or automation
+ * being switched off — while the eyes were shut threw them open from wherever
+ * they had got to. A blink in flight now finishes; only the scheduling of new
+ * ones stops. `an interrupted blink finishes instead of springing open` pins
+ * that behaviour directly, and this keeps covering everything else.
+ */
 function legacyStepBlink(
   target: Anime25DDriver,
   state: { activeSeconds: number; nextAtSeconds: number },
@@ -468,27 +515,26 @@ function legacyStepBlink(
   suppressed: boolean,
   random: () => number,
 ): void {
-  if (suppressed) {
-    state.activeSeconds = -1
-    state.nextAtSeconds = time + 1.8
-  } else if (enabled) {
+  if (suppressed || !enabled) {
+    if (suppressed) state.nextAtSeconds = time + 1.8
+    if (state.activeSeconds < 0) return
+  } else {
     if (state.activeSeconds < 0 && time > state.nextAtSeconds) {
       state.activeSeconds = 0
       state.nextAtSeconds = time + 1.6 + random() * 3.8
       if (random() < 0.18) state.nextAtSeconds = time + 0.28
     }
-    if (state.activeSeconds >= 0) {
-      state.activeSeconds += dt
-      const elapsed = state.activeSeconds
-      let open = 1
-      if (elapsed < 0.08) open = 1 - elapsed / 0.08
-      else if (elapsed < 0.42) open = 0
-      else if (elapsed < 0.58) open = (elapsed - 0.42) / 0.16
-      else state.activeSeconds = -1
-      target.eyeOpenL = Math.min(target.eyeOpenL, open)
-      target.eyeOpenR = Math.min(target.eyeOpenR, open)
-    }
+    if (state.activeSeconds < 0) return
   }
+  state.activeSeconds += dt
+  const elapsed = state.activeSeconds
+  let open = 1
+  if (elapsed < 0.08) open = 1 - elapsed / 0.08
+  else if (elapsed < 0.42) open = 0
+  else if (elapsed < 0.58) open = (elapsed - 0.42) / 0.16
+  else state.activeSeconds = -1
+  target.eyeOpenL = Math.min(target.eyeOpenL, open)
+  target.eyeOpenR = Math.min(target.eyeOpenR, open)
 }
 
 function legacyStepDriverResponse(
@@ -565,3 +611,79 @@ function legacyStepDriverResponse(
     (secondaryTarget.angleZ - secondaryCurrent.angleZ) * rate
   secondaryCurrent.body += (secondaryTarget.body - secondaryCurrent.body) * rate
 }
+
+test('an interrupted blink finishes instead of springing open', () => {
+  for (const interruption of ['suppressed', 'disabled'] as const) {
+    const state = { activeSeconds: -1, nextAtSeconds: 0 }
+    const random = () => 0.5
+    const lid = (time: number, enabled: boolean, suppressed: boolean) => {
+      const target = { ...IDENTITY_DRIVER, eyeOpenL: 1, eyeOpenR: 1 }
+      stepAnime25DBlink(target, state, time, 1 / 60, enabled, suppressed, random)
+      return target.eyeOpenL
+    }
+    // Open the lids, then land the interruption while they are shut.
+    let time = 1 / 60
+    lid(time, true, false)
+    for (let frame = 0; frame < 8; frame += 1) {
+      time += 1 / 60
+      lid(time, true, false)
+    }
+    const shut = lid(time, true, false)
+    assert.ok(shut < 0.2, `${interruption}: expected shut lids, got ${shut}`)
+
+    time += 1 / 60
+    const interrupted = lid(
+      time,
+      interruption !== 'disabled',
+      interruption === 'suppressed',
+    )
+    // A sticker crossing 0.03 is only 3% blended in, so the real eyes are
+    // still what the viewer is looking at while this happens.
+    assert.ok(
+      interrupted < 0.2,
+      `${interruption}: lids sprang to ${interrupted} mid-blink`,
+    )
+
+    // It still ends, and it stops scheduling new ones.
+    for (let frame = 0; frame < 60; frame += 1) {
+      time += 1 / 60
+      lid(time, interruption !== 'disabled', interruption === 'suppressed')
+    }
+    assert.equal(state.activeSeconds, -1)
+    assert.equal(
+      lid(time, interruption !== 'disabled', interruption === 'suppressed'),
+      1,
+    )
+  }
+})
+
+test('the lovestruck mouth yields to a voice by degrees, not in one step', () => {
+  const controller = new StylizedExpressionMotionController()
+  let stylized = controller.sample(0, 0, 0, 0, 0, 1)
+  for (let frame = 1; frame <= 90; frame += 1) {
+    stylized = controller.sample(frame / 60, 0, 0, 0, 0, 1)
+  }
+  assert.ok(stylized.lovestruckMouthOpen > 0, 'expected an open sticker mouth')
+
+  const semantic = intentExpressionOffset('delight', 0)
+  const openAt = (vocalRest: number): number => {
+    const target = { ...IDENTITY_DRIVER, mouthOpen: 0 }
+    applyAnime25DStylizedExpression(target, semantic, stylized, vocalRest, 0, 1)
+    return target.mouthOpen
+  }
+
+  // The silly mouth beside this one has always taken an eased share. This one
+  // read the same quantity as a boolean and moved 0.82 of the mouth in a
+  // single frame every time speech started or stopped.
+  const free = openAt(1)
+  const taken = openAt(0)
+  assert.ok(free > taken)
+  const half = openAt(0.5)
+  assert.ok(
+    Math.abs(half - (free + taken) / 2) < 1e-12,
+    `half share gave ${half}, between ${taken} and ${free}`,
+  )
+  for (const rest of [-1, 2]) {
+    assert.ok(openAt(rest) >= taken && openAt(rest) <= free)
+  }
+})

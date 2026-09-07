@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "PlayStation Network NPSSO → access_token exchange with TTL cache (shared by fetcher + game presence)."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 myriad-outbound = { path = "../myriad-outbound" }

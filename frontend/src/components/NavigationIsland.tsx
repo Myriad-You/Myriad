@@ -40,6 +40,7 @@ import {
 
   subscribeNavLayout,
 } from '../utils/navLayout'
+import { navigateAfterStageLeave } from './stageLeaveGate'
 
 /** Bottom ↔ rail crossfade timings (ms). Position only swaps while opacity≈0. */
 const NAV_CHROME_OUT_MS = 200
@@ -333,14 +334,6 @@ const NavIslandTooltip = memo(
       padding: '6px 10px',
       borderRadius: '8px',
       background: 'var(--bg-secondary)',
-      // exlight 下由 performance.css 全局关 backdrop；此处不写 blur，避免无意义合成
-      ...(typeof document !== 'undefined' &&
-      document.documentElement.dataset.perfMode === 'exlight'
-        ? {}
-        : {
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-          }),
       color: 'var(--text-primary)',
       border: '1px solid var(--border-color)',
       boxShadow: '0 2px 8px var(--shadow-color)',
@@ -724,17 +717,19 @@ export function NavigationIsland() {
           }
         }
       } else {
-        // 导航到目标页面
-        navigate(path)
-        // 等待路由更新后展开
-        setTimeout(() => {
-          if (window.location.pathname === path) {
-            // 通过事件通知页面展开二级导航
-            window.dispatchEvent(
-              new CustomEvent('nav-expand-secondary', { detail: { path } }),
-            )
-          }
-        }, 150)
+        const go = () => {
+          navigate(path)
+          // 等待路由更新后展开
+          setTimeout(() => {
+            if (window.location.pathname === path) {
+              // 通过事件通知页面展开二级导航
+              window.dispatchEvent(
+                new CustomEvent('nav-expand-secondary', { detail: { path } }),
+              )
+            }
+          }, 150)
+        }
+        if (!navigateAfterStageLeave(go)) go()
       }
     },
     [location.pathname, secondaryNav, handleExpand, navigate, handlePrefetchPath],
@@ -767,6 +762,7 @@ export function NavigationIsland() {
     }
 
     // 两帧后读取尺寸并启动进入动画
+    let sizeWidthRaf = 0
     const cancelSizeRaf = doubleRaf(() => {
       const currentContent = navContentRef.current
       const currentIsland = currentContent?.closest(
@@ -793,7 +789,8 @@ export function NavigationIsland() {
         if (naturalWidth > 0 && naturalWidth !== fromWidth) {
           // 恢复起始值，下一帧设目标值，触发 CSS 过渡
           currentIsland.style.width = `${fromWidth}px`
-          requestAnimationFrame(() => {
+          sizeWidthRaf = requestAnimationFrame(() => {
+            sizeWidthRaf = 0
             currentIsland.style.width = `${naturalWidth}px`
             updateModeMetrics(currentMode, { width: naturalWidth })
           })
@@ -850,6 +847,7 @@ export function NavigationIsland() {
 
     return () => {
       cancelSizeRaf()
+      if (sizeWidthRaf) cancelAnimationFrame(sizeWidthRaf)
       cancelEnterRaf()
       cancelAnimationFrame(enterRafId)
       if (enterCleanupTimer) clearTimeout(enterCleanupTimer)
@@ -1178,7 +1176,7 @@ export function NavigationIsland() {
       {...(immersiveMode && { 'aria-hidden': 'true' })}
       {...(chromeSwitch ? { 'aria-busy': 'true' } : {})}
     >
-      <div className="dynamic-island">
+      <div className="dynamic-island" data-tour="nav">
         {/*
           nav-island-scroll：移动端横向滚动放在内层，外层 dynamic-island 只做
           毛玻璃 + overflow:hidden。若把 overflow-x:auto 直接加在带
@@ -1194,6 +1192,16 @@ export function NavigationIsland() {
               key="secondary-mode"
               role="toolbar"
               aria-label={secondaryNav.expandHint || t.nav.mainNavigation}
+              data-tour={
+                secondaryNav.routePath === '/library'
+                  ? 'library-filters'
+                  : undefined
+              }
+              data-tour-fit={
+                secondaryNav.routePath === '/library'
+                  ? '.nav-group:not([data-group="back"]):not([data-group="divider"]) .nav-item'
+                  : undefined
+              }
             >
               {/* 返回按钮 - Escape 也可收起 */}
               <div className="nav-group" data-group="back">
@@ -1212,34 +1220,36 @@ export function NavigationIsland() {
                 <div className="nav-island-divider bg-gray-300/50 dark:bg-neutral-700/50"></div>
               </div>
 
-              {/* 二级导航项 */}
-              {secondaryNav.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="nav-group nav-group-spaced"
-                  data-group={item.id}
-                >
-                  <button
-                    onClick={() => {
-                      secondaryNav.onChange(item.id)
-                      // 在子路由（如 /brew/item/xxx）点击导航项时，返回基础路由
-                      if (
-                        location.pathname !== secondaryNav.routePath &&
-                        location.pathname.startsWith(
-                          `${secondaryNav.routePath}/`,
-                        )
-                      ) {
-                        navigate(secondaryNav.routePath)
-                      }
-                    }}
-                    className={`nav-item ${secondaryNav.activeId === item.id ? 'active-secondary' : ''}`}
-                    data-tooltip={item.title || item.label}
-                    aria-label={item.ariaLabel || item.label}
+              {/* 二级导航项。教程锚在上级 content，只 fit 分类钮，不圈返回。 */}
+              <div className="contents">
+                {secondaryNav.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="nav-group nav-group-spaced"
+                    data-group={item.id}
                   >
-                    {item.icon}
-                  </button>
-                </div>
-              ))}
+                    <button
+                      onClick={() => {
+                        secondaryNav.onChange(item.id)
+                        // 在子路由（如 /brew/item/xxx）点击导航项时，返回基础路由
+                        if (
+                          location.pathname !== secondaryNav.routePath &&
+                          location.pathname.startsWith(
+                            `${secondaryNav.routePath}/`,
+                          )
+                        ) {
+                          navigate(secondaryNav.routePath)
+                        }
+                      }}
+                      className={`nav-item ${secondaryNav.activeId === item.id ? 'active-secondary' : ''}`}
+                      data-tooltip={item.title || item.label}
+                      aria-label={item.ariaLabel || item.label}
+                    >
+                      {item.icon}
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             /* 一级导航模式 */
@@ -1275,7 +1285,8 @@ export function NavigationIsland() {
                         onClick={(e) => {
                           e.preventDefault()
                           handlePrefetchPath(item.path)
-                          navigate(item.path)
+                          const go = () => navigate(item.path)
+                          if (!navigateAfterStageLeave(go)) go()
                         }}
                       >
                         {item.icon}

@@ -52,6 +52,10 @@ pub struct RecentIntent {
 pub struct SelfLivePresence {
     pub speaking: bool,
     pub face_visible: bool,
+    /// Document is visible in this browser. Independent of the face widget.
+    pub page_visible: bool,
+    /// Agent panel is open in this browser. Independent of being on the page.
+    pub panel_visible: bool,
     pub speech_interruptible: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_mode: Option<String>,
@@ -61,6 +65,12 @@ pub struct SelfLivePresence {
     pub speech_intent: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub perception: Vec<String>,
+    /// Sanitized source-shaped observations for another trusted Chat ingress.
+    /// The decision snapshot uses the compact reader text above.
+    #[serde(skip)]
+    pub perception_payload: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub music_status: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rig_state: Option<myriad_merope::RigStateSummary>,
     /// When this observation was written. `None` is treated as expired.

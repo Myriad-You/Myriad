@@ -319,6 +319,10 @@ function clamp(value: number, minimum: number, maximum: number): number {
  * quality already reaches the pose generators it belongs to — the co-speech
  * controller and the groove take `coSpeechQuality` and `musicQuality` directly
  * — so a boost here would scale the same extent and power a second time.
+ *
+ * This is about how big a motion is. How fast one pose becomes the next is a
+ * separate reading of the same vector, spent once in `poseResponseScale`; the
+ * two do not overlap and neither is a duplicate of the other.
  */
 export function behaviorMotionScale(extent: number, power: number): number {
   if (extent <= 0) return 1
@@ -327,7 +331,7 @@ export function behaviorMotionScale(extent: number, power: number): number {
 
 export function applyBehaviorMotionGate(
   gate: PoseGate,
-  motion: Readonly<Anime25DBehaviorMotionSample>,
+  motion: Readonly<Omit<Anime25DBehaviorMotionSample, 'coSpeechGesture'>>,
 ): PoseGate {
   const coSpeech = behaviorMotionScale(motion.coSpeech, motion.coSpeechPower)
   const music = behaviorMotionScale(motion.music, motion.musicPower)

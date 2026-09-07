@@ -11,6 +11,7 @@ import {
   ALL_OWNED_UI_BAG_KEYS,
   bagFieldValue,
   configChangesNeedHardReload,
+  configChangesNeedIslandReload,
   configChangesNeedMetadataReload,
   configChangesNeedPersonaPublicNameRefresh,
   configChangesNeedPlatformsCacheInvalidation,
@@ -40,6 +41,8 @@ describe('uiBagOwnership', () => {
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('wallpaper_url'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('analytics_enabled'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('music_enabled'))
+    assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('island_show_greeting'))
+    assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('island_show_tapp'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('merope_enabled'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('merope_speech_enabled'))
     // The switch lives on the AI page now, so resetting Advanced must leave it alone.
@@ -81,10 +84,19 @@ describe('uiBagOwnership', () => {
     assert.equal(configChangesNeedHardReload(next, prev, deepEqual), false)
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('site_keywords'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('site_og_image'))
+    assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('google_site_verification'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('site_noindex'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('ga_measurement_id'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('umami_website_id'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('umami_script_url'))
+  })
+
+  it('soft-reloads island content flags without hard reload', () => {
+    const prev = cfg([{ key: 'island_show_greeting', value: 'true' }])
+    const next = cfg([{ key: 'island_show_greeting', value: 'false' }])
+    assert.equal(configChangesNeedIslandReload(next, prev), true)
+    assert.equal(configChangesNeedIslandReload(prev, prev), false)
+    assert.equal(configChangesNeedHardReload(next, prev, deepEqual), false)
   })
 
   it('soft-reloads pwa_enabled without hard reload', () => {

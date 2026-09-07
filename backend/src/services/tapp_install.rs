@@ -29,7 +29,6 @@ impl InvalidInstallSource {
         "Invalid source, must be 'direct' or 'store'"
     }
 
-    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
     pub fn status_hint(self) -> u16 {
         400
     }
@@ -41,43 +40,6 @@ pub fn parse_install_source(source: &str) -> Result<InstallSource, InvalidInstal
         "direct" => Ok(InstallSource::Direct),
         "store" => Ok(InstallSource::Store),
         _ => Err(InvalidInstallSource),
-    }
-}
-
-/// Widget/page CSS split into declared vs generated channels.
-///
-/// 仅经 map_direct_css_channels 由本文件测试构造（安装路径当前不走这条分支）。
-#[allow(dead_code)]
-pub struct DirectCssChannels {
-    pub widget_styles: Option<String>,
-    pub generated_widget_css: Option<String>,
-    pub page_styles: Option<String>,
-    pub generated_page_css: Option<String>,
-}
-
-/// Route optional widget/page CSS bodies according to manifest declarations.
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-pub fn map_direct_css_channels(
-    manifest_declares_widget_styles: bool,
-    manifest_declares_page_styles: bool,
-    widget_css: Option<String>,
-    page_css: Option<String>,
-) -> DirectCssChannels {
-    let (widget_styles, generated_widget_css) = if manifest_declares_widget_styles {
-        (widget_css, None)
-    } else {
-        (None, widget_css)
-    };
-    let (page_styles, generated_page_css) = if manifest_declares_page_styles {
-        (page_css, None)
-    } else {
-        (None, page_css)
-    };
-    DirectCssChannels {
-        widget_styles,
-        generated_widget_css,
-        page_styles,
-        generated_page_css,
     }
 }
 
@@ -366,29 +328,6 @@ mod tests {
             "Invalid source, must be 'direct' or 'store'"
         );
         assert_eq!(InvalidInstallSource.status_hint(), 400);
-    }
-
-    #[test]
-    fn map_direct_css_prefers_declared_styles_channels() {
-        let declared =
-            map_direct_css_channels(true, true, Some("w-body".into()), Some("p-body".into()));
-        assert_eq!(declared.widget_styles.as_deref(), Some("w-body"));
-        assert!(declared.generated_widget_css.is_none());
-        assert_eq!(declared.page_styles.as_deref(), Some("p-body"));
-        assert!(declared.generated_page_css.is_none());
-
-        let sidecars =
-            map_direct_css_channels(false, false, Some("w-body".into()), Some("p-body".into()));
-        assert!(sidecars.widget_styles.is_none());
-        assert_eq!(sidecars.generated_widget_css.as_deref(), Some("w-body"));
-        assert!(sidecars.page_styles.is_none());
-        assert_eq!(sidecars.generated_page_css.as_deref(), Some("p-body"));
-
-        let mixed = map_direct_css_channels(true, false, Some("w".into()), Some("p".into()));
-        assert_eq!(mixed.widget_styles.as_deref(), Some("w"));
-        assert!(mixed.generated_widget_css.is_none());
-        assert!(mixed.page_styles.is_none());
-        assert_eq!(mixed.generated_page_css.as_deref(), Some("p"));
     }
 
     #[test]

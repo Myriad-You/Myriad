@@ -170,6 +170,7 @@ function toPlaybackLayer(
 }
 
 function playbackName(layer: Anime25DPlaybackBuildLayer): string {
+  if (/-\d+(?:-|$)/.test(layer.id)) return layer.id
   if (layer.side === 'left') return `${layer.role}-L`
   if (layer.side === 'right') return `${layer.role}-R`
   return layer.id

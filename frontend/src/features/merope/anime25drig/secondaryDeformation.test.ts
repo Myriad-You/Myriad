@@ -6,6 +6,7 @@ import type {
 import type { Anime25DPlaybackLayer, Anime25DShellProfile } from './types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ARM_SWING_SPREAD, ARM_SWING_TRAVEL } from './armFollow'
 import {
   chestDeformationWeight,
   resolveChestSpatialField,
@@ -24,7 +25,11 @@ import {
   deformAnime25DSecondaryPoint,
 } from './secondaryDeformation'
 import { writeAnime25DShellRotation } from './shellDeformation'
-import { deformAnime25DTorsoShellPoint } from './torsoDeformation'
+import {
+  anime25DTorsoShellModeForLayer,
+  deformAnime25DTorsoShellPoint,
+  SLEEVE_TORSO_TRANSMISSION,
+} from './torsoDeformation'
 
 const VERTEX_COUNT = 48
 
@@ -589,6 +594,7 @@ function secondaryFrame(
       soft: 0.4 + progress * 1.3,
     },
     faceScale: 0.82,
+    armSwing: Math.sin(progress * 5.9) * 0.6,
     headAngleY: Math.cos(progress * 5.4) * 0.9,
     headRotationCosine: Math.cos(rotation),
     headRotationSine: Math.sin(rotation),
@@ -767,14 +773,17 @@ function legacyDeformSecondaryPoint(
   }
   if (baseRole === 'handwear') {
     const sleeveWeight = smoothstep(((point.y - source.y) / source.h) * 1.15)
+    const sleeveSide =
+      binding.handwearSide === 'L' ? 1 : binding.handwearSide === 'R' ? -1 : 0
     point.y -= frame.expression.armY * 30 * frame.faceScale * sleeveWeight
     point.y += frame.expression.armPos * 40 * frame.faceScale
     point.x +=
-      frame.expression.armY *
-      6 *
+      frame.expression.armY * 6 * frame.faceScale * sleeveWeight * sleeveSide
+    point.x +=
+      frame.armSwing *
+      (ARM_SWING_TRAVEL + ARM_SWING_SPREAD * sleeveSide * frame.armSwing) *
       frame.faceScale *
-      sleeveWeight *
-      (point.x < frame.neckPivotX ? 1 : -1)
+      sleeveWeight
   }
 }
 
@@ -832,3 +841,210 @@ function smoothstep(value: number): number {
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
 }
+
+function torsoTurnFrame(
+  yawRadians: number,
+  armSwing: number,
+  armY = 0,
+): Anime25DSecondaryDeformationFrame {
+  const frame = secondaryFrame(0, 0)
+  frame.expression = { ...frame.expression, armY, armPos: 0 }
+  frame.breath = 0
+  frame.torsoShellBlend = 0.5
+  frame.torsoShellRotation = {
+    active: yawRadians !== 0,
+    yawCosine: Math.cos(yawRadians),
+    yawSine: Math.sin(yawRadians),
+  }
+  frame.armSwing = armSwing
+  return frame
+}
+
+const SLEEVE_BOUNDS = { L: { x: 30, w: 60 }, R: { x: 144, w: 60 } }
+
+function bodyBinding(
+  baseRole: string,
+  side: Anime25DPlaybackLayer['side'],
+  override?: { x: number; w: number },
+): Anime25DSecondaryDeformationBinding {
+  const bounds =
+    override ??
+    (baseRole === 'handwear' && side ? SLEEVE_BOUNDS[side] : { x: 54, w: 126 })
+  return createAnime25DSecondaryDeformationBinding({
+    source: {
+      role: baseRole,
+      group: 'body',
+      depth: 0.91,
+      side,
+      x: bounds.x,
+      y: 70,
+      w: bounds.w,
+      h: 154,
+    },
+    baseRole,
+    shaderGlobalTransform: false,
+    collarContact: false,
+    frontHair: false,
+    frontHairParallaxScale: null,
+    chestWeights: null,
+    bangWeights: null,
+    strandWeights: null,
+    alongStrand: null,
+    springs: null,
+    torsoShellMode: anime25DTorsoShellModeForLayer({
+      group: 'body',
+      role: baseRole,
+    }),
+  })
+}
+
+function turnedX(
+  binding: Anime25DSecondaryDeformationBinding,
+  yawRadians: number,
+  armSwing: number,
+  sampleX = 60,
+  armY = 0,
+): number {
+  const restX = sampleX
+  const restY = 180
+  const rest = { x: restX, y: restY }
+  deformAnime25DSecondaryPoint(
+    rest,
+    restX,
+    restY,
+    0,
+    binding,
+    torsoTurnFrame(0, 0),
+  )
+  const turned = { x: restX, y: restY }
+  deformAnime25DSecondaryPoint(
+    turned,
+    restX,
+    restY,
+    0,
+    binding,
+    torsoTurnFrame(yawRadians, armSwing, armY),
+  )
+  return turned.x - rest.x
+}
+
+test('a turning garment carries the sleeve instead of sliding out from under it', () => {
+  // The left sleeve is anchored at x 60, so the garment is read at the same x.
+  const garment = turnedX(bodyBinding('topwear', null), 0.45, 0)
+  const sleeve = turnedX(bodyBinding('handwear', 'L'), 0.45, 0)
+  assert.ok(Math.abs(garment) > 1)
+  assert.ok(Math.sign(sleeve) === Math.sign(garment))
+  // The sleeve hangs beside the cylinder rather than on it, so it takes most
+  // of the turn; what it leaves is the follower's lag, not a permanent tear.
+  assert.ok(
+    Math.abs(sleeve / garment - SLEEVE_TORSO_TRANSMISSION) < 1e-9,
+    `${sleeve / garment}`,
+  )
+})
+
+test('turning does not change how wide either sleeve is', () => {
+  for (const side of ['L', 'R'] as const) {
+    const binding = bodyBinding('handwear', side)
+    const bounds = SLEEVE_BOUNDS[side]
+    for (const yaw of [0.15, 0.3, 0.45, 0.6]) {
+      const near = turnedX(binding, yaw, 0, bounds.x)
+      const far = turnedX(binding, yaw, 0, bounds.x + bounds.w)
+      // One rigid drawing: every point of it answers the turn identically.
+      assert.ok(Math.abs(far - near) < 1e-9, `${side} ${yaw}: ${far - near}`)
+    }
+  }
+})
+
+test('a turn still moves both sleeves, by amounts their positions decide', () => {
+  const left = turnedX(bodyBinding('handwear', 'L'), 0.45, 0)
+  const right = turnedX(bodyBinding('handwear', 'R'), 0.45, 0, 174)
+  assert.ok(left > 1 && right > 0)
+  assert.ok(left > right, `${left} !> ${right}`)
+})
+
+test('the sleeve the turn carries forward falls further behind', () => {
+  const left = bodyBinding('handwear', 'L')
+  const right = bodyBinding('handwear', 'R')
+  // A turn toward +x lags both sleeves toward -x; the right one is the near
+  // one, sweeps the wider arc, and so trails more.
+  const lagged = -0.5
+  const leftTrail = turnedX(left, 0.45, lagged) - turnedX(left, 0.45, 0)
+  const rightTrail = turnedX(right, 0.45, lagged) - turnedX(right, 0.45, 0)
+  assert.ok(leftTrail < 0 && rightTrail < 0)
+  assert.ok(rightTrail < leftTrail, `${rightTrail} !< ${leftTrail}`)
+
+  // Turning the other way moves the preference to the other sleeve.
+  const backLeft = turnedX(left, -0.45, 0.5) - turnedX(left, -0.45, 0)
+  const backRight = turnedX(right, -0.45, 0.5) - turnedX(right, -0.45, 0)
+  assert.ok(backLeft > 0 && backRight > 0)
+  assert.ok(backLeft > backRight, `${backLeft} !> ${backRight}`)
+})
+
+test('the two sleeves never trail in opposite directions', () => {
+  for (const swing of [-1, -0.5, -0.1, 0.1, 0.5, 1]) {
+    const left = turnedX(bodyBinding('handwear', 'L'), 0, swing)
+    const right = turnedX(bodyBinding('handwear', 'R'), 0, swing)
+    assert.equal(Math.sign(left), Math.sign(right), `${swing}`)
+  }
+})
+
+test('a portrait with one undivided sleeve layer still trails the turn', () => {
+  const single = bodyBinding('handwear', null)
+  const trail = turnedX(single, 0.45, -0.5) - turnedX(single, 0.45, 0)
+  assert.ok(trail < 0)
+  const left = bodyBinding('handwear', 'L')
+  const right = bodyBinding('handwear', 'R')
+  const both =
+    (turnedX(left, 0.45, -0.5) -
+      turnedX(left, 0.45, 0) +
+      (turnedX(right, 0.45, -0.5) - turnedX(right, 0.45, 0))) /
+    2
+  assert.ok(Math.abs(trail - both) < 1e-9, `${trail} vs ${both}`)
+})
+
+test('each split sleeve draws inward on an arm lift, toward the centre', () => {
+  const left = turnedX(bodyBinding('handwear', 'L'), 0, 0, 60, 0.6)
+  const right = turnedX(bodyBinding('handwear', 'R'), 0, 0, 174, 0.6)
+  assert.ok(left > 0.5, `${left}`)
+  assert.ok(right < -0.5, `${right}`)
+  assert.ok(Math.abs(left + right) < 1e-9, `${left} ${right}`)
+})
+
+test('a sleeve drawing that crosses the centre line moves as one piece', () => {
+  // Import decides the side once; the render loop must not re-decide it per
+  // vertex, which used to pull the halves of such a drawing apart.
+  const crossing = bodyBinding('handwear', 'L', { x: 80, w: 90 })
+  const inner = turnedX(crossing, 0, 0, 90, 0.6)
+  const outer = turnedX(crossing, 0, 0, 160, 0.6)
+  assert.ok(inner > 0 && outer > 0, `${inner} ${outer}`)
+})
+
+test('an undivided sleeve layer is lifted, never pulled apart', () => {
+  const single = bodyBinding('handwear', null, { x: 60, w: 120 })
+  for (const sampleX of [70, 100, 140, 170]) {
+    assert.equal(turnedX(single, 0, 0, sampleX, 0.6), 0)
+  }
+  // The lift itself is unaffected: it was never a left-or-right decision.
+  const restY = 180
+  const point = { x: 100, y: restY }
+  deformAnime25DSecondaryPoint(
+    point,
+    100,
+    restY,
+    0,
+    single,
+    torsoTurnFrame(0, 0, 0.6),
+  )
+  const flat = { x: 100, y: restY }
+  deformAnime25DSecondaryPoint(flat, 100, restY, 0, single, torsoTurnFrame(0, 0))
+  assert.ok(point.y < flat.y - 1, `${point.y} ${flat.y}`)
+})
+
+test('an outboard sleeve drawing is still carried by the turn', () => {
+  // Anchored past the torso silhouette, where the bare cylinder projection
+  // would send it the other way from the garment.
+  const garment = turnedX(bodyBinding('topwear', null), 0.45, 0)
+  const outboard = turnedX(bodyBinding('handwear', 'R', { x: 200, w: 60 }), 0.45, 0, 230)
+  assert.ok(garment > 0)
+  assert.ok(outboard > 0, `${outboard}`)
+})

@@ -14,6 +14,8 @@ import type {
   AgentResponse,
   FrontendAction,
   MeropeStateChangedEvent,
+  MusicControlEvent,
+  OutfitOverlayEvent,
   PerformancePlanEvent,
   PlannerDecisionEvent,
   ProgressEvent,
@@ -44,8 +46,14 @@ import {
 } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { agentMusicStatus } from '../../contexts/currentSong'
 import { useI18n } from '../../contexts/I18nContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
+import {
+  clearChatOutfitOverlay,
+  setChatOutfitOverlay,
+  stripChatWearMarker,
+} from '../../features/merope/chatOutfitOverlay'
 import {
   attachLiveBody,
   captureTurnBody,
@@ -59,8 +67,11 @@ import {
   stopTurnSpeech,
   turnSpeechAlreadyFed,
 } from '../../features/merope/engineFace'
+import { interruptAgoraConversation, stopAgoraConversation } from '../../features/merope/speech/agoraConversation'
+import { bindRealtimeChat } from '../../features/merope/speech/realtimeChat'
 import {
   beginTurnTrace,
+  markTurnTrace,
   markTurnTraceOnce,
   noteTurnTraceDrop,
 } from '../../features/merope/turnTrace'
@@ -76,10 +87,15 @@ import {
   isNonTerminalTaskStatus,
 } from '../../services/agent/reattach'
 import {
+  imageUrlsFromAgentPayload,
+  messageFromStepOutput,
+} from '../../services/agent/taskEnvelope'
+import {
   ChatTurnClock,
   isCurrentChatGeneration,
   isStreamSupersededError,
   isUserInterruptError,
+  nextAgentMessageId,
 } from '../../services/agent/turnIdentity'
 import { userFacingError } from '../../utils/userFacingError'
 import {
@@ -104,6 +120,7 @@ import {
   dispatchAgentPanelOpen,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
+import { turnSelectionText } from './agentSelection'
 import {
   clearAgentPendingAction,
   pushAgentStatusEvent,
@@ -156,6 +173,18 @@ async function runFrontendAction(action: FrontendAction): Promise<unknown> {
   })
   if (offer) setAgentUndoOffer(offer)
   return result
+}
+
+function chatPagePayload(
+  page: Record<string, unknown>,
+): Record<string, unknown> {
+  const content = typeof page.content === 'string' ? page.content.slice(0, 400) : null
+  return {
+    type: page.type,
+    title: page.title,
+    author: page.author,
+    content,
+  }
 }
 
 export const AgentEngine: React.FC = () => {
@@ -246,10 +275,20 @@ export const AgentEngine: React.FC = () => {
       ) => Promise<void>
     >(null)
   const createProgressHandlerRef = useRef<
-    ((assistantMessageId: string) => (event: ProgressEvent) => void) | null
+    ((assistantMessageId: string, mode?: AgentPanelMode, generation?: number,
+      speechOutput?: 'local' | 'external', runId?: string) => (event: ProgressEvent) => void) | null
   >(null)
   const dispatchedFrontendKeysRef = useRef(new Map<string, Set<string>>())
   const frontendActionChainRef = useRef(new Map<string, Promise<void>>())
+  const MAX_RESPONSE_GUARD_KEYS = 200
+
+  const capSet = (set: Set<string>) => {
+    while (set.size > MAX_RESPONSE_GUARD_KEYS) {
+      const oldest = set.values().next().value
+      if (oldest === undefined) break
+      set.delete(oldest)
+    }
+  }
 
   const enqueueFrontendActions = useCallback(
     async (
@@ -260,6 +299,12 @@ export const AgentEngine: React.FC = () => {
       const keys =
         dispatchedFrontendKeysRef.current.get(messageId) ?? new Set<string>()
       dispatchedFrontendKeysRef.current.set(messageId, keys)
+      while (dispatchedFrontendKeysRef.current.size > MAX_RESPONSE_GUARD_KEYS) {
+        const oldest = dispatchedFrontendKeysRef.current.keys().next().value
+        if (oldest === undefined || oldest === messageId) break
+        dispatchedFrontendKeysRef.current.delete(oldest)
+        frontendActionChainRef.current.delete(oldest)
+      }
       const run = async () => {
         for (const action of actions) {
           if (!action || typeof action !== 'object' || !('type' in action)) {
@@ -332,9 +377,11 @@ export const AgentEngine: React.FC = () => {
   const startNewSession = useCallback(async () => {
     // 新建会话只切换前端视图。旧任务由后端 run 持续执行，并通过通知中心报告状态。
     const current = getAgentPanelMode()
+    if (current === 'chat') void stopAgoraConversation()
     const loadingId = loadingMessageIdByModeRef.current[current]
     if (loadingId) {
       discardedResponseIdsRef.current.add(loadingId)
+      capSet(discardedResponseIdsRef.current)
       stopTurnSpeech(loadingId)
     }
     loadingByModeRef.current[current] = false
@@ -351,6 +398,7 @@ export const AgentEngine: React.FC = () => {
     setSessionId(null, current)
     setMessages([], current)
     sessionTitleSetByModeRef.current[current] = false
+    if (current === 'chat') clearChatOutfitOverlay()
   }, [setSessionId, setMessages])
 
   /**
@@ -432,6 +480,7 @@ export const AgentEngine: React.FC = () => {
           setAgentStatusThinking()
           const onProgress = createProgressHandlerRef.current?.(
             candidate.messageId,
+            'work', 0, 'local', runId,
           )
           if (!onProgress) continue
           void agentService
@@ -471,6 +520,9 @@ export const AgentEngine: React.FC = () => {
       reattachHints?: { runId?: string; taskId?: string },
       requestedMode: AgentPanelMode = session.mode ?? getAgentPanelMode(),
     ) => {
+      if (requestedMode === 'chat' && sessionIdsByModeRef.current.chat !== session.id) {
+        void stopAgoraConversation()
+      }
       sessionIdsByModeRef.current[requestedMode] = session.id
       setSessionId(session.id, requestedMode)
       sessionTitleSetByModeRef.current[requestedMode] = !!session.title
@@ -483,24 +535,11 @@ export const AgentEngine: React.FC = () => {
         )
         const loaded: ChatMessage[] = sessionMessages.map((m, idx) => {
           const meta = m.metadata as Record<string, unknown> | undefined
-          const data = meta?.data as Record<string, unknown> | undefined
-          const imageUrls: string[] = []
-          if (data && typeof data.imageUrl === 'string') {
-            imageUrls.push(data.imageUrl)
-          }
+          const data = meta?.data
           const stepHistory = (
             meta?.task as Record<string, unknown> | undefined
           )?.stepHistory as Array<Record<string, unknown>> | undefined
-          if (stepHistory) {
-            for (const s of stepHistory) {
-              if (
-                typeof s.imageUrl === 'string' &&
-                !imageUrls.includes(s.imageUrl)
-              ) {
-                imageUrls.push(s.imageUrl)
-              }
-            }
-          }
+          const imageUrls = imageUrlsFromAgentPayload(data, stepHistory)
 
           const metaTaskId =
             (typeof meta?.taskId === 'string' && meta.taskId) ||
@@ -726,6 +765,7 @@ export const AgentEngine: React.FC = () => {
     // Only abort this mode's SSE. Work and Chat can be in flight together.
     agentService.abortCurrentRequest(current)
     if (current === 'chat') {
+      void interruptAgoraConversation()
       const sessionId = sessionIdsByModeRef.current.chat
       void agentService.cancelChatTurn(sessionId || '')
       const generation = chatTurnClockRef.current.next()
@@ -745,6 +785,7 @@ export const AgentEngine: React.FC = () => {
       discardedResponseIdsRef.current.add(msg.id)
       stopTurnSpeech(msg.id)
     }
+    capSet(discardedResponseIdsRef.current)
 
     // Drop occupancy before awaiting cancel, otherwise a late token writes
     // thinking back. Always idle the island; if the other lane is still in
@@ -800,17 +841,21 @@ export const AgentEngine: React.FC = () => {
       assistantMessageId: string,
       mode: AgentPanelMode = 'work',
       generation = 0,
+      speechOutput: 'local' | 'external' = 'local',
+      initialRunId?: string,
     ) => {
       let streamedSummary = ''
       let streamedThinking = ''
       let performancePlanCount = 0
+      let performanceRunId = initialRunId
       let notedStaleGeneration = false
       let liveTaskId = ''
-      const speech = openTurnSpeech(assistantMessageId, generation, locale)
+      const speech = openTurnSpeech(assistantMessageId, generation, locale, speechOutput)
       const utterance = openTurnReply(
         mode,
         assistantMessageId,
         locale,
+        speechOutput,
       )
 
       const publishThinking = (text: string) => {
@@ -842,6 +887,7 @@ export const AgentEngine: React.FC = () => {
               setSessionId(event.sessionId, mode)
             }
             if (event.runId) {
+              performanceRunId = event.runId
               updateMessageExecution(assistantMessageId, {
                 runId: event.runId,
               })
@@ -948,13 +994,14 @@ export const AgentEngine: React.FC = () => {
                 mode,
               )
             }
-            if (stepEvent.frontendActions && stepEvent.frontendActions.length > 0) {
+            const frontendActions = stepEvent.frontendActions
+            if (frontendActions && frontendActions.length > 0) {
               void (async () => {
                 const results = await enqueueFrontendActions(
                   assistantMessageId,
-                  stepEvent.frontendActions,
+                  frontendActions,
                 )
-                const needsAck = stepEvent.frontendActions.some(
+                const needsAck = frontendActions.some(
                   (action) =>
                     action &&
                     ['query_windows', 'music_get_status'].includes(action.type),
@@ -984,13 +1031,9 @@ export const AgentEngine: React.FC = () => {
                   }
                 ).__musicPlayerState
                 if (!musicStatus && published) {
-                  musicStatus = {
-                    isPlaying: !!published.isPlaying,
-                    isEnabled: !!published.isEnabled,
-                    currentSong: published.currentSong ?? null,
-                    currentSongIndex: published.currentSongIndex ?? 0,
-                    playlistLength: published.playlistLength ?? 0,
-                  }
+                  musicStatus = agentMusicStatus(
+                    published as Record<string, unknown>,
+                  )
                 }
                 await agentService.submitFrontendAck(
                   liveTaskId,
@@ -1071,7 +1114,9 @@ export const AgentEngine: React.FC = () => {
                 publishThinking(split.thought)
               }
               const body = nonemptyContent(
-                peelThoughtFromContent(split.content, streamedThinking),
+                stripChatWearMarker(
+                  peelThoughtFromContent(split.content, streamedThinking),
+                ),
               )
               if (body) {
                 updateMessageExecution(assistantMessageId, {
@@ -1089,7 +1134,9 @@ export const AgentEngine: React.FC = () => {
                 publishThinking(split.thought)
               }
               const body = nonemptyContent(
-                peelThoughtFromContent(split.content, streamedThinking),
+                stripChatWearMarker(
+                  peelThoughtFromContent(split.content, streamedThinking),
+                ),
               )
               if (body) {
                 const sealed = speech.push(tokenEvent.token)
@@ -1107,20 +1154,51 @@ export const AgentEngine: React.FC = () => {
             break
           }
 
+          case 'outfit_overlay': {
+            const overlayEvent = event as OutfitOverlayEvent
+            setChatOutfitOverlay(overlayEvent.outfitId)
+            break
+          }
+
+          case 'music_control': {
+            const musicEvent = event as MusicControlEvent
+            const action =
+              musicEvent.action === 'prev' ? 'previous' : musicEvent.action
+            if (
+              action === 'play' ||
+              action === 'pause' ||
+              action === 'toggle' ||
+              action === 'next' ||
+              action === 'previous'
+            ) {
+              void executeFrontendAction({
+                type: 'music_control',
+                action,
+                timestamp: Date.now(),
+              })
+            }
+            break
+          }
+
           case 'performance_plan': {
             const performanceEvent = event as PerformancePlanEvent
             const performancePhase = performanceEvent.performance.phase
             performancePlanCount += 1
-            if (performancePlanCount === 1) {
+            markTurnTrace('performance_received', {
+              phase: performancePhase, plan: performancePlanCount,
+              ...(performanceRunId ? { runId: performanceRunId } : {}),
+            })
+            if (performancePhase === 'reaction') {
               markTurnTraceOnce('reaction_ready', { phase: performancePhase })
-            } else {
-              markTurnTraceOnce('performance_refined', {
+            } else if (performancePhase === 'delivery') {
+              markTurnTraceOnce('delivery_ready', {
                 phase: performancePhase,
                 plan: performancePlanCount,
               })
             }
             deliverTurnLine(mode, {
               messageId: assistantMessageId,
+              runId: performanceRunId,
               performance: performanceEvent.performance,
             })
             break
@@ -1344,7 +1422,7 @@ export const AgentEngine: React.FC = () => {
         if (!activeTaskMessage?.taskExecution?.taskId) return
 
         const userMessage: ChatMessage = {
-          id: `msg_user_steer_${Date.now()}`,
+          id: nextAgentMessageId('user'),
           sessionId: modeSessionId || '',
           role: 'user',
           content: messageText,
@@ -1369,7 +1447,7 @@ export const AgentEngine: React.FC = () => {
             (prev) => [
               ...prev,
               {
-                id: `msg_assistant_steer_error_${Date.now()}`,
+                id: nextAgentMessageId('assistant'),
                 sessionId: modeSessionId || '',
                 role: 'assistant',
                 content: format(t.agentPanel.errorWithDetail, {
@@ -1387,7 +1465,7 @@ export const AgentEngine: React.FC = () => {
       // 切回对话视图
 
       // 1. 创建 user 消息
-      const userMsgId = `msg_user_${Date.now()}`
+      const userMsgId = nextAgentMessageId('user')
       const userMessage: ChatMessage = {
         id: userMsgId,
         sessionId: modeSessionId || '',
@@ -1398,7 +1476,7 @@ export const AgentEngine: React.FC = () => {
       }
 
       // 2. 创建 placeholder assistant 消息
-      const assistantMsgId = `msg_assistant_${Date.now()}`
+      const assistantMsgId = nextAgentMessageId('assistant')
       const assistantMessage: ChatMessage = {
         id: assistantMsgId,
         sessionId: modeSessionId || '',
@@ -1419,6 +1497,7 @@ export const AgentEngine: React.FC = () => {
       markTurnTraceOnce('input_started')
       markTurnTraceOnce('input_final')
       if (mode === 'chat') {
+        void interruptAgoraConversation()
         setTurnGeneration(chatGeneration)
         const previousChatId = loadingMessageIdByModeRef.current.chat
         if (previousChatId) {
@@ -1451,18 +1530,30 @@ export const AgentEngine: React.FC = () => {
         if (pageConsent && pageContentContext?.hasContent) {
           const contentForAgent = pageContentContext.getContentForAgent()
           if (contentForAgent) {
-            customData.pageContent = contentForAgent
+            customData.pageContent =
+              mode === 'chat'
+                ? chatPagePayload(contentForAgent)
+                : contentForAgent
           }
         } else if (pageConsent && typeof document !== 'undefined') {
-          const main =
-            document.querySelector('main') ?? document.body
-          const text = (main?.innerText ?? '').replace(/\s+/g, ' ').trim()
-          if (text) {
-            customData.pageContent = {
-              type: 'custom',
-              title: document.title,
-              content: text.slice(0, 8000),
-              currentPath: location.pathname,
+          if (mode === 'chat') {
+            const title = document.title.trim()
+            if (title) {
+              customData.pageContent = { type: 'custom', title }
+            }
+          } else {
+            const main =
+              document.querySelector('main') ?? document.body
+            // Hidden controls are not part of what the user is currently reading.
+            // eslint-disable-next-line unicorn/prefer-dom-node-text-content
+            const text = (main?.innerText ?? '').replace(/\s+/g, ' ').trim()
+            if (text) {
+              customData.pageContent = {
+                type: 'custom',
+                title: document.title,
+                content: text.slice(0, 8000),
+                currentPath: location.pathname,
+              }
             }
           }
         }
@@ -1478,15 +1569,12 @@ export const AgentEngine: React.FC = () => {
           }
         ).__musicPlayerState
         if (published) {
-          customData.musicStatus = {
-            isPlaying: !!published.isPlaying,
-            isEnabled: !!published.isEnabled,
-            currentSong: published.currentSong ?? null,
-            currentSongIndex: published.currentSongIndex ?? 0,
-            playlistLength: published.playlistLength ?? 0,
-          }
+          const musicStatus = agentMusicStatus(
+            published as Record<string, unknown>,
+          )
+          if (musicStatus) customData.musicStatus = musicStatus
         }
-        if (hasActionHandler('query_windows')) {
+        if (mode !== 'chat' && hasActionHandler('query_windows')) {
           try {
             const windowState = await executeFrontendAction({
               type: 'query_windows',
@@ -1503,6 +1591,7 @@ export const AgentEngine: React.FC = () => {
           route: location.pathname,
           page: pageConsent ? (pageContentContext?.pageContent ?? null) : null,
           pageConsent,
+          selection: turnSelectionText(),
         })
         context.rigState = body.rigState
         customData.perception = body.perception
@@ -1630,6 +1719,7 @@ export const AgentEngine: React.FC = () => {
       response: AgentResponse,
       mode: AgentPanelMode = 'work',
       generation = 0,
+      speechOutput: 'local' | 'external' = 'local',
     ) => {
       if (discardedResponseIdsRef.current.delete(messageId)) return
       const taskData = response.task as Record<string, unknown> | undefined
@@ -1681,6 +1771,7 @@ export const AgentEngine: React.FC = () => {
       if (responseKey) {
         if (handledResponseKeysRef.current.has(responseKey)) return
         handledResponseKeysRef.current.add(responseKey)
+        capSet(handledResponseKeysRef.current)
       }
 
       if (pendingQuestion && pendingQuestion.question) {
@@ -1716,6 +1807,12 @@ export const AgentEngine: React.FC = () => {
           response.responseType === 'task_completed')
 
       const responseData = response.data as Record<string, unknown> | undefined
+      if (mode === 'chat' && responseData && 'outfitId' in responseData) {
+        const overlayId = responseData.outfitId
+        setChatOutfitOverlay(
+          typeof overlayId === 'string' ? overlayId : null,
+        )
+      }
 
       const stepHistory = taskData?.stepHistory as
         | Array<{
@@ -1725,6 +1822,7 @@ export const AgentEngine: React.FC = () => {
             capabilityName?: string
             durationMs?: number
             error?: string
+            imageUrl?: string
           }>
         | undefined
 
@@ -1741,25 +1839,8 @@ export const AgentEngine: React.FC = () => {
         displayMessage = response.message
       } else {
         // 单步骤：从 data 提取 AI 文本
-        const aiText = responseData
-          ? ((typeof responseData.reply === 'string'
-              ? responseData.reply
-              : undefined) ??
-            (typeof responseData.aiSummary === 'string'
-              ? responseData.aiSummary
-              : undefined) ??
-            (typeof responseData.analysis === 'string'
-              ? responseData.analysis
-              : undefined) ??
-            (typeof responseData.summary === 'string'
-              ? responseData.summary
-              : undefined))
-          : undefined
-        const dataMessage =
-          typeof responseData?.message === 'string'
-            ? responseData.message
-            : undefined
-        displayMessage = aiText || response.message || dataMessage
+        displayMessage =
+          messageFromStepOutput(response.data) || response.message
       }
 
       // 失败步骤信息追加
@@ -1799,18 +1880,10 @@ export const AgentEngine: React.FC = () => {
 
       // 从 response.data 和 stepHistory 中兜底提取 imageUrls（SSE 丢失时恢复）
       // 与已通过 SSE 实时收集的 imageUrls 合并（不覆盖）
-      const fallbackImageUrls: string[] = []
-      if (typeof responseData?.imageUrl === 'string') {
-        fallbackImageUrls.push(responseData.imageUrl as string)
-      }
-      if (stepHistory) {
-        for (const s of stepHistory) {
-          const url = (s as Record<string, unknown>).imageUrl
-          if (typeof url === 'string' && !fallbackImageUrls.includes(url)) {
-            fallbackImageUrls.push(url)
-          }
-        }
-      }
+      const fallbackImageUrls = imageUrlsFromAgentPayload(
+        response.data,
+        stepHistory,
+      )
 
       // 合并：SSE 实时收集的 + fallback，去重
       const existingImageUrls: string[] = ((): string[] => {
@@ -1847,7 +1920,7 @@ export const AgentEngine: React.FC = () => {
       if (isSuccess && !staleChat) {
         deliverTurnLine(mode, {
           messageId,
-          text: turnSpeechAlreadyFed(messageId)
+          text: speechOutput === 'external' || turnSpeechAlreadyFed(messageId)
             ? undefined
             : spokenReply,
           locale,
@@ -1981,6 +2054,55 @@ export const AgentEngine: React.FC = () => {
   useEffect(() => {
     handleAgentResponseRef.current = handleAgentResponse
   }, [handleAgentResponse])
+
+  useEffect(() => bindRealtimeChat({
+    sessionId: () => sessionIdsByModeRef.current.chat,
+    adopt: (notice) => {
+      const messageId = `msg_rtc_${notice.runId}`
+      const generation = chatTurnClockRef.current.next()
+      const previous = loadingMessageIdByModeRef.current.chat
+      if (previous) {
+        stopTurnSpeech(previous)
+        updateMessageExecution(previous, { status: 'error' })
+      }
+      agentService.abortCurrentRequest('chat')
+      setTurnGeneration(generation)
+      beginTurnTrace(messageId)
+      markTurnTraceOnce('input_final')
+      setSessionId(notice.sessionId, 'chat')
+      setMessages((rows) => [...rows, {
+        id: nextAgentMessageId('user'), sessionId: notice.sessionId, role: 'user',
+        content: notice.input, createdAt: new Date(),
+      }, {
+        id: messageId, sessionId: notice.sessionId, role: 'assistant', content: '', createdAt: new Date(),
+        taskExecution: { taskId: '', runId: notice.runId, status: 'processing', progress: 0, steps: [] },
+      }], 'chat')
+      loadingMessageIdByModeRef.current.chat = messageId
+      loadingByModeRef.current.chat = true
+      setAgentLaneLoading('chat', true)
+      setIsLoading(true)
+      setAgentStatusThinking()
+      // Same progress and final-response reducers. Only the audio outlet is
+      // external: cloud audio must not be synthesized or text-lip-synced twice.
+      void agentService.subscribeRun(notice.runId, createProgressHandler(messageId, 'chat', generation, 'external', notice.runId), 'chat')
+        .then((response) => handleAgentResponse(messageId, response, 'chat', generation, 'external'))
+        .catch((error) => {
+          if (!isCurrentChatGeneration(generation, chatTurnClockRef.current.current())) return
+          updateMessageExecution(messageId, { status: 'error' })
+          if (!isUserInterruptError(error) && !isStreamSupersededError(error)) {
+            updateMessage(messageId, { content: userFacingError(error, t.agentPanel.streamError) })
+          }
+        })
+        .finally(() => {
+          if (loadingMessageIdByModeRef.current.chat !== messageId) return
+          loadingMessageIdByModeRef.current.chat = null
+          loadingByModeRef.current.chat = false
+          setAgentLaneLoading('chat', false)
+          setIsLoading(loadingByModeRef.current.work)
+        })
+      return { messageId, generation }
+    },
+  }), [createProgressHandler, handleAgentResponse, setMessages, setSessionId, t, updateMessage, updateMessageExecution])
 
   // 回答问题
 

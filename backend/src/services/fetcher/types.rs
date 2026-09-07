@@ -5,6 +5,15 @@ pub struct PlatformFetcher {
     pub(crate) client: reqwest::Client,
 }
 
+/// 公开仓库摘要。只保留卡片/徽章需要的字段，不回传上游整包。
+#[derive(Debug, Clone)]
+pub struct GithubRepoSummary {
+    pub stars: i64,
+    pub forks: i64,
+    pub description: Option<String>,
+    pub language: Option<String>,
+}
+
 // Bilibili 数据结构
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BilibiliUserInfo {

@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS agent_persona (
     visual_profile JSONB,
     portrait_asset_id TEXT,
     portrait_generation JSONB,
+    avatar_asset_id TEXT,
+    avatar_generation JSONB,
     updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );

@@ -85,54 +85,137 @@ pub(crate) async fn get_admin_user_id_from_headers(
         .map_err(|_| brew_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID"))
 }
 
+pub(crate) const OPML_UNCATEGORIZED: &str = "未分类";
+
 pub(crate) struct OpmlFeed {
     pub title: String,
     pub url: String,
     pub category: Option<String>,
+    pub site_url: Option<String>,
 }
 
-/// 解析 OPML 文件
-pub(crate) fn parse_opml(opml: &str) -> Vec<OpmlFeed> {
-    let mut feeds = Vec::new();
+enum OpmlFrame {
+    Folder(Option<String>),
+    Feed,
+}
 
-    let re = regex::Regex::new(
-        r#"<outline[^>]*text=["']([^"']+)["'][^>]*xmlUrl=["']([^"']+)["'][^>]*/?"#,
-    )
-    .ok();
+fn unescape_xml(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
 
-    if let Some(re) = re {
-        for caps in re.captures_iter(opml) {
-            if let (Some(title), Some(url)) = (caps.get(1), caps.get(2)) {
-                feeds.push(OpmlFeed {
-                    title: title.as_str().to_string(),
-                    url: url.as_str().to_string(),
-                    category: None,
-                });
-            }
-        }
+fn outline_attr(tag: &str, key: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let needle = format!("{}=", key.to_ascii_lowercase());
+    let pos = lower.find(&needle)?;
+    let rest = tag[pos + needle.len()..].trim_start();
+    let quote = rest.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
     }
+    let end = rest[1..].find(quote)?;
+    Some(unescape_xml(&rest[1..1 + end]))
+}
 
-    let re2 = regex::Regex::new(
-        r#"<outline[^>]*xmlUrl=["']([^"']+)["'][^>]*text=["']([^"']+)["'][^>]*/?"#,
-    )
-    .ok();
+fn normalized_opml_category(name: Option<String>) -> Option<String> {
+    name.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed == OPML_UNCATEGORIZED {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
 
-    if let Some(re) = re2 {
-        for caps in re.captures_iter(opml) {
-            if let (Some(url), Some(title)) = (caps.get(1), caps.get(2)) {
-                let url_str = url.as_str().to_string();
-                if !feeds.iter().any(|f| f.url == url_str) {
-                    feeds.push(OpmlFeed {
-                        title: title.as_str().to_string(),
-                        url: url_str,
-                        category: None,
-                    });
-                }
+fn current_opml_category(stack: &[OpmlFrame]) -> Option<String> {
+    stack.iter().rev().find_map(|frame| match frame {
+        OpmlFrame::Folder(name) => name.clone(),
+        OpmlFrame::Feed => None,
+    })
+}
+
+/// 解析 OPML：认嵌套分类文件夹、属性顺序、htmlUrl。
+pub(crate) fn parse_opml(opml: &str) -> Vec<OpmlFeed> {
+    let Ok(tag_re) = regex::Regex::new(r"(?i)</?outline\b[^>]*>") else {
+        return Vec::new();
+    };
+
+    let mut feeds = Vec::new();
+    let mut stack: Vec<OpmlFrame> = Vec::new();
+
+    for tag_match in tag_re.find_iter(opml) {
+        let tag = tag_match.as_str();
+        if tag.as_bytes().get(1) == Some(&b'/') {
+            stack.pop();
+            continue;
+        }
+
+        let self_closing = tag.trim_end().ends_with("/>");
+        let xml_url = outline_attr(tag, "xmlUrl").filter(|url| !url.trim().is_empty());
+        let title = outline_attr(tag, "text")
+            .or_else(|| outline_attr(tag, "title"))
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let site_url = outline_attr(tag, "htmlUrl").filter(|url| !url.trim().is_empty());
+
+        if let Some(url) = xml_url {
+            let category = current_opml_category(&stack)
+                .or_else(|| normalized_opml_category(outline_attr(tag, "category")));
+            feeds.push(OpmlFeed {
+                title: title.clone().unwrap_or_else(|| url.clone()),
+                url,
+                category,
+                site_url,
+            });
+            if !self_closing {
+                stack.push(OpmlFrame::Feed);
             }
+            continue;
+        }
+
+        if !self_closing {
+            stack.push(OpmlFrame::Folder(normalized_opml_category(title)));
         }
     }
 
     feeds
+}
+
+pub(crate) fn parse_feed_type_label(label: &str) -> brew_sources::FeedType {
+    match label.trim().to_ascii_lowercase().as_str() {
+        "notion" => brew_sources::FeedType::Notion,
+        "atom" => brew_sources::FeedType::Atom,
+        "json" | "json_feed" => brew_sources::FeedType::JsonFeed,
+        "rsshub" => brew_sources::FeedType::RssHub,
+        _ => brew_sources::FeedType::Rss,
+    }
+}
+
+/// 请求里的 `rss` 是添加表单默认值，不能盖掉解析结果。
+/// 只有明确的 atom / json_feed / rsshub / notion 才覆盖。
+pub(crate) fn overlay_requested_feed_type(
+    parsed: brew_sources::FeedType,
+    requested: Option<&str>,
+    source_type: brew_sources::SourceType,
+) -> brew_sources::FeedType {
+    if source_type == brew_sources::SourceType::Link {
+        return parsed;
+    }
+    match requested.map(|label| label.trim().to_ascii_lowercase()) {
+        Some(label)
+            if matches!(
+                label.as_str(),
+                "notion" | "atom" | "json" | "json_feed" | "rsshub"
+            ) =>
+        {
+            parse_feed_type_label(&label)
+        }
+        _ => parsed,
+    }
 }
 
 pub(crate) fn escape_xml(s: &str) -> String {
@@ -155,14 +238,14 @@ pub(crate) fn generate_opml(sources: &[brew_sources::Model]) -> String {
 "#,
     );
 
-    let mut by_category: std::collections::HashMap<String, Vec<&brew_sources::Model>> =
-        std::collections::HashMap::new();
+    let mut by_category: std::collections::BTreeMap<String, Vec<&brew_sources::Model>> =
+        std::collections::BTreeMap::new();
 
     for source in sources {
         let cat = source
             .category
             .clone()
-            .unwrap_or_else(|| "未分类".to_string());
+            .unwrap_or_else(|| OPML_UNCATEGORIZED.to_string());
         by_category.entry(cat).or_default().push(source);
     }
 
@@ -259,4 +342,144 @@ pub(crate) fn build_feed_discovery_candidates(raw_url: &str) -> Result<Vec<Strin
     }
 
     Ok(candidates)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn sample_source(
+        name: &str,
+        url: &str,
+        category: Option<&str>,
+        site_url: Option<&str>,
+    ) -> brew_sources::Model {
+        let now = Utc::now().into();
+        brew_sources::Model {
+            id: 1,
+            user_id: 1,
+            name: name.to_string(),
+            url: url.to_string(),
+            feed_type: brew_sources::FeedType::Rss,
+            source_type: brew_sources::SourceType::Rss,
+            category: category.map(str::to_string),
+            icon: None,
+            description: None,
+            site_url: site_url.map(str::to_string),
+            update_interval: 30,
+            last_fetched_at: None,
+            last_success_at: None,
+            last_error: None,
+            error_count: 0,
+            enabled: true,
+            item_count: 0,
+            unread_count: 0,
+            card_size: None,
+            theme_color: None,
+            sort_order: None,
+            ai_style_tags: None,
+            extra_config: None,
+            rsshub_route: None,
+            admin_only: false,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn parse_opml_reads_nested_category_and_html_url() {
+        let opml = generate_opml(&[sample_source(
+            "Example & Co",
+            "https://example.com/feed.xml",
+            Some("科技"),
+            Some("https://example.com"),
+        )]);
+        let feeds = parse_opml(&opml);
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].title, "Example & Co");
+        assert_eq!(feeds[0].url, "https://example.com/feed.xml");
+        assert_eq!(feeds[0].category.as_deref(), Some("科技"));
+        assert_eq!(feeds[0].site_url.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn parse_opml_maps_uncategorized_folder_to_none() {
+        let opml = generate_opml(&[sample_source(
+            "Plain",
+            "https://plain.example/rss",
+            None,
+            None,
+        )]);
+        let feeds = parse_opml(&opml);
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].category, None);
+    }
+
+    #[test]
+    fn parse_opml_reads_inline_category_attribute() {
+        let opml = r#"<outline text="Alpha" xmlUrl="https://a.example/rss" category="科技"/>"#;
+        let feeds = parse_opml(opml);
+        assert_eq!(feeds[0].category.as_deref(), Some("科技"));
+    }
+
+    #[test]
+    fn parse_opml_accepts_xmlurl_before_text() {
+        let opml =
+            r#"<outline xmlUrl="https://a.example/rss" text="Alpha" htmlUrl="https://a.example"/>"#;
+        let feeds = parse_opml(opml);
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].title, "Alpha");
+        assert_eq!(feeds[0].url, "https://a.example/rss");
+        assert_eq!(feeds[0].site_url.as_deref(), Some("https://a.example"));
+    }
+
+    #[test]
+    fn parse_feed_type_label_covers_live_aliases() {
+        assert_eq!(
+            parse_feed_type_label("rsshub"),
+            brew_sources::FeedType::RssHub
+        );
+        assert_eq!(
+            parse_feed_type_label("json_feed"),
+            brew_sources::FeedType::JsonFeed
+        );
+        assert_eq!(
+            parse_feed_type_label("json"),
+            brew_sources::FeedType::JsonFeed
+        );
+    }
+
+    #[test]
+    fn overlay_feed_type_keeps_parsed_atom_when_request_is_default_rss() {
+        let parsed = brew_sources::FeedType::Atom;
+        assert_eq!(
+            overlay_requested_feed_type(parsed.clone(), Some("rss"), brew_sources::SourceType::Rss),
+            brew_sources::FeedType::Atom
+        );
+        assert_eq!(
+            overlay_requested_feed_type(parsed, None, brew_sources::SourceType::Rss),
+            brew_sources::FeedType::Atom
+        );
+    }
+
+    #[test]
+    fn overlay_feed_type_honors_explicit_rsshub_and_notion() {
+        assert_eq!(
+            overlay_requested_feed_type(
+                brew_sources::FeedType::Rss,
+                Some("rsshub"),
+                brew_sources::SourceType::Rss
+            ),
+            brew_sources::FeedType::RssHub
+        );
+        assert_eq!(
+            overlay_requested_feed_type(
+                brew_sources::FeedType::Rss,
+                Some("notion"),
+                brew_sources::SourceType::Rss
+            ),
+            brew_sources::FeedType::Notion
+        );
+    }
 }

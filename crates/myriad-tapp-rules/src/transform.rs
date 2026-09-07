@@ -15,7 +15,6 @@ pub enum DataTransformError {
 }
 
 impl DataTransformError {
-    #[allow(dead_code)] // Stable machine code for future API adapters.
     pub fn code(&self) -> &'static str {
         match self {
             Self::TooManySteps => "TRANSFORM_TOO_MANY_STEPS",

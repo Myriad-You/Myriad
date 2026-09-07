@@ -13,6 +13,23 @@ export interface AmbientPose {
 export const AMBIENT_HEAD_GAZE_SHARE = { x: 0.62, y: 0.55 } as const
 
 /**
+ * Least time a gaze shift takes, and what each further unit of travel adds.
+ *
+ * A minimum-jerk move of any size carries jerk proportional to 1/duration
+ * cubed, so how smooth a glance looks is decided almost entirely by how long
+ * it is given — not by how far it goes. The floor was 0.12s, which is seven
+ * frames: enough for a full sweep to read as deliberate, not enough for the
+ * small inspection glances that make up two thirds of the scanpath. Measured
+ * over ten minutes at one seed, those scored 796 against 425 for the large
+ * looks on the same smoothness measure.
+ *
+ * Paying more up front and less per unit brings the small ones to 429 and
+ * costs the full-amplitude sweep nothing: 0.264s before, 0.260s now.
+ */
+export const EYE_SACCADE_FLOOR_SECONDS = 0.17
+export const EYE_SACCADE_SECONDS_PER_UNIT = 0.05
+
+/**
  * Stateful free-viewing scanpath: inspect nearby points, sometimes reorient,
  * sometimes return attention toward the viewer, never an obligatory zero pose.
  * Eye/head latency + gaze stabilization: Andrist et al., CHI 2012,
@@ -123,7 +140,9 @@ export class AmbientMotionController {
       this.targetX - this.gazeX.value,
       this.targetY - this.gazeY.value,
     )
-    const eyeDuration = 0.12 + Math.min(1.8, eyeTravel) * 0.08
+    const eyeDuration =
+      EYE_SACCADE_FLOOR_SECONDS +
+      Math.min(1.8, eyeTravel) * EYE_SACCADE_SECONDS_PER_UNIT
     const headDuration = 0.42 + Math.sqrt(headTravel) * this.range(0.45, 0.68)
     const latency = this.range(0.045, 0.13)
     this.gazeX.retarget(now, this.targetX, eyeDuration)

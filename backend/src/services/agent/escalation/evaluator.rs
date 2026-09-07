@@ -527,7 +527,8 @@ impl ResultEvaluator {
 
     /// 检测 AI 是否总结了"没有数据"
     fn is_summarized_nothing(&self, result: &Value) -> bool {
-        if let Value::Object(obj) = result {
+        let inner = crate::services::agent::ai_process_pure::task_inner_value(result);
+        if let Value::Object(obj) = inner {
             // 获取 summary 文本
             let summary = obj
                 .get("summary")
@@ -790,6 +791,27 @@ mod tests {
             eval.failure_patterns
         );
         assert!(eval.suggests_web_search, "无本地域上下文时应建议联网搜索");
+    }
+
+    #[test]
+    fn test_detect_summarized_nothing_in_envelope() {
+        let evaluator = ResultEvaluator::new();
+        let result = json!({
+            "format": "json",
+            "value": {
+                "summary": "搜索关键词「政治」，但未找到匹配的订阅源或作者（notFound: true，结果总数为0）。",
+                "style": "brief"
+            },
+            "contextProvenance": []
+        });
+        let eval = evaluator.evaluate_result(&result);
+        assert!(!eval.is_satisfied);
+        assert!(
+            eval.failure_patterns
+                .contains(&FailurePattern::SummarizedNothing),
+            "envelope summary should still count as SummarizedNothing: {:?}",
+            eval.failure_patterns
+        );
     }
 
     #[test]

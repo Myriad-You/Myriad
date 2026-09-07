@@ -359,10 +359,9 @@ button.field-input.field-input--static:disabled {
   font-size: 0.72rem;
   font-weight: 650;
   line-height: 1;
-  color: var(--cfg-accent, #3b82f6);
-  background: color-mix(in srgb, var(--cfg-accent, #3b82f6) 12%, transparent);
-  border: 1px solid
-    color-mix(in srgb, var(--cfg-accent, #3b82f6) 22%, transparent);
+  color: var(--cfg-accent-ink);
+  background: var(--cfg-accent-fill);
+  border: 1px solid var(--cfg-accent-line);
   pointer-events: none;
 }
 
@@ -373,21 +372,8 @@ button.field-input.field-input--static:disabled {
 
 button.field-input.field-input--static:hover:not(:disabled)
   .field-input-static-action {
-  background: color-mix(in srgb, var(--cfg-accent, #3b82f6) 18%, transparent);
-  border-color: color-mix(in srgb, var(--cfg-accent, #3b82f6) 32%, transparent);
-}
-
-html.dark .field-input-static-action {
-  color: var(--cfg-accent, #93c5fd);
-  background: color-mix(in srgb, var(--cfg-accent, #60a5fa) 18%, transparent);
-  border-color: color-mix(in srgb, var(--cfg-accent, #60a5fa) 30%, transparent);
-}
-
-html.dark
-  button.field-input.field-input--static:hover:not(:disabled)
-  .field-input-static-action {
-  background: color-mix(in srgb, var(--cfg-accent, #60a5fa) 24%, transparent);
-  border-color: color-mix(in srgb, var(--cfg-accent, #60a5fa) 40%, transparent);
+  background: var(--cfg-accent-fill-hover);
+  border-color: var(--cfg-accent-line-hover);
 }
 
 /* 编辑复合壳：仍是 field-input 外观，内嵌 input + actions */
@@ -972,8 +958,6 @@ html.dark .slider-tick.is-passed {
   background: var(--slider-value-bg);
   border: 1px solid var(--slider-value-border);
   box-shadow: var(--slider-value-shadow);
-  backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
   transition:
     transform var(--sm-dur-fast) var(--sm-ease-spring),
     background var(--sm-dur-fast) var(--sm-ease-standard),
@@ -1442,61 +1426,13 @@ html.dark .setting-button-row .test-result.error {
 }
 
 .checkbox-group-card.active {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 40%,
-    transparent
-  );
-  background: color-mix(in srgb, var(--cfg-accent, #3b82f6) 6%, transparent);
+  border-color: var(--cfg-accent-line);
+  background: var(--cfg-accent-fill);
 }
 
 .checkbox-group-card.active:hover {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 55%,
-    transparent
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 10%,
-    transparent
-  );
-}
-
-html.dark .checkbox-group-card {
-  border-color: var(--cfg-subtle-border);
-  background: var(--cfg-subtle-bg);
-}
-
-html.dark .checkbox-group-card:hover {
-  border-color: var(--cfg-subtle-border-hover);
-  background: var(--cfg-subtle-bg-hover);
-}
-
-html.dark .checkbox-group-card.active {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 45%,
-    transparent
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 10%,
-    transparent
-  );
-}
-
-html.dark .checkbox-group-card.active:hover {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 60%,
-    transparent
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 14%,
-    transparent
-  );
+  border-color: var(--cfg-accent-line-hover);
+  background: var(--cfg-accent-fill-hover);
 }
 
 /* 开启指示器 - 小圆点 */
@@ -1575,15 +1511,7 @@ html.dark .checkbox-group-card.active .checkbox-group-card-indicator {
 }
 
 .checkbox-group-card.active .checkbox-group-card-icon {
-  color: color-mix(in srgb, var(--cfg-accent) 80%, var(--cfg-text-1));
-}
-
-html.dark .checkbox-group-card-icon {
-  color: var(--cfg-text-3);
-}
-
-html.dark .checkbox-group-card.active .checkbox-group-card-icon {
-  color: color-mix(in srgb, var(--cfg-accent) 75%, var(--cfg-text-1));
+  color: var(--cfg-accent-ink);
 }
 
 /* 卡片标签 */
@@ -1598,15 +1526,7 @@ html.dark .checkbox-group-card.active .checkbox-group-card-icon {
 }
 
 .checkbox-group-card.active .checkbox-group-card-label {
-  color: color-mix(in srgb, var(--cfg-accent) 85%, var(--cfg-text-1));
-}
-
-html.dark .checkbox-group-card-label {
-  color: var(--cfg-text-1);
-}
-
-html.dark .checkbox-group-card.active .checkbox-group-card-label {
-  color: color-mix(in srgb, var(--cfg-accent) 85%, var(--cfg-text-1));
+  color: var(--cfg-accent-ink);
 }
 
 /* 卡片说明 */
@@ -1749,43 +1669,27 @@ html.dark .checkbox-group-card-desc {
 }
 
 .checkbox-group-card--action:hover:not(:disabled, .is-disabled) {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 28%,
-    rgb(209 213 219 / 80%)
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 6%,
-    rgb(255 255 255 / 55%)
-  );
+  border-color: var(--cfg-accent-line);
+  background: var(--cfg-accent-fill);
   box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
 }
 
 .checkbox-group-card--action:active:not(:disabled, .is-disabled),
 .checkbox-group-card--action.is-pressing:not(:disabled, .is-disabled) {
   transform: scale(var(--sm-scale-press));
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 45%,
-    transparent
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 12%,
-    rgb(255 255 255 / 50%)
-  );
+  border-color: var(--cfg-accent-line-hover);
+  background: var(--cfg-accent-fill-hover);
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 6%);
 }
 
 .checkbox-group-card--action:active:not(:disabled) .checkbox-group-card-icon,
 .checkbox-group-card--action.is-pressing:not(:disabled) .checkbox-group-card-icon {
-  color: color-mix(in srgb, var(--cfg-accent) 85%, var(--cfg-text-1));
+  color: var(--cfg-accent-ink);
 }
 
 .checkbox-group-card--action:active:not(:disabled) .checkbox-group-card-label,
 .checkbox-group-card--action.is-pressing:not(:disabled) .checkbox-group-card-label {
-  color: color-mix(in srgb, var(--cfg-accent) 80%, var(--cfg-text-1));
+  color: var(--cfg-accent-ink);
 }
 
 /* 所有 CheckboxCard（开关 / 操作）统一 focus-visible，不只 --action */
@@ -1798,32 +1702,16 @@ html.dark .checkbox-group-card-desc {
 }
 
 html.dark .checkbox-group-card--action:hover:not(:disabled, .is-disabled) {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 32%,
-    var(--cfg-subtle-border-hover)
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 10%,
-    var(--cfg-subtle-bg-hover)
-  );
+  border-color: var(--cfg-accent-line);
+  background: var(--cfg-accent-fill);
   box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
 }
 
 html.dark .checkbox-group-card--action:active:not(:disabled, .is-disabled),
 html.dark
   .checkbox-group-card--action.is-pressing:not(:disabled, .is-disabled) {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 50%,
-    transparent
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 16%,
-    transparent
-  );
+  border-color: var(--cfg-accent-line-hover);
+  background: var(--cfg-accent-fill-hover);
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 35%);
 }
 
@@ -1833,7 +1721,7 @@ html.dark
 html.dark
   .checkbox-group-card--action.is-pressing:not(:disabled)
   .checkbox-group-card-icon {
-  color: color-mix(in srgb, var(--cfg-accent) 80%, var(--cfg-text-1));
+  color: var(--cfg-accent-ink);
 }
 
 html.dark
@@ -1842,7 +1730,7 @@ html.dark
 html.dark
   .checkbox-group-card--action.is-pressing:not(:disabled)
   .checkbox-group-card-label {
-  color: color-mix(in srgb, var(--cfg-accent) 75%, var(--cfg-text-1));
+  color: var(--cfg-accent-ink);
 }
 
 html.dark .checkbox-group-card:focus-visible {
@@ -1855,16 +1743,8 @@ html.dark .checkbox-group-card:focus-visible {
 /* —— Action tones (bulk retry / clear) —— */
 
 .checkbox-group-card--action.checkbox-group-card--tone-primary:hover:not(:disabled, .is-disabled) {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 40%,
-    transparent
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 10%,
-    rgb(255 255 255 / 50%)
-  );
+  border-color: var(--cfg-accent-line);
+  background: var(--cfg-accent-fill);
 }
 
 .checkbox-group-card--action.checkbox-group-card--tone-primary:active:not(
@@ -1874,21 +1754,13 @@ html.dark .checkbox-group-card:focus-visible {
     :disabled
   ),
 .checkbox-group-card--action.checkbox-group-card--tone-primary.is-loading {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 50%,
-    transparent
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 14%,
-    rgb(255 255 255 / 45%)
-  );
+  border-color: var(--cfg-accent-line-hover);
+  background: var(--cfg-accent-fill-hover);
 }
 
 .checkbox-group-card--action.checkbox-group-card--tone-primary
   .checkbox-group-card-icon {
-  color: color-mix(in srgb, var(--cfg-accent) 75%, var(--cfg-text-1));
+  color: var(--cfg-accent-ink);
 }
 
 /* danger：与 btn-danger 同红系，但默认更克制；说明保持默认灰 */
@@ -2420,4 +2292,60 @@ html.dark .toggle-switch.disabled .toggle-slider {
   background: color-mix(in srgb, var(--cfg-text-3) 22%, transparent);
   border-color: color-mix(in srgb, var(--cfg-text-3) 30%, transparent);
   box-shadow: none;
+}
+
+/* 悬停预告：关着时轨道/滑块先演一遍开启；开着时只加强光晕 */
+.toggle-switch.is-previewing:not(.disabled, :has(input:checked))
+  .toggle-slider {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--cfg-accent) 58%, transparent),
+    color-mix(in srgb, var(--color-secondary) 48%, transparent)
+  );
+  border-color: color-mix(in srgb, var(--cfg-accent) 42%, transparent);
+  box-shadow:
+    0 2px 10px -2px color-mix(in srgb, var(--cfg-accent) 38%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--cfg-accent) 20%, transparent);
+}
+
+.toggle-switch.is-previewing:not(.disabled, :has(input:checked))
+  .toggle-slider::before {
+  transform: translateX(7px);
+}
+
+.toggle-switch.is-previewing:not(.disabled):has(input:checked) .toggle-slider {
+  box-shadow:
+    0 2px 14px -2px color-mix(in srgb, var(--cfg-accent) 65%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--cfg-accent) 32%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle-switch.is-previewing:not(.disabled, :has(input:checked))
+    .toggle-slider::before {
+    transform: none;
+  }
+}
+
+.toggle-preview-tip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.22rem;
+}
+
+.toggle-preview-kicker {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05em 0.45em;
+  border-radius: 999px;
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+}
+
+.toggle-preview-body {
+  color: var(--cfg-text-1);
 }

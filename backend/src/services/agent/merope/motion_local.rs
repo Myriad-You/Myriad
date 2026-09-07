@@ -31,13 +31,17 @@ pub fn local_performance_plan(
     motion_style: &str,
     user_text: Option<&str>,
 ) -> ChatPerformancePlan {
+    // Quoted dialogue/code describes someone else's expression, not necessarily
+    // the speaker's own affect. The prompt and displayed reply stay untouched.
+    let response = response_text.map(unquoted_text);
+    let user = user_text.map(unquoted_text);
     let baseline = local_baseline(phase, mood, motion_style);
-    let cues = local_cue(
+    let cues: Vec<ChatPerformanceCue> = local_cue(
         phase,
         mood,
         task_success,
-        response_text,
-        user_text,
+        response.as_deref(),
+        user.as_deref(),
         &baseline,
     )
     .into_iter()
@@ -146,11 +150,27 @@ fn local_cue(
             "delight"
         }
         MotionPhase::Reaction if mood.cause == "user_scold" => "speechless",
+        MotionPhase::Reaction if text_is_affectionate(user_text) => "lovestruck",
         MotionPhase::Reaction if text_is_greeting(user_text) => "greet",
         MotionPhase::Reaction if reply_is_playful(user_text) => "delight",
+        MotionPhase::Reaction if text_needs_thought(user_text) => "think",
         MotionPhase::Reaction => "respond",
         MotionPhase::Delivery => {
-            if reply_asks_back(response_text) {
+            if reply_is_unrestrained_laughter(response_text) {
+                "maniac"
+            } else if reply_is_self_deprecating(response_text) {
+                "silly"
+            } else if text_is_affectionate(response_text) {
+                "lovestruck"
+            } else if reply_is_personally_hurt(response_text) {
+                "cry"
+            } else if reply_is_angry(response_text) {
+                "angry"
+            } else if reply_is_speechless(response_text) {
+                "speechless"
+            } else if reply_is_thinking(response_text) {
+                "think"
+            } else if reply_asks_back(response_text) {
                 "question"
             } else if reply_is_playful(response_text) {
                 "delight"
@@ -168,6 +188,20 @@ fn local_cue(
         MotionPhase::Mood => return None,
     };
     let energy = baseline.motion_energy;
+    let semantic_scale: f32 = match intent {
+        "maniac" => 1.2,
+        "angry" => 1.12,
+        "silly" => 1.06,
+        "cry" | "lovestruck" => 0.9,
+        "think" => 0.82,
+        _ => 1.0,
+    };
+    let tempo_scale: f32 = match intent {
+        "maniac" => 1.18,
+        "angry" => 1.08,
+        "cry" | "lovestruck" | "think" => 0.88,
+        _ => 1.0,
+    };
     let (fade_in_ms, fade_out_ms) = match intent {
         "question" => (125, 380),
         "delight" => (105, 460),
@@ -179,13 +213,38 @@ fn local_cue(
     Some(ChatPerformanceCue {
         intent: intent.to_string(),
         at_ms: 0,
-        intensity: (0.55 + energy * 0.45).clamp(0.5, 1.35),
-        tempo: (0.8 + energy * 0.3).clamp(0.6, 1.4),
+        intensity: ((0.55 + energy * 0.45) * semantic_scale).clamp(0.5, 1.4),
+        tempo: ((0.8 + energy * 0.3) * tempo_scale).clamp(0.6, 1.4),
         fade_in_ms,
         fade_out_ms,
         // The floor never stomps acting that is already richer than it.
         interrupt: "if-lower".to_string(),
     })
+}
+
+fn unquoted_text(text: &str) -> String {
+    let mut out = String::new();
+    let mut closing = None;
+    for ch in text.chars().take(2_000) {
+        if let Some(end) = closing {
+            if ch == end {
+                closing = None;
+                out.push(' ');
+            }
+            continue;
+        }
+        closing = match ch {
+            '“' => Some('”'),
+            '「' => Some('」'),
+            '『' => Some('』'),
+            '"' | '`' => Some(ch),
+            _ => None,
+        };
+        if closing.is_none() {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 fn reply_asks_back(response_text: Option<&str>) -> bool {
@@ -203,6 +262,141 @@ fn reply_is_playful(response_text: Option<&str>) -> bool {
         text,
         &[
             "哈哈", "嘿嘿", "嘻嘻", "笑死", "hhh", "lol", "ww", "😂", "🤣",
+        ],
+    )
+}
+
+fn reply_is_unrestrained_laughter(text: Option<&str>) -> bool {
+    text.is_some_and(|text| {
+        text_mentions_any(
+            text,
+            &["哈哈哈哈", "哈哈哈", "笑疯了", "笑死我了", "🤣", "wwwww"],
+        )
+    })
+}
+
+fn reply_is_self_deprecating(text: Option<&str>) -> bool {
+    text.is_some_and(|text| {
+        text_mentions_any(
+            text,
+            &[
+                "我犯傻",
+                "我好笨",
+                "我真笨",
+                "我搞砸",
+                "我出糗",
+                "ドジし",
+                "i messed up",
+                "i'm silly",
+            ],
+        )
+    })
+}
+
+fn text_is_affectionate(text: Option<&str>) -> bool {
+    text.is_some_and(|text| {
+        if text_mentions_any(
+            text,
+            &[
+                "不爱你",
+                "不喜欢你",
+                "don't love you",
+                "do not love you",
+                "don't miss you",
+                "大好きじゃない",
+            ],
+        ) {
+            return false;
+        }
+        text_mentions_any(
+            text,
+            &[
+                "爱你",
+                "喜欢你",
+                "想你了",
+                "love you",
+                "miss you",
+                "大好き",
+                "好きだよ",
+            ],
+        )
+    })
+}
+
+fn reply_is_personally_hurt(text: Option<&str>) -> bool {
+    text.is_some_and(|text| {
+        text_mentions_any(
+            text,
+            &[
+                "我很难过",
+                "我也难过",
+                "我很伤心",
+                "我想哭",
+                "i'm sad",
+                "i am sad",
+                "悲しい",
+            ],
+        )
+    })
+}
+
+fn reply_is_angry(text: Option<&str>) -> bool {
+    text.is_some_and(|text| {
+        text_mentions_any(text, &["我生气了", "我很生气", "i'm angry", "腹が立つ"])
+    })
+}
+
+fn reply_is_speechless(text: Option<&str>) -> bool {
+    text.is_some_and(|text| {
+        text_mentions_any(
+            text,
+            &[
+                "我无语",
+                "无语了",
+                "我愣住了",
+                "真的假的",
+                "まさか",
+                "are you serious",
+            ],
+        )
+    })
+}
+
+fn reply_is_thinking(text: Option<&str>) -> bool {
+    text.is_some_and(|text| {
+        text_mentions_any(
+            text,
+            &[
+                "让我想想",
+                "我想一下",
+                "我回忆一下",
+                "考えさせて",
+                "let me think",
+            ],
+        )
+    })
+}
+
+fn text_needs_thought(text: Option<&str>) -> bool {
+    let Some(text) = text.map(str::trim).filter(|text| !text.is_empty()) else {
+        return false;
+    };
+    text_mentions_any(
+        text,
+        &[
+            "为什么",
+            "怎么回事",
+            "怎么办",
+            "你觉得",
+            "你记得",
+            "帮我想",
+            "能不能帮",
+            "how",
+            "why",
+            "what do you think",
+            "どうして",
+            "どう思う",
+            "覚えてる",
         ],
     )
 }
@@ -255,6 +449,104 @@ mod tests {
             cause: "test".to_string(),
             revision: 1,
         }
+    }
+
+    #[test]
+    fn delivered_lines_have_distinct_readable_reactions() {
+        for (line, expected) in [
+            ("哈哈哈哈，这也太好笑了！", "maniac"),
+            ("我搞砸了，刚才把鞋穿反了。", "silly"),
+            ("我也喜欢你。", "lovestruck"),
+            ("我很难过，先让我缓一会儿。", "cry"),
+            ("我生气了，这样不行。", "angry"),
+            ("真的假的，我愣住了。", "speechless"),
+            ("让我想想，那应该是上个星期。", "think"),
+            ("Which one would you like?", "question"),
+            ("I messed up the timing.", "silly"),
+            ("Let me think about that.", "think"),
+            ("大好きだよ。", "lovestruck"),
+        ] {
+            let plan = local_performance_plan(
+                MotionPhase::Delivery,
+                &mood("calm", 0.0),
+                None,
+                Some(line),
+                "even",
+                None,
+            );
+            assert_eq!(plan.cues[0].intent, expected, "{line}");
+        }
+    }
+
+    #[test]
+    fn thoughtful_input_does_not_always_get_the_same_nod() {
+        for line in [
+            "为什么会这样",
+            "你记得我上次说的事吗",
+            "Why is that happening?",
+            "どう思う？",
+        ] {
+            let plan = local_performance_plan(
+                MotionPhase::Reaction,
+                &mood("calm", 0.0),
+                None,
+                None,
+                "even",
+                Some(line),
+            );
+            assert_eq!(plan.cues[0].intent, "think", "{line}");
+        }
+    }
+
+    #[test]
+    fn quoted_emotions_and_negated_affection_do_not_become_our_expression() {
+        for line in [
+            "我不喜欢你。",
+            "I don't love you.",
+            "大好きじゃない。",
+            "他刚刚说“我生气了”。",
+            "例子是 `哈哈哈哈`。",
+            "别难过，我在这里。",
+        ] {
+            let plan = local_performance_plan(
+                MotionPhase::Delivery,
+                &mood("calm", 0.0),
+                None,
+                Some(line),
+                "even",
+                None,
+            );
+            assert_eq!(plan.cues[0].intent, "respond", "{line}");
+        }
+    }
+
+    #[test]
+    fn transient_expression_preserves_relationship_mood_and_restrained_posture() {
+        for band in ["floor", "sad", "tense"] {
+            let plan = local_performance_plan(
+                MotionPhase::Delivery,
+                &mood(band, 0.0),
+                None,
+                Some("我也喜欢你。"),
+                "restrained",
+                None,
+            );
+            assert_eq!(
+                plan.baseline.as_ref().unwrap().expression,
+                baseline_expression(band, 0.0)
+            );
+            assert_eq!(plan.baseline.unwrap().posture, "closed");
+        }
+        let angry = local_performance_plan(
+            MotionPhase::Delivery,
+            &mood("calm", 0.0),
+            None,
+            Some("我生气了。"),
+            "even",
+            None,
+        );
+        assert_eq!(angry.cues[0].intent, "angry");
+        assert_eq!(angry.baseline.unwrap().expression, "steady");
     }
 
     /// The floor now carries every round, so a marker that fires on ordinary

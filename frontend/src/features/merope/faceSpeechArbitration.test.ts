@@ -12,6 +12,7 @@ import {
   arbitrateFaceSpeech,
   cancelGatedSpeech,
   deliverGatedLine,
+  deliverProactiveFace,
   deliverWorkNotificationFace,
   FaceSpeechGate,
   notificationCarriesMeropeSpeech,
@@ -227,8 +228,9 @@ test('notification center and engine cancel go through the gated Work/Chat helpe
     new URL('../../components/agent-panel/AgentEngine.tsx', import.meta.url),
     'utf8',
   )
-  assert.match(panel, /deliverWorkNotificationFace\(/)
-  assert.match(panel, /notificationCarriesMeropeSpeech/)
+  assert.match(panel, /deliverProactiveFace\(/)
+  assert.doesNotMatch(panel, /deliverWorkNotificationFace\(/)
+  assert.doesNotMatch(panel, /notificationCarriesMeropeSpeech/)
   assert.doesNotMatch(panel, /n\.metadata\?\.event_key/)
   assert.doesNotMatch(panel, /agentFace\.deliver\(/)
   // The engine cancels through the facade and never names the channel itself.
@@ -354,6 +356,19 @@ test('a live body is the app-layer outlet for a finished line', () => {
   } finally {
     setLiveBody(null)
   }
+})
+
+test('proactive face records while Chat currently holds the mouth', () => {
+  const sink = new RecordingSink()
+  const channel = new AgentFaceChannel(sink)
+  const gate = new FaceSpeechGate(() => 'chat')
+  gate.chatUtteranceActive = true
+  const result = deliverProactiveFace(channel, gate, {
+    id: 'live-1',
+    body: '今天又见到你了。',
+  })
+  assert.equal(result.surface, 'record')
+  assert.equal(sink.utterances.length, 0)
 })
 
 test('Work completion still speaks when Chat is not talking and Work is visible', () => {

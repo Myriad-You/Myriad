@@ -66,6 +66,18 @@ const TERMINAL_STATUS = /^(完成|The task finished|Processing failed)$/i
  * （「正在理解你的请求...」）。跟正文重复的快照丢掉 —— announce_plan 流进
  * 正文时 statusMessage 会跟 content 撞车，那不是过程。
  */
+export function workOfferFromData(
+  data: unknown,
+): { input: string } | undefined {
+  if (!data || typeof data !== 'object') return undefined
+  const offer = (data as Record<string, unknown>).workOffer
+  if (!offer || typeof offer !== 'object') return undefined
+  const input = (offer as Record<string, unknown>).input
+  if (typeof input !== 'string') return undefined
+  const trimmed = input.trim()
+  return trimmed ? { input: trimmed } : undefined
+}
+
 export function projectThought(message: ChatMessage): string | undefined {
   const exec = message.taskExecution
   const content = message.content.trim()
@@ -93,6 +105,7 @@ export function projectAgentMessage(message: ChatMessage): AgentMessage {
   const content = nonemptyContent(
     peelThoughtFromContent(tagged.content, thought ?? ''),
   )
+  const workOffer = workOfferFromData(message.data)
   return {
     id: message.id,
     role: message.role,
@@ -114,6 +127,7 @@ export function projectAgentMessage(message: ChatMessage): AgentMessage {
     ...(message.suggestions?.length
       ? { suggestions: message.suggestions }
       : {}),
+    ...(workOffer ? { workOffer } : {}),
     ...(message.pendingQuestion && !message.pendingQuestion.confirmationId
       ? {
           question: {

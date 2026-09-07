@@ -600,8 +600,8 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
             middleware::auth::auth_middleware,
         ));
 
-    // Freeform Note 媒体：图片/视频上限见 federation::limits::{NOTE_IMAGE_LIMIT,
-    // NOTE_VIDEO_LIMIT}；路由层取二者中较大者再留信封余量。
+    // Freeform Note 媒体：图片/视频上限见 federation::limits::{note_image_limit,
+    // note_video_limit}；路由层取二者中较大者再留信封余量。
     let media_router = Router::<crate::state::AppState>::new()
         .route("/api/federation/media", post(federation_media_upload))
         .layer(axum::middleware::from_fn(

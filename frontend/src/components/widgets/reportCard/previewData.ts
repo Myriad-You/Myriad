@@ -308,8 +308,10 @@ return {
     t.reportCardWidget.nightMood,
   ],
 
-  // —— Bilibili 弹幕（无则组件有默认） ——
+  // —— Bilibili 弹幕 + 右下角统计 ——
   danmaku: t.reportCard.danmakuDefault as unknown as string[],
+  user_level: 6,
+  following_count: 86,
 
   // —— Bangumi / MAL 收藏结构 ——
   // Widget overview only shows done / doing / wish

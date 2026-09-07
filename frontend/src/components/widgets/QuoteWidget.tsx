@@ -5,7 +5,7 @@
 
 import type { QuoteData } from '../../utils/dynamicContent'
 
-import type { WidgetConfig } from '../WidgetGrid'
+import type { WidgetConfig } from '../widgetGridTypes'
 import { motionShim as motion } from '@lib/motionShim'
 import { memo, useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'

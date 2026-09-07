@@ -19,27 +19,30 @@
 
 ## Widget SDK 限制
 
-> ⚠️ **重要**：Widget 模式使用**简化版 SDK**，仅包含以下 API。需要完整功能请使用 Page 模式。
+> ⚠️ **重要**：三种沙箱不是同一套 `window.Tapp`。Widget 是精简面；Page 是完整面；headless
+> （常驻）没有可见控制面。需要联邦、对局、Tapp / Brew 管理时用 Page（有授予权限时 headless
+> 也可以用联邦和对局），不要假设 Widget 上有这些方法。
 
-| 分类               | Widget SDK                                     | Full SDK (Page/headless) |
-| ------------------ | ---------------------------------------------- | ------------------------ |
-| **存储/全局设置**  | ✅ 完整，含 `getAll`/`usage`                   | ✅ 相同                  |
-| **实例设置 / invalidate** | ✅ `getInstanceSettings` / `updateInstanceSettings` / **`invalidate`** | ❌ **仅 Widget 沙箱**（Page 的 `Tapp.widget` 是 register 系列；headless 无 `Tapp.widget`） |
-| **UI/用户/上下文** | ✅ 主题、通知、语言、角色和运行上下文；**`Tapp.ui.openUrl` / `listOpenUrls`**（需 `ui:openUrl` + `openUrls`） | ✅ 另含 fullscreen/title；同样支持 openUrl |
-| **人设名片**       | ✅ `Tapp.persona.get`（无需权限；只读名字、心情带、同源立绘路径） | ✅ 相同                  |
-| **DOM**            | ✅ 与 Full 共用安全 helper                     | ✅ 相同                  |
-| **包内资源**       | ✅ `Tapp.assets`（list / getUrl / getArrayBuffer / revoke） | ✅ 相同       |
-| **AI**             | ✅ Manifest 声明的 AI Task                     | ✅ 相同                  |
-| **平台数据/报告**  | ✅ 只读                                        | ✅ 读写                  |
-| **媒体/语音/动画** | ✅ 按 Manifest 权限                            | ✅ 相同                  |
-| **事件/数据交换**  | ✅ Event、一次性授权 Data Exchange、Agent 交互 | ✅ 相同                  |
-| **后台需求/调度**  | ✅ 完整                                        | ✅ 相同                  |
-| **声明 API**       | ✅ `Tapp.api()` 与 `Tapp.api.list()`           | ✅ 相同                  |
-| **生命周期**       | ✅ `onReady` / `onDestroy` / pause / resume    | ✅ 相同                  |
-| **管理/联邦能力**  | ❌ Tapp/Brew 管理、组件、快捷键、Federation 等 | ✅ 按权限提供            |
+| 分类 | Widget | Page | headless |
+| ---- | ------ | ---- | -------- |
+| **存储 / settings / shared** | ✅ `getAll`/`usage` | ✅ | ✅ |
+| **实例设置 / `invalidate`** | ✅ `getInstanceSettings` / `updateInstanceSettings` / `invalidate`（无 options 刷自己） | ✅ register 系列 + `invalidate({ widgetId })`（需 `storage:write`） | ✅ 仅 `invalidate({ widgetId })`（需 `storage:write`） |
+| **UI 主题 / 语言 / 通知** | ✅ | ✅ | ✅ |
+| **`Tapp.ui.openUrl` / `listOpenUrls`** | ✅ 需 `ui:openUrl` + `openUrls` | ✅ | ❌ 不可用 |
+| **fullscreen / title / confirm** | ❌ | ✅ | ❌ |
+| **人设 / context / user** | ✅ `Tapp.persona.get` 无需权限 | ✅ | ✅ |
+| **DOM / `file.download`** | ✅ | ✅ | ❌ 无此对象 |
+| **`Tapp.assets`** | ✅ | ✅ | ✅ |
+| **AI Task** | ✅ 按授予权限（含 `ai:search`）；否则调用会报缺权限 | ✅ | ✅ |
+| **`Tapp.model3d`** | 调用会报缺权限 | ✅ | ❌ 无此对象 |
+| **平台 / 报告** | ✅ 只读 | ✅ 读写 | ✅ 读写 |
+| **媒体 / 语音 / 动画 / 调度 / 事件 / Data Exchange / Agent** | ✅ 按授予权限 | ✅ | ✅ |
+| **`Tapp.api(name, params)` / `Tapp.api.list()`** | ✅ | ✅ | ✅ |
+| **生命周期** | ✅ `onReady` / `onDestroy` / `onPause` / `onResume`（隐藏≠销毁） | ✅ | ✅ |
+| **`tappList` / `brewList` / `federation` / `game` / 组件 / 快捷键** | ❌ | ✅ | `tappList` / 组件 / 快捷键 ❌；`brewList` / `federation` / `game` ✅ |
 
-Widget 不是纯静态展示层：共享 core 可在其中使用事件、调度和数据交换。但宿主不会给 Widget
-注册平台/报告写入、Tapp/Brew 管理、组件、快捷键和 Federation handler。
+Widget 不是纯静态展示层：共享层 `core` 可在其中使用事件、调度和数据交换。Widget 沙箱没有
+平台/报告写入、Tapp/Brew 管理、组件、快捷键、联邦或 `Tapp.game`。
 
 ---
 
@@ -57,7 +60,8 @@ Tapp.widgets["my-widget"] = {
 ```
 
 > **生命周期**：Widget SDK **会**在 document load 后触发 `Tapp.lifecycle.onReady`（以及
-> pause/resume/destroy）。可见 UI 仍应主要通过 `Tapp.widgets[id].render(container, props)`
+> `onPause`/`onResume`/`onDestroy`）。`onPause` 是宿主**隐藏**该卡（切 Tab、滚出视野），
+> 不是销毁。可见 UI 仍应主要通过 `Tapp.widgets[id].render(container, props)`
 > 由宿主驱动；`onReady` 适合初始化订阅、预取数据或配合 core 的共享逻辑，不要假设只有
 > Page 模式才有 onReady。
 
@@ -723,27 +727,30 @@ manifest.apis + permissions（含 network:fetch、storage:read、storage:write�
         ▼
 core / Page / headless（scheduler 或 onReady）
   Tapp.api("stats", …)  ──►  Tapp.storage.set("stats.summary", data)
-        │                      ▲ 到此为止；不要在 core 里调 invalidate
+        │                      ▲ 默认到此为止
         │  同 Tapp storage 变更由宿主广播
         ▼
-Dashboard Widget（refreshPolicy 默认 event）
-  宿主 re-render → render() 里 Tapp.storage.get("stats.summary")
-  可选（仅本 Widget 沙箱）：Tapp.storage.onChanged 局部更新
+Dashboard Widget（可见时刷新；与 refreshPolicy.mode 无关）
+  宿主 remount → render() 里 Tapp.storage.get("stats.summary")
+  可选：Tapp.storage / settings / shared.onChanged 局部更新
   可选（仅本 Widget 沙箱）：Tapp.widget.invalidate("data-ready")
+  可选（Page/headless，需 storage:write）：
+    Tapp.widget.invalidate("reason", { target: { widgetId: "stats" } })
 ```
 
 > **`Tapp.widget` 在不同沙箱含义不同**
 >
 > | 沙箱 | `Tapp.widget` 上有什么 |
 > | ---- | ---------------------- |
-> | **Page** | `register` / `unregister` / `listRegistered` / `updateConfig`（需 `widget:register`） |
-> | **Widget** | `getInstanceSettings` / `updateInstanceSettings` / **`invalidate`** |
-> | **headless** | **无** `Tapp.widget`（整对象删除） |
+> | **Page** | `register` / `unregister` / `listRegistered` / `updateConfig`（需 `widget:register`）；**`invalidate(reason, { target: { widgetId } })`**（需授予的 `storage:write`） |
+> | **Widget** | `getInstanceSettings` / `updateInstanceSettings` / **`invalidate(reason)`**（刷自己，无需权限） |
+> | **headless** | 仅 **`invalidate(reason, { target: { widgetId } })`**（需授予的 `storage:write`） |
 >
-> 共用 core 代码里若写 `await Tapp.widget.invalidate(...)`，在 Page/headless 会抛
-> `TypeError`，常见后果是 `storage.set` 已成功但整段同步 Promise 失败、Page UI 卡在
-> 「无法更新」。正确做法：core 只 `storage.set`；invalidate 仅放在 Widget `render`
-> 或 Widget 专属逻辑里，且先判断 `typeof Tapp.widget?.invalidate === "function"`。
+> 共享层默认只 `storage.set`。无 options 的 `invalidate(reason)` 在 Page/headless
+> 会失败，不要用 `typeof Tapp.widget?.invalidate === "function"` 当「可以刷自己」。
+> 跨卡必须写出 `widgetId`。没有 `target: "all"`；要刷全部可见卡就写 storage。
+> 定向 invalidate 每张卡至少间隔 15 秒，每个 Tapp 每分钟最多 2 次；超限返回
+> `RATE_LIMITED`。写了 storage 就不要再跟一次 invalidate。
 
 1. **声明 API**（`manifest.json`）
 
@@ -782,7 +789,7 @@ Dashboard Widget（refreshPolicy 默认 event）
 
 ```javascript
 // CORE_CODE — Page / Widget / headless 都会加载
-// 只写 storage；宿主会广播给可见 Widget。不要在这里 invalidate。
+// 只写 storage；宿主会广播给可见 Widget。不要在这里无 options 地 invalidate。
 async function refreshStats() {
   const data = await Tapp.api("stats", {});
   await Tapp.storage.set("stats.summary", {
@@ -829,30 +836,38 @@ Tapp.widgets["stats"] = {
 };
 ```
 
-### 四种触发更新的方式
+### 五种触发更新的方式
 
 | 方式 | 谁发起 | 宿主行为 | 适用场景 |
 | ---- | ------ | -------- | -------- |
-| **`Tapp.storage.set/remove/clear`** | Page / Widget / headless | 同 Tapp 广播；`refreshPolicy.mode` 默认 `event` 时刷新可见 Widget | **首选**：后台同步、Page 改配置、core 写缓存 |
-| **`Tapp.widget.invalidate(reason)`** | **仅当前 Widget 沙箱**（Page/headless 无此方法） | 请求宿主对该实例 re-render（与 storage 刷新一样会去抖） | 内存态算完、未写 storage、或只想刷自己 |
-| **`refreshPolicy.mode: "interval"`** | 宿主计时器 | 仅在**页面与 Widget 均可见**且 Tapp 运行时按 `intervalSeconds`（15–86400）重渲染 | 可见轮询；**不要**用它做后台同步 |
+| **`Tapp.storage.set/remove/clear`**（以及 `Tapp.shared` 写入） | Page / Widget / headless | 同 Tapp 广播 `onChanged`，并刷新**全部**可见 Widget（兼容垫，与 `refreshPolicy.mode` 无关） | **首选数据路径**：后台同步、core 写缓存。落盘成功 ≠ 视图命令 |
+| **`Tapp.settings.set`** | 安装 owner / 管理员 | 只广播 `Tapp.settings.onChanged`；**不** remount Widget | 开关、主题、间隔。要重跑 `render()` 再 invalidate |
+| **`Tapp.widget.invalidate(reason)`** | **仅当前 Widget 沙箱** | 对该实例 remount（与 storage 刷新一样 500ms 去抖） | `render()` 过期、或内存态算完只想刷自己。与有没有落盘无关 |
+| **`Tapp.widget.invalidate(reason, { target: { widgetId } })`** | Page / headless / Widget（需授予的 `storage:write`） | 只刷该本地 `widgetId` 的可见实例；不可见 no-op；每卡 15s 冷却，每 Tapp 每分钟最多 2 次 | 定向醒一张卡。**没有 `target: "all"`** |
+| **`refreshPolicy.mode: "interval"`** | 宿主计时器 | **额外**的可见轮询，不关掉 storage 刷新；`intervalSeconds` 15–86400 | 可见节拍；**不要**用它做后台同步 |
 | **`refreshOnVisible: true`**（默认） | 宿主 | Widget 重新进入可见区域时刷新 | 切回 Dashboard 时补最新 storage |
 
 ```javascript
-// ✅ Widget 沙箱内：数据已在本实例算完，显式请求刷新
-if (typeof Tapp.widget?.invalidate === "function") {
-  await Tapp.widget.invalidate("data-ready");
-}
+// ✅ Widget 沙箱内：数据已在本实例算完，显式请求刷新自己
+await Tapp.widget.invalidate("data-ready");
 
-// ✅ 任意沙箱：订阅 storage 做局部更新（不依赖整卡 re-render）
+// ✅ Page / headless：定向刷一张（要 storage:write；写了 storage 就不必再调用）
+await Tapp.widget.invalidate("config-saved", { target: { widgetId: "stats" } });
+
+// ✅ 任意沙箱：订阅 KV 做局部更新（不依赖整卡 remount）
 const unsubscribe = Tapp.storage.onChanged(({ key, operation }) => {
   if (key === "stats.summary" || operation === "clear") {
     // 自行 patch DOM；一般不必 invalidate
   }
 });
+Tapp.settings.onChanged(({ key }) => {
+  if (key === "compact") {
+    // 只补 DOM；settings.set 不会拆 iframe
+  }
+});
 // 在 onDestroy / 下次 render 前调用 unsubscribe()
 
-// ❌ core / Page / headless — 会 TypeError，且可能中断 await 链
+// ❌ Page / headless 省略 target — 会失败，不要靠 typeof 守卫当「刷自己」
 // await Tapp.widget.invalidate("metrics-synced");
 ```
 
@@ -866,7 +881,8 @@ const unsubscribe = Tapp.storage.onChanged(({ key, operation }) => {
   Widget 的 interval 计时器（不可见时不计时）。
 - **render 保持幂等**：宿主可能因 storage 批次写入、`invalidate`、可见性多次调用 `render`；
   避免在 render 里无节制打外部 API。缓存进 storage，render 读缓存。
-- **刷新去抖**：宿主对 storage 变更与 `invalidate` 统一去抖，避免同一批写入连刷多次。
+- **刷新去抖**：宿主对 storage 变更与 Widget 自刷 `invalidate` 统一 500ms 去抖。Page /
+  headless 定向 invalidate 另外还有每卡 15s、每 Tapp 每分钟 2 次的硬限制。
 - **平台数据**：`Tapp.platform.*` 是只读平台统计等，与你在 `apis` 里声明的业务 API 无关。
 
 更多字段见 [Manifest `refreshPolicy`](MANIFEST.md)、[Storage / Widget / 声明 API](API_REFERENCE.md)、

@@ -115,26 +115,30 @@ export const BilibiliWidget = memo(
     )
 
     // BE card_visuals: user_level / follower_count / following_count
-    const userLevel = useMemo(
-      () => Number(data?.user_level) || 0,
-      [data?.user_level],
-    )
-    const followerCount = useMemo(
-      () => Number(data?.follower_count) || 0,
-      [data?.follower_count],
-    )
-    const followingCount = useMemo(
-      () => Number(data?.following_count) || 0,
-      [data?.following_count],
-    )
-    const hasStats =
-      userLevel > 0 || followerCount > 0 || followingCount > 0
-
-    const formatNumber = (num: number) => {
+    const userLevel = Number(data?.user_level) || 0
+    const followerCount = Number(data?.follower_count) || 0
+    const followingCount = Number(data?.following_count) || 0
+    const formatCount = (num: number) => {
       if (num >= 10000)
         return `${(num / 10000).toFixed(1)}${t.reportsPage.tenThousandSuffix}`
       if (num >= 1000) return `${(num / 1000).toFixed(1)}k`
-      return num.toString()
+      return String(num)
+    }
+    const stats: { key: string; value: string; label?: string }[] = []
+    if (userLevel > 0) stats.push({ key: 'level', value: `Lv.${userLevel}` })
+    if (followerCount > 0) {
+      stats.push({
+        key: 'fans',
+        value: formatCount(followerCount),
+        label: t.reportsPage.fans,
+      })
+    }
+    if (followingCount > 0) {
+      stats.push({
+        key: 'following',
+        value: formatCount(followingCount),
+        label: t.dataManagement.previewMetric.following_count,
+      })
     }
 
     useEffect(() => {
@@ -161,54 +165,29 @@ export const BilibiliWidget = memo(
               allowLoop={allowLoop}
               triggerKey={showOverview}
             />
-            {/* 概览：展示 BE 写入的等级/粉丝/关注（弹幕之上） */}
-            {hasStats && (
-              <div className="absolute bottom-3 right-3 z-20 flex flex-col items-end gap-1.5 pointer-events-none">
-                {userLevel > 0 && (
-                  <motion.div
-                    className="px-2.5 py-0.5 rounded-full text-[9px] font-bold flex items-center gap-1 shadow-lg bg-linear-to-br from-pink-50 to-pink-100 dark:from-pink-950/80 dark:to-pink-900/60 text-pink-600 dark:text-pink-300"
-                    style={{ boxShadow: '0 2px 12px rgba(236, 72, 153, 0.25)' }}
-                    initial={{ scale: 0.8, opacity: 0, x: 20 }}
-                    animate={{ scale: 1, opacity: 1, x: 0 }}
-                    transition={{ duration: 0.4, delay: 0.1 }}
-                  >
-                    <span className="text-[7px]">●</span>
-                    <span>Lv.{userLevel}</span>
-                  </motion.div>
-                )}
-                {(followerCount > 0 || followingCount > 0) && (
-                  <motion.div
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg glass-surface glass-90 shadow-lg border border-white/30 dark:border-white/10"
-                    initial={{ scale: 0.8, opacity: 0, x: 20 }}
-                    animate={{ scale: 1, opacity: 1, x: 0 }}
-                    transition={{ duration: 0.4, delay: 0.2 }}
-                  >
-                    {followerCount > 0 && (
-                      <div className="flex flex-col items-end">
-                        <span className="text-lg font-black leading-none text-gray-900 dark:text-gray-100">
-                          {formatNumber(followerCount)}
+            {/* 概览：等级 / 粉丝 / 关注，走 .glass 表面令牌 */}
+            {stats.length > 0 && (
+              <motion.div
+                className="absolute bottom-3 right-3 z-20 pointer-events-none"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: 0.12 }}
+              >
+                <div className="glass flex items-baseline gap-2 rounded-full px-2.5 py-1">
+                  {stats.map((stat) => (
+                    <span key={stat.key} className="flex items-baseline gap-0.5">
+                      <span className="text-[10px] font-black tabular-nums text-gray-900 dark:text-gray-100">
+                        {stat.value}
+                      </span>
+                      {stat.label && (
+                        <span className="text-[9px] font-medium text-gray-500 dark:text-gray-400">
+                          {stat.label}
                         </span>
-                        <span className="text-[9px] tracking-wide mt-0.5 italic font-semibold text-gray-600 dark:text-gray-400">
-                          {t.reportsPage.fans}
-                        </span>
-                      </div>
-                    )}
-                    {followerCount > 0 && followingCount > 0 && (
-                      <div className="w-px h-5 bg-gray-300 dark:bg-white/20" />
-                    )}
-                    {followingCount > 0 && (
-                      <div className="flex flex-col items-end">
-                        <span className="text-lg font-black leading-none text-gray-900 dark:text-gray-100">
-                          {formatNumber(followingCount)}
-                        </span>
-                        <span className="text-[9px] tracking-wide mt-0.5 italic font-semibold text-gray-600 dark:text-gray-400">
-                          {t.dataManagement.previewMetric.following_count}
-                        </span>
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-              </div>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              </motion.div>
             )}
           </motion.div>
         ) : (

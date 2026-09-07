@@ -156,10 +156,6 @@ pub fn note_image_limit() -> usize {
     crate::services::memory_profile::note_image_limit()
 }
 
-/// Note 内联视频附件的字节上限（**default**）。
-#[allow(dead_code)] // 仅测试调用：运行时上限由 memory_profile 的 *_limit() 供给。
-pub const NOTE_VIDEO_LIMIT: usize = 256 * 1024 * 1024;
-
 /// Live note video cap.
 #[inline]
 pub fn note_video_limit() -> usize {
@@ -218,7 +214,7 @@ pub struct InboxInflightPermit {
 
 impl InboxInflightPermit {
     /// Bytes this permit holds against [`INBOX_INFLIGHT_RAW_BUDGET`].
-    #[allow(dead_code)] // 仅测试调用：运行时上限由 memory_profile 的 *_limit() 供给。
+    #[cfg(test)]
     pub fn bytes(&self) -> usize {
         self.bytes
     }
@@ -244,7 +240,7 @@ impl Drop for InboxParsePermit {
 }
 
 /// Current complete inbox JSON trees retained by handlers.
-#[allow(dead_code)] // 仅测试调用：运行时上限由 memory_profile 的 *_limit() 供给。
+#[cfg(test)]
 pub fn inbox_active_parses() -> usize {
     INBOX_ACTIVE_PARSES.load(Ordering::Acquire)
 }
@@ -757,7 +753,10 @@ mod constant_tests {
             LiveBodyLimitKind::Authenticated.limit_bytes(),
             crate::services::memory_profile::SAVER_AUTHENTICATED_BODY_LIMIT
         );
-        assert!(LiveBodyLimitKind::NoteMedia.limit_bytes() < NOTE_VIDEO_LIMIT + 16 * 1024 * 1024);
+        assert!(
+            LiveBodyLimitKind::NoteMedia.limit_bytes()
+                < crate::services::memory_profile::DEFAULT_NOTE_VIDEO_LIMIT + 16 * 1024 * 1024
+        );
         // Restore default for other tests in this process.
         crate::services::memory_profile::apply(
             crate::services::memory_profile::MemoryProfile::Default,

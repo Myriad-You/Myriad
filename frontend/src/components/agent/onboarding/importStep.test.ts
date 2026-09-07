@@ -71,7 +71,7 @@ test('the fork owns the choice, and no later step re-offers it', () => {
   assert.match(wizard, /step === CHOICE_STEP && \(/)
   // 去向锁在这里，「怎么去」（enterLane 的清场）由下面那条单独锁。
   assert.match(wizard, /onImport=\{\(\) => \w+\(IMPORT_STEP\)\}/)
-  assert.match(wizard, /onGuided=\{\(\) => \w+\(GUIDED_FIRST_STEP\)\}/)
+  assert.match(wizard, /enterLane\(GUIDED_FIRST_STEP\)/)
   assert.match(wizard, /step === IMPORT_STEP && \(/)
 
   // 词条页曾经自己挂过一个「直接导入」，那个决定已经上移到分岔口。
@@ -116,6 +116,7 @@ test('every locale carries the import copy', () => {
     'importPersonaReady',
     'importPortraitHint',
     'importPortraitReplace',
+    'importVisualFailed',
     'importFinish',
   ]
   const files = [
@@ -238,7 +239,7 @@ test('the fork cards stay clickable as a whole', () => {
 test('switching lanes at the fork wipes what belongs to the other lane', () => {
   const wizard = read('./OnboardingWizard.tsx')
   // 分岔口的两个出口都必须过 enterLane，不能直接 onStepChange。
-  assert.match(wizard, /onGuided=\{\(\) => enterLane\(GUIDED_FIRST_STEP\)\}/)
+  assert.match(wizard, /enterLane\(GUIDED_FIRST_STEP\)/)
   assert.match(wizard, /onImport=\{\(\) => enterLane\(IMPORT_STEP\)\}/)
 
   const enter = wizard.slice(
@@ -283,18 +284,33 @@ test('the import lane does not inherit the guided run visual profile', () => {
     wizard.indexOf('<ImportStep'),
     wizard.indexOf('<TagBubblesStep'),
   )
-  // 后端 merge_visual_profile 会把「缺席」的键从旧值补上，所以要显式写空。
-  // 探针实测过：只发 {gender, language} 时，上一次生成的 visualIdentity /
-  // sourceTags / personaExtraRequirements 会整套跟过来。
-  // 这四个正是 merge_visual_profile 会从旧值补上的键，一个都不能少。
-  for (const field of [
-    /visualIdentity: null/,
-    /clothingStyle: null/,
-    /sourceTags: \[\]/,
-    /personaExtraRequirements: ''/,
-  ]) {
-    assert.match(importPane, field)
-  }
+  // 有主图时按图读出视觉特征；没有主图才写 null。词条和补充要求仍要显式清空，
+  // 不然 merge_visual_profile 会把上一次生成链的值补回来。
+  assert.match(importPane, /observeVisualFromPortrait/)
+  assert.match(importPane, /parseUpperBodyVisualIdentity/)
+  assert.match(importPane, /seedWardrobeFromIdentity/)
+  assert.match(importPane, /importedPortraitUrl/)
+  assert.match(importPane, /visualIdentity: observedIdentity/)
+  assert.match(importPane, /clothingStyle: observedStyle/)
+  assert.match(importPane, /wardrobe: seeded\.items/)
+  assert.match(importPane, /sourceTags: \[\]/)
+  assert.match(importPane, /personaExtraRequirements: ''/)
+})
+
+test('missing reports lock generate, not import', () => {
+  // 入口卡曾经用报告数挡住整个设定页，导入也被一起拦了。
+  const card = read('../../config/AiConfigSection.tsx')
+  assert.match(card, /openAiSubpage\('merope-setup'\)/)
+  assert.doesNotMatch(card, /reportCount >= 3/)
+
+  const choice = read('./steps/ChoiceStep.tsx')
+  assert.match(choice, /GUIDED_MIN_REPORTS/)
+  assert.match(choice, /disabled=\{Boolean\(lane\.locked\)\}/)
+  assert.match(choice, /t\.config\.agentPersonaNeedsReports/)
+
+  const wizard = read('./OnboardingWizard.tsx')
+  assert.match(wizard, /if \(reportCount < GUIDED_MIN_REPORTS\) return/)
+  assert.match(wizard, /onImport=\{\(\) => enterLane\(IMPORT_STEP\)\}/)
 })
 
 test('entering a lane cancels a draft that is still in flight', () => {

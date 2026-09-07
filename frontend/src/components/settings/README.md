@@ -49,8 +49,8 @@ settings/
 | **操作按钮**（工具栏 / 弹层 / 行内 / 浮动保存） | **`SettingsButton`** |
 | 带标签的按钮设置行 | `ButtonItem`（内部用 `SettingsButton`） |
 | **单选 / 多选分段**（预设、可见性、筛选、来源、频率） | **`SegmentedControl`** |
-| 带标签的开关设置行 | `SwitchItem` |
-| 卡片头/紧凑行内开关（无整行 label 壳） | `ToggleSwitch` |
+| 带标签的开关设置行 | `SwitchItem`（可选 `preview`） |
+| 卡片头/紧凑行内开关（无整行 label 壳） | `ToggleSwitch`（可选 `preview`：悬停预告开启/关掉以后会怎样） |
 | 文本 / 密码 / URL / email | `InputItem` |
 | · `variant="clickToEdit"` | 只读 → 点编辑 → 框内保存（`onCommit`） |
 | · `variant="imageUpload"` | 左侧预览 + URL / 本地 data URL 上传（网站图标等） |
@@ -79,7 +79,7 @@ settings/
 2. 用户点标签「默认值有更新」→ 写入新默认并关闭提示；点 × → 只关闭、不改值。
 3. 关闭后不再显示该次 `from→to` 变更（已写入 draft 的仍需用户保存配置）。
 4. 调试可在控制台：`localStorage.removeItem('myriad_setting_default_notices_v1')` 后刷新。
-| **标题详细说明**（默认隐藏，hover ⓘ 显示） | **`SettingTitleHelp`** / `detail` prop（Group / Section / Tag / 设置项） |
+| **标题详细说明**（默认隐藏，hover ⓘ 显示） | **`SettingTitleHelp`** / `detail` prop（Group / Section / Tag / 设置项）；开关 `preview` 走同一套 hover tooltip |
 | **子分类标题开关**（模块启用） | **`SettingGroup` 的 `switch`**（右侧 `ToggleSwitch`；关闭时组内容弱化） |
 | **流程图式配置步骤**（去哪里 / 做什么 / 外链或站内动作） | **`SetupFlow`**（数据平台二级页；步骤数据见 `config/platformSetupGuides.ts`） |
 | ~~信息卡长说明~~ | **弃用 `InfoCard` 堆说明**；改走标题 `detail` tooltip |
@@ -191,6 +191,10 @@ import { InfoActionCard } from '../settings'
     onChange: (v) => setSourceEnabled('agent', v),
     disabled: !masterEnabled,
     ariaLabel: '允许此来源',
+    preview: {
+      on: '开启后会推送此来源的通知',
+      off: '关闭后不再推送此来源',
+    },
   }}
 >
   {/* 显示位置 / 事件等细项 */}
@@ -198,6 +202,7 @@ import { InfoActionCard } from '../settings'
 ```
 
 - `switch` 渲染在标题行右侧（`ToggleSwitch`），点击不会触发展开/折叠
+- `preview`：悬停/聚焦开关时预演开启样子；浮层与 ⓘ 共用 `useSettingHoverTooltip`（`on` / `off` / `disabled`）
 - 关闭时组根节点带 `is-switch-off`，内容区弱化；子控件仍需自行传 `disabled`
 
 ### 多子分类网格（嵌套）
@@ -376,6 +381,11 @@ import {
   checked={on}
   onChange={setOn}
   aria-label="启用"
+  preview={{
+    on: '开启后会在报告页显示这张卡片',
+    off: '关闭后报告页不再显示，数据仍保留',
+    disabled: '先填好凭证才能打开',
+  }}
 />
 ```
 

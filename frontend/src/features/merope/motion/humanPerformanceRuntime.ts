@@ -33,28 +33,47 @@ export class HumanPerformanceRuntime {
   private deliveryRevision = 0
   private plan: BehaviorPlan | null = null
   private motionStyle: RigMotionStyle = 'even'
+  private mergedFrom: readonly (BehaviorPlan | null | undefined)[] | null = null
+  private mergedOriginFloor = Number.POSITIVE_INFINITY
 
   setMotionStyle(style: RigMotionStyle): void {
     this.motionStyle = style
+    this.mergedFrom = null
   }
 
   frame(
     plans: readonly (BehaviorPlan | null | undefined)[],
     nowMs: number,
   ): HumanPerformanceFrame {
-    const next = mergeBehaviorPlans(plans, nowMs, this.motionStyle)
-    const schedulerFingerprint = planFingerprint(next, true)
-    if (schedulerFingerprint !== this.schedulerFingerprint) {
-      const scheduled = next ?? emptyPlan(nowMs)
-      const reconciled = this.scheduler.reconcilePlan(scheduled, nowMs)
-      if (!reconciled.compatible) this.scheduler.replace(scheduled, nowMs)
-      this.schedulerFingerprint = schedulerFingerprint
-      this.plan = next ? this.scheduler.resolvePlan(next) : null
-    }
-    const deliveryFingerprint = planFingerprint(this.plan, false)
-    if (deliveryFingerprint !== this.deliveryFingerprint) {
-      this.deliveryFingerprint = deliveryFingerprint
-      this.deliveryRevision += 1
+    // The fingerprints exist to keep an unchanged plan from disturbing the
+    // scheduler, but computing them means serializing every peg and behavior.
+    // On the workbench runtime this ran on a 16ms clock, so the check cost far
+    // more than the work it was avoiding. Producers rebuild a plan object only
+    // when its content changes, so identical references are identical plans
+    // and both fingerprints are already known to match.
+    if (!this.mergedFrom || !sameBehaviorPlans(plans, this.mergedFrom)) {
+      this.mergedFrom = [...plans]
+      this.mergedOriginFloor = originFloor(plans)
+      const next = mergeBehaviorPlans(plans, nowMs, this.motionStyle)
+      const schedulerFingerprint = planFingerprint(next, true)
+      if (schedulerFingerprint !== this.schedulerFingerprint) {
+        const scheduled = next ?? emptyPlan(nowMs)
+        const reconciled = this.scheduler.reconcilePlan(scheduled, nowMs)
+        if (!reconciled.compatible) this.scheduler.replace(scheduled, nowMs)
+        this.schedulerFingerprint = schedulerFingerprint
+        this.plan = next ? this.scheduler.resolvePlan(next) : null
+      }
+      const deliveryFingerprint = planFingerprint(this.plan, false)
+      if (deliveryFingerprint !== this.deliveryFingerprint) {
+        this.deliveryFingerprint = deliveryFingerprint
+        this.deliveryRevision += 1
+      }
+    } else if (this.plan) {
+      // The one part of a merge that moves without the inputs moving.
+      const originMs = Math.min(this.mergedOriginFloor, nowMs)
+      if (originMs !== this.plan.originMs) {
+        this.plan = { ...this.plan, originMs }
+      }
     }
     return {
       plan: this.plan,
@@ -82,9 +101,31 @@ export class HumanPerformanceRuntime {
     this.scheduler.clear(nowMs)
     this.schedulerFingerprint = ''
     this.deliveryFingerprint = ''
+    this.mergedFrom = null
+    this.mergedOriginFloor = Number.POSITIVE_INFINITY
     this.plan = null
     this.deliveryRevision += 1
   }
+}
+
+function sameBehaviorPlans(
+  left: readonly (BehaviorPlan | null | undefined)[],
+  right: readonly (BehaviorPlan | null | undefined)[],
+): boolean {
+  if (left.length !== right.length) return false
+  return left.every((plan, index) => plan === right[index])
+}
+
+/** Mirrors the `active` filter in `mergeBehaviorPlans`; a test holds them together. */
+function originFloor(
+  plans: readonly (BehaviorPlan | null | undefined)[],
+): number {
+  let floor = Number.POSITIVE_INFINITY
+  for (const plan of plans) {
+    if (!plan?.behaviors.length) continue
+    floor = Math.min(floor, plan.originMs)
+  }
+  return floor
 }
 
 export function mergeBehaviorPlans(

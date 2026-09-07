@@ -201,12 +201,6 @@ pub fn scrape_max_length(params: &HashMap<String, Value>) -> usize {
         .unwrap_or(WEB_SCRAPE_DEFAULT_MAX_LENGTH)
 }
 
-/// Whether raw HTML exceeds scrape size gate.
-#[allow(dead_code)] // 仅测试调用：生产在各自调用点内联同等判定。
-pub fn scrape_html_too_large(html_len: usize) -> bool {
-    html_len > WEB_SCRAPE_MAX_HTML_BYTES
-}
-
 /// Collapse whitespace and truncate to max_length; returns (text, truncated).
 pub fn compress_and_truncate_text(text: &str, max_length: usize) -> (String, bool) {
     let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -406,9 +400,6 @@ mod tests {
             WEB_SCRAPE_DEFAULT_MAX_LENGTH
         );
         assert_eq!(WEB_SCRAPE_DEFAULT_MAX_LENGTH, crate::USER_TEXT_MAX_CHARS);
-
-        assert!(!scrape_html_too_large(100));
-        assert!(scrape_html_too_large(WEB_SCRAPE_MAX_HTML_BYTES + 1));
 
         let (text, truncated) = compress_and_truncate_text("  a   b  c  d  e  ", 5);
         assert!(truncated);

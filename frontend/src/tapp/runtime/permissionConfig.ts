@@ -32,6 +32,7 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'ai:analyze': 'elevated',
   'ai:chat': 'elevated',
   'ai:image': 'elevated',
+  'ai:search': 'elevated',
   '3d:generate': 'elevated',
   'report:read': 'basic',
   'report:write': 'privileged',
@@ -128,6 +129,7 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['widget.updateConfig', 'widget:register'],
     ['widget.instanceSettings.update', 'public'],
     ['widget.invalidate', 'public'],
+    ['widget.invalidateTarget', 'storage:write'],
 
     // 内容列表权限 — Tapp
     ['tappList.list', 'tappList:read'],
@@ -291,8 +293,10 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['dynamicContent.update', 'ui:notification'],
     ['dynamicContent.remove', 'ui:notification'],
 
-    // 文件操作权限
-    ['file.download', 'storage:read'],
+    // Host save-as for bytes the Tapp already holds. Not storage:read — that
+    // permission is private KV. The iframe has no allow-downloads, so this is
+    // the only export path.
+    ['file.download', 'public'],
 
     // 包内静态资源（安装包声明内容，可读即可运行的 Tapp 已可见）
     ['assets.get', 'public'],

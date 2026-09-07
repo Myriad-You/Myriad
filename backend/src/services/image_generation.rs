@@ -464,7 +464,7 @@ pub async fn remove_persisted_generated(
         .map_err(ImageGenerationError::Provider)
 }
 
-async fn load_generated_bytes(
+pub(crate) async fn load_generated_bytes(
     generated: &GeneratedImage,
 ) -> Result<(Vec<u8>, String), ImageGenerationError> {
     if let Some(data) = generated.source.strip_prefix("data:") {
@@ -492,7 +492,7 @@ async fn load_generated_bytes(
 
     let (url, client) = crate::services::outbound_security::build_public_http_client(
         &generated.source,
-        Duration::from_secs(120),
+        Duration::from_secs(5 * 60),
         Some("Myriad-ImageGeneration/1.0"),
     )
     .await
@@ -532,24 +532,6 @@ async fn load_generated_bytes(
     }
     validate_magic(&bytes, &media_type)?;
     Ok((bytes.to_vec(), media_type))
-}
-
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-fn request_parts(
-    config: &ImageGenerationConfig,
-    prompt: &str,
-    width: u32,
-    height: u32,
-    reference_data_url: Option<&str>,
-) -> Result<(String, Value), ImageGenerationError> {
-    request_parts_with_background(
-        config,
-        prompt,
-        width,
-        height,
-        reference_data_url.as_slice(),
-        None,
-    )
 }
 
 fn request_parts_with_background(
@@ -1173,7 +1155,8 @@ mod tests {
                 api_key: "secret".to_string(),
                 base_url: "https://example.com/v1".to_string(),
             };
-            let (endpoint, body) = request_parts(&config, "portrait", 1024, 1024, None).unwrap();
+            let (endpoint, body) =
+                request_parts_with_background(&config, "portrait", 1024, 1024, &[], None).unwrap();
             assert!(endpoint.ends_with(expected_suffix));
             assert_eq!(body["model"], "model");
             assert_eq!(body["prompt"], "portrait");
@@ -1188,7 +1171,8 @@ mod tests {
             api_key: "secret".to_string(),
             base_url: "https://api.siliconflow.cn/v1".to_string(),
         };
-        let (_, body) = request_parts(&config, "portrait", 1024, 1024, None).unwrap();
+        let (_, body) =
+            request_parts_with_background(&config, "portrait", 1024, 1024, &[], None).unwrap();
         assert_eq!(body["model"], "Kwai-Kolors/Kolors");
         assert_eq!(body["size"], "1024x1024");
         assert_eq!(body["n"], 1);
@@ -1207,7 +1191,9 @@ mod tests {
             base_url: "https://openrouter.ai/api/v1".to_string(),
         };
         let reference = "data:image/png;base64,AA==";
-        let (_, body) = request_parts(&config, "portrait", 1152, 1536, Some(reference)).unwrap();
+        let (_, body) =
+            request_parts_with_background(&config, "portrait", 1152, 1536, &[reference], None)
+                .unwrap();
         assert_eq!(body["background"], "opaque");
         assert_eq!(body["quality"], "high");
         assert!(body.get("output_format").is_none());
@@ -1224,20 +1210,23 @@ mod tests {
             api_key: "secret".to_string(),
             base_url: "https://openrouter.ai/api/v1".to_string(),
         };
-        let (_, body) = request_parts(&generic, "portrait", 1536, 1024, None).unwrap();
+        let (_, body) =
+            request_parts_with_background(&generic, "portrait", 1536, 1024, &[], None).unwrap();
         assert_eq!(body["aspect_ratio"], "3:2");
         assert!(body.get("background").is_none());
         assert!(body.get("output_format").is_none());
         assert!(body.get("n").is_none());
 
-        let (_, portrait) = request_parts(&generic, "portrait", 1152, 1536, None).unwrap();
+        let (_, portrait) =
+            request_parts_with_background(&generic, "portrait", 1152, 1536, &[], None).unwrap();
         assert_eq!(portrait["aspect_ratio"], "3:4");
 
         let transparent = ImageGenerationConfig {
             model: "openai/gpt-image-1".to_string(),
             ..generic
         };
-        let (_, body) = request_parts(&transparent, "portrait", 1024, 1024, None).unwrap();
+        let (_, body) =
+            request_parts_with_background(&transparent, "portrait", 1024, 1024, &[], None).unwrap();
         assert_eq!(body["background"], "transparent");
         assert!(body.get("output_format").is_none());
     }
@@ -1298,8 +1287,15 @@ mod tests {
                 api_key: "secret".to_string(),
                 base_url: "https://example.com/v1".to_string(),
             };
-            let (_, body) =
-                request_parts(&config, "turn around", 1024, 1024, Some(reference)).unwrap();
+            let (_, body) = request_parts_with_background(
+                &config,
+                "turn around",
+                1024,
+                1024,
+                &[reference],
+                None,
+            )
+            .unwrap();
             assert!(body.get(key).is_some());
         }
     }
@@ -1336,7 +1332,8 @@ mod tests {
             } else {
                 assert_eq!(body["image"], json!(references));
             }
-            let (_, text_only) = request_parts(&config, "draw", 1024, 1024, None).unwrap();
+            let (_, text_only) =
+                request_parts_with_background(&config, "draw", 1024, 1024, &[], None).unwrap();
             assert!(text_only.get("image").is_none());
             assert!(text_only.get("input_references").is_none());
         }
@@ -1409,7 +1406,8 @@ mod tests {
             api_key: "secret".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
         };
-        let (_, body) = request_parts(&config, "portrait", 1000, 512, None).unwrap();
+        let (_, body) =
+            request_parts_with_background(&config, "portrait", 1000, 512, &[], None).unwrap();
         assert_eq!(body["model"], "gpt-image-2");
         assert_eq!(body["stream"], false);
         assert_eq!(body["background"], "opaque");
@@ -1426,7 +1424,8 @@ mod tests {
             api_key: "secret".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
         };
-        let (_, body) = request_parts(&config, "portrait", 1000, 1000, None).unwrap();
+        let (_, body) =
+            request_parts_with_background(&config, "portrait", 1000, 1000, &[], None).unwrap();
         assert_eq!(body["size"], "1008x1008");
         assert_eq!(body["stream"], false);
     }

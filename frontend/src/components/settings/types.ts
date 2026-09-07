@@ -3,6 +3,7 @@
  */
 
 import type { CSSProperties, ReactNode } from 'react'
+import type { ToggleSwitchPreview } from './items/toggleSwitchPreview'
 
 // 基础类型
 
@@ -85,6 +86,8 @@ export interface SwitchSettingConfig extends BaseSettingItemConfig {
   type: 'switch'
   value: boolean
   onChange: (value: boolean) => void
+  /** 悬停 / 聚焦预告：开启或关掉以后会怎样 */
+  preview?: ToggleSwitchPreview
 }
 
 /** 复选框设置项配置 */
@@ -239,6 +242,11 @@ export interface ProviderSettingConfig<
   value: T
   onChange: (value: T) => void
   options: SettingOption<T>[]
+  /**
+   * 再点一次已选项可取消（值为空字符串）。
+   * 默认 true：不强制必须选中某一项。
+   */
+  allowDeselect?: boolean
 }
 
 /** 按钮设置项配置 */
@@ -290,6 +298,8 @@ export interface SettingGroupSwitchConfig {
   loading?: boolean
   /** 无障碍名；默认使用组 title */
   ariaLabel?: string
+  /** 悬停 / 聚焦预告：开启或关掉以后会怎样 */
+  preview?: ToggleSwitchPreview
 }
 
 /** 设置组配置 */

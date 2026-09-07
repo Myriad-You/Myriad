@@ -285,6 +285,10 @@ export interface AddSourceRequest {
   }
   /** 仅管理员可见 */
   admin_only?: boolean
+  description?: string
+  site_url?: string
+  enabled?: boolean
+  sort_order?: number
 }
 
 // 更新订阅源请求
@@ -301,6 +305,8 @@ export interface UpdateSourceRequest {
   theme_color?: string
   /** 自定义图标 URL 或 Base64 数据 */
   icon?: string
+  description?: string
+  site_url?: string
   /** 自定义排序顺序 */
   sort_order?: number
   /** 来源类型: link, rss, brewlia, rsshub */
@@ -326,4 +332,85 @@ export interface CreateCategoryRequest {
   name: string
   icon?: string
   color?: string
+}
+
+export interface UpdateCategoryRequest {
+  name?: string
+  icon?: string
+  color?: string
+  sort_order?: number
+}
+
+export interface RsshubInstance {
+  id: number
+  user_id: number | null
+  name: string
+  url: string
+  has_access_key: boolean
+  priority: number
+  enabled: boolean
+  health_status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
+  last_health_check: number | null
+  last_response_time_ms: number | null
+  consecutive_failures: number
+  success_rate: number
+  created_at: number
+}
+
+export interface AddRsshubInstanceRequest {
+  name: string
+  url: string
+  access_key?: string | null
+  priority?: number
+}
+
+export interface UpdateRsshubInstanceRequest {
+  name?: string
+  url?: string
+  access_key?: string | null
+  priority?: number
+  enabled?: boolean
+}
+
+export interface BrewpackCategory {
+  name: string
+  icon: string | null
+  color: string | null
+  sort_order: number
+}
+
+export interface BrewpackRsshubInstance {
+  name: string
+  url: string
+  priority: number
+  enabled: boolean
+}
+
+/** Brew 订阅包清单（v2 含分类实体与 RSSHub 实例） */
+export interface BrewExportManifest {
+  version: string
+  exported_at: string
+  sources: BrewpackSource[]
+  categories?: BrewpackCategory[]
+  rsshub_instances?: BrewpackRsshubInstance[]
+}
+
+export interface BrewpackSource {
+  url: string
+  name: string
+  category: string | null
+  icon_file: string | null
+  icon_url: string | null
+  source_type: SourceType
+  feed_type: FeedType
+  theme_color: string | null
+  update_interval: number
+  card_size: string | null
+  rsshub_route: string | null
+  ai_style_tags: string[] | null
+  admin_only: boolean
+  description: string | null
+  site_url: string | null
+  enabled: boolean
+  sort_order: number | null
 }

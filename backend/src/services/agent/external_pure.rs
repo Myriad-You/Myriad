@@ -10,9 +10,9 @@ pub use myriad_agent_rules::{
     classify_outbound_fetch, compress_and_truncate_text, first_i64_param, first_string_param,
     hitokoto_type, http_body_exceeds_limit, http_body_size_error, http_content_length_error,
     http_fetch_method, match_mcp_capability_id, mcp_arguments, optional_string_param,
-    parse_http_body_value, parse_mcp_capability_id, sanitize_http_headers, scrape_html_too_large,
-    scrape_max_length, scrape_selector, scrape_should_skip_tag, HTTP_FETCH_MAX_BODY_BYTES,
-    SCRAPE_SKIP_TAGS, WEB_SCRAPE_DEFAULT_MAX_LENGTH, WEB_SCRAPE_MAX_HTML_BYTES,
+    parse_http_body_value, parse_mcp_capability_id, sanitize_http_headers, scrape_max_length,
+    scrape_selector, scrape_should_skip_tag, HTTP_FETCH_MAX_BODY_BYTES, SCRAPE_SKIP_TAGS,
+    WEB_SCRAPE_DEFAULT_MAX_LENGTH, WEB_SCRAPE_MAX_HTML_BYTES,
 };
 
 #[cfg(test)]
@@ -83,9 +83,6 @@ mod tests {
             scrape_max_length(&HashMap::new()),
             WEB_SCRAPE_DEFAULT_MAX_LENGTH
         );
-
-        assert!(!scrape_html_too_large(100));
-        assert!(scrape_html_too_large(WEB_SCRAPE_MAX_HTML_BYTES + 1));
 
         let (text, truncated) = compress_and_truncate_text("  a   b  c  d  e  ", 5);
         assert!(truncated);

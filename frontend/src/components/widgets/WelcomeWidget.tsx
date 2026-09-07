@@ -3,7 +3,7 @@
  * Glass风格设计，左右布局，动态引导内容
  */
 
-import type { WidgetComponentProps } from '../WidgetGrid'
+import type { WidgetComponentProps } from '../widgetGridTypes'
 import { MyriadStoreIcon } from '@lib/icons'
 import {
   AnimatePresenceShim as AnimatePresence,

@@ -13,7 +13,7 @@ export type PlatformFaceComponent = ComponentType<{
   showOverview: boolean
   onContentChange: (content: any) => void
   allowLoop?: boolean
-  /** 库条带预览态：face 须据此关掉在线状态等真实网络轮询 */
+  /** 小组件库预览：face 须据此关掉在线状态等真实网络轮询 */
   isPreview?: boolean
 }>
 

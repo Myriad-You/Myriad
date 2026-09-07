@@ -20,7 +20,7 @@ function rustSeconds(rust: string, name: string): number {
     .reduce((left, right) => left * right, 1)
 }
 
-/** `const X = 150 * 1000` → 150000 */
+/** `const X = 6 * 60 * 1000` → 360000 */
 function tsMs(ts: string, name: string): number {
   const match = ts.match(new RegExp(`const ${name} = ([\\d\\s*]+)`))
   assert.ok(match, `${name} not found`)
@@ -73,16 +73,11 @@ test('import persona uses the long onboarding timeout, including the dev proxy',
   assert.ok(importCall.length > 0, 'importPersona not found')
   assert.match(importCall, /PERSONA_GENERATION_TIMEOUT_MS/)
 
-  const astro = readFileSync(
-    new URL('../../../astro.config.mjs', import.meta.url),
+  const table = readFileSync(
+    new URL('../../utils/aiRequestTimeout.mjs', import.meta.url),
     'utf8',
   )
-  const matcher = astro.slice(
-    astro.indexOf('function isAgentPersonaGenerationPath'),
-    astro.indexOf('function isModel3dLongPath'),
-  )
-  assert.ok(matcher.length > 0, 'isAgentPersonaGenerationPath not found')
-  assert.match(matcher, /startsWith\('\/api\/agent\/persona\/'\)/)
+  assert.match(table, /'\/api\/agent\/persona\/'/)
 })
 
 test('dev proxy long-timeouts cover model3d downloads, agent process, and SSE', () => {
@@ -90,16 +85,22 @@ test('dev proxy long-timeouts cover model3d downloads, agent process, and SSE', 
     new URL('../../../astro.config.mjs', import.meta.url),
     'utf8',
   )
-  assert.match(astro, /function isModel3dLongPath/)
-  assert.match(astro, /startsWith\('\/api\/model3d\/tasks'\)/)
-  assert.match(astro, /function isAgentProcessPath/)
+  assert.match(astro, /aiRequestTimeoutMs/)
   assert.match(astro, /AGENT_PROCESS_PROXY_TIMEOUT_MS/)
   const timeoutPick = astro.slice(
-    astro.indexOf('const timeoutMs = requestPath.startsWith'),
+    astro.indexOf('const aiTimeoutMs = aiRequestTimeoutMs'),
     astro.indexOf('const streamResponse'),
   )
   assert.ok(timeoutPick.length > 0, 'timeout picker not found')
-  assert.match(timeoutPick, /isModel3dLongPath/)
   assert.match(timeoutPick, /isAgentSsePath/)
-  assert.match(timeoutPick, /isAgentProcessPath/)
+  assert.match(timeoutPick, /aiTimeoutMs/)
+})
+
+test('TapSDK AI host round-trip is at least 5 minutes', () => {
+  const sdk = source('../../tapp/runtime/sandbox/sdkShared.ts')
+  const aiMs = tsMs(sdk, 'SDK_AI_REQUEST_TIMEOUT_MS')
+  assert.ok(
+    aiMs >= 5 * 60 * 1000,
+    `Tapp.ai sendRequest ${aiMs}ms 低于 5 分钟保底`,
+  )
 })

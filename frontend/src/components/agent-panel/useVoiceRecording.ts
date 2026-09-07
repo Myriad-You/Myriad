@@ -5,28 +5,39 @@
  * 长按进入连续对话：声网开着就走 RTC；否则本地 VAD 开口就停 TTS，说完一句才提交。麦克风一直开着。
  */
 
+import type { VoiceInputTiming } from '../../features/merope/turnTrace'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   agoraConversationActive,
   startAgoraConversation,
   stopAgoraConversation,
+  subscribeAgoraStopped,
 } from '../../features/merope/speech/agoraConversation'
 import {
-  frameRms,
   isSubmittableTranscript,
   pcmToWav,
 } from '../../features/merope/speech/audioWav'
 import { getSpeechPipeline } from '../../features/merope/speech/speechPipelineHost'
+import { TranscriptionQueue } from '../../features/merope/speech/transcriptionQueue'
+import { UtteranceCapture } from '../../features/merope/speech/utteranceCapture'
 import {
   getVoicePresence,
   patchVoicePresence,
 } from '../../features/merope/speech/voicePresence'
-import { dropPendingTurnTrace, stampTurnTrace } from '../../features/merope/turnTrace'
+import {
+  dropPendingTurnTrace,
+  stageVoiceInputTrace,
+} from '../../features/merope/turnTrace'
 import {
   audioToBase64,
   getSpeechStatus,
   speechToText,
 } from '../../services/speechApi'
+import {
+  getAgentPanelMode,
+  setAgentPanelMode,
+  subscribeAgentPanelMode,
+} from './agentPanelMode'
 
 interface RecorderState {
   audioContext: AudioContext
@@ -34,6 +45,8 @@ interface RecorderState {
   workletNode: AudioWorkletNode
   muteNode: GainNode
   pcmData: Float32Array[]
+  capture: UtteranceCapture
+  startedAt: number
 }
 
 const LOCALE_ENGINE_MAP: Record<string, string> = {
@@ -43,13 +56,6 @@ const LOCALE_ENGINE_MAP: Record<string, string> = {
 }
 
 const WORKLET_PROCESSOR_NAME = 'pcm-capture-processor'
-const OPEN_THRESHOLD = 0.035
-const TTS_OPEN_THRESHOLD = 0.14
-const CLOSE_RATIO = 0.45
-const START_FRAMES = 4
-const END_FRAMES = 18
-/** Continuous conversation must not keep an unbounded PCM tape. */
-const MAX_LISTEN_SAMPLES = 16_000 * 20
 
 const WORKLET_SOURCE = `
 class PcmCaptureProcessor extends AudioWorkletProcessor {
@@ -110,67 +116,81 @@ export function useVoiceRecording(
   const recorderRef = useRef<RecorderState | null>(null)
   const isRecordingRef = useRef(false)
   const conversationRef = useRef(false)
-  const speakingRef = useRef(false)
-  const openFramesRef = useRef(0)
-  const closeFramesRef = useRef(0)
-  const utterancePcmRef = useRef<Float32Array[]>([])
-  const utteranceSamplesRef = useRef(0)
+  const lifecycleRef = useRef(0)
+  const openingRef = useRef(false)
+  const mountedRef = useRef(true)
+  const utteranceStartedRef = useRef(0)
   const onResultRef = useRef(onResult)
   onResultRef.current = onResult
   const localeRef = useRef(locale)
   localeRef.current = locale
+  const transcriptionRef = useRef<TranscriptionQueue<{
+    text: string
+    timing: VoiceInputTiming
+  }> | null>(null)
+  if (!transcriptionRef.current) {
+    transcriptionRef.current = new TranscriptionQueue({
+      onResult: ({ text, timing }) => {
+        if (!mountedRef.current || !isSubmittableTranscript(text)) return
+        stageVoiceInputTrace(timing)
+        onResultRef.current(text)
+      },
+      onError: (error) =>
+        console.error('[useVoiceRecording] 语音识别出错:', error),
+      onBusy: (busy) => {
+        if (mountedRef.current) setIsProcessingVoice(busy)
+      },
+    })
+  }
 
   useEffect(() => {
+    let disposed = false
     getSpeechStatus()
       .then((s) => {
+        if (disposed) return
         const convo = !!s.convo_enabled
         convoRtcRef.current = convo
-        setSpeechAvailable(
-          Boolean(s.available && (s.asr_enabled || convo)),
-        )
+        setSpeechAvailable(Boolean(s.available && (s.asr_enabled || convo)))
       })
       .catch(() => {})
+    return () => {
+      disposed = true
+    }
   }, [])
 
-  const transcribe = useCallback(async (pcmData: Float32Array[], sampleRate: number) => {
-    if (pcmData.length === 0) {
-      dropPendingTurnTrace()
-      return
-    }
-    setIsProcessingVoice(true)
-    try {
-      const wavBlob = pcmToWav(pcmData, sampleRate)
-      const base64Audio = await audioToBase64(wavBlob)
-      const result = await speechToText({
-        audio_data: base64Audio,
-        format: 'wav',
-        engine: LOCALE_ENGINE_MAP[localeRef.current] || '16k_zh',
+  const transcribe = useCallback(
+    (pcmData: Float32Array[], sampleRate: number, startedAt: number) => {
+      if (pcmData.length === 0) return
+      const inputEnded = performance.now()
+      const engine = LOCALE_ENGINE_MAP[localeRef.current] || '16k_zh'
+      transcriptionRef.current!.enqueue(async (signal) => {
+        signal.throwIfAborted()
+        const wavBlob = pcmToWav(pcmData, sampleRate)
+        const base64Audio = await audioToBase64(wavBlob)
+        signal.throwIfAborted()
+        const asrStarted = performance.now()
+        const result = await speechToText(
+          {
+            audio_data: base64Audio,
+            format: 'wav',
+            engine,
+          },
+          undefined,
+          signal,
+        )
+        const text = result.success ? (result.text?.trim() ?? '') : ''
+        return {
+          text,
+          timing: {
+            input_started: startedAt,
+            input_ended: inputEnded,
+            asr_started: asrStarted,
+            asr_completed: performance.now(),
+          },
+        }
       })
-      const text = result.success ? result.text?.trim() ?? '' : ''
-      stampTurnTrace('input_final')
-      if (isSubmittableTranscript(text)) onResultRef.current(text)
-      else dropPendingTurnTrace()
-    } catch (err) {
-      console.error('[useVoiceRecording] 语音识别出错:', err)
-      dropPendingTurnTrace()
-    } finally {
-      setIsProcessingVoice(false)
-    }
-  }, [])
-
-  const flushUtterance = useCallback(
-    (recorder: RecorderState) => {
-      const clip = utterancePcmRef.current
-      utterancePcmRef.current = []
-      utteranceSamplesRef.current = 0
-      speakingRef.current = false
-      closeFramesRef.current = 0
-      patchVoicePresence({ userSpeaking: false })
-      if (clip.length === 0) return
-      const sampleRate = recorder.audioContext.sampleRate || 16000
-      void transcribe(clip, sampleRate)
     },
-    [transcribe],
+    [],
   )
 
   const onPcm = useCallback(
@@ -182,45 +202,30 @@ export function useVoiceRecording(
         return
       }
 
-      const rms = frameRms(frame)
-      const open =
-        getVoicePresence().ttsPlaying ? TTS_OPEN_THRESHOLD : OPEN_THRESHOLD
-      const close = open * CLOSE_RATIO
-      if (!speakingRef.current) {
-        if (rms >= open) {
-          openFramesRef.current += 1
-          if (openFramesRef.current >= START_FRAMES) {
-            speakingRef.current = true
-            openFramesRef.current = 0
-            closeFramesRef.current = 0
-            utterancePcmRef.current = [frame]
-            utteranceSamplesRef.current = frame.length
-            patchVoicePresence({ userSpeaking: true })
-            stampTurnTrace('input_started')
-            getSpeechPipeline().cancel()
-          }
-        } else {
-          openFramesRef.current = 0
-        }
-        return
+      const event = recorder.capture.push(frame, getVoicePresence().ttsPlaying)
+      if (event.started) {
+        utteranceStartedRef.current = performance.now()
+        patchVoicePresence({ userSpeaking: true })
+        getSpeechPipeline().cancel()
       }
-      utterancePcmRef.current.push(frame)
-      utteranceSamplesRef.current += frame.length
-      if (rms < close) closeFramesRef.current += 1
-      else closeFramesRef.current = 0
-      if (
-        utteranceSamplesRef.current >= MAX_LISTEN_SAMPLES ||
-        closeFramesRef.current >= END_FRAMES
-      ) {
-        flushUtterance(recorder)
+      if (event.ended) patchVoicePresence({ userSpeaking: false })
+      if (event.utterance) {
+        transcribe(
+          event.utterance.pcm,
+          event.utterance.sampleRate,
+          utteranceStartedRef.current,
+        )
       }
     },
-    [flushUtterance],
+    [transcribe],
   )
 
   const startRecording = useCallback(async () => {
-    if (isRecordingRef.current || recorderRef.current) return
-
+    if (isRecordingRef.current || recorderRef.current || openingRef.current)
+      return
+    openingRef.current = true
+    const ticket = ++lifecycleRef.current
+    transcriptionRef.current!.reset()
     try {
       void import('../../utils/analyticsEvents').then(
         ({ trackProductEvent, AnalyticsEvents }) => {
@@ -228,6 +233,7 @@ export function useVoiceRecording(
         },
       )
       const status = await getSpeechStatus()
+      if (!mountedRef.current || ticket !== lifecycleRef.current) return
       if (!status.available || !status.asr_enabled) return
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -238,6 +244,10 @@ export function useVoiceRecording(
           noiseSuppression: true,
         },
       })
+      if (!mountedRef.current || ticket !== lifecycleRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
 
       const audioContext = new AudioContext({ sampleRate: 16000 })
       const pcmData: Float32Array[] = []
@@ -245,10 +255,17 @@ export function useVoiceRecording(
       let workletNode: AudioWorkletNode
       try {
         workletNode = await createPcmCaptureNode(audioContext)
+        if (audioContext.state === 'suspended') await audioContext.resume()
       } catch (err) {
         stream.getTracks().forEach((track) => track.stop())
         await audioContext.close()
         throw err
+      }
+      if (!mountedRef.current || ticket !== lifecycleRef.current) {
+        workletNode.disconnect()
+        stream.getTracks().forEach((track) => track.stop())
+        await audioContext.close()
+        return
       }
 
       workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
@@ -261,7 +278,6 @@ export function useVoiceRecording(
       source.connect(workletNode)
       workletNode.connect(muteNode)
       muteNode.connect(audioContext.destination)
-      if (audioContext.state === 'suspended') await audioContext.resume()
 
       recorderRef.current = {
         audioContext,
@@ -269,18 +285,36 @@ export function useVoiceRecording(
         workletNode,
         muteNode,
         pcmData,
+        capture: new UtteranceCapture(audioContext.sampleRate),
+        startedAt: performance.now(),
       }
       isRecordingRef.current = true
       setIsRecording(true)
-      if (!conversationRef.current) stampTurnTrace('input_started')
       patchVoicePresence({ listening: conversationRef.current })
     } catch (err) {
       console.error('[useVoiceRecording] 无法访问麦克风:', err)
+    } finally {
+      if (ticket === lifecycleRef.current) {
+        openingRef.current = false
+        if (!isRecordingRef.current && conversationRef.current) {
+          conversationRef.current = false
+          if (mountedRef.current) setConversation(false)
+        }
+      }
     }
   }, [onPcm])
 
   const stopRecording = useCallback(async () => {
-    if (agoraConversationActive()) {
+    lifecycleRef.current += 1
+    openingRef.current = false
+    const fromConversation = conversationRef.current
+    isRecordingRef.current = false
+    setIsRecording(false)
+    conversationRef.current = false
+    setConversation(false)
+    transcriptionRef.current!.reset()
+    patchVoicePresence({ listening: false, userSpeaking: false })
+    if (convoRtcRef.current && fromConversation) {
       isRecordingRef.current = false
       setIsRecording(false)
       conversationRef.current = false
@@ -289,46 +323,55 @@ export function useVoiceRecording(
       return
     }
     const recorder = recorderRef.current
-    if (!recorder || !isRecordingRef.current) return
-
-    const fromConversation = conversationRef.current
-    isRecordingRef.current = false
-    setIsRecording(false)
-    conversationRef.current = false
-    setConversation(false)
-    speakingRef.current = false
-    patchVoicePresence({ listening: false, userSpeaking: false })
+    if (!recorder) return
 
     const sampleRate = recorder.audioContext.sampleRate || 16000
-    const pcmData = fromConversation ? utterancePcmRef.current : recorder.pcmData
-    utterancePcmRef.current = []
-    utteranceSamplesRef.current = 0
+    const pcmData = recorder.pcmData
+    recorder.capture.reset()
     cleanupRecorder(recorder)
     recorderRef.current = null
-    await transcribe(pcmData, sampleRate)
+    // Exiting continuous listening discards unfinished speech and late ASR.
+    // Releasing push-to-talk explicitly submits the clip just recorded.
+    if (!fromConversation) transcribe(pcmData, sampleRate, recorder.startedAt)
   }, [transcribe])
 
   const toggleRecording = useCallback(() => {
-    if (isRecordingRef.current) void stopRecording()
+    if (isRecordingRef.current || openingRef.current) void stopRecording()
     else void startRecording()
   }, [startRecording, stopRecording])
 
   const enterConversation = useCallback(async () => {
+    if (conversationRef.current) return
     conversationRef.current = true
     setConversation(true)
     if (convoRtcRef.current) {
+      setAgentPanelMode('chat')
+      const recorder = recorderRef.current
+      if (recorder) {
+        cleanupRecorder(recorder)
+        recorderRef.current = null
+        isRecordingRef.current = false
+        setIsRecording(false)
+      }
+      transcriptionRef.current!.reset()
+      const ticket = ++lifecycleRef.current
+      openingRef.current = true
       try {
         const ok = await startAgoraConversation(localeRef.current)
+        if (!mountedRef.current || ticket !== lifecycleRef.current) return
         if (!ok) throw new Error('convo start returned false')
         isRecordingRef.current = true
         setIsRecording(true)
         patchVoicePresence({ listening: true })
         return
       } catch (err) {
+        if (ticket !== lifecycleRef.current || !mountedRef.current) return
         console.error('[useVoiceRecording] 实时对话启动失败:', err)
         conversationRef.current = false
         setConversation(false)
         return
+      } finally {
+        if (ticket === lifecycleRef.current) openingRef.current = false
       }
     }
     if (isRecordingRef.current) {
@@ -338,12 +381,6 @@ export function useVoiceRecording(
       return
     }
     await startRecording()
-    if (!isRecordingRef.current) {
-      conversationRef.current = false
-      setConversation(false)
-      return
-    }
-    patchVoicePresence({ listening: true })
   }, [startRecording])
 
   const stopConversation = useCallback(() => {
@@ -351,9 +388,40 @@ export function useVoiceRecording(
     void stopRecording()
   }, [stopRecording])
 
+  useEffect(() => subscribeAgoraStopped(() => {
+    if (!convoRtcRef.current || !conversationRef.current) return
+    lifecycleRef.current += 1
+    openingRef.current = false
+    conversationRef.current = false
+    isRecordingRef.current = false
+    if (mountedRef.current) { setConversation(false); setIsRecording(false) }
+  }), [])
+
+  useEffect(
+    () =>
+      subscribeAgentPanelMode(() => {
+        if (
+          convoRtcRef.current &&
+          conversationRef.current &&
+          getAgentPanelMode() !== 'chat'
+        ) {
+          void stopRecording()
+}
+      }),
+    [stopRecording],
+  )
+
   useEffect(() => {
+    mountedRef.current = true
     return () => {
-      if (agoraConversationActive()) {
+      mountedRef.current = false
+      lifecycleRef.current += 1
+      openingRef.current = false
+      transcriptionRef.current!.reset()
+      if (
+        agoraConversationActive() ||
+        (convoRtcRef.current && conversationRef.current)
+      ) {
         void stopAgoraConversation()
       }
       const recorder = recorderRef.current

@@ -27,11 +27,6 @@ use crate::middleware::auth::{authenticate_request, notify_auth_cache_invalidati
 /// 距最近活跃 ≤300s 视为在线（与 presence 跟踪的会话间隔一致）。
 const ONLINE_WINDOW_SECS: i64 = 300;
 
-/// Historical heuristic: site owner was assumed to be user id=1.
-/// Prefer `users.is_owner` for privilege gates.
-#[allow(dead_code)]
-pub(crate) const LEGACY_PRIMARY_ADMIN_ID: i32 = 1;
-
 type ApiError = (StatusCode, Json<Value>);
 
 fn db_error<E: std::fmt::Display>(context: &'static str) -> impl FnOnce(E) -> ApiError {

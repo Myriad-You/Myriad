@@ -2,11 +2,15 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   getStandardWidgetDimensionsForBand,
+  LIBRARY_DOCK_PREVIEW_INSET_SCALE,
+  libraryDockPreviewDisplayScale,
   resolveWidgetContentScale,
   STANDARD_CELL_BY_BAND,
+  STANDARD_CELL_SIZE,
   WIDGET_COMPACT_SCALE,
   WIDGET_SCALE_MAX,
   WIDGET_SCALE_MIN,
+  widgetSizeSpan,
 } from './widgetSizeScale'
 
 describe('band-aware widget design size', () => {
@@ -66,5 +70,33 @@ describe('resolveWidgetContentScale', () => {
     })
     assert.equal(tiny, WIDGET_SCALE_MIN)
     assert.equal(huge, WIDGET_SCALE_MAX)
+  })
+})
+
+describe('widgetSizeSpan', () => {
+  it('is the single grid span table', () => {
+    assert.deepEqual(widgetSizeSpan('4x2'), { w: 4, h: 2 })
+    assert.deepEqual(widgetSizeSpan('unknown'), { w: 2, h: 2 })
+  })
+})
+
+describe('libraryDockPreviewDisplayScale', () => {
+  it('is 0.95 of the design cell when the live cell matches 80px', () => {
+    assert.equal(LIBRARY_DOCK_PREVIEW_INSET_SCALE, 0.95)
+    assert.equal(
+      libraryDockPreviewDisplayScale(STANDARD_CELL_SIZE),
+      LIBRARY_DOCK_PREVIEW_INSET_SCALE,
+    )
+  })
+
+  it('tracks a capped desktop cell (~79px) so previews sit under placed tiles', () => {
+    const cell = 79
+    const scale = libraryDockPreviewDisplayScale(cell)
+    assert.equal(
+      scale,
+      (cell / STANDARD_CELL_SIZE) * LIBRARY_DOCK_PREVIEW_INSET_SCALE,
+    )
+    assert.ok(scale < 1)
+    assert.ok(scale > 0.9)
   })
 })

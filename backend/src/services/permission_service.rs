@@ -58,60 +58,6 @@ pub fn role_from_user_id(user_id: i32, is_admin: bool) -> UserRole {
     }
 }
 
-/// 中文文案；不是契约目录的一部分。
-#[allow(dead_code)]
-pub fn display_name(permission: TappPermission) -> &'static str {
-    match permission {
-        TappPermission::WidgetRegister => "注册小组件",
-        TappPermission::PlatformRead => "读取平台数据",
-        TappPermission::AnalyticsRead => "读取访问统计",
-        TappPermission::TappListRead => "读取 Tapp 列表",
-        TappPermission::BrewRead => "读取 Brew 内容",
-        TappPermission::BrewWrite => "修改 Brew 阅读状态与收藏",
-        TappPermission::BrewCommentWrite => "写 Brew 评论",
-        TappPermission::PlatformWrite => "写入平台数据",
-        TappPermission::PlatformRegister => "注册新平台",
-        TappPermission::AiGenerate => "AI 生成",
-        TappPermission::AiAnalyze => "AI 分析",
-        TappPermission::AiChat => "AI 对话",
-        TappPermission::AiImage => "AI 图片生成",
-        TappPermission::ThreeDGenerate => "3D 模型生成",
-        TappPermission::ReportRead => "读取报告",
-        TappPermission::ReportWrite => "生成报告",
-        TappPermission::StorageRead => "读取本地存储",
-        TappPermission::StorageWrite => "写入本地存储",
-        TappPermission::UiNotification => "显示通知",
-        TappPermission::UiFullscreen => "全屏模式",
-        TappPermission::UiTheme => "主题访问",
-        TappPermission::UiConfirm => "确认对话框",
-        TappPermission::UiOpenUrl => "打开声明链接",
-        TappPermission::NetworkFetch => "网络请求",
-        TappPermission::MediaControl => "媒体控制",
-        TappPermission::MediaRead => "读取媒体",
-        TappPermission::MediaAudio => "播放音频",
-        TappPermission::ComponentTheme => "注册主题",
-        TappPermission::ComponentAgent => "注册 Agent",
-        TappPermission::TappListManage => "管理 Tapp",
-        TappPermission::BrewManage => "管理 Brew",
-        TappPermission::ShortcutRegister => "注册快捷键",
-        TappPermission::EventPublish => "发布事件",
-        TappPermission::SchedulerRegister => "注册定时任务",
-        TappPermission::EventSubscribe => "订阅事件",
-        TappPermission::SpeechTts => "文本转语音",
-        TappPermission::SpeechAsr => "语音转文本",
-        TappPermission::FederationRead => "读取联邦数据",
-        TappPermission::FederationPost => "发布联邦内容",
-        TappPermission::FederationInteract => "联邦互动",
-        TappPermission::FederationChannel => "频道管理",
-        TappPermission::FederationRoom => "房间管理",
-        TappPermission::FederationRing => "Ring 管理",
-        TappPermission::FederationMessage => "联邦消息",
-        TappPermission::FederationFiles => "联邦文件传输",
-        TappPermission::FederationTrust => "联邦信任管理",
-        TappPermission::GameSession => "游戏房间会话",
-    }
-}
-
 /// Tapp 权限检查服务
 pub struct TappPermissionService;
 
@@ -194,6 +140,7 @@ impl TappPermissionService {
             TappPermission::AiAnalyze => config.user_perm_ai_analyze,
             TappPermission::AiChat => config.user_perm_ai_chat,
             TappPermission::AiImage => config.user_perm_ai_image,
+            TappPermission::AiSearch => config.user_perm_ai_search,
             TappPermission::ThreeDGenerate => config.user_perm_3d_generate,
             // report:write 已升 privileged；media:control 已降 basic
             TappPermission::NetworkFetch => config.user_perm_network_fetch,
@@ -219,6 +166,7 @@ impl TappPermissionService {
             TappPermission::AiAnalyze => config.guest_perm_ai_analyze,
             TappPermission::AiChat => config.guest_perm_ai_chat,
             TappPermission::AiImage => config.guest_perm_ai_image,
+            TappPermission::AiSearch => config.guest_perm_ai_search,
             TappPermission::ThreeDGenerate => config.guest_perm_3d_generate,
             TappPermission::NetworkFetch => config.guest_perm_network_fetch,
             TappPermission::ComponentTheme => false,
@@ -269,6 +217,7 @@ impl TappPermissionService {
                 ai_analyze: config.user_perm_ai_analyze,
                 ai_chat: config.user_perm_ai_chat,
                 ai_image: config.user_perm_ai_image,
+                ai_search: config.user_perm_ai_search,
                 three_d_generate: config.user_perm_3d_generate,
                 report_write: false, // 不再下放
                 network_fetch: config.user_perm_network_fetch,
@@ -291,6 +240,7 @@ impl TappPermissionService {
                 ai_analyze: config.guest_perm_ai_analyze,
                 ai_chat: config.guest_perm_ai_chat,
                 ai_image: config.guest_perm_ai_image,
+                ai_search: config.guest_perm_ai_search,
                 three_d_generate: config.guest_perm_3d_generate,
                 report_write: false, // 不再下放
                 network_fetch: config.guest_perm_network_fetch,
@@ -356,6 +306,8 @@ pub struct ElevatedPermissions {
     pub ai_analyze: bool,
     pub ai_chat: bool,
     pub ai_image: bool,
+    #[serde(default)]
+    pub ai_search: bool,
     #[serde(default)]
     pub three_d_generate: bool,
     /// 保留字段：始终为 false，前端不再展示

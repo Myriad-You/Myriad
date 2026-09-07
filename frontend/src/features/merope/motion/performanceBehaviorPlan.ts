@@ -29,6 +29,8 @@ export function compilePerformanceBehaviorPlan(
   directive: PerformanceDirective,
   originMs: number,
   planId: string,
+  scope?: string,
+  generation = 0,
 ): BehaviorPlan {
   const pegs: TimePeg[] = []
   const behaviors: ScheduledBehavior[] = []
@@ -49,7 +51,7 @@ export function compilePerformanceBehaviorPlan(
   scheduled.forEach((item) => {
     const ordinal = occurrences.get(item.cue.intent) ?? 0
     occurrences.set(item.cue.intent, ordinal + 1)
-    const prefix = `${planId}:cue-${item.cue.intent}-${ordinal}`
+    const prefix = `${planId}${scope ? `:${scope}` : ''}:cue-${item.cue.intent}-${ordinal}`
     const envelope = authoredCueEnvelope(item.cue)
     const strokeAt = Math.min(
       item.endMs,
@@ -88,13 +90,15 @@ export function compilePerformanceBehaviorPlan(
       form: {
         family: 'performance-cue',
         id: item.cue.intent,
-        parameters: { tempo: item.cue.tempo },
+        parameters: {
+          tempo: item.cue.tempo,
+          phase: directive.phase,
+          moodRevision: directive.moodRevision,
+          ...(scope ? { performanceScope: scope, generation } : {}),
+        },
       },
       intensity: clamp(item.cue.intensity, 0.2, 1.4),
-      quality: cueQuality(
-        item.cue,
-        directive.plan.baseline?.motionEnergy ?? 1,
-      ),
+      quality: cueQuality(item.cue, directive.plan.baseline?.motionEnergy ?? 1),
       confidence: 1,
     })
   })
@@ -124,11 +128,7 @@ function cueQuality(cue: PerformanceCue, motionEnergy: number) {
   const extentEnergy = 0.72 + energy * 0.32
   const powerEnergy = 0.76 + energy * 0.28
   return {
-    extent: clamp(
-      (0.78 + cue.intensity * 0.32) * extentEnergy,
-      0.68,
-      1.4,
-    ),
+    extent: clamp((0.78 + cue.intensity * 0.32) * extentEnergy, 0.68, 1.4),
     tempo: clamp(cue.tempo, 0.5, 1.6),
     power: clamp(
       ((forceful ? 0.92 : 0.7) + cue.intensity * 0.22) * powerEnergy,

@@ -55,6 +55,7 @@ import { EXAMPLE_TAPPS } from '../examples'
 import { getTappRuntime } from '../runtime'
 import { RemoteStoreService } from '../services/RemoteStoreService'
 import { resolveManifestText } from '../utils/manifestLocale'
+import { selectFeaturedStoreApps } from '../utils/storeCatalogState'
 import { resolveStoreMerchandising } from '../utils/storeLocale'
 import {
   normalizeTappCategory,
@@ -121,7 +122,7 @@ export function TappStore({
         { percent: number; phase: string; detail?: string }
       >(),
   )
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   // 卸载确认 tooltip
   const [showUninstallDialog, setShowUninstallDialog] = useState(false)
@@ -327,12 +328,17 @@ export function TappStore({
     [remoteApps, locale],
   )
 
+  // 首屏远程未落地前不并入内置示例，避免用 Hello World 当目录 mock。
+  const catalogSettled = !loading || remoteApps.length > 0 || error != null
+
   // 合并应用列表（去重，远程优先；再补已装但不在目录里的 runtime 项）
   const allApps: UnifiedAppItem[] = useMemo(() => {
     const merged: UnifiedAppItem[] = [...remoteAppsUnified]
-    for (const localApp of localApps) {
-      if (!merged.some((r) => r.id === localApp.id)) {
-        merged.push(localApp)
+    if (catalogSettled) {
+      for (const localApp of localApps) {
+        if (!merged.some((r) => r.id === localApp.id)) {
+          merged.push(localApp)
+        }
       }
     }
     // 文件/直装/下架后仍安装：从 runtime 合成列表项，否则「已安装」页缺失
@@ -359,7 +365,14 @@ export function TappStore({
       })
     }
     return merged
-  }, [remoteAppsUnified, localApps, installedTapps, runtime, locale])
+  }, [
+    remoteAppsUnified,
+    localApps,
+    installedTapps,
+    runtime,
+    locale,
+    catalogSettled,
+  ])
 
   // 打开详情后目录/安装态变化时同步快照（版本、文案、权限等）
   const detailAppId = detailApp?.id ?? null
@@ -1019,16 +1032,10 @@ export function TappStore({
 
   const isDiscoverView = !searchQuery && selectedCategory === null
 
-  // Mac App Store 的发现页始终保留编辑精选；没有显式 featured 数据时，
-  // 用目录前列应用补位，避免商店源规模较小时首屏退化为普通清单。
-  const featuredApps = useMemo(() => {
-    if (!isDiscoverView) return []
-    const featured = allApps.filter((app) => app.featured)
-    const fallback = allApps.filter(
-      (app) => !featured.some((item) => item.id === app.id),
-    )
-    return [...featured, ...fallback].slice(0, 2)
-  }, [allApps, isDiscoverView])
+  const featuredApps = useMemo(
+    () => selectFeaturedStoreApps(allApps, isDiscoverView),
+    [allApps, isDiscoverView],
+  )
 
   // Discover “最新”: by updatedAt (newest first), at most 2.
   const latestApps = useMemo(() => {

@@ -11,7 +11,7 @@ import {
   visualField,
   withVisualField,
 } from '../onboardingTypes'
-import { TextArea } from './Field'
+import { CharMeter, TextArea } from './Field'
 import '../../PersonaOnboarding.css'
 
 interface Props {
@@ -23,6 +23,8 @@ interface Props {
   cancelLabel: string
   saveLabel: string
   busy?: boolean
+  /** Default shows both. Wardrobe splits clothes from the fixed face and hair. */
+  show?: 'all' | 'character' | 'outfit'
   onIdentity: (identity: UpperBodyVisualIdentity) => void
   onEditingChange?: (editing: boolean) => void
 }
@@ -36,6 +38,7 @@ export default function VisualIdentityView({
   cancelLabel,
   saveLabel,
   busy = false,
+  show = 'all',
   onIdentity,
   onEditingChange,
 }: Props) {
@@ -68,14 +71,20 @@ export default function VisualIdentityView({
     onEditingChange?.(false)
   }
 
+  const groups: Array<{
+    title: string
+    keys: readonly UpperBodyVisualIdentityKey[]
+  }> = []
+  if (show !== 'outfit') {
+    groups.push({ title: characterTitle, keys: CHARACTER_VISUAL_KEYS })
+  }
+  if (show !== 'character') {
+    groups.push({ title: outfitTitle, keys: OUTFIT_VISUAL_KEYS })
+  }
+
   return (
     <div className="merope-ob-visual merope-ob-persona-groups">
-      {(
-        [
-          [characterTitle, CHARACTER_VISUAL_KEYS],
-          [outfitTitle, OUTFIT_VISUAL_KEYS],
-        ] as const
-      ).map(([title, keys]) => (
+      {groups.map(({ title, keys }) => (
         <section
           key={title}
           className="merope-ob-persona-group"
@@ -114,6 +123,10 @@ export default function VisualIdentityView({
                         }}
                       />
                       <div className="merope-ob-persona-view__actions">
+                        <CharMeter
+                          value={draft}
+                          max={UPPER_BODY_VISUAL_IDENTITY_LIMITS[key]}
+                        />
                         <button
                           type="button"
                           className="merope-ob-persona-view__action is-cancel"

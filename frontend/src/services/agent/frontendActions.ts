@@ -102,7 +102,7 @@ export function hasActionHandler(type: FrontendActionType | string): boolean {
 
 /** Stable key so step_completed and the final response do not run the same action twice. */
 export function frontendActionDedupeKey(
-  action: Pick<FrontendAction, 'type' | 'timestamp'> & Record<string, unknown>,
+  action: Pick<FrontendAction, 'type' | 'timestamp'>,
 ): string {
   if (typeof action.timestamp === 'number') {
     return `${action.type}:${action.timestamp}`

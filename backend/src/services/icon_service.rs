@@ -4,12 +4,16 @@
 //! 图标存储在 data/brew/icons/ 目录下（可通过 DATA_DIR 环境变量配置）。
 
 use super::data_paths::paths;
+use base64::Engine;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, error, info, warn};
+
+const MIN_ICON_BYTES: usize = 10;
+const MAX_ICON_DATA_URI_BYTES: usize = 512 * 1024;
 
 fn icon_io_failed(action: &'static str, error: std::io::Error) -> String {
     tracing::error!(%error, action, "icon io failed");
@@ -21,6 +25,33 @@ fn icon_io_failed(action: &'static str, error: std::io::Error) -> String {
         ErrorKind::NotFound => format!("{action}: path not found"),
         _ => action.to_string(),
     }
+}
+
+/// 解析自定义图标 data URI。太小、太大或非 image/*;base64 返回 None。
+pub(crate) fn parse_icon_data_uri(icon: &str) -> Option<(Vec<u8>, &'static str)> {
+    let rest = icon.trim().strip_prefix("data:")?;
+    let (metadata, encoded) = rest.split_once(',')?;
+    let metadata_lower = metadata.to_ascii_lowercase();
+    if !metadata_lower.starts_with("image/") {
+        return None;
+    }
+    if !metadata_lower
+        .split(';')
+        .any(|part| part.trim() == "base64")
+    {
+        return None;
+    }
+    let mime = metadata.split(';').next()?.trim();
+    if encoded.len() > MAX_ICON_DATA_URI_BYTES.div_ceil(3) * 4 {
+        return None;
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .ok()?;
+    if bytes.len() < MIN_ICON_BYTES || bytes.len() > MAX_ICON_DATA_URI_BYTES {
+        return None;
+    }
+    Some((bytes, IconService::get_extension(Some(mime), "")))
 }
 
 /// 图标服务
@@ -108,6 +139,13 @@ impl IconService {
 
         debug!("Downloading icon for source {}: {}", source_id, icon_url);
 
+        if let Some((bytes, extension)) = parse_icon_data_uri(icon_url) {
+            return self
+                .persist_icon_bytes(source_id, &bytes, extension)
+                .await
+                .map(Some);
+        }
+
         // SSRF 防护：阻止请求内网地址
         if crate::federation::types::is_internal_url(icon_url) {
             warn!("Blocked SSRF attempt in icon download: {}", icon_url);
@@ -170,7 +208,7 @@ impl IconService {
         })?;
 
         // 检查是否为有效的图片（至少有一些字节）
-        if bytes.len() < 10 {
+        if bytes.len() < MIN_ICON_BYTES {
             warn!(
                 "Downloaded icon for source {} is too small ({} bytes), skipping",
                 source_id,
@@ -179,16 +217,25 @@ impl IconService {
             return Ok(None);
         }
 
-        // 生成文件名：source_{id}.{ext}
+        self.persist_icon_bytes(source_id, &bytes, extension)
+            .await
+            .map(Some)
+    }
+
+    async fn persist_icon_bytes(
+        &self,
+        source_id: i32,
+        bytes: &[u8],
+        extension: &str,
+    ) -> Result<IconInfo, String> {
         let filename = format!("source_{}.{}", source_id, extension);
         let file_path = self.icons_dir.join(&filename);
 
-        // 写入文件
         let mut file = fs::File::create(&file_path)
             .await
             .map_err(|error| icon_io_failed("Failed to create icon file", error))?;
 
-        file.write_all(&bytes)
+        file.write_all(bytes)
             .await
             .map_err(|error| icon_io_failed("Failed to write icon file", error))?;
 
@@ -199,9 +246,9 @@ impl IconService {
             bytes.len()
         );
 
-        Ok(Some(IconInfo {
+        Ok(IconInfo {
             local_path: format!("/api/brew/icons/{}", filename),
-        }))
+        })
     }
 
     /// 删除指定订阅源的图标
@@ -235,6 +282,7 @@ impl Default for IconService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
 
     #[test]
     fn test_get_extension() {
@@ -253,6 +301,62 @@ mod tests {
             IconService::get_extension(None, "https://example.com/icon"),
             "ico"
         );
+        assert_eq!(IconService::get_extension(Some("image/svg+xml"), ""), "svg");
+    }
+
+    #[test]
+    fn parse_icon_data_uri_accepts_png_and_svg() {
+        let bytes = vec![0_u8; 16];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let png = parse_icon_data_uri(&format!("data:image/png;base64,{encoded}"));
+        assert_eq!(png.as_ref().map(|(_, ext)| *ext), Some("png"));
+        assert_eq!(png.as_ref().map(|(body, _)| body.len()), Some(16));
+
+        let svg = parse_icon_data_uri(&format!(
+            "data:image/svg+xml;charset=utf-8;base64,{encoded}"
+        ));
+        assert_eq!(svg.as_ref().map(|(_, ext)| *ext), Some("svg"));
+    }
+
+    #[test]
+    fn parse_icon_data_uri_rejects_non_image_and_tiny_payloads() {
+        assert!(parse_icon_data_uri("https://example.com/icon.png").is_none());
+        assert!(parse_icon_data_uri("data:text/html;base64,PGh0bWw+").is_none());
+        assert!(parse_icon_data_uri("data:image/png;base64,YQ==").is_none());
+    }
+
+    #[tokio::test]
+    async fn download_icon_writes_data_uri_to_disk() {
+        let dir = PathBuf::from(
+            std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string()),
+        )
+        .join("icon-data-uri-tests")
+        .join(format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let service = IconService {
+            icons_dir: dir.clone(),
+        };
+        let bytes = vec![0x89_u8, 0x50, 0x4E, 0x47]
+            .into_iter()
+            .chain(std::iter::repeat(0x41).take(12))
+            .collect::<Vec<_>>();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let uri = format!("data:image/png;base64,{encoded}");
+        let info = service
+            .download_icon(42, &uri)
+            .await
+            .expect("persist")
+            .expect("icon info");
+        assert_eq!(info.local_path, "/api/brew/icons/source_42.png");
+        let written = std::fs::read(dir.join("source_42.png")).expect("read icon");
+        assert_eq!(written, bytes);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

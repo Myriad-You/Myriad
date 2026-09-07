@@ -19,15 +19,24 @@ import {
   onAvatarChanged,
 } from './profileDisplayEvents'
 
-export type AvatarSourceKind = 'auto' | 'account' | 'identity' | 'platform'
+export type AvatarSourceKind =
+  | 'auto'
+  | 'account'
+  | 'identity'
+  | 'platform'
+  /** 站点人设的 Q 版贴纸头像。全站一份，谁选谁用同一张。 */
+  | 'persona'
 
 export interface AvatarSourceItem {
   kind: AvatarSourceKind
   /** identity id 或平台名；account/auto 为空串 */
   ref: string
-  /** account → 'account'；identity → provider slug；platform → 'Bilibili' 等 */
+  /**
+   * account → 'account'；identity → provider slug；platform → 'Bilibili' 等；
+   * persona → 'persona'（与 account 一样由前端本地化）
+   */
   label: string
-  /** provider 用户名 / 平台昵称（同站合并后去重） */
+  /** provider 用户名 / 平台昵称（同站合并后去重）；persona 为人设对外名字 */
   sublabel: string | null
   avatar_url: string | null
   /**

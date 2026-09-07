@@ -1,7 +1,8 @@
 # `.tapp` 文件格式
 
-`.tapp` 是 ZIP 格式的 Tapp 安装包。当前文件安装入口是
-`POST /api/tapps/install-file`，multipart 文件字段名为 `file`。
+`.tapp` 是 ZIP 格式的 Tapp 安装包。安装来源有三条，最终安装态相同：`POST /api/tapps/install`
+（`source=direct` 或 `source=store`），以及本文件描述的文件安装 `POST /api/tapps/install-file`
+（multipart 字段名 `file`）。不存在 `/api/tapp-store` 路由。
 
 开发模型与运行时边界见 [Tapp 架构](../development/tapp/ARCHITECTURE.md)，完整字段见
 [Manifest 配置](../development/tapp/MANIFEST.md)。远程目录安装（非 ZIP）见
@@ -37,7 +38,7 @@ com.example.app.tapp
 按文件名猜测的回退。
 
 至少要声明 `core`、`page`、`widgets` 之一。声明了 `backgroundRequirements` 的应用必须
-有 `core`——后台常驻只运行 core。
+有 `core`——常驻只运行 core。
 
 ## 完整结构示例
 

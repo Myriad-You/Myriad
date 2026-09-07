@@ -8,9 +8,15 @@ import type { RigCharacterHandle } from '../rig/RigCharacter'
 import type { Anime25DDriver } from './driver'
 import type { Anime25DMotionEnvelopeProbeId } from './motionEnvelope'
 import type { Anime25DDebugSnapshot } from './player'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  getTourSnapshot,
+  subscribeTour,
+} from '../../../components/tour/tourEngine'
+import { personaTourPanel } from '../../../components/tour/tourLogic'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import {
+  GitHubProjectBadge,
   InfoActionCard,
   InputItem,
   SettingGroup,
@@ -22,6 +28,15 @@ import {
 import { useI18n } from '../../../contexts/I18nContext'
 import { userFacingError } from '../../../utils/userFacingError'
 import { PreviewMotionScope } from '../motion/previewScope'
+import {
+  SEE_THROUGH_PROJECT_NAME,
+  SEE_THROUGH_PROJECT_URL,
+} from '../seeThroughProject'
+import {
+  ANIME25D_PROJECT_NAME,
+  ANIME25D_PROJECT_URL,
+  PERSONA_UPSTREAM_THANKS,
+} from './credit'
 import { WORKBENCH_DRIVER } from './driver'
 import {
   ANGRY_EXPRESSION_PRESET,
@@ -51,7 +66,9 @@ interface Props {
     preflight: RigAssetPreflight,
     onStage: (event: RigAssetCompileEvent) => void,
   ) => Promise<{ partCount: number; score: number }>
-  essentialsLead?: ReactNode
+  wardrobeLead?: ReactNode
+  outfitLead?: ReactNode
+  outfitRig?: boolean
   personaLead?: ReactNode
   overviewLead?: ReactNode
   motionEnabled?: boolean
@@ -201,22 +218,33 @@ export default function Anime25DWorkbench({
   onDecomposeRigPsd,
   onPreflightRigPsd,
   onCommitRigPsd,
-  essentialsLead = null,
+  wardrobeLead = null,
+  outfitLead = null,
+  outfitRig = true,
   personaLead = null,
   overviewLead = null,
   motionEnabled = false,
 }: Props) {
   const { t } = useI18n()
   const labels = t.merope
-  type FacePanel = 'overview' | 'persona' | 'portrait' | 'rig' | 'motion'
+  type FacePanel = 'overview' | 'persona' | 'wardrobe' | 'motion'
   type RigPath = 'upload' | 'seeThrough'
-  const [panel, setPanel] = useState<FacePanel>('overview')
+  const [userPanel, setUserPanel] = useState<FacePanel>('overview')
+  const tourPanel = useSyncExternalStore(
+    subscribeTour,
+    () =>
+      personaTourPanel(
+        getTourSnapshot().tourId,
+        getTourSnapshot().step?.id ?? null,
+      ),
+    () => undefined,
+  )
+  const panel = tourPanel ?? userPanel
   const [rigPath, setRigPath] = useState<RigPath>('upload')
   const panels: Array<{ value: FacePanel; label: string }> = [
     { value: 'overview', label: labels.overviewGroup },
     { value: 'persona', label: labels.personaGroup },
-    { value: 'portrait', label: labels.portraitGroup },
-    { value: 'rig', label: labels.rigGroup },
+    { value: 'wardrobe', label: labels.wardrobeTitle },
     { value: 'motion', label: labels.anime25dDebug },
   ]
   const rigPaths: Array<{ value: RigPath; label: string }> = [
@@ -657,6 +685,13 @@ export default function Anime25DWorkbench({
         value: driver.body,
       },
       {
+        key: 'bodyYaw',
+        label: labels.anime25dBodyYaw,
+        min: 0,
+        max: 1,
+        value: driver.bodyYaw,
+      },
+      {
         key: 'armY',
         label: labels.anime25dArmY,
         min: -1,
@@ -734,12 +769,17 @@ export default function Anime25DWorkbench({
 
   return (
     <>
-      <FaceTabs
-        ariaLabel={labels.assetGroup}
-        value={panel}
-        options={panels}
-        onChange={setPanel}
-      />
+      <div data-tour="config-persona-tabs">
+      {panel === 'wardrobe' && outfitLead ? null : (
+        <FaceTabs
+          ariaLabel={labels.assetGroup}
+          value={panel}
+          options={panels}
+          onChange={setUserPanel}
+        />
+      )}
+      </div>
+      <div data-tour="config-persona-overview">
       {panel === 'overview' ? (
         <SettingGroup
           title={labels.overviewGroup}
@@ -749,6 +789,8 @@ export default function Anime25DWorkbench({
           {overviewLead}
         </SettingGroup>
       ) : null}
+      </div>
+      <div data-tour="config-persona-identity">
       {panel === 'persona' ? (
         <SettingGroup
           title={labels.personaGroup}
@@ -758,16 +800,19 @@ export default function Anime25DWorkbench({
           {personaLead}
         </SettingGroup>
       ) : null}
-      {panel === 'portrait' ? (
+      </div>
+      <div data-tour="config-persona-wardrobe">
+      {panel === 'wardrobe' && !outfitLead ? (
         <SettingGroup
-          title={labels.portraitGroup}
-          description={labels.portraitGroupDescription}
-          id="merope-motion-portrait"
+          title={labels.wardrobeTitle}
+          description={labels.wardrobeGroupDescription}
+          id="merope-motion-wardrobe"
         >
-          {essentialsLead}
+          {wardrobeLead}
         </SettingGroup>
       ) : null}
-      {panel === 'rig' ? (
+      {panel === 'wardrobe' && outfitLead ? outfitLead : null}
+      {panel === 'wardrobe' && outfitLead && outfitRig ? (
         <SettingGroup
           title={labels.rigGroup}
           description={labels.rigGroupDescription}
@@ -786,11 +831,37 @@ export default function Anime25DWorkbench({
                 options={rigPaths}
                 onChange={setRigPath}
               />
+              <div className="merope-character-home__credit">
+                <p className="merope-character-home__credit-line">
+                  <GitHubProjectBadge
+                    url={SEE_THROUGH_PROJECT_URL}
+                    name={SEE_THROUGH_PROJECT_NAME}
+                  />
+                  {labels.anime25dSeeThroughCredit}
+                </p>
+                <p className="merope-character-home__credit-line">
+                  <GitHubProjectBadge
+                    url={ANIME25D_PROJECT_URL}
+                    name={ANIME25D_PROJECT_NAME}
+                  />
+                  {labels.anime25dRuntimeCredit}
+                </p>
+                <p className="merope-character-home__thanks">
+                  {labels.anime25dProjectThanks}
+                  {PERSONA_UPSTREAM_THANKS.map((person) => (
+                    <a
+                      key={person.handle}
+                      href={person.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      @{person.handle}
+                    </a>
+                  ))}
+                </p>
+              </div>
               {rigPath === 'upload' ? (
                 <section className="merope-motion-rig__path">
-                  <p className="merope-motion-rig__hint">
-                    {labels.rigPathUploadHint}
-                  </p>
                   <SettingsButton
                     type="button"
                     size="sm"
@@ -805,9 +876,6 @@ export default function Anime25DWorkbench({
                 </section>
               ) : (
                 <section className="merope-motion-rig__path">
-                  <p className="merope-motion-rig__hint">
-                    {labels.rigPathSeeThroughHint}
-                  </p>
                   {seeThroughTokenConfigured ? (
                     <p className="merope-motion-rig__token-ready">
                       {labels.rigTokenReady}
@@ -993,18 +1061,10 @@ export default function Anime25DWorkbench({
               ) : null}
             </div>
           )}
-          <p className="merope-character-home__credit">
-            {labels.anime25dRuntimeCredit}{' '}
-            <a
-              href="https://github.com/852wa/Anime2.5DRig"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Anime2.5DRig
-            </a>
-          </p>
         </SettingGroup>
       ) : null}
+      </div>
+      <div data-tour="config-persona-motion">
       {panel === 'motion' ? (
         <>
           <SettingGroup
@@ -1162,6 +1222,7 @@ export default function Anime25DWorkbench({
             ])}
             {sliderCluster(labels.clusterBody, [
               'body',
+              'bodyYaw',
               'armY',
               'armPos',
               'bust',
@@ -1175,7 +1236,6 @@ export default function Anime25DWorkbench({
           >
             <InfoActionCard
               copyable={false}
-              title={labels.anime25dInspect}
               fields={
                 snapshot
                   ? [
@@ -1295,6 +1355,7 @@ export default function Anime25DWorkbench({
           </SettingGroup>
         </>
       ) : null}
+      </div>
     </>
   )
 }

@@ -40,10 +40,14 @@
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  color: var(--cfg-accent);
+  color: var(--cfg-text-1);
   background: color-mix(in srgb, var(--cfg-accent) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--cfg-accent) 24%, transparent);
 }
+html.dark .platform-data-preview-level {
+  color: #fff;
+}
+
 
 .platform-data-preview-id {
   font-size: 0.75rem;

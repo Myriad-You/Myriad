@@ -41,6 +41,7 @@ export type Anime25DLayerDeformationExtension =
   | 'front-hair-depth-release'
   | 'ellipsoid-shell'
   | 'elliptic-torso-shell'
+  | 'rigid-surface-attachment'
 
 /** Mirrors the explicit local-deformation branches owned by Anime25DPlayer. */
 export function resolveAnime25DLayerDeformationPolicy(input: {
@@ -52,7 +53,15 @@ export function resolveAnime25DLayerDeformationPolicy(input: {
   hasCollarContact: boolean
   shellDeformation?: boolean
   torsoShellDeformation?: boolean
+  rigidAttachment?: boolean
 }): Anime25DLayerDeformationPolicy {
+  if (input.rigidAttachment) {
+    return {
+      shaderGlobalTransform: true,
+      localDynamic: false,
+      deformationExtensions: ['rigid-surface-attachment'],
+    }
+  }
   const coupled =
     input.shellDeformation ||
     input.torsoShellDeformation ||

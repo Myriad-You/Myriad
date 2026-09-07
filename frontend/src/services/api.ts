@@ -6,6 +6,7 @@
 
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
+import { aiRequestTimeoutMs } from '../utils/aiRequestTimeout.mjs'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
 import { httpStatusMessage } from '../utils/userFacingError'
@@ -113,7 +114,7 @@ async function request<T>(
 ): Promise<T> {
   const {
     requireAuth: _requireAuth = false,
-    timeout = 30000,
+    timeout: timeoutOpt = 30000,
     params,
     ...fetchOptions
   } = options
@@ -135,6 +136,7 @@ async function request<T>(
   }
 
   const url = buildUrl(endpoint, params)
+  const timeout = Math.max(timeoutOpt, aiRequestTimeoutMs(url) ?? 0)
 
   // 创建 AbortController 用于超时控制
   const controller = new AbortController()

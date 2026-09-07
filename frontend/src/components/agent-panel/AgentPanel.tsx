@@ -38,6 +38,7 @@ import {
 } from './agentPanelEvents'
 import { AgentPanelFull, AgentPanelSessionChrome } from './AgentPanelFull'
 import { AgentPanelIntention } from './AgentPanelIntention'
+import type { AgentPanelMode } from './agentPanelMode'
 import {
   cycleAgentPanelMode,
   setAgentPanelMode,
@@ -262,8 +263,13 @@ export const AgentPanel: React.FC = () => {
   }, [open])
 
   const submit = useCallback(
-    (text: string, attachments?: AgentAttachment[]) => {
-      dispatchAgentPanelSubmit(text, attachments, mode)
+    (
+      text: string,
+      attachments?: AgentAttachment[],
+      submitMode: AgentPanelMode = mode,
+    ) => {
+      if (submitMode !== mode) setAgentPanelMode(submitMode)
+      dispatchAgentPanelSubmit(text, attachments, submitMode)
       // 展开到能读答案的那一档，而不是收起 —— 问完就把面板关掉等于让人白问
       setFullView('messages')
       dispatch({ type: 'open', stage: 'full' })
@@ -312,6 +318,7 @@ export const AgentPanel: React.FC = () => {
                 view={fullView}
                 onView={setFullView}
                 onSubmit={submit}
+                onWorkOffer={(input) => submit(input, undefined, 'work')}
                 showChrome={fullView === 'manage'}
               />
             ) : (

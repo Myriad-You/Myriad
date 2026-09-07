@@ -163,7 +163,10 @@ function speechProsodyKey(
 ): string | null {
   if (!prosody) return null
   const accents = prosody.accents
-    .map((accent) => `${accent.offsetMs}:${accent.intensity}`)
+    .map(
+      (accent) =>
+        `${accent.offsetMs}:${accent.intensity}:${accent.gesture ?? ''}`,
+    )
     .join(',')
   return `${prosody.utteranceId}|${prosody.startedAtMs}|${prosody.durationMs}|${accents}`
 }

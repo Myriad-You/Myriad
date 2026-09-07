@@ -501,8 +501,19 @@ pub(crate) fn task_status_name(status: &crate::services::agent::TaskStatus) -> &
     }
 }
 
+fn is_task_envelope(output: &Value) -> bool {
+    matches!(
+        output,
+        Value::Object(map)
+            if map.get("format").and_then(Value::as_str).is_some() && map.contains_key("value")
+    )
+}
+
 /// 从输出生成简短摘要
 pub(crate) fn summarize_output(output: &Value) -> Option<String> {
+    if is_task_envelope(output) {
+        return crate::services::agent::response_agent::summarize_step_output(output);
+    }
     match output {
         Value::String(s) => {
             let char_count = s.chars().count();
@@ -645,6 +656,43 @@ mod api_contract_tests {
         assert_eq!(
             task_status_name(&crate::services::agent::TaskStatus::WaitingForInput),
             "waiting_for_input"
+        );
+    }
+
+    #[test]
+    fn task_info_output_summary_unwraps_ai_envelope() {
+        assert_eq!(
+            summarize_output(&json!({
+                "format": "json",
+                "value": { "analysis": "分析正文", "type": "custom" },
+                "contextProvenance": []
+            }))
+            .as_deref(),
+            Some("分析正文")
+        );
+        assert_eq!(
+            summarize_output(&json!({
+                "format": "text",
+                "value": "回复正文",
+                "contextProvenance": []
+            }))
+            .as_deref(),
+            Some("回复正文")
+        );
+        let image = summarize_output(&json!({
+            "format": "image",
+            "value": {
+                "url": "https://example.invalid/a.png",
+                "width": 1024,
+                "height": 768
+            },
+            "contextProvenance": []
+        }))
+        .expect("image summary");
+        assert!(image.contains("图片"), "{image}");
+        assert_eq!(
+            summarize_output(&json!({ "count": 5 })).as_deref(),
+            Some("处理了 5 条记录")
         );
     }
 

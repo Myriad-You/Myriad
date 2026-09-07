@@ -46,7 +46,8 @@
   /* 卡片在上，那一行独立控件在下 —— 它们并排，不是包含。
      外壳不裁切：阴影要完整，玻璃还要采到壁纸。每行整张进整张出。
      进出同一条贝塞尔：出场是入场的镜像。
-     空输入态开合动外壳；对话/历史每张卡自己从输入行来回。 */
+     空输入态开合动外壳；对话/历史入场仍按张从输入行叠上，
+     退场卡片先收回去，再让外壳只沉、只淡，不整块缩放。 */
   --agent-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --agent-ease-exit: cubic-bezier(1, 0, 0.68, 0.28);
   --agent-move: 480ms;
@@ -110,22 +111,21 @@
   transition-delay: 0ms;
 }
 
-/* 对话 / 历史展开：外壳不再整块位移，每张卡自己从输入行来回。 */
-.agent-panel-overlay-anchor[data-stage='full'][data-phase='opening'],
-.agent-panel-overlay-anchor[data-stage='full'][data-phase='closing'] {
+/* 对话 / 历史入场：外壳不整块位移，每张卡从输入行叠上来。 */
+.agent-panel-overlay-anchor[data-stage='full'][data-phase='opening'] {
   opacity: 1;
   translate: -50% 0;
   scale: 1;
 }
 
-.agent-panel-overlay-anchor[data-stage='full'][data-phase='closing']
-  .agent-panel-composer {
+/* 退场回一点外壳运动：卡片先收回输入行，再整块只沉、只淡。
+   不缩 —— 高列再 scale 会像往输入行里挤。输入行跟着锚点走，不再自己先走一步。 */
+.agent-panel-overlay-anchor[data-stage='full'][data-phase='closing'] {
   opacity: 0;
-  translate: 0 16px;
-  scale: 0.96;
+  translate: -50% 22px;
+  scale: 1;
+  will-change: opacity, translate;
   transition-duration: var(--agent-row-exit);
-
-  /* 输入行比画面里最远那张再晚一步，卡片还有地方可回。 */
   transition-delay: calc(
     (var(--agent-stagger-wave) + 1) * var(--agent-stagger-step)
   );
@@ -191,6 +191,7 @@
     translate var(--agent-move, 480ms) var(--agent-ease),
     scale var(--agent-move, 480ms) var(--agent-ease),
     margin var(--agent-move, 480ms) var(--agent-ease),
+    width var(--agent-move, 480ms) var(--agent-ease),
     grid-template-columns var(--agent-move, 480ms) var(--agent-ease);
 }
 
@@ -251,6 +252,28 @@
 .agent-panel-presence[data-kind='chip'] > * {
   min-width: 0;
   overflow: visible;
+}
+
+/* 没配语音时右侧那枚会整颗进出：槽位宽度要跟输入框对挤，不能先占 96px
+   再在空位里从 0.72 放大。胶囊跟着槽一起变宽，间距一起收。 */
+.agent-panel-composer-row > .agent-panel-presence[data-kind='chip'] {
+  flex: 0 0 auto;
+  width: 96px;
+  overflow: hidden;
+  transform-origin: 100% 50%;
+  transition-duration: var(--agent-swap, 320ms);
+}
+
+.agent-panel-composer-row
+  > .agent-panel-presence[data-kind='chip'][data-presence='in'] {
+  overflow: visible;
+}
+
+.agent-panel-composer-row
+  > .agent-panel-presence[data-kind='chip']
+  .agent-panel-control {
+  width: 100%;
+  min-width: 0;
 }
 
 /* 入场用 @starting-style，不再用 JS 的 enter。
@@ -330,6 +353,15 @@
     margin-left: -6px;
   }
 
+  .agent-panel-composer-row > .agent-panel-presence[data-kind='chip'] {
+    width: 0;
+    margin-left: -12px;
+    overflow: hidden;
+    opacity: 0;
+    scale: 1;
+    translate: 0 0;
+  }
+
   .agent-panel-presence[data-appear='skip'] {
     opacity: 1;
     translate: 0 0;
@@ -393,6 +425,16 @@
 .agent-panel-tag-actions
   > .agent-panel-presence[data-kind='chip'][data-presence='out'] {
   margin-left: -6px;
+}
+
+.agent-panel-composer-row
+  > .agent-panel-presence[data-kind='chip'][data-presence='out'] {
+  width: 0;
+  margin-left: -12px;
+  overflow: hidden;
+  opacity: 0;
+  scale: 1;
+  translate: 0 0;
 }
 
 .agent-panel-swap {
@@ -481,6 +523,16 @@
   margin-left: 0;
 }
 
+.agent-panel-overlay-anchor[data-phase='opening']
+  .agent-panel-composer-row
+  > .agent-panel-presence[data-kind='chip'],
+.agent-panel-overlay-anchor[data-phase='closing']
+  .agent-panel-composer-row
+  > .agent-panel-presence[data-kind='chip'] {
+  width: 96px;
+  margin-left: 0;
+}
+
 /* ── 一切说明性的短句都是贴 ──────────────────────
 
    看得到什么、刚做了什么、为什么这里是空的、人设改到哪儿去了 —— 这些以前是六处
@@ -505,7 +557,7 @@
 .agent-panel-tag-rail .agent-panel-tag,
 .agent-panel-composer-tags .agent-panel-tag {
   background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
-  backdrop-filter: var(--surface-filter);
+  backdrop-filter: none;
   box-shadow: var(--surface-shadow);
 }
 
@@ -773,7 +825,6 @@ button.agent-panel-tag:disabled {
   --agent-face-width: calc(128px * 2.5);
   --agent-face-visible-height: calc(var(--agent-face-width) * 4 / 3 * 4 / 5);
   --agent-face-fade: 40px;
-  --agent-face-lift: 10px;
   --agent-mode-lag: 40ms;
 
   /* 人头伸出贴行的那截。人仍绝对定位贴着输入框，对话靠这段 padding 让位。 */
@@ -880,6 +931,73 @@ button.agent-panel-tag:disabled {
   color: white;
 }
 
+.agent-panel-work-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+}
+
+.agent-panel-message-answer > .agent-panel-work-offer:not(:first-child) {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--surface-border, rgb(0 0 0 / 8%));
+}
+
+.agent-panel-work-offer-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-panel-work-offer-copy > span {
+  color: var(--color-primary, #10b981);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-panel-work-offer-copy > small {
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.agent-panel-work-offer-accept {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-primary, #10b981);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.agent-panel-work-offer-accept:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.agent-panel-work-offer-accept:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+
+.agent-panel-work-offer-accept:not(:disabled):active {
+  scale: 0.98;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-work-offer-accept:not(:disabled):active {
+    scale: 1;
+  }
+}
+
 @media (width <= 520px) {
   .agent-panel-intention {
     grid-template-columns: 1fr;
@@ -974,19 +1092,15 @@ button.agent-panel-tag:disabled {
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  translate: -50% var(--agent-face-lift);
-  transition:
-    opacity var(--agent-move) var(--agent-ease-exit),
-    translate var(--agent-move) var(--agent-ease-exit);
+  translate: -50% 0;
+  transition: opacity var(--agent-move) var(--agent-ease-exit);
 }
 
 .agent-panel-composer[data-mode='chat'] .agent-panel-face-slot {
   opacity: 1;
   pointer-events: auto;
   translate: -50% 0;
-  transition:
-    opacity var(--agent-move) var(--agent-ease) var(--agent-mode-lag),
-    translate var(--agent-move) var(--agent-ease) var(--agent-mode-lag);
+  transition: opacity var(--agent-move) var(--agent-ease) var(--agent-mode-lag);
 }
 
 /* 中间列吃掉弹性空位。办事贴只淡，占位不撤，左右贴才不会在淡出结束时被拽动。
@@ -1042,8 +1156,41 @@ button.agent-panel-tag:disabled {
 }
 
 .agent-panel-work-chrome > .agent-panel-work-tags {
-  width: max-content;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  max-width: 100%;
   flex-wrap: nowrap;
+}
+
+/* 上下文贴按字宽收。长文才收到剩余宽度、贴内横滑；解释 / 翻译仍是 shrink-0。 */
+.agent-panel-work-tags > .agent-panel-swap {
+  flex: 0 1 auto;
+  min-width: 0;
+  width: max-content;
+  justify-items: stretch;
+}
+
+.agent-panel-work-chrome .agent-panel-swap .agent-panel-tag {
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.agent-panel-work-chrome .agent-panel-swap .agent-panel-tag-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-overflow: unset;
+  white-space: nowrap;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+}
+
+.agent-panel-work-chrome .agent-panel-swap .agent-panel-tag-text::-webkit-scrollbar {
+  display: none;
 }
 
 .agent-panel-work-chrome > .agent-panel-presence[data-kind='chip'],
@@ -1754,6 +1901,11 @@ button.agent-panel-tag:disabled {
       translate: 0 0;
       scale: 1;
     }
+
+    .agent-panel-composer-row > .agent-panel-presence[data-kind='chip'] {
+      width: 96px;
+      margin-left: 0;
+    }
   }
 
   .agent-panel-control:hover,
@@ -1831,7 +1983,7 @@ button.agent-panel-tag:disabled {
   width: 100%;
   margin: 0;
   background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
-  backdrop-filter: var(--surface-filter);
+  backdrop-filter: none;
   box-shadow: var(--surface-shadow);
 }
 
@@ -1912,20 +2064,25 @@ html[data-perf-mode='exlight'] .agent-panel-message-body {
   min-width: 0;
 }
 
-/* 气泡和历史卡贴在壁纸上。backdrop-filter 会把立绘采进胶囊里糊成雾；
-   底、边、阴影仍走 .glass 令牌。去掉磨砂后默认 74% 会透穿，略抬不透明。
-   输入行那两块玻璃还要磨砂，不动。solid 已经不透明，不要往回减。 */
+/* 整块 Agent 面板不磨砂（含 tag / 输入行 / 气泡）。去掉后抬到 92%。
+   solid 已经不透明，不要往回减。发送键自己叠主色。 */
+html .agent-panel-overlay-anchor {
+  --surface-filter: none;
+}
+
+html:not([data-surface='solid']):not([data-surface='liquid'])
+  .agent-panel-overlay-anchor {
+  --surface-alpha: 92%;
+  --surface-bg:
+    var(--surface-sheen), rgb(var(--surface-rgb) / var(--surface-alpha));
+}
+
+html .agent-panel-overlay.glass,
+html .agent-panel-field-shell.glass,
+html .agent-panel-control.glass,
 html .agent-panel-message-body.glass,
 html .agent-panel-session.glass {
   backdrop-filter: none;
-}
-
-html:not([data-surface='solid']) .agent-panel-message-body.glass,
-html:not([data-surface='solid']) .agent-panel-session.glass {
-  --surface-alpha: 84%;
-
-  background:
-    var(--surface-sheen), rgb(var(--surface-rgb) / var(--surface-alpha));
 }
 
 .agent-panel-message[data-role='system'] .agent-panel-message-body {
@@ -1945,7 +2102,8 @@ html:not([data-surface='solid']) .agent-panel-session.glass {
   > :last-child:not(
     .agent-panel-question,
     .agent-panel-question-options,
-    .agent-panel-message-images
+    .agent-panel-message-images,
+    .agent-panel-work-offer
   )::after {
   content: '';
   display: inline-block;
@@ -2609,7 +2767,7 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
 
 .agent-panel-message-footer .agent-panel-tag {
   background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
-  backdrop-filter: var(--surface-filter);
+  backdrop-filter: none;
   box-shadow: var(--surface-shadow);
 }
 
@@ -2783,7 +2941,8 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
     > :last-child:not(
       .agent-panel-question,
       .agent-panel-question-options,
-      .agent-panel-message-images
+      .agent-panel-message-images,
+      .agent-panel-work-offer
     )::after {
     animation: none;
   }

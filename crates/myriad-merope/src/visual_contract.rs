@@ -73,7 +73,7 @@ pub fn build_character_asset_contract(
                 "width": PORTRAIT_CANVAS_WIDTH,
                 "height": PORTRAIT_CANVAS_HEIGHT,
             },
-            "framing": "close-full-head-through-lower-chest-or-high-waist",
+            "framing": "close-full-head-through-lower-chest",
             "view": "strict-centered-eye-level-zero-yaw-front",
             "background": "clean-near-white",
         },
@@ -177,7 +177,7 @@ mod tests {
         );
         assert_eq!(
             contract["output"]["framing"],
-            "close-full-head-through-lower-chest-or-high-waist"
+            "close-full-head-through-lower-chest"
         );
         assert_eq!(contract["rig"]["maxRigidArmRotationDegrees"], 15.0);
         assert_eq!(character_asset_contract_fingerprint(&contract).len(), 64);

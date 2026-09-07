@@ -1,7 +1,8 @@
 /**
- * 开发环境性能监控面板（右下角）
+ * 开发环境性能监控（右侧竖条）
  *
- * - 收缩：FPS · 内存 · Long Tasks（2s 轮询，最小开销）
+ * - 收缩：FPS / 内存 / Long Tasks 竖排
+ * - 展开：帧 / 运行时 / 稳定 / 动画 / 协调器 / 资源
  * - 展开：帧 / 运行时 / 稳定 / 动画 / 协调器 / 资源 单页分区
  * - 数据只来自浏览器 API 与项目内权威状态源，不 monkey-patch
  */
@@ -95,44 +96,45 @@ export default function PerformanceMonitor() {
       className={`pm-root ${isExpanded ? 'pm-expanded' : ''}`}
     >
       {/* ── 标题栏 / 收缩摘要 ── */}
-      <div className="pm-bar">
-        <div className="pm-bar-left">
-          <span className="pm-label">{pm.label}</span>
-          <span className={`pm-value ${fpsClass(frame.fps, frame.isLowFps)}`}>
-            {frame.fps}
-            <span className="pm-unit">fps</span>
+      <div
+        className="pm-bar"
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        title={isExpanded ? pm.collapseTitle : pm.expandTitle}
+        onClick={() => setIsExpanded((v) => !v)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            setIsExpanded((v) => !v)
+          }
+        }}
+      >
+        <span className={`pm-value ${fpsClass(frame.fps, frame.isLowFps)}`}>
+          {frame.fps}
+          <span className="pm-unit">fps</span>
+        </span>
+        {memory && (
+          <span className={`pm-value ${memClass(memory.usedPercent)}`}>
+            {memory.usedMB}
+            <span className="pm-unit">MB</span>
           </span>
-          {memory && (
-            <span className={`pm-value ${memClass(memory.usedPercent)}`}>
-              {memory.usedMB}
-              <span className="pm-unit">MB</span>
-            </span>
-          )}
-          {stability.longTaskCount > 0 && (
-            <span
-              className={`pm-value ${stability.longTaskCount > 5 ? 'pm-bad' : 'pm-warn'}`}
-              title={
-                stability.lastLongTaskMs
-                  ? pm.lastLongTask.replace(
-                      '{ms}',
-                      String(stability.lastLongTaskMs),
-                    )
-                  : pm.longTasks
-              }
-            >
-              LT {stability.longTaskCount}
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          className="pm-toggle"
-          onClick={() => setIsExpanded((v) => !v)}
-          title={isExpanded ? pm.collapseTitle : pm.expandTitle}
-          aria-expanded={isExpanded}
-        >
-          {isExpanded ? '▼' : '▲'}
-        </button>
+        )}
+        {stability.longTaskCount > 0 && (
+          <span
+            className={`pm-value ${stability.longTaskCount > 5 ? 'pm-bad' : 'pm-warn'}`}
+            title={
+              stability.lastLongTaskMs
+                ? pm.lastLongTask.replace(
+                    '{ms}',
+                    String(stability.lastLongTaskMs),
+                  )
+                : pm.longTasks
+            }
+          >
+            LT {stability.longTaskCount}
+          </span>
+        )}
       </div>
 
       {/* ── 展开详情 ── */}

@@ -7,7 +7,7 @@
 
 import type { CSSProperties } from 'react'
 import type { BrewSource } from '../../types/brew'
-import type { WidgetComponentProps } from '../WidgetGrid'
+import type { WidgetComponentProps } from '../widgetGridTypes'
 
 import {
   LuChevronRight as ChevronRight,

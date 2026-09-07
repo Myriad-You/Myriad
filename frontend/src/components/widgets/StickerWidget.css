@@ -1,0 +1,107 @@
+.sticker-widget {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  background: transparent;
+}
+
+.sticker-widget__bob,
+.sticker-widget__sway,
+.sticker-widget__frame {
+  width: 100%;
+  height: 100%;
+}
+
+.sticker-widget__bob {
+  transform-origin: var(--sticker-float-ox, 50%) var(--sticker-float-oy, 85%);
+}
+
+.sticker-widget__sway {
+  transform-origin: var(--sticker-float-ox, 50%) 50%;
+}
+
+.sticker-widget__frame.has-crop {
+  overflow: hidden;
+}
+
+.sticker-widget__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sticker-widget.is-float-loop:not(.is-edit) .sticker-widget__bob {
+    will-change: transform;
+    animation: sticker-bob var(--sticker-bob-dur, 5s)
+      var(--sticker-bob-delay, 0s) ease-in-out infinite;
+  }
+
+  .sticker-widget.is-float-loop:not(.is-edit) .sticker-widget__sway {
+    will-change: transform;
+    animation: sticker-sway var(--sticker-sway-dur, 7s)
+      var(--sticker-sway-delay, 0s) ease-in-out infinite;
+  }
+
+  .sticker-widget.is-float-hover:not(.is-float-loop):not(.is-edit)
+    .sticker-widget__bob,
+  .sticker-widget.is-float-hover:not(.is-float-loop):not(.is-edit)
+    .sticker-widget__sway {
+    transition: transform 0.45s ease;
+  }
+
+  .widget-grid-item--sticker:hover
+    .sticker-widget.is-float-hover:not(.is-float-loop):not(.is-edit)
+    .sticker-widget__bob {
+    will-change: transform;
+    animation: sticker-bob var(--sticker-bob-dur, 5s) 0s ease-in-out infinite;
+  }
+
+  .widget-grid-item--sticker:hover
+    .sticker-widget.is-float-hover:not(.is-float-loop):not(.is-edit)
+    .sticker-widget__sway {
+    will-change: transform;
+    animation: sticker-sway var(--sticker-sway-dur, 7s) 0s ease-in-out infinite;
+  }
+}
+
+@keyframes sticker-bob {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    transform: translate3d(0, var(--sticker-float-y, -4px), 0);
+  }
+}
+
+@keyframes sticker-sway {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+
+  32% {
+    transform: translate3d(var(--sticker-float-x1, 2px), 0, 0)
+      rotate(var(--sticker-float-r1, 0.5deg));
+  }
+
+  68% {
+    transform: translate3d(var(--sticker-float-x2, -2px), 0, 0)
+      rotate(var(--sticker-float-r2, -0.4deg));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sticker-widget__bob,
+  .sticker-widget__sway {
+    animation: none !important;
+    will-change: auto;
+  }
+}

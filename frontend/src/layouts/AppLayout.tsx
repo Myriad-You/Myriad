@@ -18,6 +18,7 @@ import NavigationIsland from '../components/NavigationIsland'
 import { SiteFooter } from '../components/SiteFooter'
 import { SurfaceThemeApplier } from '../components/SurfaceThemeApplier'
 import { ToastContainer } from '../components/ToastContainer'
+import { TourHint, TourOverlay } from '../components/tour'
 
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
@@ -420,6 +421,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       {/* 全局 Toast 通知 */}
       <ToastContainer />
+      <TourOverlay />
 
       {/* 主内容区域 */}
       <main className="relative z-10">{children}</main>
@@ -432,6 +434,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <TappShortcutSettingsModal />
       </Suspense>
 
+      <TourHint />
       {/* 站点底部信息 */}
       <SiteFooter isHomePage={location.pathname === '/'} />
     </>

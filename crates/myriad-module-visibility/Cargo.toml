@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "Module page visibility preferences (types, normalize, DB load) for Myriad."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 sea-orm = { version = "2.0", default-features = false, features = [

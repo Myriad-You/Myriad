@@ -68,21 +68,38 @@ type RandomSource = () => number
 
 const DRIVER_KEYS = Object.keys(IDENTITY_DRIVER) as Array<keyof Anime25DDriver>
 
-/** Copies authored input and adds only the pointer and idle-owned channels. */
+/**
+ * The authored pose, with the pointer blended over it.
+ *
+ * `authority` is a weight, not a switch. Every other source that contends for
+ * the head crossfades — the pose gate, occupancy, the sticker mouth share all
+ * ease their contribution in and out — and pointer gaze was the one exception:
+ * it replaced the goal outright while the cursor was over the character and
+ * dropped it the instant the cursor left, so leaving snapped the head back to
+ * rest and skimming the edge of the character twitched it in and out.
+ */
 export function prepareAnime25DWorkingTarget(
   output: Anime25DDriver,
   authored: Readonly<Anime25DDriver>,
   pointer: Readonly<Anime25DPointerPose>,
-  _timeSeconds: number,
+  authority: number,
 ): Anime25DDriver {
   Object.assign(output, authored)
-  if (authored.mouse && pointer.inside) {
-    output.angleX = clamp(pointer.x * 0.9, -1, 1)
-    output.angleY = clamp(-pointer.y * 0.7, -1, 1)
-    output.eyeX = clamp(pointer.x * 1.2, -1, 1)
-    output.eyeY = clamp(-pointer.y * 0.8, -1, 1)
-  }
+  if (!authored.mouse) return output
+  const amount = clamp(Number.isFinite(authority) ? authority : 0, 0, 1)
+  if (amount <= 0) return output
+  output.angleX = mixPointer(authored.angleX, pointer.x * 0.9, amount)
+  output.angleY = mixPointer(authored.angleY, -pointer.y * 0.7, amount)
+  output.eyeX = mixPointer(authored.eyeX, pointer.x * 1.2, amount)
+  output.eyeY = mixPointer(authored.eyeY, -pointer.y * 0.8, amount)
   return output
+}
+
+function mixPointer(base: number, tracked: number, amount: number): number {
+  const bounded = clamp(tracked, -1, 1)
+  // Full authority is the tracked value itself, not a lerp that lands one
+  // float away from it — the legacy pointer math is asserted exactly.
+  return amount >= 1 ? bounded : base + (bounded - base) * amount
 }
 
 /** Resolves the mutually blocked stylized-expression inputs without allocating. */
@@ -276,7 +293,8 @@ export function applyAnime25DStylizedExpression(
   target: Anime25DDriver,
   semantic: Readonly<PerformanceExpressionOffset>,
   stylized: Readonly<StylizedExpressionMotion>,
-  speaking: boolean,
+  /** How much of the mouth is free of a voice, already eased by the caller. */
+  vocalRest: number,
   semanticAmount = 1,
   stylizedAmount = 1,
 ): void {
@@ -330,7 +348,10 @@ export function applyAnime25DStylizedExpression(
     target.mouthOpen,
     stylized.mouthOpen * stylizedWeight,
   )
-  const lovestruckMouthShare = speaking ? 0.18 : 1
+  // The silly mouth beside this one has always taken the same quantity as a
+  // ratio the player eases; this took it as a boolean and stepped 0.82 of the
+  // mouth within one frame every time speech started or stopped.
+  const lovestruckMouthShare = 0.18 + 0.82 * clamp(vocalRest, 0, 1)
   target.mouthOpen = Math.max(
     target.mouthOpen,
     stylized.lovestruckMouthOpen * lovestruckMouthShare * stylizedWeight,
@@ -459,18 +480,21 @@ export function stepAnime25DBlink(
   suppressed: boolean,
   random: RandomSource = Math.random,
 ): void {
-  if (suppressed) {
-    state.activeSeconds = -1
-    state.nextAtSeconds = timeSeconds + 1.8
-    return
+  // A blink already in flight finishes, whatever happens to the reasons for
+  // starting one. Both of these used to return without writing the lid at all,
+  // so a sticker crossing its threshold — or automation being switched off —
+  // while the eyes were shut threw them open from wherever they were.
+  if (suppressed || !enabled) {
+    if (suppressed) state.nextAtSeconds = timeSeconds + 1.8
+    if (state.activeSeconds < 0) return
+  } else {
+    if (state.activeSeconds < 0 && timeSeconds > state.nextAtSeconds) {
+      state.activeSeconds = 0
+      state.nextAtSeconds = timeSeconds + 1.6 + random() * 3.8
+      if (random() < 0.18) state.nextAtSeconds = timeSeconds + 0.28
+    }
+    if (state.activeSeconds < 0) return
   }
-  if (!enabled) return
-  if (state.activeSeconds < 0 && timeSeconds > state.nextAtSeconds) {
-    state.activeSeconds = 0
-    state.nextAtSeconds = timeSeconds + 1.6 + random() * 3.8
-    if (random() < 0.18) state.nextAtSeconds = timeSeconds + 0.28
-  }
-  if (state.activeSeconds < 0) return
   state.activeSeconds += elapsedSeconds
   const elapsed = state.activeSeconds
   let open = 1
@@ -494,8 +518,9 @@ export function stepAnime25DDriverResponse(
   target: Readonly<Anime25DDriver>,
   poseResponse: PoseResponseController,
   elapsedSeconds: number,
+  responseScale = 1,
 ): void {
-  poseResponse.step(current, target, elapsedSeconds)
+  poseResponse.step(current, target, elapsedSeconds, responseScale)
   const rate = Math.min(1, elapsedSeconds * 14)
   for (const key of DRIVER_KEYS) {
     if (isContinuousPoseKey(key)) continue

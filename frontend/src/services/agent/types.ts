@@ -129,6 +129,18 @@ export interface TaskPendingQuestion {
   defaultValue?: string
 }
 
+/** GET /tasks 和终态 TaskInfo 上的步骤记录 */
+export interface TaskStepHistoryItem {
+  stepId: string
+  capabilityName: string
+  status: string
+  durationMs?: number
+  outputSummary?: string
+  error?: string
+  imageUrl?: string
+  isDynamic?: boolean
+}
+
 /** 任务信息 */
 export interface TaskInfo {
   taskId: string
@@ -136,6 +148,7 @@ export interface TaskInfo {
   progress: number
   error?: string
   pendingQuestion?: TaskPendingQuestion
+  stepHistory?: TaskStepHistoryItem[]
 }
 
 /** 任务详情 */
@@ -149,6 +162,7 @@ export interface TaskDetail {
   results?: Record<string, unknown>
   pendingQuestion?: TaskPendingQuestion
   runId?: string
+  stepHistory?: TaskStepHistoryItem[]
 }
 
 // 澄清相关
@@ -219,6 +233,7 @@ export interface PerformanceCue {
 }
 
 export interface PerformanceDirective {
+  phrases?: SpeechPhrase[]
   phase: PerformancePhase
   moodRevision: number
   /** Persona-resolved movement quality for this whole round. */
@@ -227,6 +242,13 @@ export interface PerformanceDirective {
     baseline?: PerformanceBaseline
     cues: PerformanceCue[]
   }
+}
+
+export interface SpeechPhrase {
+  /** Exact, uniquely occurring response fragment; never a model timestamp. */
+  text: string
+  intent:
+    'ask' | 'hesitate' | 'tease' | 'explain' | 'check-in' | 'laugh' | 'none'
 }
 
 export type MoodBandName = 'floor' | 'sad' | 'tense' | 'calm' | 'excited'
@@ -409,6 +431,16 @@ export interface MeropeStateChangedEvent {
   activity: string
 }
 
+export interface OutfitOverlayEvent {
+  type: 'outfit_overlay'
+  outfitId: string | null
+}
+
+export interface MusicControlEvent {
+  type: 'music_control'
+  action: string
+}
+
 /** 任务分配事件（多 Agent 协作时发送） */
 export interface TaskAssignedEvent {
   type: 'task_assigned'
@@ -503,6 +535,8 @@ export type ProgressEvent =
   | ThinkingTokenEvent
   | PerformancePlanEvent
   | MeropeStateChangedEvent
+  | OutfitOverlayEvent
+  | MusicControlEvent
   | PlannerDecisionEvent
   | StepDebugEvent
 

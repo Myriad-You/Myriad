@@ -27,8 +27,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "summary": { "type": "string", "description": "摘要正文" },
-                "style": { "type": "string", "description": "回显的摘要风格" }
+                "format": { "type": "string" },
+                "value": {
+                    "type": "object",
+                    "properties": {
+                        "summary": { "type": "string", "description": "摘要正文" },
+                        "style": { "type": "string", "description": "回显的摘要风格" }
+                    }
+                },
+                "contextProvenance": { "type": "array" }
             }
         }),
         required_permissions: vec!["ai:analyze".to_string()],
@@ -56,8 +63,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "analysis": { "type": "string", "description": "AI 分析正文" },
-                "type": { "type": "string", "description": "回显的 analysisType" }
+                "format": { "type": "string" },
+                "value": {
+                    "type": "object",
+                    "properties": {
+                        "analysis": { "type": "string", "description": "AI 分析正文" },
+                        "type": { "type": "string", "description": "回显的 analysisType" }
+                    }
+                },
+                "contextProvenance": { "type": "array" }
             }
         }),
         required_permissions: vec!["ai:analyze".to_string()],
@@ -86,11 +100,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "recommendations": {
-                    "type": ["array", "string"],
-                    "description": "推荐列表；AI 未返回合法 JSON 数组时退化为原始文本"
+                "format": { "type": "string" },
+                "value": {
+                    "type": "object",
+                    "properties": {
+                        "recommendations": {
+                            "type": ["array", "string"],
+                            "description": "推荐列表；AI 未返回合法 JSON 数组时退化为原始文本"
+                        },
+                        "count": { "type": "integer", "description": "请求的推荐条数" }
+                    }
                 },
-                "count": { "type": "integer", "description": "请求的推荐条数" }
+                "contextProvenance": { "type": "array" }
             }
         }),
         required_permissions: vec!["ai:analyze".to_string()],
@@ -132,14 +153,21 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "imageUrl": { "type": "string" },
-                "width": { "type": "integer" },
-                "height": { "type": "integer" }
+                "format": { "type": "string" },
+                "value": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string" },
+                        "width": { "type": "integer" },
+                        "height": { "type": "integer" }
+                    }
+                },
+                "contextProvenance": { "type": "array" }
             }
         }),
         required_permissions: vec!["ai:image".to_string()],
         requires_ai: true,
-        estimated_duration_ms: Some(90000),
+        estimated_duration_ms: Some(300_000),
         ..Default::default()
     });
 
@@ -162,7 +190,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "reply": { "type": "string" }
+                "format": { "type": "string" },
+                "value": { "type": "string", "description": "回复正文" },
+                "contextProvenance": { "type": "array" }
             }
         }),
         required_permissions: vec!["ai:chat".to_string()],
@@ -175,7 +205,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "ai.webSearch".to_string(),
         name: "AI 联网搜索".to_string(),
-        description: "通过 AI 联网搜索获取实时信息（如 RSS 源、API 文档等）".to_string(),
+        description: "联网搜索获取实时信息（如 RSS 源、API 文档等）。优先 TinyFish Search，未配置时回退 Gemini Google Search".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![
             IntentAction::Query,
@@ -183,52 +213,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
             IntentAction::Analyze,
             IntentAction::Compare,
         ],
-        input_schema: json!({
-            "type": "object",
-            "properties": {
-                "query": { "type": "string", "description": "搜索查询内容" },
-                "searchType": { 
-                    "type": "string", 
-                    "enum": ["rss_source", "api_docs", "general"],
-                    "default": "general",
-                    "description": "搜索类型：rss_source 搜索 RSS 源，api_docs 搜索 API 文档，general 通用搜索"
-                },
-                "resultFormat": { 
-                    "type": "string", 
-                    "enum": ["url", "json", "text"],
-                    "default": "json",
-                    "description": "结果格式：url 返回链接列表，json 返回结构化数据，text 返回纯文本"
-                },
-                "maxResults": { 
-                    "type": "integer", 
-                    "default": 5,
-                    "description": "最大返回结果数"
-                },
-                "source": { 
-                    "type": "string",
-                    "description": "搜索来源提示"
-                },
-                "searchPrompt": {
-                    "type": "string",
-                    "description": "自定义搜索提示词"
-                }
-            },
-            "required": ["query"]
-        }),
-        // 与 `execute_gemini_grounding_search_wrapper` 的实际返回一致。原先声明的
-        // `source` / `searchPrompt` 从未被产出，而真正有用的 `aiSummary` /
-        // `totalResults` 反倒没被声明——Planner 因此看不到它们。
-        output_schema: json!({
-            "type": "object",
-            "properties": {
-                "success": { "type": "boolean" },
-                "query": { "type": "string", "description": "回显的查询" },
-                "searchType": { "type": "string", "description": "回显的搜索类型" },
-                "aiSummary": { "type": "string", "description": "AI 对搜索结果的综述" },
-                "results": { "type": "array", "description": "搜索结果列表" },
-                "totalResults": { "type": "integer", "description": "结果条数" }
-            }
-        }),
+        input_schema: crate::services::agent::search_output::capability_input_schema(),
+        output_schema: crate::services::agent::search_output::capability_output_schema(),
         required_permissions: vec!["ai:search".to_string()],
         requires_ai: true,
         estimated_duration_ms: Some(8000),
@@ -239,44 +225,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "ai.groundingSearch".to_string(),
         name: "AI Grounding 搜索".to_string(),
-        description: "通过 AI 联网搜索验证事实、获取实时信息".to_string(),
+        description: "联网搜索验证事实、获取实时信息。与 ai.webSearch 同一后端".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![
             IntentAction::Query,
             IntentAction::Summarize,
             IntentAction::Analyze,
         ],
-        input_schema: json!({
-            "type": "object",
-            "properties": {
-                "query": { "type": "string", "description": "搜索查询内容" },
-                "searchType": {
-                    "type": "string",
-                    "enum": ["rss_source", "api_docs", "general"],
-                    "default": "general"
-                },
-                "resultFormat": {
-                    "type": "string",
-                    "enum": ["url", "json", "text"],
-                    "default": "json"
-                },
-                "maxResults": { "type": "integer", "default": 5 },
-                "searchPrompt": { "type": "string", "description": "自定义搜索提示词" }
-            },
-            "required": ["query"]
-        }),
-        // 与 ai.webSearch 共用 `execute_gemini_grounding_search_wrapper`，返回同一形状。
-        output_schema: json!({
-            "type": "object",
-            "properties": {
-                "success": { "type": "boolean" },
-                "query": { "type": "string", "description": "回显的查询" },
-                "searchType": { "type": "string", "description": "回显的搜索类型" },
-                "aiSummary": { "type": "string", "description": "AI 对搜索结果的综述" },
-                "results": { "type": "array", "description": "搜索结果列表" },
-                "totalResults": { "type": "integer", "description": "结果条数" }
-            }
-        }),
+        input_schema: crate::services::agent::search_output::capability_input_schema(),
+        output_schema: crate::services::agent::search_output::capability_output_schema(),
         required_permissions: vec!["ai:search".to_string()],
         requires_ai: true,
         estimated_duration_ms: Some(8000),
@@ -302,7 +259,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "annotations": { "type": "array" },
-                "fromCache": { "type": "boolean" }
+                "fromCache": { "type": "boolean" },
+                "itemId": { "type": "integer", "description": "回显的文章 ID" }
             }
         }),
         required_permissions: vec!["ai:analyze".to_string()],
@@ -330,7 +288,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "script": { "type": "string" },
-                "duration": { "type": "number" }
+                "duration": { "type": "number" },
+                "style": { "type": "string", "description": "回显的播客风格" },
+                "itemId": { "type": "integer", "description": "回显的文章 ID" }
             }
         }),
         required_permissions: vec!["ai:generate".to_string()],
@@ -363,7 +323,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "analysis": { "type": "string" }
             }
         }),
-        required_permissions: vec!["filter:read".to_string()],
+        required_permissions: vec!["platform:read".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(2000),
         ..Default::default()
@@ -393,7 +353,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "analysis": { "type": "string" }
             }
         }),
-        required_permissions: vec!["compare:read".to_string()],
+        required_permissions: vec!["platform:read".to_string()],
         requires_ai: true,
         estimated_duration_ms: Some(3000),
         ..Default::default()
@@ -420,10 +380,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "prompt": { "type": "string" },
-                "negativePrompt": { "type": "string" }
+                "negativePrompt": { "type": "string" },
+                "title": { "type": "string", "description": "回显的主题；调用方未传时为空字符串" }
             }
         }),
-        required_permissions: vec!["prompt:write".to_string()],
+        required_permissions: vec!["ai:generate".to_string()],
         requires_ai: true,
         estimated_duration_ms: Some(15000),
         ..Default::default()
@@ -448,8 +409,13 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
+                "originalText": { "type": "string", "description": "回显的原文" },
                 "translated": { "type": "string" },
-                "targetLang": { "type": "string" }
+                "targetLang": { "type": "string" },
+                "sourceLang": {
+                    "type": ["string", "null"],
+                    "description": "调用方传入的源语言；未传时为 null"
+                }
             }
         }),
         required_permissions: vec!["ai:analyze".to_string()],
@@ -476,6 +442,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
+                "code": { "type": "string", "description": "截断后的代码回显" },
+                "language": {
+                    "type": ["string", "null"],
+                    "description": "调用方传入的语言；未传时为 null"
+                },
                 "explanation": { "type": "string" },
                 "complexity": { "type": "string" }
             }
@@ -503,12 +474,13 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
+                "platformName": { "type": "string", "description": "回显的平台名" },
                 "iconType": { "type": "string" },
                 "iconName": { "type": "string" },
                 "colorSuggestion": { "type": "string" }
             }
         }),
-        required_permissions: vec!["icon:read".to_string()],
+        required_permissions: vec!["platform:read".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(100),
         ..Default::default()

@@ -152,6 +152,14 @@ export interface Anime25DTorsoShellProfile {
   centerX: number
   radiusX: number
   radiusZ: number
+  /**
+   * How much of a head turn this body comes around with. The fork carries the
+   * same per-model control; a stiff pose or a structured garment turns less
+   * than a soft one at the same head angle.
+   *
+   * Optional for manifests compiled before the torso follow became per-model.
+   */
+  yawFollowScale?: number
 }
 
 export interface Anime25DShellProfile {
@@ -309,7 +317,9 @@ export function isAnime25DShellProfile(
     !numberInRange(torso?.blend, 0, 1) ||
     !numberInRange(torso?.centerX, 0, canvasWidth) ||
     !numberInRange(torso?.radiusX, 1, canvasWidth) ||
-    !numberInRange(torso?.radiusZ, 1, canvasWidth)
+    !numberInRange(torso?.radiusZ, 1, canvasWidth) ||
+    (torso?.yawFollowScale !== undefined &&
+      !numberInRange(torso.yawFollowScale, 0, 1))
   ) {
     return false
   }

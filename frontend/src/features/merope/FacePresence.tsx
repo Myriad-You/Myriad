@@ -1,0 +1,164 @@
+import type { ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
+import {
+  copySurfaceFrame,
+  facePresenceDurationMs,
+  INITIAL_FACE_PRESENCE,
+  reduceFacePresence,
+} from './reduceFacePresence'
+
+export function FacePresence({
+  present,
+  packageKey,
+  ready,
+  children,
+  vacant,
+  onLiveUnmounted,
+}: {
+  present: boolean
+  packageKey: string
+  ready: boolean
+  children: ReactNode | ((mounted: boolean) => ReactNode)
+  vacant?: ReactNode
+  /** After the live player is out of the tree. Outfit swap stays on the same lease. */
+  onLiveUnmounted?: () => void
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [state, dispatch] = useReducer(reduceFacePresence, INITIAL_FACE_PRESENCE)
+  const [hold, setHold] = useState<HTMLCanvasElement | null>(null)
+  const [reduceMotion, setReduceMotion] = useState(false)
+  const packageRef = useRef('')
+  const presentRef = useRef(false)
+  const liveMountedRef = useRef(false)
+  const onLiveUnmountedRef = useRef(onLiveUnmounted)
+  onLiveUnmountedRef.current = onLiveUnmounted
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const sync = () => setReduceMotion(media.matches)
+    sync()
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [])
+
+  const readyRef = useRef(false)
+
+  useLayoutEffect(() => {
+    const wasPresent = presentRef.current
+    const previousKey = packageRef.current
+    presentRef.current = present
+    packageRef.current = packageKey
+    if (!present) {
+      readyRef.current = false
+      if (wasPresent) {
+        setHold(copySurfaceFrame(rootRef.current))
+        dispatch({ type: 'hide' })
+      }
+      return
+    }
+    if (!wasPresent) {
+      readyRef.current = false
+      setHold(null)
+      dispatch({ type: 'show', packageKey })
+      return
+    }
+    if (previousKey && previousKey !== packageKey) {
+      readyRef.current = false
+      setHold(copySurfaceFrame(rootRef.current))
+      dispatch({ type: 'swap', packageKey })
+    }
+  }, [packageKey, present])
+
+  useEffect(() => {
+    const wasReady = readyRef.current
+    readyRef.current = ready
+    if (!present || !ready || wasReady) return
+    dispatch({ type: 'ready' })
+  }, [present, ready, packageKey])
+
+  useEffect(() => {
+    if (
+      state.phase !== 'enter' &&
+      state.phase !== 'exit' &&
+      state.phase !== 'rest'
+    ) {
+      return undefined
+    }
+    const timer = window.setTimeout(
+      dispatch,
+      facePresenceDurationMs(state.phase, reduceMotion),
+      { type: 'elapsed' },
+    )
+    return () => window.clearTimeout(timer)
+  }, [reduceMotion, state.phase])
+
+  useEffect(() => {
+    if (state.phase === 'exit') return
+    setHold(null)
+  }, [state.phase])
+
+  useLayoutEffect(() => {
+    const wasMounted = liveMountedRef.current
+    liveMountedRef.current = state.liveMounted
+    if (wasMounted && !state.liveMounted) onLiveUnmountedRef.current?.()
+  }, [state.liveMounted])
+
+  useLayoutEffect(() => {
+    return () => {
+      if (!liveMountedRef.current) return
+      liveMountedRef.current = false
+      onLiveUnmountedRef.current?.()
+    }
+  }, [])
+
+  const mounted = state.liveMounted
+  const live =
+    typeof children === 'function' ? children(mounted) : mounted ? children : null
+  const showHold = Boolean(hold) && state.phase === 'exit'
+  const showVacant = state.vacant && !present ? vacant : null
+
+  return (
+    <div
+      ref={rootRef}
+      className="face-presence"
+      data-phase={state.phase}
+      data-reduced={reduceMotion || undefined}
+    >
+      {showHold && hold ? <PresenceHold source={hold} /> : null}
+      {mounted ? (
+        <div className="face-presence__live" key={state.packageKey}>
+          {live}
+        </div>
+      ) : null}
+      {showVacant ? (
+        <div className="face-presence__vacant">{showVacant}</div>
+      ) : null}
+    </div>
+  )
+}
+
+function PresenceHold({ source }: { source: HTMLCanvasElement }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useLayoutEffect(() => {
+    const canvas = ref.current
+    if (!canvas) return
+    canvas.width = source.width
+    canvas.height = source.height
+    const context = canvas.getContext('2d')
+    context?.clearRect(0, 0, canvas.width, canvas.height)
+    context?.drawImage(source, 0, 0)
+  }, [source])
+  return (
+    <canvas
+      ref={ref}
+      className="face-presence__hold"
+      aria-hidden
+    />
+  )
+}

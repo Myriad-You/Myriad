@@ -23,7 +23,6 @@
     color-mix(in srgb, var(--music-base-primary) 3%, transparent),
     color-mix(in srgb, var(--music-base-secondary) 3%, transparent)
   );
-  backdrop-filter: blur(10px);
 
   /* 边框：跟随封面音乐色（浅/深均用 music token，不用站点 --color-primary） */
   border: 1px solid

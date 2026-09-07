@@ -198,12 +198,6 @@ pub fn truncate_json_for_prompt(data: &Value, max_chars: usize) -> String {
 
 // ── Report ──────────────────────────────────────────────────────────────────
 
-/// Allowed report formats for report.create.
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-pub fn is_valid_report_format(format: &str) -> bool {
-    matches!(format, "markdown" | "html" | "json")
-}
-
 /// Render report body for the requested format.
 pub fn render_report_content(
     title: &str,
@@ -446,8 +440,6 @@ mod tests {
 
     #[test]
     fn report_render_and_ids() {
-        assert!(is_valid_report_format("markdown"));
-        assert!(!is_valid_report_format("pdf"));
         let md = render_report_content(
             "T",
             "markdown",
@@ -459,6 +451,8 @@ mod tests {
         assert!(md.contains("分析结果"));
         let html = render_report_content("<bad>", "html", &json!({}), "t", "t");
         assert!(html.contains("&lt;bad&gt;"));
+        let fallback = render_report_content("T", "pdf", &json!({"a": 1}), "t", "t");
+        assert!(fallback.contains("generatedAt"));
         assert_eq!(format_report_id(42), "report_42");
     }
 

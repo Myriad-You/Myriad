@@ -1,3 +1,5 @@
+import type { LibraryCanvasTransform } from '../../utils/libraryCanvas'
+
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -5,6 +7,99 @@ import {
   getServerNavLayoutSnapshot,
   subscribeNavLayout,
 } from '../../utils/navLayout'
+
+function injectLibraryStyle(id: string, css: string) {
+  if (typeof document === 'undefined') return
+  let style = document.getElementById(id) as HTMLStyleElement | null
+  if (!style) {
+    style = document.createElement('style')
+    style.id = id
+    document.head.appendChild(style)
+  }
+  style.textContent = css
+}
+injectLibraryStyle(
+  'library-canvas-chrome-styles',
+  `
+        /* 画布虚拟化会按视口装卸卡片；外层禁用 fadeInUp（焦点 scale 占用 transform）。 */
+        .library-canvas-world .library-card-container {
+            animation: none;
+            transition: transform 120ms ease-out;
+            /* 静止不占合成层；拖拽时再开 will-change，避免几十张卡常驻 GPU 内存 */
+        }
+
+        /*
+         * 首次揭示入场挂在内层 shell（不碰外层 focus scale）。
+         * 回扫已见 id / 拖拽中静默挂载，避免虚拟化重播与平移时弹入。
+         */
+        @keyframes library-canvas-shell-enter {
+            from {
+                opacity: 0;
+                transform: scale(0.96);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .library-canvas-world .library-card-shell[data-canvas-enter='1'] {
+            animation: library-canvas-shell-enter 0.62s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .library-canvas-world .library-card-shell[data-canvas-enter='1'] {
+                animation: none;
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        [data-library-canvas-surface='true'][data-dragging='true'] {
+            cursor: grabbing;
+        }
+
+        [data-library-canvas-surface='true'][data-dragging='true'] .library-canvas-world {
+            will-change: transform;
+        }
+
+        [data-library-canvas-surface='true'][data-dragging='true'] .library-card-container {
+            will-change: transform;
+            transition: none;
+        }
+
+        [data-library-canvas-surface='true'],
+        [data-library-canvas-surface='true'] .library-card-container {
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        [data-library-canvas-surface='true'] .library-card-container img {
+            -webkit-user-drag: none;
+            user-select: none;
+        }
+
+        /*
+         * 无限画布本身已响应指针；背景强制静止，避免双重位移与点击涟漪干扰。
+         * transform 过渡由 useEvocativeWallpaper soft-lock 写入（需能先 transition:none
+         * 缓存 from 帧再缓入 identity；此处勿 !important，否则 from 帧插值被掐断）。
+         * 退出画布后 soft-restore 缓回 scale。
+         */
+        html[data-library-canvas='active'] #wallpaper {
+            animation: none !important;
+        }
+
+        html[data-library-canvas='active'] #wallpaper-ripple-canvas {
+            /* 长时画布会话用 display 省合成；恢复时 canvas 会重建并从 opacity 0 淡入 */
+            display: none !important;
+        }
+
+        html[data-library-canvas='active'] #wallpaper-awaiting-fx,
+        html[data-library-canvas='active'] #wallpaper-awaiting-fx::after {
+            animation: none !important;
+        }
+  `,
+)
 
 const CANVAS_HINT_SESSION_KEY = 'library-canvas-hint-dismissed'
 
@@ -117,6 +212,7 @@ export function LibraryCanvasChrome({
         </div>
       )}
       <div
+        data-tour="library-canvas"
         className={
           isMobile
             ? 'fixed z-40 flex flex-col items-center gap-0.5 rounded-xl border border-white/35 glass p-1 shadow-xl dark:border-white/10'
@@ -229,4 +325,70 @@ export function LibraryCanvasChrome({
     </>,
     document.body,
   )
+}
+
+interface LibraryCanvasChromePaint {
+  zoomLabel: HTMLElement
+  zoomOut: HTMLButtonElement | null
+  zoomIn: HTMLButtonElement | null
+  resetBtn: HTMLButtonElement | null
+}
+
+let chromePaint: LibraryCanvasChromePaint | null = null
+
+function readLibraryCanvasChromePaint(): LibraryCanvasChromePaint | null {
+  if (chromePaint && chromePaint.zoomLabel.isConnected) return chromePaint
+  const zoomLabel = document.querySelector<HTMLElement>(
+    '[data-library-canvas-zoom-percent]',
+  )
+  if (!zoomLabel) {
+    chromePaint = null
+    return null
+  }
+  chromePaint = {
+    zoomLabel,
+    zoomOut: document.querySelector<HTMLButtonElement>(
+      '[data-library-canvas-zoom-out]',
+    ),
+    zoomIn: document.querySelector<HTMLButtonElement>(
+      '[data-library-canvas-zoom-in]',
+    ),
+    resetBtn: document.querySelector<HTMLButtonElement>(
+      '[data-library-canvas-reset]',
+    ),
+  }
+  return chromePaint
+}
+
+export function syncLibraryCanvasChrome(
+  t: LibraryCanvasTransform,
+  opts: {
+    minScale: number
+    maxScale: number
+    defaultScale: number
+  },
+) {
+  const chrome = readLibraryCanvasChromePaint()
+  if (!chrome) return
+  const label = `${Math.round(t.scale * 100)}%`
+  if (chrome.zoomLabel.textContent !== label) {
+    chrome.zoomLabel.textContent = label
+  }
+  const outDisabled = t.scale <= opts.minScale + 0.001
+  if (chrome.zoomOut && chrome.zoomOut.disabled !== outDisabled) {
+    chrome.zoomOut.disabled = outDisabled
+  }
+  const inDisabled = t.scale >= opts.maxScale - 0.001
+  if (chrome.zoomIn && chrome.zoomIn.disabled !== inDisabled) {
+    chrome.zoomIn.disabled = inDisabled
+  }
+  if (chrome.resetBtn) {
+    const isDefault =
+      Math.abs(t.x) < 0.5 &&
+      Math.abs(t.y) < 0.5 &&
+      Math.abs(t.scale - opts.defaultScale) < 0.001
+    if (chrome.resetBtn.disabled !== isDefault) {
+      chrome.resetBtn.disabled = isDefault
+    }
+  }
 }

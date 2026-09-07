@@ -196,6 +196,17 @@ export function getQQProxyFallbackUrl(
 }
 
 /**
+ * 方案 C：网易 / QQ 直连失败时的全量代理 URL。其它源或已是代理地址时返回 null。
+ */
+export function getMusicProxyFallbackUrl(
+  song: Pick<Song, 'id' | 'source' | 'url'>,
+): string | null {
+  if (song.source === 'netease') return getNeteaseProxyFallbackUrl(song)
+  if (song.source === 'qq') return getQQProxyFallbackUrl(song)
+  return null
+}
+
+/**
  * QQ 音频 URL（同步、不阻塞点击）。语义同 getNeteaseAudioUrlImmediate。
  */
 export function getQQAudioUrlImmediate(songMid: string): string {
@@ -249,28 +260,6 @@ export function throttle<T extends (...args: any[]) => any>(
   }
 
   return throttled
-}
-
-/**
- * 防抖函数 - 延迟执行函数
- * @param func 要防抖的函数
- * @param wait 等待时间（毫秒）
- */
-export function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number,
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout | null = null
-
-  return function (this: any, ...args: Parameters<T>) {
-    if (timeout) {
-      clearTimeout(timeout)
-    }
-
-    timeout = setTimeout(() => {
-      func.apply(this, args)
-    }, wait)
-  }
 }
 
 export type MusicSource = 'netease' | 'qq'
@@ -1323,6 +1312,82 @@ export function filterPlaylist(
 }
 
 /**
+ * 随机模式下一首：排除当前曲与（可选）VIP。无可选项时回退到任意可播曲。
+ * 列表为空、仅一首、或过滤后为空时返回 -1。
+ */
+export function pickShuffleIndex(
+  playlist: ReadonlyArray<Pick<Song, 'isVip'>>,
+  currentIndex: number,
+  excludeVip: boolean,
+): number {
+  if (playlist.length <= 1) return -1
+
+  const availableSongs = playlist
+    .map((song, idx) => ({ song, idx }))
+    .filter((item) => (excludeVip ? !item.song.isVip : true))
+
+  if (availableSongs.length === 0) return -1
+
+  const availableOptions = availableSongs.filter(
+    (item) => item.idx !== currentIndex,
+  )
+  if (availableOptions.length === 0) return availableSongs[0].idx
+
+  const randomItem =
+    availableOptions[Math.floor(Math.random() * availableOptions.length)]
+  return randomItem.idx
+}
+
+/**
+ * 上一首 / 下一首索引。开启跳过 VIP 且全部为 VIP 时返回 null。
+ */
+export function pickAdjacentIndex(
+  playlist: ReadonlyArray<Pick<Song, 'isVip'>>,
+  fromIndex: number,
+  direction: 1 | -1,
+  excludeVip: boolean,
+): number | null {
+  const n = playlist.length
+  if (n === 0) return null
+
+  let newIndex =
+    direction === 1
+      ? (fromIndex + 1) % n
+      : fromIndex === 0
+        ? n - 1
+        : fromIndex - 1
+
+  if (!excludeVip) return newIndex
+
+  let attempts = 0
+  while (playlist[newIndex]?.isVip && attempts < n) {
+    newIndex =
+      direction === 1
+        ? (newIndex + 1) % n
+        : newIndex === 0
+          ? n - 1
+          : newIndex - 1
+    attempts++
+  }
+
+  if (attempts >= n) return null
+  return newIndex
+}
+
+/**
+ * 进度条 seek：夹到 [0, duration-1]（短于 1s 的曲目用 95%）。
+ */
+export function clampSeekTime(time: number, duration: number): number {
+  let safeTime = Math.max(0, time)
+  if (duration > 0) {
+    const maxSeekTime =
+      duration > 1 ? duration - 1 : Math.max(0, duration * 0.95)
+    safeTime = Math.min(safeTime, maxSeekTime)
+  }
+  return safeTime
+}
+
+/**
  * 高亮搜索关键词
  * @param text 原文本
  * @param query 搜索关键词
@@ -1377,6 +1442,16 @@ export function createPlaybackAudioElement(
   if (typeof document !== 'undefined' && document.body) {
     document.body.appendChild(audio)
   }
+  return audio
+}
+
+/** 预加载用 Audio：不挂 DOM，仅缓冲下一首。 */
+export function createPreloadAudioElement(
+  volume: number = 1,
+): HTMLAudioElement {
+  const audio = new Audio()
+  audio.preload = 'auto'
+  audio.volume = volume
   return audio
 }
 

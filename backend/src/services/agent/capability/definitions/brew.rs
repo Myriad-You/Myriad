@@ -286,7 +286,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "brew.generateReadingList".to_string(),
         name: "生成阅读列表".to_string(),
-        description: "根据用户需求从本地订阅筛选生成阅读列表。本地关键词无匹配时返回诚实空结果与建议，不会自动强制 ai.webSearch；仅当 allowWebSearch=true（或 useWebSearch/webSearch）时才联网补充。".to_string(),
+        description: "根据用户需求从本地订阅筛选生成阅读列表。本地关键词无匹配时返回诚实空结果与建议，不会自动强制 ai.webSearch。联网补充必须同时满足：步骤参数 allowWebSearch=true，以及当前用户已被授予 ai:search。本地路径只需要 brew:read。".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Recommend],
         input_schema: json!({
@@ -299,7 +299,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "maxItems": { "type": "integer", "default": 10, "description": "列表最大文章数" },
                 "sourceName": { "type": "string", "description": "限定特定订阅源" },
                 "daysBack": { "type": "integer", "default": 7, "description": "查看最近多少天的文章" },
-                "allowWebSearch": { "type": "boolean", "default": false, "description": "显式允许本地无结果时联网搜索；默认 false" },
+                "allowWebSearch": { "type": "boolean", "default": false, "description": "显式允许本地无结果时联网搜索；默认 false。真正出站还需要授予权限 ai:search" },
                 "useWebSearch": { "type": "boolean", "description": "同 allowWebSearch" },
                 "webSearch": { "type": "boolean", "description": "同 allowWebSearch" }
             }

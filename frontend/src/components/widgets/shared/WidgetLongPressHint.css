@@ -1,0 +1,62 @@
+.widget-longpress-hint {
+  position: absolute;
+  top: var(--widget-edit-chip-inset, 0.4rem);
+  left: var(--widget-edit-chip-inset, 0.4rem);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--widget-edit-chip-size, 1.55rem);
+  height: var(--widget-edit-chip-size, 1.55rem);
+  border-radius: var(--widget-edit-chip-radius, 0.45rem);
+  background: rgb(0 0 0 / 18%);
+  color: rgb(55 65 81);
+  pointer-events: auto;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+
+}
+
+html.dark .widget-longpress-hint {
+  background: rgb(255 255 255 / 18%);
+  color: rgb(229 231 235);
+}
+
+.widget-longpress-hint__icon {
+  width: var(--widget-edit-chip-icon, 0.9rem);
+  height: var(--widget-edit-chip-icon, 0.9rem);
+  transform-origin: 50% 50%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .widget-longpress-hint__icon {
+    animation: widget-longpress-hint-turn 5.6s ease-in-out infinite;
+  }
+}
+
+@keyframes widget-longpress-hint-turn {
+  0%,
+  62%,
+  100% {
+    transform: rotate(0deg);
+  }
+
+  70% {
+    transform: rotate(28deg);
+  }
+
+  78% {
+    transform: rotate(-12deg);
+  }
+
+  86% {
+    transform: rotate(8deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-longpress-hint__icon {
+    animation: none;
+  }
+}

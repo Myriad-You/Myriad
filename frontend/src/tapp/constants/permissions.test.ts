@@ -46,4 +46,9 @@ describe('permission copy keys', () => {
     assert.equal(PERMISSION_MAP.get('model3d.getUrl'), 'public')
     assert.equal(PERMISSION_MAP.get('model3d.getMetadata'), 'public')
   })
+
+  it('keeps file.download public so generated content can be saved without storage:read', () => {
+    assert.equal(PERMISSION_MAP.get('file.download'), 'public')
+    assert.equal(PERMISSION_MAP.get('storage.get'), 'storage:read')
+  })
 })

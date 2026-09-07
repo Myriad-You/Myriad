@@ -77,6 +77,7 @@ export default function PersonaOnboardingPage({
     unknown
   > | null>(null)
   const [ready, setReady] = useState(false)
+  const [reportCount, setReportCount] = useState(0)
   const [step, setStep] = useState<OnboardingStep>(CHOICE_STEP)
   const [wizardBusy, setWizardBusy] = useState(false)
   const [header, setHeader] = useState<OnboardingHeaderChrome>({
@@ -130,6 +131,9 @@ export default function PersonaOnboardingPage({
         personality.length > 0 ||
         hasStructuredPersona
       setName(name)
+      setReportCount(
+        typeof persona?.reportCount === 'number' ? persona.reportCount : 0,
+      )
       setSavedVisualProfile(persona?.visualProfile ?? null)
       if (saved && (hasStructuredPersona || personality)) {
         setSavedPersona(
@@ -264,6 +268,7 @@ export default function PersonaOnboardingPage({
       initialName={name}
       initialPersona={savedPersona ?? undefined}
       initialVisualProfile={savedVisualProfile}
+      reportCount={reportCount}
       step={step}
       onStepChange={setStep}
       onBusyChange={setWizardBusy}

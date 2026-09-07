@@ -17,11 +17,19 @@ import {
 } from '../anime25drig/playback'
 import { genericParts as GenericParts } from '../anime25drig/upstream/genericParts'
 import { rigger as Rigger } from '../anime25drig/upstream/rigger'
-import { ANIME25D_LAYER_DEPTH } from './anime25d'
 import { validateAnime25DCharacterLayers } from './anime25dAssetValidation'
 import { packAnime25DAtlas } from './anime25dAtlasCompiler'
 import { splitHighCollarOcclusion } from './anime25dCollarCompiler'
 import { compileAnime25DExpressionLayers } from './anime25dExpressionCompiler'
+import {
+  anime25DBaseRole,
+  anime25DLayerAffectsFraming,
+  anime25DLayerGroup,
+  anime25DLayerNameParts,
+  canonicalAnime25DLayerName,
+  isAnime25DRigidAttachment,
+  normalizeAnime25DLayerName,
+} from './anime25dLayerSemantics'
 import { rasterBounds, trimRaster, uniquePartId } from './anime25dRaster'
 import {
   buildAnime25DBonesAndHandles,
@@ -57,52 +65,16 @@ export interface PreparedAnime25DRigImport {
   partCount: number
 }
 
-const SEE_THROUGH_LAYER_ALIASES: Readonly<Record<string, string>> = {
-  hair: 'front-hair',
-  hairf: 'front-hair',
-  hairb: 'back-hair',
-  eyes: 'eyelash',
-  eyer: 'eyelash-r',
-  eyel: 'eyelash-l',
-  browr: 'eyebrow-r',
-  browl: 'eyebrow-l',
-  earr: 'ears-r',
-  earl: 'ears-l',
-  eyebg: 'eyewhite',
-}
-
 const UPPER_BODY_IGNORED_LAYERS = new Set(['legwear', 'footwear'])
-
-export function normalizeAnime25DLayerName(value: string | undefined): string {
-  let name = canonicalAnime25DLayerName(value)
-  if (name === 'eyelash-c') name = 'eye-close'
-  if (name === 'mouth-c') name = 'mouth-close'
-  if (name === 'mouth' || /^mouth-?\d+$/.test(name)) name = 'mouth-open'
-  if (name === 'レイヤー-1') name = 'facedetail'
-  return SEE_THROUGH_LAYER_ALIASES[name] || name
-}
-
-function canonicalAnime25DLayerName(value: string | undefined): string {
-  return (value || '')
-    .normalize('NFKC')
-    .trim()
-    .toLowerCase()
-    .replace(/\s*(?:のコピー|copy)(?:\s*\d+)?$/u, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/-+/g, '-')
-}
-
-export function anime25DBaseRole(
-  normalizedName: string,
-): Anime25DLayerRole | null {
-  const candidate = normalizedName.replace(/-(?:\d+|l|r|left|right)$/, '')
-  return Object.hasOwn(ANIME25D_LAYER_DEPTH, candidate)
-    ? (candidate as Anime25DLayerRole)
-    : null
-}
+export {
+  anime25DBaseRole,
+  normalizeAnime25DLayerName,
+} from './anime25dLayerSemantics'
 
 function anime25DLayerSide(normalizedName: string): EyeSide | null {
-  const suffix = normalizedName.match(/-(l|r|left|right)$/)?.[1]
+  const suffix = anime25DLayerNameParts(normalizedName).suffix.match(
+    /-(l|r|left|right)(?:-|$)/,
+  )?.[1]
   if (suffix === 'l' || suffix === 'left') return 'left'
   if (suffix === 'r' || suffix === 'right') return 'right'
   return null
@@ -255,6 +227,12 @@ function hasStaticSeeThroughMouth(psd: Psd): boolean {
 
 function toRiggerLayerName(value: string | undefined): string {
   let kebab = normalizeAnime25DLayerName(value)
+  // The reference rigger handles face/hair/garment slots. Extra drawings retain
+  // their full source identity instead of losing depth/side fragment suffixes.
+  const role = anime25DBaseRole(kebab)
+  if (isAnime25DRigidAttachment({ role: role ?? 'unknown' })) {
+    return kebab.replace(/-/g, '_')
+  }
   const numbered = kebab.match(/-(\d+)$/)
   const number = numbered?.[1]
   if (number) kebab = kebab.slice(0, -(number.length + 1))
@@ -273,7 +251,9 @@ function flattenPsdForRigger(psd: Psd): Psd {
     .filter((layer) => validPixelData(layer.imageData))
     .filter(
       (layer) =>
-        !UPPER_BODY_IGNORED_LAYERS.has(normalizeAnime25DLayerName(layer.name)),
+        !UPPER_BODY_IGNORED_LAYERS.has(
+          anime25DLayerNameParts(normalizeAnime25DLayerName(layer.name)).base,
+        ),
     )
     .map((layer) => {
       const pixels = layer.imageData
@@ -314,14 +294,19 @@ function rasterFromRiggerPart(
         ? 'right'
         : anime25DLayerSide(kebab)
   const role = anime25DBaseRole(kebab.replace(/-(?:l|r)$/, '')) || 'unknown'
-  const preferred = side ? `${role}-${side}` : kebab.replace(/-(?:l|r)$/, '')
+  const numbered = /-\d+(?:-|$)/.test(anime25DLayerNameParts(kebab).suffix)
+  const preferred = numbered
+    ? kebab
+    : side
+      ? `${role}-${side}`
+      : kebab.replace(/-(?:l|r)$/, '')
   return {
     id: uniquePartId(preferred, usedIds),
     role,
     sourceName: kebab,
     order: usedIds.size,
     side,
-    group: part.group,
+    group: anime25DLayerGroup(role, part.group),
     left: part.x,
     top: part.y,
     width: part.w,
@@ -505,11 +490,8 @@ function contentFrame(
   layers: readonly RasterLayer[],
 ): RigCanvasFrame {
   const documentArea = psd.width * psd.height
-  const framingLayers = layers.filter(
-    (layer) =>
-      layer.role !== 'bottomwear' &&
-      (layer.role !== 'unknown' ||
-        layer.width * layer.height < documentArea * 0.5),
+  const framingLayers = layers.filter((layer) =>
+    anime25DLayerAffectsFraming(layer, documentArea),
   )
   const candidates = framingLayers.length > 0 ? framingLayers : layers
   let left = psd.width

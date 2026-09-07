@@ -140,8 +140,8 @@ pub fn voice_for(platform: &str) -> PlatformVoice {
         "netease" => PlatformVoice {
             role: "你是厌陈词的乐评人。句子可以诗意，判断必须落地。",
             cover: "①代表歌手或曲风 ②语种或地域 ③情绪质地。禁近义堆「感性温柔治愈」。",
-            task: "mood_keywords 三个词禁近义。soul_color 跟曲风。level 看广度深度，不看数量。",
-            visuals: "soul_color（#RRGGBB）；mood_keywords 三项 {tag,color}；level 1-10。",
+            task: "mood_keywords 至少 4 个且禁近义，从曲风/语种/情绪/场景取材。soul_color 跟曲风。level 看广度深度，不看数量。",
+            visuals: "soul_color（#RRGGBB）；mood_keywords 4-6 项 {tag,color}；level 1-10。",
             look: "①recent_songs[].title / artist、artist_analysis.favorite_artists / genre_analysis / artist_count ②artist_analysis.region_distribution ③从曲风推情绪，没有时段字段。",
             omit: &["library_items", "follower_count", "playlist_count"],
             uses_vibe: false,
@@ -193,7 +193,7 @@ pub fn voice_for(platform: &str) -> PlatformVoice {
             visuals: "必须写出（无数据空数组/空串，禁止缺字段）：\
 engagement_level（高互动 / 沉浸观察者 / 脉冲发帖）；\
 signature_topics（有帖或有关注才写 3-6 个，否则 []，各 ≤6 字）；\
-interest_circles（following_sample 有数据才写 2-4 个，否则 []：{\"name\": \"≤6字具体圈层，禁用其他\", \"count\": n, \"accounts\": [最多3个 username]}，账号不重复，按 count 降序）；\
+interest_circles（following_sample 有数据才写 2-4 个不同切面，否则 []：{\"name\": \"≤6字具体圈层，禁用其他\", \"count\": n, \"accounts\": [最多3个 username]}，账号不重复，按 count 降序）；\
 following_highlights（有样本才写 3-5 个，否则 []：{\"username\",\"name\",\"tag\"}，username/name 逐字取自 following_sample）。",
             look: "①engagement_stats（total_posts / total_likes_received / total_retweets_received / total_replies_received / total_impressions）。impressions 为 0 当缺失，禁写成零曝光。没有 liked_posts，禁写点赞习惯。②following_sample[].username / name / description（截断时优先于推文）③top_posts / recent_posts[].text、language_distribution。",
             omit: X_OMIT,
@@ -244,8 +244,8 @@ guild_takes 按 guilds_preview 有几个写几个，最多 8，禁止编服：{\
 /// 报告 prompt 覆盖的平台清单。
 ///
 /// 生产路径不读它；prompts/mod.rs 的 #[cfg(test)] 用它逐平台断言 prompt 完整性，
-/// 加平台时漏改 prompt 会在那里失败。跨文件测试引用，非测试 target 看不到。
-#[allow(dead_code)]
+/// 加平台时漏改 prompt 会在那里失败。
+#[cfg(test)]
 pub const KNOWN_PLATFORMS: &[&str] = &[
     "bilibili", "steam", "github", "youtube", "netease", "bangumi", "mal", "x", "xbox", "psn",
     "discord",

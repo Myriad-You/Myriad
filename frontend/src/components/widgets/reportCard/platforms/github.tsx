@@ -390,32 +390,45 @@ export const GithubWidget = memo(({ data, showOverview, onContentChange }: any) 
         >
           <div className="relative h-full w-full rounded-lg overflow-hidden shadow-lg bg-white dark:bg-black/90">
             <div className="absolute inset-0 bg-linear-to-br from-gray-800 to-gray-900 dark:from-black dark:to-black/90">
-              <div className="absolute inset-0 flex flex-col p-2.5 pb-[20%]">
-                <div className="flex items-center gap-2.5 mb-2">
-                  {currentItem.stars !== undefined && (
-                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-700/50">
-                      <LuStar size={10} className="text-amber-400" />
-                      <span className="text-[10px] font-bold text-gray-100">
-                        {currentItem.stars >= 1000
-                          ? `${(currentItem.stars / 1000).toFixed(1)}k`
-                          : currentItem.stars}
-                      </span>
-                    </div>
-                  )}
-                  {currentItem.forks !== undefined && (
-                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-700/50">
-                      <LuGitFork size={10} className="text-gray-100" />
-                      <span className="text-[10px] font-bold text-gray-100">
-                        {currentItem.forks >= 1000
-                          ? `${(currentItem.forks / 1000).toFixed(1)}k`
-                          : currentItem.forks}
-                      </span>
-                    </div>
-                  )}
-                </div>
+              <div className="absolute inset-0">
                 {currentItem.description && (
-                  <div className="text-[10px] leading-snug text-gray-200 line-clamp-4 px-1">
-                    {currentItem.description}
+                  <div className="p-2.5 pr-3">
+                    <p
+                      className="overflow-hidden text-[11px] font-medium leading-[1.4] break-words text-gray-200"
+                      style={{
+                        display: '-webkit-box',
+                        WebkitBoxOrient: 'vertical',
+                        WebkitLineClamp: 5,
+                        maxHeight: 'calc(1.4em * 5)',
+                      }}
+                    >
+                      {currentItem.description}
+                    </p>
+                  </div>
+                )}
+                {(currentItem.stars !== undefined ||
+                  currentItem.forks !== undefined) && (
+                  <div className="absolute right-1.5 bottom-1.5 z-10 flex h-8 items-center gap-1.5">
+                    {currentItem.stars !== undefined && (
+                      <div className="flex items-center gap-1 rounded bg-gray-700/50 px-1.5 py-0.5">
+                        <LuStar size={11} className="text-amber-400" />
+                        <span className="text-[11px] font-bold text-gray-100">
+                          {currentItem.stars >= 1000
+                            ? `${(currentItem.stars / 1000).toFixed(1)}k`
+                            : currentItem.stars}
+                        </span>
+                      </div>
+                    )}
+                    {currentItem.forks !== undefined && (
+                      <div className="flex items-center gap-1 rounded bg-gray-700/50 px-1.5 py-0.5">
+                        <LuGitFork size={11} className="text-gray-100" />
+                        <span className="text-[11px] font-bold text-gray-100">
+                          {currentItem.forks >= 1000
+                            ? `${(currentItem.forks / 1000).toFixed(1)}k`
+                            : currentItem.forks}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

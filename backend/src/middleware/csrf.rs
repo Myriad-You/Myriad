@@ -278,13 +278,13 @@ fn extract_raw_jwt(headers: &HeaderMap) -> Option<String> {
 ///
 /// 生产路径走 `extract_session_context`；这一对只服务本文件的 #[cfg(test)]，
 /// 它们锁的是「未经验签的 JWT 形状永远不能当 CSRF 凭据」这条不变量。
-#[allow(dead_code)]
+#[cfg(test)]
 fn extract_session_id(headers: &HeaderMap) -> Option<String> {
     let token = extract_raw_jwt(headers)?;
     session_id_from_verified_jwt(&token)
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn session_id_from_verified_jwt(token: &str) -> Option<String> {
     let sig = jwt_signature_segment(token)?;
     verified_session_from_jwt(token).map(|_| sig)

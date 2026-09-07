@@ -1,5 +1,7 @@
+import type { MeropeStateEventDetail } from '../features/merope/performanceEvents'
 import type {
   AppNotification,
+  LiveSpeechEvent,
   NotificationStreamEvent,
 } from '../services/notificationApi'
 /**
@@ -25,6 +27,10 @@ export interface UseNotificationCenterOptions {
   userId?: number
   /** 新通知到达回调（用于轮播展示 / 系统通知 / toast） */
   onNew?: (notification: AppNotification) => void
+  /** On-page persona speech. Must not enter the notification list. */
+  onLiveSpeech?: (speech: LiveSpeechEvent) => void
+  onMeropeState?: (state: MeropeStateEventDetail) => void
+  onMeropeResync?: () => void
   /** 通知面板过滤器；实时与历史使用同一份显示位置策略。 */
   includeInPanel?: (notification: AppNotification) => boolean
 }
@@ -33,12 +39,21 @@ export function useNotificationCenter({
   enabled,
   userId,
   onNew,
+  onLiveSpeech,
+  onMeropeState,
+  onMeropeResync,
   includeInPanel,
 }: UseNotificationCenterOptions) {
   const [items, setItems] = useState<AppNotification[]>([])
   const [loaded, setLoaded] = useState(false)
   const onNewRef = useRef(onNew)
   onNewRef.current = onNew
+  const onLiveSpeechRef = useRef(onLiveSpeech)
+  onLiveSpeechRef.current = onLiveSpeech
+  const onMeropeStateRef = useRef(onMeropeState)
+  onMeropeStateRef.current = onMeropeState
+  const onMeropeResyncRef = useRef(onMeropeResync)
+  onMeropeResyncRef.current = onMeropeResync
   const includeInPanelRef = useRef(includeInPanel)
   includeInPanelRef.current = includeInPanel
   // enabled 镜像：丢弃登出后才到达的历史响应，避免污染下一个用户的状态
@@ -79,8 +94,10 @@ export function useNotificationCenter({
     // 即使两个账号之间 enabled 都是 true，也必须先清掉上一用户的数据并重建连接。
     setItems([])
     setLoaded(false)
+    let active = true
     const close = notificationApi.subscribe(
       (event: NotificationStreamEvent) => {
+        if (!active || !enabledRef.current || userId !== userIdRef.current) return
         if (event.event === 'new_notification') {
           const n = event.notification
           // 账号切换与旧 EventSource cleanup 之间可能有一个极短窗口；再按 payload
@@ -99,20 +116,32 @@ export function useNotificationCenter({
         } else if (event.event === 'notifications_cleared') {
           if (event.user_id !== userIdRef.current) return
           setItems([])
+        } else if (event.event === 'live_speech') {
+          if (event.user_id !== userIdRef.current) return
+          onLiveSpeechRef.current?.(event.speech)
+        } else if (event.event === 'merope_state_changed') {
+          if (event.user_id !== userIdRef.current) return
+          onMeropeStateRef.current?.(event)
         } else if (event.event === 'resync') {
           // broadcast 丢事件后后端发 resync；补拉历史避免漏通知
           void loadHistoryRef.current()
+          onMeropeResyncRef.current?.()
         }
         // init / notification_read：已读动作已从本仓客户端拿掉，忽略。
       },
       {
         // EventSource 闪断重连后补拉，覆盖 resync 之外的丢包窗口
         onReconnect: () => {
+          if (!active || !enabledRef.current || userId !== userIdRef.current) return
           void loadHistoryRef.current()
+          onMeropeResyncRef.current?.()
         },
       },
     )
-    return close
+    return () => {
+      active = false
+      close()
+    }
   }, [enabled, userId])
 
   // 启用即拉取历史：此前列表要等打开通知页才加载，

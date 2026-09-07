@@ -14,6 +14,7 @@ use crate::services::agent::executor::utils::validate_platform_name;
 use crate::services::agent::executor::utils::VALID_PLATFORMS;
 use crate::services::agent::external_pure::first_i64_param;
 use crate::services::brew_parser::FeedParser;
+use crate::services::data_paths::platform_filtered_file;
 use crate::services::tapp_storage::{
     read_storage_value, sandbox_storage_entries, validate_sandbox_storage_key,
     validate_storage_value_size, write_storage_value,
@@ -92,7 +93,7 @@ async fn execute_platform_write(params: &HashMap<String, Value>) -> Result<Value
         }
     }
 
-    let cache_file = format!("cache/platforms/{}_filtered.json", platform);
+    let cache_file = platform_filtered_file(platform);
 
     // 读取现有数据
     let mut data: Value = tokio::fs::read_to_string(&cache_file)

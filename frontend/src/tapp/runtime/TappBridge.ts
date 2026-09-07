@@ -22,6 +22,10 @@ import type {
 } from '../types'
 import { userFacingError } from '../../utils/userFacingError'
 import { getQuotaManager } from '../services/QuotaManager'
+import {
+  PREVIEW_UNAVAILABLE_CODE,
+  previewUnavailableMessage,
+} from '../utils/previewGrants'
 import { TAPP_PACKAGE_PAYLOAD_BYTES } from '../utils/tappPackageLimits'
 import {
   federationLiveLimits,
@@ -29,6 +33,7 @@ import {
   refreshFederationLimits,
 } from './federationLimits'
 import { PERMISSION_MAP } from './permissionConfig'
+import { validateFileDownloadOptions } from './sandbox/fileDownload'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 
 type MessageHandler = (message: TappMessage) => Promise<TappAPIResponse>
@@ -633,23 +638,12 @@ export class TappBridge {
     // tens of MiB, not unbounded. Align with backend where applicable.
     if (msg.payload !== undefined) {
       if (msg.action === 'file.download') {
-        // Align with multi-MB package / attachment downloads (32 MiB).
-        const MAX_FILE_DOWNLOAD_BYTES = 32 * 1024 * 1024
         const args = (msg.payload as { args?: unknown[] }).args
-        const options = args?.[0] as Record<string, unknown> | undefined
-        if (
-          !options ||
-          typeof options.content !== 'string' ||
-          new Blob([options.content]).size > MAX_FILE_DOWNLOAD_BYTES ||
-          typeof options.filename !== 'string' ||
-          options.filename.length > 1024 ||
-          (options.mimeType !== undefined &&
-            (typeof options.mimeType !== 'string' ||
-              options.mimeType.length > 256))
-        ) {
+        const check = validateFileDownloadOptions(args?.[0])
+        if (!check.valid) {
           return {
             valid: false,
-            error: `Invalid or oversized file payload (max ${MAX_FILE_DOWNLOAD_BYTES} bytes)`,
+            error: check.error || 'Invalid or oversized file payload',
           }
         }
       } else if (msg.action === 'federation.uploadMedia') {
@@ -1007,6 +1001,14 @@ export class TappBridge {
     // 查找处理器
     const handler = this.messageHandlers.get(action)
     if (!handler) {
+      if (this.tappInstance?.previewMode) {
+        this.sendResponse(id, {
+          success: false,
+          error: previewUnavailableMessage(action),
+          code: PREVIEW_UNAVAILABLE_CODE,
+        })
+        return
+      }
       this.sendResponse(id, {
         success: false,
         error: `Unknown action: ${action}`,

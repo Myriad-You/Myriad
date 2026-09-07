@@ -1,5 +1,37 @@
 import type { BehaviorQuality } from '../motion/behavior'
 import type { SpeechProsodyPlan } from '../speech/prosody'
+import type { CoSpeechGestureMix } from './behaviorMotion'
+
+/**
+ * How long a spoken accent takes to arrive.
+ *
+ * Both the generator and this controller raise the same beat gesture, and
+ * `Math.max` picks whichever is larger, so the two must agree on its shape.
+ *
+ * A minimum-jerk arrival carries jerk proportional to depth over duration
+ * cubed, so how sharp an accent looks is decided almost entirely by how long
+ * it is given. At 65ms the brow was moving faster than a real one can — a
+ * human eyebrow raise peaks somewhere between 100 and 200ms — and measured
+ * through the whole player, speaking tripled the pitch jerk against standing
+ * idle (23.2 against 6.8) with the brow going from nothing to 24.6.
+ *
+ * Doubling the arrival brings both to 9.6, near the idle floor, and does not
+ * cost the accent anything: its depth is unchanged to four decimals, and the
+ * head actually covers slightly more range without the sharp pulses fighting
+ * each other.
+ *
+ * The head's delay doubles with them. It exists so the brow reads as leading
+ * the beat, and a brow that now takes 130ms to arrive would otherwise still be
+ * on its way up when the nod started.
+ */
+export const SPEECH_ACCENT_BROW_ATTACK = 0.13
+export const SPEECH_ACCENT_HEAD_DELAY = 0.09
+export const SPEECH_ACCENT_HEAD_ATTACK = 0.19
+export const SPEECH_ACCENT_BROW_RELEASE = 0.2
+export const SPEECH_ACCENT_HEAD_RELEASE = 0.22
+/** The text path raises the same gesture from a cue boundary. */
+export const SPEECH_TEXT_ACCENT_ATTACK = 0.11
+export const SPEECH_TEXT_ACCENT_RELEASE = 0.18
 
 export interface CoSpeechExpressionOffset {
   brow: number
@@ -29,6 +61,8 @@ export class CoSpeechExpressionController {
     body: 0,
   }
 
+  private readonly rendered: CoSpeechExpressionOffset = { ...this.output }
+
   private previousEnergy = 0
   private accentStartedAt = Number.NEGATIVE_INFINITY
   private nextAccentAt = 0
@@ -52,10 +86,14 @@ export class CoSpeechExpressionController {
     if (!plan) return
     const ageSeconds = Math.max(0, wallNowMs - plan.startedAtMs) / 1_000
     const origin = playerTimeSeconds - ageSeconds
-    this.plannedAccents = plan.accents.map((accent) => ({
-      at: origin + accent.offsetMs / 1_000,
-      intensity: unitInterval(accent.intensity),
-    }))
+    // Suppression removes the visual beat, not the speech plan. Keep its
+    // duration below so the energy fallback cannot recreate the same nod.
+    this.plannedAccents = plan.accents
+      .filter((accent) => accent.gesture !== 'none')
+      .map((accent) => ({
+        at: origin + accent.offsetMs / 1_000,
+        intensity: unitInterval(accent.intensity),
+      }))
     this.plannedUntil = origin + plan.durationMs / 1_000
     while (
       this.plannedAccentIndex < this.plannedAccents.length &&
@@ -73,6 +111,7 @@ export class CoSpeechExpressionController {
     browAccent: number,
     headAccent: number,
     quality?: Readonly<BehaviorQuality>,
+    gesture?: Readonly<CoSpeechGestureMix>,
   ): Readonly<CoSpeechExpressionOffset> {
     const now = Number.isFinite(timeSeconds) ? Math.max(0, timeSeconds) : 0
     const dt = Number.isFinite(this.lastTime)
@@ -118,10 +157,20 @@ export class CoSpeechExpressionController {
         : 0
     const elapsed = now - this.accentStartedAt
     const authoredBrow = active
-      ? attackReleasePulse(elapsed, 0, 0.065, 0.2) * this.accentIntensity
+      ? attackReleasePulse(
+          elapsed,
+          0,
+          SPEECH_ACCENT_BROW_ATTACK,
+          SPEECH_ACCENT_BROW_RELEASE,
+        ) * this.accentIntensity
       : 0
     const authoredHead = active
-      ? attackReleasePulse(elapsed, 0.045, 0.1, 0.22) * this.accentIntensity
+      ? attackReleasePulse(
+          elapsed,
+          SPEECH_ACCENT_HEAD_DELAY,
+          SPEECH_ACCENT_HEAD_ATTACK,
+          SPEECH_ACCENT_HEAD_RELEASE,
+        ) * this.accentIntensity
       : 0
     const resolvedHeadAccent = Math.max(headAccent, authoredHead)
     const headBeat = unitInterval(resolvedHeadAccent)
@@ -146,7 +195,7 @@ export class CoSpeechExpressionController {
       this.output.angleY = this.targetOffset.angleY
       this.output.angleZ = this.targetOffset.angleZ
       this.output.body = this.targetOffset.body
-      return this.output
+      return this.composeGesture(gesture)
     }
     this.output.brow = stepRelease(
       this.output.brow,
@@ -178,7 +227,66 @@ export class CoSpeechExpressionController {
       dt,
       4.2 * responseScale,
     )
-    return this.output
+    return this.composeGesture(gesture)
+  }
+
+  private composeGesture(
+    gesture?: Readonly<CoSpeechGestureMix>,
+  ): Readonly<CoSpeechExpressionOffset> {
+    const question = gesture?.question ?? 0
+    const contrast = gesture?.contrast ?? 0
+    const laugh = gesture?.laugh ?? 0
+    const pulse = gesture?.laughPulse ?? 0
+    const hesitate = gesture?.hesitate ?? 0
+    const tease = gesture?.tease ?? 0
+    const checkIn = gesture?.['check-in'] ?? 0
+    const generic =
+      1 - Math.min(1, question + contrast + laugh + hesitate + tease + checkIn)
+    // The scheduled envelope already owns arrival/recovery. Do not put these
+    // normalized shares into the generic smoothing history: that leaves a
+    // residual pose when the finished unit's gate returns to its fallback.
+    // Replace the generic beat; articulation still owns the mouth completely.
+    this.rendered.brow =
+      this.output.brow * generic +
+      question * 0.1 +
+      contrast * 0.055 +
+      laugh * 0.035 +
+      hesitate * 0.025 +
+      tease * 0.065 +
+      checkIn * 0.055
+    this.rendered.eyeOpen =
+      this.output.eyeOpen * generic +
+      question * 0.025 -
+      laugh * 0.14 -
+      hesitate * 0.03 -
+      tease * 0.06 +
+      checkIn * 0.025
+    this.rendered.angleY =
+      this.output.angleY * generic -
+      question * 0.085 +
+      contrast * 0.07 +
+      laugh * 0.035 +
+      pulse * 0.09 +
+      hesitate * 0.045 -
+      tease * 0.065 +
+      checkIn * 0.055
+    this.rendered.angleZ =
+      this.output.angleZ * generic +
+      question * 0.19 -
+      contrast * 0.16 +
+      laugh * 0.07 -
+      hesitate * 0.1 +
+      tease * 0.14 +
+      checkIn * 0.035
+    this.rendered.body =
+      this.output.body * generic +
+      question * 0.16 -
+      contrast * 0.28 +
+      pulse * 0.23 -
+      hesitate * 0.1 +
+      tease * 0.18 +
+      checkIn * 0.15
+    return this.rendered
   }
 }
 

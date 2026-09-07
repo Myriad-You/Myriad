@@ -151,7 +151,7 @@ impl TierRouter {
     ///
     /// 供测试断言「注册表里的每个能力都被登记过」——这张表和能力定义是两份互不
     /// 校验的真相，漏登记不会报错，只会静默按兜底值计费。
-    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
+    #[cfg(test)]
     pub fn has_explicit_rule(capability_id: &str) -> bool {
         Self::complexity_rule(capability_id).is_some()
     }

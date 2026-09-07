@@ -70,6 +70,7 @@ export interface AgentPanelFullProps {
   view: AgentPanelFullView
   onView: (view: AgentPanelFullView) => void
   onSubmit: (text: string) => void
+  onWorkOffer: (input: string) => void
   /** 设置那一面没有输入框，操作贴改由这里自己摆 */
   showChrome?: boolean
 }
@@ -144,6 +145,7 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
   view,
   onView,
   onSubmit,
+  onWorkOffer,
   showChrome = false,
 }) => {
   const { t } = useI18n()
@@ -200,6 +202,7 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
                   message={message}
                   onAnswer={dispatchAgentPanelAnswer}
                   onSuggest={onSubmit}
+                  onWorkOffer={onWorkOffer}
                   onZoomImage={setZoomed}
                   onRetry={() => {
                     const index = messages.findIndex(

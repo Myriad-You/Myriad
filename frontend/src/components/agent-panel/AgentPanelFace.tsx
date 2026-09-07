@@ -9,21 +9,36 @@
 import type { CSSProperties } from 'react'
 import type { RigCharacterHandle } from '../../features/merope/rig/RigCharacter'
 import type { MeropeRigManifest } from '../../features/merope/rig/types'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { agentStatusActivity } from '../../features/merope/activity'
 import { isAnime25DPlayback } from '../../features/merope/anime25drig/types'
-import { getSiteFace } from '../../features/merope/api'
+import { getSiteFace, getWardrobeFace } from '../../features/merope/api'
+import { useChatOutfitOverlay } from '../../features/merope/chatOutfitOverlay'
 import {
   FACE_UPDATED_EVENT,
   PERSONA_UPDATED_EVENT,
 } from '../../features/merope/events'
+import { FacePresence } from '../../features/merope/FacePresence'
+import {
+  LIVE_FACE_PLAYBACK_PRIORITY,
+  notifyLiveFaceUnmounted,
+  useLiveFacePlayback,
+} from '../../features/merope/liveFacePlayback'
 import { semanticRigCapabilities } from '../../features/merope/motion/rigStateSummary'
 import { useRigMotionLifecycle } from '../../features/merope/motion/useRigMotionLifecycle'
 import {
   MEROPE_STATE_EVENT,
   meropeStateEventDetail,
+  resolveLoadedMeropeAffect,
 } from '../../features/merope/performanceEvents'
 import {
   loadPublicPersonaName,
@@ -32,8 +47,10 @@ import {
   publicPersonaName,
 } from '../../features/merope/publicName'
 import RigCharacter from '../../features/merope/rig/RigCharacter'
+import { sameLiveFaceRuntime } from '../../features/merope/rig/types'
 import { agentService } from '../../services/agent'
 import { ADDRESSEE_UPDATED_EVENT } from '../agent/meropeVitals'
+import { useAgentPanelMode } from './agentPanelMode'
 import { useAgentStatus } from './agentStatusStore'
 
 const DEFAULT_MOOD = 70
@@ -56,9 +73,16 @@ function portraitStyle(
   } as CSSProperties
 }
 
-export function AgentPanelFace() {
+export function AgentPanelFace({
+  playbackEnabled = true,
+}: {
+  playbackEnabled?: boolean
+}) {
   const { t } = useI18n()
-  const { hasChecked, isAuthenticated } = useAuth()
+  const { hasChecked, isAuthenticated, user } = useAuth()
+  const panelMode = useAgentPanelMode()
+  const overlayOutfitId = useChatOutfitOverlay()
+  const liveOverlayId = panelMode === 'chat' ? overlayOutfitId : null
   const [manifest, setManifest] = useState<MeropeRigManifest | null>(null)
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null)
   const [agentName, setAgentName] = useState(PERSONA_DEFAULT_NAME)
@@ -70,17 +94,34 @@ export function AgentPanelFace() {
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
   const [rigFailed, setRigFailed] = useState(false)
+  const [readyKey, setReadyKey] = useState('')
   const faceRequestRef = useRef(0)
   const rigRef = useRef<RigCharacterHandle>(null)
+  const manifestRef = useRef(manifest)
+  manifestRef.current = manifest
   const capabilities = useMemo(
     () => semanticRigCapabilities(manifest),
     [manifest],
   )
+  const playsLive = useLiveFacePlayback(
+    'agent-panel-face',
+    playbackEnabled,
+    LIVE_FACE_PLAYBACK_PRIORITY.panel,
+  )
   const playableRig = hasPlayableRig(manifest)
-  const motionReady = playableRig && !rigFailed
+  const motionReady = playsLive && playableRig && !rigFailed
   const liveCapabilities = motionReady ? capabilities : []
-  const showCharacter = motionReady || Boolean(portraitUrl)
+  const packageKey = motionReady
+    ? 'live'
+    : !playableRig && portraitUrl
+      ? portraitUrl
+      : ''
+  const wantLive = Boolean(packageKey)
+  const ready = readyKey === packageKey && packageKey !== ''
   const handleRigPlaybackError = useCallback(() => setRigFailed(true), [])
+  useLayoutEffect(() => {
+    if (!motionReady) setReadyKey('')
+  }, [motionReady])
   useRigMotionLifecycle(rigRef, {
     mood,
     arousal,
@@ -92,17 +133,33 @@ export function AgentPanelFace() {
 
   const loadFace = useCallback(() => {
     const request = ++faceRequestRef.current
-    setLoading(true)
     setFailed(false)
-    setRigFailed(false)
-    void getSiteFace()
+    const overlayId = liveOverlayId
+    void (overlayId ? getWardrobeFace(overlayId) : getSiteFace())
+      .then((face) => {
+        if (
+          overlayId &&
+          !face.manifest &&
+          !face.portraitUrl
+        ) {
+          return getSiteFace()
+        }
+        return face
+      })
       .then((face) => {
         if (request !== faceRequestRef.current) return
-        setManifest(face.manifest)
+        setManifest((current) => {
+          if (sameLiveFaceRuntime(current, face.manifest)) return current
+          return face.manifest
+        })
         setPortraitUrl(face.portraitUrl)
+        if (!sameLiveFaceRuntime(manifestRef.current, face.manifest)) {
+          setRigFailed(false)
+        }
       })
       .catch(() => {
         if (request !== faceRequestRef.current) return
+        if (manifestRef.current) return
         setManifest(null)
         setPortraitUrl(null)
         setFailed(true)
@@ -110,7 +167,7 @@ export function AgentPanelFace() {
       .finally(() => {
         if (request === faceRequestRef.current) setLoading(false)
       })
-  }, [])
+  }, [liveOverlayId])
 
   useEffect(() => {
     loadFace()
@@ -141,6 +198,8 @@ export function AgentPanelFace() {
   useEffect(() => {
     if (!hasChecked) return undefined
     let active = true
+    setMood(DEFAULT_MOOD)
+    setArousal(DEFAULT_AROUSAL)
     const applyPublicName = () => {
       void loadPublicPersonaName().then((name) => {
         if (active) setAgentName(name)
@@ -167,17 +226,15 @@ export function AgentPanelFace() {
           }
           setPersonaOn(true)
           setAgentName(publicPersonaName(true, persona.name))
-          setMood(
-            typeof persona.mood === 'number' ? persona.mood : DEFAULT_MOOD,
-          )
-          setArousal(
-            typeof persona.arousal === 'number'
-              ? persona.arousal
-              : DEFAULT_AROUSAL,
-          )
+          const affect = resolveLoadedMeropeAffect(persona)
+          setMood(affect.mood)
+          setArousal(affect.arousal)
         })
         .catch(() => {
-          if (active) setFailed(true)
+          if (!active) return
+          void loadPublicPersonaName().then((name) => {
+            if (active) setAgentName(name)
+          })
         })
     }
     loadPersona()
@@ -188,7 +245,7 @@ export function AgentPanelFace() {
       window.removeEventListener(PERSONA_UPDATED_EVENT, loadPersona)
       window.removeEventListener(ADDRESSEE_UPDATED_EVENT, loadPersona)
     }
-  }, [hasChecked, isAuthenticated])
+  }, [hasChecked, isAuthenticated, user?.id])
 
   const emptyMessage =
     failed || rigFailed
@@ -209,22 +266,35 @@ export function AgentPanelFace() {
       aria-label={`${t.merope.title}: ${agentName}`}
       aria-busy={loading || undefined}
     >
-      {showCharacter ? (
-        <div className="agent-panel-face-rig">
-          <RigCharacter
-            ref={rigRef}
-            activity={activity}
-            fallbackUrl={portraitUrl}
-            manifest={manifest}
-            mood={mood}
-            onPlaybackError={handleRigPlaybackError}
-          />
-        </div>
-      ) : !loading ? (
-        <span className="agent-panel-tag" data-block="true" role="status">
-          <span className="agent-panel-tag-text">{emptyMessage}</span>
-        </span>
-      ) : null}
+      <div className="agent-panel-face-rig">
+        <FacePresence
+          present={wantLive}
+          packageKey={packageKey}
+          ready={ready}
+          onLiveUnmounted={() => notifyLiveFaceUnmounted('agent-panel-face')}
+          vacant={
+            !loading && playbackEnabled ? (
+              <span className="agent-panel-tag" data-block="true" role="status">
+                <span className="agent-panel-tag-text">{emptyMessage}</span>
+              </span>
+            ) : null
+          }
+        >
+          {(mounted) =>
+            mounted ? (
+              <RigCharacter
+                ref={rigRef}
+                activity={activity}
+                fallbackUrl={playableRig ? null : portraitUrl}
+                manifest={playsLive || mounted ? manifest : null}
+                mood={mood}
+                onPlaybackError={handleRigPlaybackError}
+                onPlaybackReady={() => setReadyKey(packageKey)}
+              />
+            ) : null
+          }
+        </FacePresence>
+      </div>
     </div>
   )
 }

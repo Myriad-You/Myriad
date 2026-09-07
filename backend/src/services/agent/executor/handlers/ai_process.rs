@@ -9,12 +9,14 @@ use crate::services::agent::ai_process_pure::{
     append_memory_to_system_prompt, capability_needs_conversation_context, capability_needs_memory,
     extract_semantic_text, inject_directive_to_params, inject_steering_to_params,
     merge_system_prompt, resolve_image_dimensions, resolve_image_prompt, sanitize_prompt_input,
-    take_recent_conversation_messages, with_system_guidance, IMAGE_PROMPT_MAX_CHARS,
-    USER_TEXT_MAX_CHARS,
+    take_recent_conversation_messages, task_image_envelope, task_json_envelope, task_text_envelope,
+    with_system_guidance, IMAGE_PROMPT_MAX_CHARS, USER_TEXT_MAX_CHARS,
 };
 use crate::services::agent::data_read_pure::extract_json_array_from_ai_response;
 use crate::services::agent::external_pure::classify_outbound_fetch;
+use crate::services::data_paths::platform_filtered_file;
 use crate::GLOBAL_DYNAMIC_CONFIG;
+use myriad_agent_rules::untrusted_block;
 use sea_orm::EntityTrait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -136,7 +138,7 @@ pub async fn execute(
         "ai.recommend" => execute_ai_recommend(&params, analyzer).await,
         "ai.chat" => execute_ai_chat(&params, analyzer).await,
         "ai.webSearch" | "ai.groundingSearch" => {
-            execute_gemini_grounding_search_wrapper(&params).await
+            crate::services::agent::web_search::execute_capability(&params).await
         }
         "brewlia.annotate" => execute_brewlia_annotate(&params, analyzer, ctx).await,
         "brewlia.podcast" => execute_brewlia_podcast(&params, analyzer, ctx).await,
@@ -194,6 +196,10 @@ async fn execute_ai_summarize(
     let input_str = extract_semantic_text(&input);
     // 截断过长的输入，避免 token 溢出
     let truncated_input: String = input_str.chars().take(USER_TEXT_MAX_CHARS).collect();
+    // `data` 由 Planner 用 `dataFrom` 从上游步骤接过来，里面可能是 webSearch
+    // 或 scrape 抓回来的正文。产物只是文字不是动作，但仍然不能让正文里的
+    // 祈使句改写「总结」这件事本身。
+    let truncated_input = untrusted_block("input", &truncated_input);
     let focus = params
         .get("focus")
         .and_then(|v| v.as_str())
@@ -221,10 +227,10 @@ async fn execute_ai_summarize(
         "AI generation failed".to_string()
     })?;
 
-    Ok(json!({
+    Ok(task_json_envelope(json!({
         "summary": result,
         "style": style
-    }))
+    })))
 }
 
 async fn execute_ai_analyze(
@@ -241,6 +247,8 @@ async fn execute_ai_analyze(
     // 智能提取输入数据的文本内容，避免把原始 JSON 数组丢给 AI
     let input_text = extract_semantic_text(&input);
     let truncated_input: String = input_text.chars().take(USER_TEXT_MAX_CHARS).collect();
+    // 同 `execute_summarize`：`data` 是上游输出，来源不可信。
+    let truncated_input = untrusted_block("data", &truncated_input);
 
     // 当 Planner 提供了具体 instruction 时，instruction 是主要驱动指令，
     // 数据分析模板仅作为无 instruction 时的 fallback。
@@ -306,10 +314,10 @@ async fn execute_ai_analyze(
         "AI generation failed".to_string()
     })?;
 
-    Ok(json!({
+    Ok(task_json_envelope(json!({
         "analysis": result,
         "type": analysis_type
-    }))
+    })))
 }
 
 async fn execute_ai_recommend(
@@ -362,10 +370,10 @@ async fn execute_ai_recommend(
         }
     };
 
-    Ok(json!({
+    Ok(task_json_envelope(json!({
         "recommendations": recommendations,
         "count": count
-    }))
+    })))
 }
 
 async fn execute_ai_chat(
@@ -413,203 +421,11 @@ async fn execute_ai_chat(
         "AI generation failed".to_string()
     })?;
 
-    Ok(json!({
-        "reply": result
-    }))
-}
-
-/// Gemini Grounding Search 包装器
-async fn execute_gemini_grounding_search_wrapper(
-    params: &HashMap<String, Value>,
-) -> Result<Value, String> {
-    let query = params
-        .get("query")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing query parameter")?;
-
-    let search_type = params
-        .get("searchType")
-        .and_then(|v| v.as_str())
-        .unwrap_or("general");
-
-    let max_results = params
-        .get("maxResults")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(5) as usize;
-
-    let (ai_text, results) =
-        execute_gemini_grounding_search(query, search_type, max_results).await?;
-
-    Ok(json!({
-        "success": true,
-        "query": query,
-        "searchType": search_type,
-        "aiSummary": ai_text,
-        "results": results,
-        "totalResults": results.len()
-    }))
+    Ok(task_text_envelope(result))
 }
 
 /// 验证平台名称白名单，防止路径穿越
 use crate::services::agent::executor::utils::validate_platform_name;
-
-/// 使用 Gemini Grounding (Google Search) 进行联网搜索
-async fn execute_gemini_grounding_search(
-    query: &str,
-    search_type: &str,
-    max_results: usize,
-) -> Result<(String, Vec<Value>), String> {
-    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let (api_key, model) = config
-        .resolve_gemini_grounding()
-        .ok_or(crate::services::agent::response_agent::api_key_not_configured("Gemini"))?;
-    drop(config);
-
-    // 清洗用户输入，防止 Prompt Injection
-    let safe_query = sanitize_prompt_input(query);
-
-    // 构建搜索提示词
-    let search_prompt = match search_type {
-        "rss_source" => format!(
-            "搜索「{}」的 RSS 或 Atom 订阅源地址。\n\
-            要求：\n\
-            1. 返回可直接访问的 RSS/Atom feed URL\n\
-            2. 优先返回官方 RSS 源\n\
-            3. 也可以返回 RSSHub (rsshub.app) 提供的路由\n\
-            4. 最多返回 {} 个结果\n\n\
-            请以 JSON 数组格式返回，每个元素包含：\n\
-            - name: 源名称\n\
-            - url: RSS/Atom feed URL\n\
-            - description: 简要说明\n\
-            - source: 来源（official/rsshub/third-party）",
-            safe_query, max_results
-        ),
-        "api_docs" => format!(
-            "搜索「{}」的官方 API 文档链接。最多返回 {} 个结果。\n\
-            以 JSON 数组格式返回，每个元素包含：name, url, description",
-            safe_query, max_results
-        ),
-        _ => format!(
-            "搜索关于「{}」的信息，最多返回 {} 个相关结果。\n\
-            以 JSON 数组格式返回结果。",
-            safe_query, max_results
-        ),
-    };
-
-    // 构建 Gemini API 请求（带 Google Search grounding）
-    let request_body = json!({
-        "contents": [{
-            "parts": [{
-                "text": search_prompt
-            }]
-        }],
-        "tools": [{
-            "google_search": {}
-        }],
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 2048
-        }
-    });
-
-    let url = crate::services::http_client::GeminiApiUrl::generate_content_url(&model).await;
-
-    let client = crate::services::http_client::get_gemini_grounding_client().await;
-
-    tracing::info!(
-        "Calling Gemini Grounding Search for query length={}",
-        safe_query.len()
-    );
-
-    let response = client
-        .post(&url)
-        .header("Content-Type", "application/json")
-        .header("x-goog-api-key", &api_key)
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Gemini API request failed");
-            "AI generation failed".to_string()
-        })?;
-
-    const GEMINI_MAX_BODY: usize = 2 * 1024 * 1024;
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_bytes =
-            crate::services::outbound_security::read_limited_body(response, 64 * 1024)
-                .await
-                .unwrap_or_default();
-        let error_text = String::from_utf8_lossy(&error_bytes);
-        tracing::error!(status = %status, body = %error_text, "Gemini API error");
-        return Err("AI generation failed".to_string());
-    }
-
-    let body_bytes =
-        crate::services::outbound_security::read_limited_body(response, GEMINI_MAX_BODY)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Failed to read Gemini response");
-                "AI generation failed".to_string()
-            })?;
-    let response_json: Value = serde_json::from_slice(&body_bytes).map_err(|e| {
-        tracing::error!(error = %e, "Failed to parse Gemini response");
-        "AI generation failed".to_string()
-    })?;
-
-    // 提取 AI 回复内容
-    let ai_text = response_json
-        .get("candidates")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("content"))
-        .and_then(|c| c.get("parts"))
-        .and_then(|p| p.get(0))
-        .and_then(|p| p.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap_or("");
-
-    // 尝试从回复中提取 JSON 数组
-    let mut results = extract_json_array_from_ai_response(ai_text);
-
-    // 提取 grounding 元数据中的搜索结果
-    if let Some(grounding_metadata) = response_json
-        .get("candidates")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("groundingMetadata"))
-    {
-        if let Some(chunks) = grounding_metadata
-            .get("groundingChunks")
-            .and_then(|c| c.as_array())
-        {
-            for chunk in chunks {
-                if let Some(web) = chunk.get("web") {
-                    let uri = web.get("uri").and_then(|u| u.as_str()).unwrap_or("");
-                    let title = web.get("title").and_then(|t| t.as_str()).unwrap_or("");
-
-                    if results.is_empty() && !uri.is_empty() {
-                        results.push(json!({
-                            "name": title,
-                            "url": uri,
-                            "description": format!("来源: {}", title),
-                            "source": "google_search"
-                        }));
-                    }
-                }
-            }
-        }
-    }
-
-    // 如果仍然没有结果，返回 AI 的文本回复作为单个结果
-    if results.is_empty() && !ai_text.is_empty() {
-        results.push(json!({
-            "name": "AI 搜索结果",
-            "description": ai_text,
-            "source": "gemini_grounding"
-        }));
-    }
-
-    Ok((ai_text.to_string(), results))
-}
 
 // Brewlia 能力
 
@@ -865,7 +681,7 @@ async fn execute_smart_filter(
     // 白名单校验，防止路径穿越
     let platform = validate_platform_name(platform_raw)?;
 
-    let filtered_file = format!("cache/platforms/{}_filtered.json", platform);
+    let filtered_file = platform_filtered_file(platform);
 
     if let Ok(content) = tokio::fs::read_to_string(&filtered_file).await {
         if let Ok(data) = serde_json::from_str::<Value>(&content) {
@@ -878,7 +694,7 @@ async fn execute_smart_filter(
         }
     }
 
-    let raw_file = format!("cache/raw/{}.json", platform); // platform 已经过白名单校验
+    let raw_file = crate::services::data_paths::platform_raw_file(platform); // platform 已经过白名单校验
     if let Ok(content) = tokio::fs::read_to_string(&raw_file).await {
         if let Ok(raw_data) = serde_json::from_str::<Value>(&content) {
             let raw_str = serde_json::to_string_pretty(&raw_data).unwrap_or_default();
@@ -931,7 +747,7 @@ async fn execute_compare_content(
     let start_date = params.get("startDate").and_then(|v| v.as_str());
     let end_date = params.get("endDate").and_then(|v| v.as_str());
 
-    let cache_file = format!("cache/platforms/{}_filtered.json", platform);
+    let cache_file = platform_filtered_file(platform);
 
     if let Ok(content) = tokio::fs::read_to_string(&cache_file).await {
         if let Ok(data) = serde_json::from_str::<Value>(&content) {
@@ -1194,11 +1010,9 @@ async fn execute_ai_image(params: &HashMap<String, Value>) -> Result<Value, Stri
         .await
         .map_err(|error| error.to_string())?;
 
-    Ok(json!({
-        "imageUrl": image_url,
-        "width": generated.width,
-        "height": generated.height,
-        "provider": config.provider,
-        "prompt": prompt,
-    }))
+    Ok(task_image_envelope(
+        &image_url,
+        generated.width,
+        generated.height,
+    ))
 }

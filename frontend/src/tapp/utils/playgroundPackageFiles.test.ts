@@ -198,4 +198,17 @@ describe('playgroundCodeToRuntime', () => {
     assert.equal(runtime.widgetEntries, undefined)
     assert.deepEqual(Object.keys(runtime.modules), ['core.js'])
   })
+
+  it('compiles Tailwind utilities used in preview HTML', () => {
+    const runtime = playgroundCodeToRuntime(
+      {},
+      {
+        core: '',
+        page: '',
+        styles: '',
+        pageHtml: '<div class="flex gap-2 rounded-xl">Hi</div>',
+      },
+    )
+    assert.match(runtime.pageCSS || '', /display:\s*flex/)
+  })
 })

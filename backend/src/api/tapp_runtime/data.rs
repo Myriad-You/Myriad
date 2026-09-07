@@ -57,7 +57,13 @@ pub enum DataOutput {
 fn transform_http_error(err: DataTransformError) -> (StatusCode, Json<Value>) {
     let status =
         StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (status, Json(json!({ "error": err.message() })))
+    (
+        status,
+        Json(json!({
+            "error": err.message(),
+            "code": err.code(),
+        })),
+    )
 }
 
 fn storage_http_error(err: TappStorageError) -> (StatusCode, Json<Value>) {

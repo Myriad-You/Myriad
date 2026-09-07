@@ -55,6 +55,8 @@ describe('generateWidgetSDK permission trim', () => {
   it('keeps namespace shape with denied stubs when permissions are empty', () => {
     const sdk = generateWidgetSDK(makeInstance([]), 'tok')
     assert.match(sdk, /storage:\s*\{/)
+    assert.match(sdk, /onChanged: function\(cb\) \{ return addEventListener\('settingsChanged'/)
+    assert.match(sdk, /msg\.action === 'settingsChanged'/)
     assert.match(sdk, /lifecycle:\s*\{/)
     assert.match(sdk, /sendRequest\('persona'/)
     // Shape preserved for DX; heavy sendRequest bodies omitted
@@ -64,6 +66,14 @@ describe('generateWidgetSDK permission trim', () => {
     assert.match(sdk, /\banalytics:\s*\{/)
     assert.match(sdk, /_denied\(/)
     assert.match(sdk, /Missing permission/)
+    assert.match(
+      sdk,
+      /ai:generate, ai:analyze, ai:chat, ai:image, ai:search/,
+    )
+    assert.doesNotMatch(
+      sdk,
+      /create: _denied\('ai:generate'\)/,
+    )
     // Full AI subscribe / media sendRequest plumbing should not be present without perms
     assert.doesNotMatch(sdk, /sendRequest\('ai'/)
     assert.doesNotMatch(sdk, /sendRequest\('media'/)

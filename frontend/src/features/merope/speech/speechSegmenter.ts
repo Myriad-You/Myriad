@@ -1,3 +1,4 @@
+import type { MeropeSpeechSource } from '../speechEvents'
 import { getDefaultLocale } from '../../../i18n'
 import { speakableText } from './speakableText'
 
@@ -9,6 +10,7 @@ export interface SpeechSegment {
   text: string
   messageId: string
   generation: number
+  source?: MeropeSpeechSource
   interrupt: SpeechInterruptMode
   /**
    * UI language at the time the reply was written. Han characters alone cannot
@@ -34,13 +36,21 @@ export class SpeechSegmenter {
   private readonly generation: number
   private readonly locale: string
 
-  constructor(messageId: string, generation = 0, locale = getDefaultLocale()) {
+  constructor(
+    messageId: string,
+    generation = 0,
+    locale = getDefaultLocale(),
+    private readonly source: MeropeSpeechSource = 'reply',
+  ) {
     this.messageId = messageId
     this.generation = generation
     this.locale = locale
   }
 
-  push(token: string, interrupt: SpeechInterruptMode = 'queue'): SpeechSegment[] {
+  push(
+    token: string,
+    interrupt: SpeechInterruptMode = 'queue',
+  ): SpeechSegment[] {
     this.raw += token
     return this.flush(false, interrupt)
   }
@@ -49,8 +59,13 @@ export class SpeechSegmenter {
     return this.flush(true, interrupt)
   }
 
-  private flush(force: boolean, interrupt: SpeechInterruptMode): SpeechSegment[] {
-    const spoken = speakableText(this.raw.slice(0, stableRawEnd(this.raw, force)))
+  private flush(
+    force: boolean,
+    interrupt: SpeechInterruptMode,
+  ): SpeechSegment[] {
+    const spoken = speakableText(
+      this.raw.slice(0, stableRawEnd(this.raw, force)),
+    )
     const sealed = force || blockFenceOpen(this.raw)
     while (
       this.spokenOffset < spoken.length &&
@@ -77,6 +92,7 @@ export class SpeechSegmenter {
       text,
       messageId: this.messageId,
       generation: this.generation,
+      source: this.source,
       interrupt,
       ...(this.locale ? { locale: this.locale } : {}),
     }

@@ -1,0 +1,252 @@
+/**
+ * Brew 阅读器 GitHub 仓库卡 — 跟设置里 CheckboxCard / GitHubProjectBadge 同一套
+ * 微透表面、标题主 / 说明次 / 计数徽章。不吃设置页 --cfg 字色，跟阅读器正文走。
+ */
+
+.brew-github-repo {
+  max-width: 24rem;
+}
+
+.brew-github-card,
+.brew-github-card:link,
+.brew-github-card:visited,
+.brew-github-card:hover,
+.brew-github-card:active,
+.brew-github-card:focus {
+  color: inherit;
+  text-decoration: none;
+}
+
+.brew-github-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, currentColor 10%, transparent);
+  box-sizing: border-box;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.brew-github-card:hover {
+  border-color: color-mix(in srgb, currentColor 18%, transparent);
+  background: color-mix(in srgb, currentColor 9%, transparent);
+}
+
+.brew-github-card:focus-visible {
+  outline: 2px solid color-mix(in srgb, currentColor 28%, transparent);
+  outline-offset: 2px;
+}
+
+.brew-github-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.brew-github-card-avatar {
+  display: block;
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-top: 0.08rem;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.brew-github-card-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.brew-github-card-text {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.12rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.brew-github-card-title {
+  min-width: 0;
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.brew-github-card-owner {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: color-mix(in srgb, currentColor 48%, transparent);
+}
+
+.brew-github-card-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.16rem;
+  flex: 0 0 auto;
+  margin-left: 0.15rem;
+  padding: 0.12rem 0.42rem 0.12rem 0.34rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  font-size: 0.75rem;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: color-mix(in srgb, currentColor 78%, transparent);
+}
+
+.brew-github-card-stars svg {
+  width: 0.72rem;
+  height: 0.72rem;
+  display: block;
+  opacity: 0.85;
+}
+
+.brew-github-repo:not([data-loaded='true']) .brew-github-card-stars,
+.brew-github-card:not([data-loaded='true']) .brew-github-card-stars {
+  visibility: hidden;
+}
+
+.brew-github-card-desc {
+  margin: 0;
+  padding-right: 1.35rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.4;
+  color: color-mix(in srgb, currentColor 68%, transparent);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.brew-github-card-desc:empty {
+  display: none;
+}
+
+.brew-github-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding-right: 1.35rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: color-mix(in srgb, currentColor 48%, transparent);
+}
+
+.brew-github-card-mark {
+  position: absolute;
+  right: 0.7rem;
+  bottom: 0.62rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: inherit;
+  opacity: 0.28;
+  pointer-events: none;
+  line-height: 0;
+}
+
+.brew-github-card-mark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.brew-github-repo:not([data-loaded='true']) .brew-github-card-meta,
+.brew-github-card:not([data-loaded='true']) .brew-github-card-meta {
+  display: none;
+}
+
+.brew-github-card-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.brew-github-card-meta svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  display: block;
+  opacity: 0.8;
+}
+
+.brew-embed-lang-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 28%, transparent);
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brew-github-card {
+    transition: none;
+  }
+}
+
+/* 后文重复仓库：尺寸跟完整卡标题一样，只把颜色/字重收淡 */
+[data-brew-reader] a.brew-github-chip {
+  margin: 0 0.12em;
+  padding: 0.18rem 0.5rem 0.18rem 0.42rem;
+  gap: 0.28rem;
+  vertical-align: -0.2em;
+  max-width: min(100%, 18rem);
+  border-color: color-mix(in srgb, currentColor 14%, transparent);
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  box-shadow: none;
+  color: color-mix(in srgb, currentColor 72%, transparent);
+  font-size: 0.9375rem;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  transform: none;
+}
+
+[data-brew-reader] a.brew-github-chip:hover {
+  border-color: color-mix(in srgb, currentColor 22%, transparent);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+  transform: none;
+}
+
+[data-brew-reader] a.brew-github-chip:active {
+  transform: none;
+}
+
+[data-brew-reader] a.brew-github-chip .github-project-badge-mark {
+  opacity: 1;
+}
+
+[data-brew-reader] a.brew-github-chip .brew-github-chip-avatar {
+  width: 1.15rem;
+  height: 1.15rem;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+[data-brew-reader] a.brew-github-chip .brew-github-chip-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

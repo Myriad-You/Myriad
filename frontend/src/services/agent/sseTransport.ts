@@ -18,10 +18,13 @@ import { currentCopy } from '../../i18n/localeCopy'
 import { clearCSRFToken, getCSRFToken } from '../../utils/csrf'
 import { isUselessErrorText } from '../../utils/userFacingError'
 import { ApiError, parseApiErrorBody } from '../api'
+import { messageFromStepOutput } from './taskEnvelope'
 import {
   acceptRunSequence,
   STREAM_SUPERSEDED_MESSAGE,
 } from './turnIdentity'
+
+export { messageFromStepOutput }
 
 export function agentHttpFailure(status: number, text: string): ApiError {
   let parsed: unknown = text
@@ -421,14 +424,8 @@ function buildPolledResponse(task: TaskDetail): AgentResponse {
   const data =
     stepResults.filter((result) => result.success).at(-1)?.output ??
     task.results
-  const dataObject =
-    data && typeof data === 'object'
-      ? (data as Record<string, unknown>)
-      : undefined
   const message =
-    ['message', 'reply', 'summary', 'analysis']
-      .map((key) => dataObject?.[key])
-      .find((value): value is string => typeof value === 'string') ??
+    messageFromStepOutput(data) ??
     (task.status === 'completed'
       ? 'Task completed'
       : task.status === 'waiting_for_input'
@@ -452,6 +449,7 @@ function buildPolledResponse(task: TaskDetail): AgentResponse {
       status: task.status as TaskInfo['status'],
       progress: task.progress,
       pendingQuestion: task.pendingQuestion,
+      ...(task.stepHistory?.length ? { stepHistory: task.stepHistory } : {}),
     },
   }
 }

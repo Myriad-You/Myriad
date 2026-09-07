@@ -43,9 +43,9 @@ use crate::services::permission_service::UserRole;
 use crate::services::tapp_install::{
     archive_upload_too_large_message, archive_upload_would_exceed, build_new_install_persist,
     build_update_install_persist, classify_install_multipart_field, install_overloaded_message,
-    install_overloaded_status, is_public_installation_namespace, map_direct_css_channels,
-    parse_install_source, select_install_approved_permissions, select_update_approved_permissions,
-    InstallMultipartField, InstallSource, INSTALL_ACQUIRE_TIMEOUT_SECS, MAX_CONCURRENT_INSTALLS,
+    install_overloaded_status, is_public_installation_namespace, parse_install_source,
+    select_install_approved_permissions, select_update_approved_permissions, InstallMultipartField,
+    InstallSource, INSTALL_ACQUIRE_TIMEOUT_SECS, MAX_CONCURRENT_INSTALLS,
 };
 
 /// Global install concurrency gate (MYR-025). Bounds simultaneous archive
@@ -167,9 +167,12 @@ pub(super) async fn install_tapp(
         permissions,
     } = req;
 
-    let (package, from_store) = match parse_install_source(&source)
-        .map_err(|err| api_http_error(StatusCode::BAD_REQUEST, err.message()))?
-    {
+    let (package, from_store) = match parse_install_source(&source).map_err(|err| {
+        api_http_error(
+            StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::BAD_REQUEST),
+            err.message(),
+        )
+    })? {
         InstallSource::Direct => {
             let manifest = request_manifest.ok_or_else(|| {
                 api_http_error(
@@ -683,9 +686,12 @@ pub(super) async fn update_tapp(
         .map_err(|_| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error"))?
         .ok_or_else(|| api_http_error(StatusCode::NOT_FOUND, "Tapp not installed"))?;
 
-    let (package, from_store) = match parse_install_source(&source)
-        .map_err(|err| api_http_error(StatusCode::BAD_REQUEST, err.message()))?
-    {
+    let (package, from_store) = match parse_install_source(&source).map_err(|err| {
+        api_http_error(
+            StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::BAD_REQUEST),
+            err.message(),
+        )
+    })? {
         InstallSource::Direct => {
             let manifest = req_manifest.ok_or_else(|| {
                 api_http_error(

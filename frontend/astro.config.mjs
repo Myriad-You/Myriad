@@ -6,6 +6,11 @@ import { fileURLToPath } from 'node:url'
 import react from '@astrojs/react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, fontProviders } from 'astro/config'
+import {
+  AI_IMAGE_REQUEST_TIMEOUT_MS,
+  AI_REQUEST_TIMEOUT_FLOOR_MS,
+  aiRequestTimeoutMs,
+} from './src/utils/aiRequestTimeout.mjs'
 // rollup-plugin-visualizer 与 Vite 7 (Rolldown) 不兼容，仅在构建时按需加载
 // import { visualizer } from 'rollup-plugin-visualizer'
 
@@ -15,7 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 )
-const APP_VERSION = pkg.version || '0.4.1'
+const APP_VERSION = pkg.version || '0.4.8'
 
 /**
  * 自定义 Vite 插件：SPA 路由回退
@@ -25,6 +30,30 @@ const APP_VERSION = pkg.version || '0.4.1'
 /** Align with proxy/backend: document-level geolocation for weather. */
 const DOCUMENT_PERMISSIONS_POLICY =
   'geolocation=(self), microphone=(self), camera=()'
+
+/**
+ * Dev source maps double every module (original source as base64). On a
+ * 1200-file SPA plus icon barrels that is tens of MB of V8 script source,
+ * and HMR keeps the old copies. Production builds still emit maps as usual.
+ */
+function stripDevSourcemapsPlugin() {
+  return {
+    name: 'strip-dev-sourcemaps',
+    apply: 'serve',
+    enforce: 'post',
+    transform(code, id) {
+      const path = id.split('?')[0]
+      if (
+        path.endsWith('.css') ||
+        path.endsWith('.scss') ||
+        path.endsWith('.less')
+      ) {
+        return null
+      }
+      return { code, map: null }
+    },
+  }
+}
 
 function spaFallbackPlugin() {
   return {
@@ -86,12 +115,9 @@ const BACKEND_TARGET = 'http://127.0.0.1:1103'
 const PLAYGROUND_PROXY_TIMEOUT_MS = 30 * 60 * 1000
 // Federation file-meta downloads / chunk uploads can exceed the default 30s.
 const FEDERATION_TRANSFER_PROXY_TIMEOUT_MS = 10 * 60 * 1000
-// Merope portrait + Agent persona onboarding (Pro distill / name / draft /
-// visual design). Backend Pro and image-generation sockets stay idle until the
-// model returns. Default 30s proxy timeout surfaces as "Backend proxy timeout".
-const MEROPE_PROXY_TIMEOUT_MS = 15 * 60 * 1000
-// Non-stream /api/agent/process: client waits 120s. Proxy must not die at 30s.
-const AGENT_PROCESS_PROXY_TIMEOUT_MS = 3 * 60 * 1000
+// Keep names for tests; values live in aiRequestTimeout.mjs.
+const MEROPE_PROXY_TIMEOUT_MS = AI_IMAGE_REQUEST_TIMEOUT_MS
+const AGENT_PROCESS_PROXY_TIMEOUT_MS = AI_REQUEST_TIMEOUT_FLOOR_MS
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -124,25 +150,6 @@ function requestPathname(urlPath) {
 function isFederationTransferContentPath(urlPath) {
   const path = requestPathname(urlPath)
   return /^\/api\/federation\/transfers\/[^/]+\/content$/.test(path)
-}
-
-function isMeropeApiPath(urlPath) {
-  return requestPathname(urlPath).startsWith('/api/merope/')
-}
-
-function isAgentPersonaGenerationPath(urlPath) {
-  // Subpaths are Pro distill jobs (signals / draft / import / name / visual-design).
-  // `/api/agent/persona` itself is GET/PUT/DELETE of the saved record — keep 30s.
-  return requestPathname(urlPath).startsWith('/api/agent/persona/')
-}
-
-function isModel3dLongPath(urlPath) {
-  // Successful task GET also downloads and validates the provider GLB.
-  return requestPathname(urlPath).startsWith('/api/model3d/tasks')
-}
-
-function isAgentProcessPath(urlPath) {
-  return requestPathname(urlPath) === '/api/agent/process'
 }
 
 /**
@@ -372,10 +379,41 @@ function isSeoCrawlerUserAgent(ua) {
     'claudebot',
     'storebot-google',
     'google-inspectiontool',
+    'google-site-verification',
     'preview',
+    'qq-url-preview',
+    'dingtalkbot',
   ]
   if (markers.some((m) => s.includes(m))) return true
   return s.includes('bot/') || s.includes('spider') || s.includes('crawler')
+}
+
+/** WeChat / Weibo / WeCom in-app browsers that also fetch share previews. */
+function isInappShareUserAgent(ua) {
+  const s = String(ua || '').toLowerCase()
+  return (
+    s.includes('micromessenger') ||
+    s.includes('windowswechat') ||
+    s.includes('wxwork') ||
+    s.includes('weibo')
+  )
+}
+
+function hasSpaBypass(urlPath) {
+  const raw = String(urlPath || '')
+  try {
+    const url =
+      raw.startsWith('http://') || raw.startsWith('https://')
+        ? new URL(raw)
+        : new URL(raw, 'http://dev.invalid')
+    return url.searchParams.get('_spa') === '1'
+  } catch {
+    return /(?:^|[?&])_spa=1(?:&|$)/.test(raw)
+  }
+}
+
+function wantsSeoHtmlShell(userAgent) {
+  return isSeoCrawlerUserAgent(userAgent) || isInappShareUserAgent(userAgent)
 }
 
 /**
@@ -388,15 +426,20 @@ function isBackendDevProxyPath(urlPath, userAgent) {
     path.startsWith('/api/') ||
     path === '/health' ||
     path === '/sitemap.xml' ||
-    path === '/robots.txt'
+    path === '/robots.txt' ||
+    path === '/llms.txt'
   ) {
     return true
   }
   // Crawler HTML shells (humans stay on SPA)
-  if (path.startsWith('/tapp/run/') && isSeoCrawlerUserAgent(userAgent)) {
-    return true
-  }
-  if (path.startsWith('/brew/item/') && isSeoCrawlerUserAgent(userAgent)) {
+  const seoShellExact = new Set(['/', '/tapp', '/brew', '/library', '/reports'])
+  if (
+    (seoShellExact.has(path) ||
+      path.startsWith('/tapp/run/') ||
+      path.startsWith('/brew/item/')) &&
+    wantsSeoHtmlShell(userAgent) &&
+    !hasSpaBypass(urlPath)
+  ) {
     return true
   }
   return (
@@ -460,20 +503,15 @@ function backendDevProxyPlugin() {
           const body = hasBody ? await readRequestBody(req) : undefined
           const retryable = method === 'GET' || method === 'HEAD'
           const requestPath = requestPathname(originalUrl)
+          const aiTimeoutMs = aiRequestTimeoutMs(requestPath)
           const timeoutMs = requestPath.startsWith('/api/tapp-playground/')
             ? PLAYGROUND_PROXY_TIMEOUT_MS
             : isFederationTransferApiPath(originalUrl) ||
                 isFederationTransferContentPath(originalUrl)
               ? FEDERATION_TRANSFER_PROXY_TIMEOUT_MS
-              : isMeropeApiPath(originalUrl) ||
-                  isAgentPersonaGenerationPath(originalUrl) ||
-                  isModel3dLongPath(originalUrl)
-                ? MEROPE_PROXY_TIMEOUT_MS
-                : isAgentSsePath(originalUrl)
-                  ? PLAYGROUND_PROXY_TIMEOUT_MS
-                  : isAgentProcessPath(originalUrl)
-                    ? AGENT_PROCESS_PROXY_TIMEOUT_MS
-                    : 30000
+              : isAgentSsePath(originalUrl)
+                ? PLAYGROUND_PROXY_TIMEOUT_MS
+                : aiTimeoutMs ?? 30000
           // SSE and large transfer downloads must be piped. Buffering a multi-MB
           // GET /transfers/{id}/content (or a long-lived EventSource) hits the
           // ordinary timeout / memory path and turns a healthy stream into 502.
@@ -816,15 +854,31 @@ export default defineConfig({
   ],
   // SPA 模式：所有路由都重定向到 index.html
   trailingSlash: 'never',
+  // 本仓库的代码高亮在 React 侧走 Prism，不走 Astro Markdown / Shiki。
+  // 关掉默认 highlighter，避免 dev overlay 以外的路径再去动态 import('shiki/wasm')。
+  markdown: {
+    syntaxHighlight: false,
+  },
   vite: {
     define: {
       __APP_VERSION__: JSON.stringify(APP_VERSION),
     },
+    css: {
+      // Inline CSS maps are not needed for dest HMR and inflate the transform cache.
+      devSourcemap: false,
+    },
     optimizeDeps: {
-      // Pre-bundle deps used by lazy routes (Tapp detail / playground).
-      // Discovering them mid-session triggers "504 Outdated Optimize Dep" and
-      // breaks React.lazy chunks like TappDetailView until a full hard reload.
+      // Don't block first-paint on the full crawl. Default true waits for every
+      // discovered dep; Agora ESM's ua-parser-js default-import then held
+      // react.js forever and the PageLoader never dismissed.
+      holdUntilCrawlEnd: false,
+      // Mid-session discovery rewrites the dep browserHash. Vite then 504s
+      // the old hash, and Astro's island retry of App.tsx dies with
+      // "Outdated Optimize Dep" instead of a clean full reload.
+      noDiscovery: true,
       include: [
+        'axios',
+        'isomorphic-dompurify',
         'jszip',
         'prismjs',
         'prismjs/components/prism-json',
@@ -832,17 +886,59 @@ export default defineConfig({
         'react-dom',
         'react-dom/client',
         'react-router-dom',
+        // Dynamic imports that are not on the first-paint graph.
+        'ag-psd',
+        'motion/react',
+        'pinyin-pro',
+        // The default SDK entries are self-contained UMD, not browser ESM.
+        // Prebundle them to expose exports; excluding them yields undefined
+        // createClient / RTM in the browser. Do not use the optional ESM tree.
+        'agora-rtc-sdk-ng',
+        'agora-rtm',
       ],
-      // UMD bundle; Vite prebundle rewrites break createClient.
-      exclude: ['agora-rtc-sdk-ng'],
+      // Icon barrels are one file per pack (si ≈ 5MB). Prebundling them plus
+      // an inline source map was a 13MB script on every page that imports
+      // `@lib/icons`. Dest ESM + noDiscovery keeps them out of the shared
+      // prebundle hash (no mid-session 504).
+      // Agora's optional ESM tree must not enter the Vite prebundle.
+      // Stay on the self-contained UMD entries; a failed ESM crawl holds every
+      // optimized dep — the PageLoader never dismisses.
+      exclude: [
+        'lucide-react',
+        'react-icons/bs',
+        'react-icons/fa',
+        'react-icons/fa6',
+        'react-icons/lu',
+        'react-icons/si',
+        '@agora-js/shared',
+        '@agora-js/media',
+        '@agora-js/report',
+        '@agora-js/protocol',
+        'ua-parser-js',
+        // Shiki's bundle-full does import('shiki/wasm'). Prebundling it lets
+        // Vite's module-runner rewrite that specifier to a file path that Node
+        // then cannot load under pnpm's isolated layout.
+        'shiki',
+      ],
     },
     ssr: {
-      external: ['agora-rtc-sdk-ng'],
+      external: [
+        'agora-rtc-sdk-ng',
+        'agora-rtm',
+        '@agora-js/shared',
+        '@agora-js/media',
+        '@agora-js/report',
+        '@agora-js/protocol',
+        // Keep the highlighter on Node's native ESM so import('shiki/wasm')
+        // resolves from inside the shiki package, not the project root.
+        'shiki',
+      ],
     },
     plugins: [
       tailwindcss(), // Tailwind CSS v4 Vite plugin
       backendDevProxyPlugin(), // 开发环境 API 转发，绕开 Vite http-proxy 的 socket 500
       spaFallbackPlugin(), // 自定义 SPA 路由回退
+      stripDevSourcemapsPlugin(),
     ],
     resolve: {
       alias: {

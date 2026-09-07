@@ -311,6 +311,10 @@ export function ProgressCard({ job, u }: { job: Job; u: U }) {
   const total = Math.max(job.steps.length, done + 1)
   const pct = Math.min(99, Math.round((done / total) * 100))
   const currentStep = job.steps.at(-1)
+  const currentPhase = currentStep?.phase ?? job.status
+  // Preflight has no sub-steps; the phase line already shows the status.
+  // Full step history lives on the maintenance page after the site goes offline.
+  const showStepLog = currentPhase !== 'preflight' && job.steps.length > 0
   return (
     <div className="updater-progress">
       <div className="updater-progress-head">
@@ -332,7 +336,7 @@ export function ProgressCard({ job, u }: { job: Job; u: U }) {
         {u.updaterProgressOnMaintenance}
       </p>
       <p className="updater-progress-phase">
-        {currentStep?.phase ?? job.status}
+        {currentPhase}
       </p>
       <div className="updater-progress-bar">
         <div
@@ -340,29 +344,31 @@ export function ProgressCard({ job, u }: { job: Job; u: U }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <details className="updater-progress-details">
-        <summary>{u.updaterStepLog}</summary>
-        <ol className="updater-progress-steps">
-          {job.steps.map((s, i) => (
-            <li key={i}>
-              <span
-                className={
-                  s.ok === true
-                    ? 'updater-step-ok'
-                    : s.ok === false
-                      ? 'updater-step-err'
-                      : ''
-                }
-              >
-                <code>{s.phase}</code>
-              </span>
-              {s.error && (
-                <span className="updater-step-err-msg">{s.error}</span>
-              )}
-            </li>
-          ))}
-        </ol>
-      </details>
+      {showStepLog && (
+        <details className="updater-progress-details">
+          <summary>{u.updaterStepLog}</summary>
+          <ol className="updater-progress-steps">
+            {job.steps.map((s, i) => (
+              <li key={i}>
+                <span
+                  className={
+                    s.ok === true
+                      ? 'updater-step-ok'
+                      : s.ok === false
+                        ? 'updater-step-err'
+                        : ''
+                  }
+                >
+                  <code>{s.phase}</code>
+                </span>
+                {s.error && (
+                  <span className="updater-step-err-msg">{s.error}</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
     </div>
   )
 }

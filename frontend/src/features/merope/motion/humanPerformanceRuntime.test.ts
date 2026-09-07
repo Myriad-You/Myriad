@@ -213,3 +213,63 @@ test('a refinement that chose a different beat recovers the old one', () => {
   assert.equal(previous?.phase, 'recovering')
   assert.ok(after.some((behavior) => behavior.form.id === 'delight'))
 })
+
+test('an unchanged plan costs nothing to restate', () => {
+  const runtime = new HumanPerformanceRuntime()
+  const speech = plan('speech')
+  const first = runtime.frame([speech, null, undefined], 120)
+  const revision = first.revision
+
+  // Producers rebuild a plan object only when its content changes, so the same
+  // references are the same plan. Serializing every peg and behavior to prove
+  // that — twice, on a 16ms clock — cost more than the work it was avoiding.
+  for (let at = 130; at <= 400; at += 10) {
+    const repeat = runtime.frame([speech, null, undefined], at)
+    assert.equal(repeat.plan, first.plan, `re-merged at ${at}`)
+    assert.equal(repeat.revision, revision)
+  }
+
+  // The two layers guard different things and both still earn their place: a
+  // rebuilt-but-identical plan gets past the reference memo and is stopped by
+  // the fingerprint, so the body is never asked to realize the same beat twice.
+  const restated = runtime.frame([plan('speech'), null, undefined], 410)
+  assert.equal(restated.plan, first.plan)
+  assert.equal(restated.revision, revision)
+
+  const different = runtime.frame(
+    [plan('speech', { intensity: 0.4 }), null, undefined],
+    420,
+  )
+  assert.notEqual(different.plan, first.plan)
+  assert.notEqual(different.revision, revision)
+})
+
+test('the memoized frame matches one that never reused anything', () => {
+  const speech = plan('speech')
+  const music = plan('music')
+  const memoized = new HumanPerformanceRuntime()
+  memoized.frame([speech, null, music], 120)
+  // A fresh runtime per tick can never take the memo branch, so any field the
+  // shortcut forgets to keep current shows up as a divergence here. `originMs`
+  // is the one part of a merge that moves while the inputs stand still.
+  for (const at of [50, 90, 100, 101, 240, 900]) {
+    const fresh = new HumanPerformanceRuntime()
+    assert.deepEqual(
+      memoized.frame([speech, null, music], at).plan,
+      fresh.frame([speech, null, music], at).plan,
+      `diverged at ${at}`,
+    )
+  }
+})
+
+test('a style change invalidates the memo', () => {
+  const runtime = new HumanPerformanceRuntime()
+  const speech = plan('speech')
+  const even = runtime.frame([speech], 120).plan!
+  runtime.setMotionStyle('open')
+  const open = runtime.frame([speech], 130).plan!
+  assert.notDeepEqual(
+    open.behaviors[0]?.quality,
+    even.behaviors[0]?.quality,
+  )
+})

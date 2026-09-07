@@ -9,6 +9,9 @@ const ALPHA_COMPONENT_THRESHOLD = 16
 const HIGH_COLLAR_MIN_COVERAGE = 0.88
 const HIGH_COLLAR_MIN_UPPER_COVERAGE = 0.78
 const HIGH_COLLAR_UPPER_FRACTION = 0.35
+const HIGH_COLLAR_MATERIAL_DISTANCE = 12 * 12 * 7
+const HIGH_COLLAR_MIN_MATERIAL_ROW_COVERAGE = 0.35
+const HIGH_COLLAR_MIN_MATERIAL_ROWS = 0.5
 const COLLAR_COLOR_CLUSTER_COUNT = 5
 const COLLAR_COLOR_ITERATIONS = 8
 const COLLAR_COLOR_MIN_LIGHTNESS_GAP = 0.035
@@ -66,7 +69,9 @@ function clamp(value: number, minimum: number, maximum: number): number {
  *
  *   rear collar -> neck -> front collar / remaining topwear
  *
- * Detection uses alpha overlap in the exposed neck corridor. Once detected,
+ * Detection requires both alpha overlap and broad material differences from
+ * the neck in the upper corridor. A copied neck (including its shadows) is not
+ * a collar, and a thin chain cannot establish garment topology. Once detected,
  * perceptual color segmentation finds the broad, darker collar region joined
  * to the upper edge before any depth decision is made. The aligned master then
  * separates visible neck from clothing and protects front-facing detail.
@@ -76,40 +81,31 @@ export function splitHighCollarOcclusion(
   anchors: Anime25DRiggerAnchors,
   sourceReference?: Anime25DSourceReference,
 ): RasterLayer[] {
-  const neck = layers.find((layer) => layer.role === 'neck')
-  const topwear = layers.find((layer) => layer.role === 'topwear')
-  if (!neck || !topwear) return layers
+  // Authored/already compiled topology is authoritative. Never split it again.
+  if (
+    layers.some(
+      (layer) => layer.role === 'collar-front' || layer.role === 'collar-back',
+    )
+  ) {
+    return layers
+  }
+  const candidates: Array<{ neck: RasterLayer; topwear: RasterLayer }> = []
+  for (const neck of layers.filter((layer) => layer.role === 'neck')) {
+    for (const topwear of layers.filter((layer) => layer.role === 'topwear')) {
+      if (hasHighCollarEvidence(neck, topwear, anchors))
+        candidates.push({ neck, topwear })
+    }
+  }
+  // The runtime has one neck aperture. Several independently overlapping
+  // garments/necks cannot safely be inferred as that one topology. Abstain
+  // instead of selecting the first fragment or silently merging their art.
+  if (candidates.length !== 1) return layers
+  const { neck, topwear } = candidates[0]
 
   const exposedTop = Math.ceil(Math.max(anchors.face.y1, neck.top))
   const exposedBottom = Math.floor(
     Math.min(anchors.neckBottom, neck.top + neck.height - 1),
   )
-  if (exposedBottom - exposedTop < 8) return layers
-
-  const upperBottom =
-    exposedTop + (exposedBottom - exposedTop) * HIGH_COLLAR_UPPER_FRACTION
-  let neckPixels = 0
-  let overlapPixels = 0
-  let upperNeckPixels = 0
-  let upperOverlapPixels = 0
-  for (let y = exposedTop; y <= exposedBottom; y += 1) {
-    for (let x = Math.ceil(neck.left); x < neck.left + neck.width; x += 1) {
-      if (rasterAlphaAt(neck, x, y) < ALPHA_COMPONENT_THRESHOLD) continue
-      neckPixels += 1
-      const upper = y <= upperBottom
-      if (upper) upperNeckPixels += 1
-      if (rasterAlphaAt(topwear, x, y) < ALPHA_COMPONENT_THRESHOLD) continue
-      overlapPixels += 1
-      if (upper) upperOverlapPixels += 1
-    }
-  }
-  if (neckPixels < 64 || upperNeckPixels < 24) return layers
-  if (
-    overlapPixels / neckPixels < HIGH_COLLAR_MIN_COVERAGE ||
-    upperOverlapPixels / upperNeckPixels < HIGH_COLLAR_MIN_UPPER_COVERAGE
-  ) {
-    return layers
-  }
   const trustedSourceReference =
     sourceReference && sourceReferenceAgreesWithLayers(sourceReference, layers)
       ? sourceReference
@@ -189,6 +185,8 @@ export function splitHighCollarOcclusion(
       const standaloneFrontAmount =
         standaloneBlend >= 0 ? 1 - standaloneBlend : 0
       const fallbackRearAmount =
+        // Geometry partitions only a positively identified garment. It is
+        // still needed for real, uniformly coloured standalone collars.
         !colorRearMask && !referenceMask && !standaloneMask
           ? geometricRearAmount
           : 0
@@ -309,6 +307,81 @@ export function splitHighCollarOcclusion(
   output.splice(insertionIndex, 0, remainingTopwear, rearCollar, neck)
   if (frontCollar) output.splice(insertionIndex + 3, 0, frontCollar)
   return output
+}
+
+function hasHighCollarEvidence(
+  neck: RasterLayer,
+  topwear: RasterLayer,
+  anchors: Anime25DRiggerAnchors,
+): boolean {
+  const exposedTop = Math.ceil(Math.max(anchors.face.y1, neck.top))
+  const exposedBottom = Math.floor(
+    Math.min(anchors.neckBottom, neck.top + neck.height - 1),
+  )
+  if (exposedBottom - exposedTop < 8) return false
+  if (
+    topwear.top > exposedBottom ||
+    topwear.top + topwear.height <= exposedTop ||
+    topwear.left >= neck.left + neck.width ||
+    topwear.left + topwear.width <= neck.left
+  ) {
+    return false
+  }
+  const upperBottom =
+    exposedTop + (exposedBottom - exposedTop) * HIGH_COLLAR_UPPER_FRACTION
+  let neckPixels = 0
+  let overlapPixels = 0
+  let upperNeckPixels = 0
+  let upperOverlapPixels = 0
+  let upperRows = 0
+  let materialRows = 0
+  for (let y = exposedTop; y <= exposedBottom; y += 1) {
+    const upper = y <= upperBottom
+    let rowPixels = 0
+    let distinctPixels = 0
+    for (let x = Math.ceil(neck.left); x < neck.left + neck.width; x += 1) {
+      const neckPixel = rasterPixelIndex(neck, x, y)
+      if (neckPixel < 0 || neck.data[neckPixel + 3] < ALPHA_COMPONENT_THRESHOLD)
+        continue
+      neckPixels += 1
+      rowPixels += 1
+      if (upper) upperNeckPixels += 1
+      const garmentPixel = rasterPixelIndex(topwear, x, y)
+      if (
+        garmentPixel < 0 ||
+        topwear.data[garmentPixel + 3] < ALPHA_COMPONENT_THRESHOLD
+      ) {
+        continue
+      }
+      overlapPixels += 1
+      if (!upper) continue
+      upperOverlapPixels += 1
+      // Compare co-located authored colours, never a hard-coded skin palette.
+      if (
+        perceptualColorDistance(
+          neck.data,
+          neckPixel,
+          topwear.data,
+          garmentPixel,
+        ) > HIGH_COLLAR_MATERIAL_DISTANCE
+      ) {
+        distinctPixels += 1
+      }
+    }
+    if (upper && rowPixels >= 4) {
+      upperRows += 1
+      if (distinctPixels / rowPixels >= HIGH_COLLAR_MIN_MATERIAL_ROW_COVERAGE)
+        materialRows += 1
+    }
+  }
+  return (
+    neckPixels >= 64 &&
+    upperNeckPixels >= 24 &&
+    overlapPixels / neckPixels >= HIGH_COLLAR_MIN_COVERAGE &&
+    upperOverlapPixels / upperNeckPixels >= HIGH_COLLAR_MIN_UPPER_COVERAGE &&
+    upperRows >= 3 &&
+    materialRows / upperRows >= HIGH_COLLAR_MIN_MATERIAL_ROWS
+  )
 }
 
 function copyRasterPixel(

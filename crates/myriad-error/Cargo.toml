@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "Shared AppError + secret redaction for Myriad backend (and future domain crates)."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 http = "1"

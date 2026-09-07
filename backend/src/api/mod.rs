@@ -18,6 +18,8 @@ pub mod diagnostics;
 pub mod discord;
 pub mod federation; // HTTP adapter (moved out of main)
 pub mod game_presence; // public Enka / Xbox / PSN; no user cookies
+pub mod github_stars; // GitHub repo summary for settings badges + Brew (platform egress)
+pub mod home_stickers; // Free-layout AI stickers
 pub mod mal;
 pub mod merope_rig; // Site-wide Anime2.5D face for Agent 人设
 pub mod metrics;
@@ -37,6 +39,7 @@ pub mod setup;
 pub mod setup_bootstrap;
 pub mod site_domain; // BASE_URL / FRONTEND_URL / CORS — not federation Move
 pub mod speech; // TTS/ASR (Tencent / OpenAI / OpenRouter)
+pub mod speech_conversation;
 pub mod steam;
 pub mod system;
 pub mod tapp_playground; // Pro AI temporary Tapp workspace
@@ -45,6 +48,7 @@ pub mod tapp_scheduler;
 pub mod tapp_store;
 pub mod tasks;
 pub mod updater_admin;
+pub mod widget_fonts; // Optional custom font for the game-presence widget
 pub mod x;
 pub mod youtube; // YouTube Data API v3; public channels, API key only
 

@@ -2,8 +2,15 @@
 
 use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 use crate::services::agent::capability::get_registry;
+use crate::services::agent::executor_utils_pure::{
+    category_timeout_fallback_secs, step_timeout_secs, SKILL_SUB_STEP_MIN_SECS,
+};
 use crate::services::agent::external_pure::classify_outbound_fetch;
 use crate::services::agent::types::{self, *};
+use myriad_agent_rules::{
+    extract_json_object_from_ai_response, plan_image_size_rule, plan_step_cap_rule,
+    untrusted_block, MAX_PLAN_STEPS, PLAN_DATA_FLOW_RULE, PLAN_DEPENDENCY_RULE,
+};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -159,27 +166,15 @@ impl Executor {
             context.variables.get("_window_state"),
         );
 
-        // 根据能力类别和预估时长确定超时（秒），预估时长取3倍作为缓冲
-        // 优先使用 RecipeStep 指定的 timeout_ms，否则用能力声明推断
-        let timeout_secs = step
-            .timeout_ms
-            .map(|ms| (ms / 1000).clamp(10, 300))
-            .unwrap_or_else(|| {
-                capability
-                    .estimated_duration_ms
-                    .map(|ms| (ms * 3 / 1000).clamp(10, 300))
-                    .unwrap_or_else(|| match &capability.category {
-                        CapabilityCategory::AiProcess | CapabilityCategory::ResourceCreate => 120,
-                        CapabilityCategory::ExternalIntegration => 30,
-                        _ => 30,
-                    })
-            });
-        // AI 类能力最少给 60 秒（Pro 模型处理复杂输入+长文生成经常需要 40-50s）
-        let timeout_secs = if capability.requires_ai && timeout_secs < 60 {
-            60
-        } else {
-            timeout_secs
-        };
+        // 显式 timeout_ms 优先，否则按能力声明推断；AI 能力再抬一个保底。
+        // 规则本体在 `executor_utils_pure::step_timeout_secs`，Skill 内部 DAG
+        // 走同一份，不再各算各的。
+        let timeout_secs = step_timeout_secs(
+            step.timeout_ms,
+            capability.estimated_duration_ms,
+            category_timeout_fallback_secs(&capability.category),
+            capability.requires_ai,
+        );
         let capability_category = capability.category.clone();
 
         tracing::debug!(
@@ -420,15 +415,7 @@ impl Executor {
             let mut knowledge_parts = Vec::new();
             for (out_id, out_val) in context.get_all_outputs() {
                 // 收集各类有意义的输出（搜索摘要、分析结果等）
-                let text = if let Some(summary) = out_val.get("aiSummary").and_then(|v| v.as_str())
-                {
-                    Some(summary)
-                } else if let Some(analysis) = out_val.get("analysis").and_then(|v| v.as_str()) {
-                    Some(analysis)
-                } else {
-                    out_val.get("reply").and_then(|v| v.as_str())
-                };
-                if let Some(text) = text {
+                if let Some(text) = prior_step_text(out_val) {
                     let truncated: String = text.chars().take(USER_TEXT_MAX_CHARS).collect();
                     knowledge_parts.push(format!("[{}] {}", out_id, truncated));
                 }
@@ -436,9 +423,11 @@ impl Executor {
             if knowledge_parts.is_empty() {
                 String::new()
             } else {
+                // 上游数据里有 webSearch / scrape 抓回来的正文，而这个提示词的
+                // 产物是要被执行的步骤。带边界进来，别让正文里的祈使句直通执行层。
                 format!(
                     "\n## 已有上游数据（直接复用，不要重复搜索或分析相同内容）\n{}\n",
-                    knowledge_parts.join("\n\n")
+                    untrusted_block("upstream_output", &knowledge_parts.join("\n\n"))
                 )
             }
         };
@@ -480,9 +469,7 @@ impl Executor {
 
         let prompt = format!(
             "你是 Myriad 的 DAG 执行计划编排器。\n\
-             你的任务：根据 Skill 策略和用户需求，输出一个 JSON 执行计划（步骤的有向无环图）。\n\
-             引擎会根据 `depends_on` 自动调度：依赖已满足的步骤**立即并行启动**，无需你操心并行逻辑。\n\
-             你只需把依赖关系写对。\n\n\
+             你的任务：根据 Skill 策略和用户需求，输出一个 JSON 执行计划（步骤的有向无环图）。\n\n\
              ## Skill: {name}\n{desc}\n\n\
              ## 用户上下文\n{context}\n\n\
              ## 可用能力（只能使用这些 capability_id）\n{caps}\n\
@@ -497,24 +484,15 @@ impl Executor {
              2. 每个 step 必须有唯一 `id`（简短标识，如 `search_info`, `gen_prompt_1`）\n\
              3. 每个 step 必须有 `depends_on` 数组（无依赖写 `[]`）\n\
              4. `action` 字段写该步骤的具体目标（展示给用户看）\n\
-             5. 最多 8 个步骤。只返回纯 JSON，不要 markdown 包裹\n\n\
+             5. {step_cap}只返回纯 JSON，不要 markdown 包裹\n\n\
              ## 二、搜索优先\n\
              6. **情报优先**：当任务涉及你不完全确定的外部知识（角色外貌、事件细节、专业信息等），\
              **必须先 ai.webSearch 获取情报**，所有后续步骤都依赖它。搜索是为了让后续生成更准确。\n\
              7. 搜索步骤全计划最多 1 个，多变体共享搜索结果。\
              如「已有搜索结果」已包含所需信息，则不再搜索。\n\n\
-             ## 三、依赖 = 执行顺序\n\
-             8. `depends_on: []` → 立即执行（与其他无依赖步骤并行）\n\
-             9. `depends_on: [\"X\"]` → 等待 X 完成后执行（多个步骤 depends_on 同一个 X → 它们同时并行）\n\
-             10. **黄金法则**：如果 step B 需要用到 step A 的输出/情报 → B 必须 `depends_on: [\"A\"]`\n\n\
-             ## 四、数据流（xxxFrom）\n\
-             11. 后续步骤使用前序输出：在 params 中写 `\"<字段名>From\": \"<step_id>\"`\n\
-             12. 引擎自动把 `promptFrom: \"gen_prompt_1\"` 解析为：取 gen_prompt_1 的输出注入到 `prompt` 参数\n\
-             13. **严禁** $$variable$$ 语法或模板占位符。params 值要么是具体文本，要么用 xxxFrom 引用\n\n\
-             ## 五、ai.image 分辨率\n\
-             14. 可选 `width`/`height`（整数像素 256–2048，省略默认 1024）。与 `promptFrom` 可同写\n\
-             15. 用户口述尺寸、竖图/横图/壁纸时务必传入；不要把宽高塞进 prompt 文本\n\
-             16. 建议：竖图 768×1024，横图 1024×768，方图省略或 1024×1024\n\n\
+             ## 三、依赖 = 执行顺序\n{dependency}\n\n\
+             ## 四、数据流（xxxFrom）\n{data_flow}\n\n\
+             ## 五、ai.image 分辨率\n{image_size}\n\n\
              ---\n\n\
              # 示例（3 张角色图，需要搜索角色信息；竖图）\n\n\
              ```json\n\
@@ -540,6 +518,10 @@ impl Executor {
             params = serde_json::to_string_pretty(&step.params).unwrap_or_default(),
             prior_knowledge = prior_knowledge,
             count_hint = count_hint,
+            step_cap = plan_step_cap_rule(),
+            dependency = PLAN_DEPENDENCY_RULE,
+            data_flow = PLAN_DATA_FLOW_RULE,
+            image_size = plan_image_size_rule(),
         );
 
         let ai_result = analyzer.analyze(&prompt).await.map_err(|error| {
@@ -558,15 +540,8 @@ impl Executor {
         let plan: Value = {
             // 尝试找到 JSON 块
             let text = ai_result.trim();
-            let json_str = if let Some(start) = text.find('{') {
-                if let Some(end) = text.rfind('}') {
-                    &text[start..=end]
-                } else {
-                    text
-                }
-            } else {
-                text
-            };
+            let extracted = extract_json_object_from_ai_response(text);
+            let json_str = extracted.as_deref().unwrap_or(text);
             match serde_json::from_str(json_str) {
                 Ok(v) => v,
                 Err(e) => {
@@ -598,7 +573,7 @@ impl Executor {
         }
 
         // 步骤上限
-        let planned_steps: Vec<&Value> = planned_steps.iter().take(8).collect();
+        let planned_steps: Vec<&Value> = planned_steps.iter().take(MAX_PLAN_STEPS).collect();
 
         // 验证并构建动态步骤（两遍扫描：第一遍建立 id 映射，第二遍解析引用）
         let cap_registry = get_registry().await;
@@ -780,6 +755,23 @@ impl Executor {
 
             let step_id = format!("{}_{}_step_{}", step.id, skill_id, i);
 
+            // 子步骤大多是小操作，所以有个 60 秒地板；但能力自己声明需要更久
+            // 时以声明为准——硬写 60 秒会让 `model3d.generate`（声明 180 秒）
+            // 必然超时。
+            let sub_step_timeout_ms = cap_registry
+                .get(cap_id)
+                .map(|capability| {
+                    step_timeout_secs(
+                        None,
+                        capability.estimated_duration_ms,
+                        category_timeout_fallback_secs(&capability.category),
+                        capability.requires_ai,
+                    )
+                })
+                .unwrap_or(0)
+                .max(SKILL_SUB_STEP_MIN_SECS)
+                * 1000;
+
             dynamic_steps.push(RecipeStep {
                 id: step_id,
                 order: (step.order * 100) + (i as u32),
@@ -789,7 +781,7 @@ impl Executor {
                 depends_on,
                 on_failure,
                 retry: None,
-                timeout_ms: Some(60000),
+                timeout_ms: Some(sub_step_timeout_ms),
                 model_tier: skill.tier_hint.as_ref().map(|h| h.to_model_tier()),
                 generator: None,
             });
@@ -1024,6 +1016,10 @@ impl Executor {
 
     /// 从步骤输出的 JSON 对象中提取主要文本内容
     pub(crate) fn extract_text_from_output(output: &Value) -> String {
+        let output = crate::services::agent::ai_process_pure::task_inner_value(output);
+        if let Some(text) = output.as_str().filter(|s| !s.is_empty()) {
+            return text.to_string();
+        }
         let text_keys = [
             "analysis",
             "reply",
@@ -1084,38 +1080,66 @@ impl Executor {
 
         // 解析路径
         let path = parts[1];
-        self.get_value_by_path(&effective_output, path)
+        Self::get_value_by_path(&effective_output, path)
     }
 
-    /// 通过路径获取值
-    pub(crate) fn get_value_by_path(&self, value: &Value, path: &str) -> Option<Value> {
-        let mut current = value;
-
-        for segment in path.split('.') {
-            // 检查是否有数组索引（如 field[0]）
-            if let Some(bracket_pos) = segment.find('[') {
-                let field_name = &segment[..bracket_pos];
-                // 确保有闭合的 ] 且索引部分非空
-                if !segment.ends_with(']') || bracket_pos + 1 >= segment.len() - 1 {
-                    return None;
-                }
-                let index_str = &segment[bracket_pos + 1..segment.len() - 1];
-
-                if !field_name.is_empty() {
-                    current = current.get(field_name)?;
-                }
-
-                let index: usize = index_str.parse().ok()?;
-                current = current.get(index)?;
-            } else {
-                current = current.get(segment)?;
-            }
-        }
-
-        Some(current.clone())
+    /// 通过路径获取值。信封步骤先按外壳取，没有再拆 `value`。
+    pub(crate) fn get_value_by_path(value: &Value, path: &str) -> Option<Value> {
+        lookup_path(value, path).or_else(|| {
+            lookup_path(
+                crate::services::agent::ai_process_pure::task_inner_value(value),
+                path,
+            )
+        })
     }
 
     // 动态步骤生成系统
+}
+
+fn prior_step_text(out_val: &Value) -> Option<&str> {
+    let inner = crate::services::agent::ai_process_pure::task_inner_value(out_val);
+    inner
+        .get("aiSummary")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            inner
+                .get("analysis")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| {
+            inner
+                .get("reply")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| inner.as_str().filter(|s| !s.is_empty()))
+}
+
+fn lookup_path(value: &Value, path: &str) -> Option<Value> {
+    let mut current = value;
+
+    for segment in path.split('.') {
+        if let Some(bracket_pos) = segment.find('[') {
+            let field_name = &segment[..bracket_pos];
+            if !segment.ends_with(']') || bracket_pos + 1 >= segment.len() - 1 {
+                return None;
+            }
+            let index_str = &segment[bracket_pos + 1..segment.len() - 1];
+
+            if !field_name.is_empty() {
+                current = current.get(field_name)?;
+            }
+
+            let index: usize = index_str.parse().ok()?;
+            current = current.get(index)?;
+        } else {
+            current = current.get(segment)?;
+        }
+    }
+
+    Some(current.clone())
 }
 
 /// `context.reference` stepId + optional path → `step_id` or `step_id.path`.
@@ -1264,6 +1288,55 @@ mod output_contract_tests {
         .is_ok());
         assert!(Executor::apply_output_contract(&id, &cap, &json!({})).is_ok());
         assert!(Executor::apply_output_contract(&id, &cap, &json!("not an object")).is_err());
+    }
+
+    #[test]
+    fn extract_text_and_path_unwrap_task_envelope() {
+        let envelope = json!({
+            "format": "json",
+            "value": { "analysis": "分析正文", "type": "custom" },
+            "contextProvenance": []
+        });
+        assert_eq!(Executor::extract_text_from_output(&envelope), "分析正文");
+        assert_eq!(
+            Executor::extract_text_from_output(&json!({
+                "format": "text",
+                "value": "回复正文",
+                "contextProvenance": []
+            })),
+            "回复正文"
+        );
+        assert_eq!(
+            Executor::get_value_by_path(&envelope, "analysis")
+                .and_then(|v| v.as_str().map(str::to_string)),
+            Some("分析正文".to_string())
+        );
+        assert_eq!(
+            Executor::get_value_by_path(&envelope, "value.analysis")
+                .and_then(|v| v.as_str().map(str::to_string)),
+            Some("分析正文".to_string())
+        );
+        assert_eq!(
+            Executor::get_value_by_path(&envelope, "format")
+                .and_then(|v| v.as_str().map(str::to_string)),
+            Some("json".to_string())
+        );
+        assert_eq!(prior_step_text(&envelope), Some("分析正文"));
+        assert_eq!(
+            prior_step_text(&json!({
+                "format": "text",
+                "value": "回复正文",
+                "contextProvenance": []
+            })),
+            Some("回复正文")
+        );
+        assert_eq!(
+            prior_step_text(&json!({
+                "aiSummary": "搜索摘要",
+                "results": []
+            })),
+            Some("搜索摘要")
+        );
     }
 
     #[test]

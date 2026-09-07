@@ -10,6 +10,7 @@ use crate::services::agent::external_pure::{
     optional_string_param, parse_http_body_value, sanitize_http_headers, scrape_max_length,
     scrape_selector, scrape_should_skip_tag,
 };
+use crate::services::data_paths::platform_filtered_file;
 use crate::services::fetcher::PlatformFetcher;
 use crate::services::outbound_security;
 use serde_json::{json, Value};
@@ -176,12 +177,13 @@ async fn execute_http_fetch(params: &HashMap<String, Value>) -> Result<Value, St
 async fn execute_hitokoto_get(params: &HashMap<String, Value>) -> Result<Value, String> {
     let hitokoto_type = hitokoto_type(params);
 
+    let host = crate::api::config::HITOKOTO_BUILTIN_HOSTS[0];
     let url = match hitokoto_type {
         Some(t) => {
             let encoded = urlencoding::encode(t);
-            format!("https://v1.hitokoto.cn/?c={}", encoded)
+            format!("https://{host}/?c={encoded}")
         }
-        None => "https://v1.hitokoto.cn/".to_string(),
+        None => format!("https://{host}/"),
     };
 
     let client = fixed_host_client()?;
@@ -381,7 +383,7 @@ async fn execute_bangumi_collections(params: &HashMap<String, Value>) -> Result<
 // Steam
 
 async fn execute_steam_user(_params: &HashMap<String, Value>) -> Result<Value, String> {
-    if let Ok(content) = tokio::fs::read_to_string("cache/platforms/steam_filtered.json").await {
+    if let Ok(content) = tokio::fs::read_to_string(platform_filtered_file("steam")).await {
         if let Ok(data) = serde_json::from_str::<Value>(&content) {
             return Ok(json!({
                 "userInfo": data,

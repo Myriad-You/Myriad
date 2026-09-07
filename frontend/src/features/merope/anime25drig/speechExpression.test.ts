@@ -93,8 +93,9 @@ test('derives a delayed visual beat from authored energy without frame allocatio
   const expression = new CoSpeechExpressionController()
   const neutral = expression.sample(0, true, 0, 0, 0, 0)
   const onset = expression.sample(0.1, true, 0.8, 0, 0, 0)
-  const browLead = { ...expression.sample(0.14, true, 0.8, 0, 0, 0) }
-  const headFollow = { ...expression.sample(0.18, true, 0.8, 0, 0, 0) }
+  // Same points of the accent's own shape as before; its arrival doubled.
+  const browLead = { ...expression.sample(0.18, true, 0.8, 0, 0, 0) }
+  const headFollow = { ...expression.sample(0.26, true, 0.8, 0, 0, 0) }
 
   assert.equal(neutral, onset)
   assert.ok(browLead.brow > 0.04)
@@ -135,6 +136,59 @@ test('anticipates known TTS emphasis instead of waiting for the loudness edge', 
   const stroke = { ...expression.sample(0.4, true, 0.2, 0, 0, 0) }
   assert.ok(preparation.brow > 0)
   assert.ok(stroke.brow > preparation.brow)
+})
+
+test('a suppressed TTS accent cannot reappear as a generic head beat', () => {
+  const expression = new CoSpeechExpressionController()
+  expression.setProsody(
+    {
+      utteranceId: 'restrained',
+      startedAtMs: 0,
+      durationMs: 1_000,
+      accents: [{ offsetMs: 400, intensity: 1, gesture: 'none' }],
+    },
+    0,
+    0,
+  )
+  let largestPitch = 0
+  for (let frame = 0; frame < 60; frame++) {
+    const now = frame / 60
+    // Loudness is still allowed to animate the mouth/activity, but must not
+    // recreate the beat explicitly removed by semantic deduplication.
+    const pose = expression.sample(now, true, now >= 0.35 ? 0.8 : 0.2, 0, 0, 0)
+    largestPitch = Math.max(largestPitch, Math.abs(pose.angleY))
+  }
+  assert.equal(largestPitch, 0)
+})
+
+test('suppressing one accent preserves later emphasis and conversational activity', () => {
+  const expression = new CoSpeechExpressionController()
+  expression.setProsody(
+    {
+      utteranceId: 'mixed',
+      startedAtMs: 0,
+      durationMs: 1_500,
+      accents: [
+        { offsetMs: 400, intensity: 1, gesture: 'none' },
+        { offsetMs: 1_000, intensity: 0.8 },
+      ],
+    },
+    0,
+    0,
+  )
+  let earlyPitch = 0
+  let laterPitch = 0
+  let activity = 0
+  for (let frame = 0; frame < 90; frame++) {
+    const now = frame / 60
+    const pose = expression.sample(now, true, 0.7, 0, 0, 0)
+    if (now < 0.8) earlyPitch = Math.max(earlyPitch, Math.abs(pose.angleY))
+    else laterPitch = Math.max(laterPitch, Math.abs(pose.angleY))
+    activity = Math.max(activity, Math.abs(pose.body))
+  }
+  assert.equal(earlyPitch, 0)
+  assert.ok(laterPitch > 0.05)
+  assert.ok(activity > 0.02)
 })
 
 test('sustained speech shifts weight smoothly instead of holding a frozen torso', () => {

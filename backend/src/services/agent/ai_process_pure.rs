@@ -7,7 +7,6 @@
 //! - prompt sanitization
 //! - image dimension / prompt pure mapping
 
-#[cfg(test)]
 use serde_json::{json, Value};
 #[cfg(test)]
 use std::collections::HashMap;
@@ -17,10 +16,35 @@ pub use myriad_agent_rules::{
     capability_needs_memory, clamp_image_dim, extract_semantic_text, inject_directive_to_params,
     inject_steering_to_params, merge_system_prompt, parse_image_dim, resolve_image_dimensions,
     resolve_image_prompt, resolve_negative_prompt, sanitize_prompt_input,
-    take_recent_conversation_messages, with_system_guidance, DEFAULT_IMAGE_HEIGHT,
-    DEFAULT_IMAGE_WIDTH, IMAGE_DIM_MAX, IMAGE_DIM_MIN, IMAGE_PROMPT_MAX_CHARS,
-    SANITIZE_PROMPT_MAX_CHARS, USER_TEXT_MAX_CHARS,
+    take_recent_conversation_messages, task_inner_value, with_system_guidance,
+    DEFAULT_IMAGE_HEIGHT, DEFAULT_IMAGE_WIDTH, IMAGE_DIM_MAX, IMAGE_DIM_MIN,
+    IMAGE_PROMPT_MAX_CHARS, SANITIZE_PROMPT_MAX_CHARS, USER_TEXT_MAX_CHARS,
 };
+
+/// Tapp AI Task envelope used by Agent AI handlers that share that contract.
+pub fn task_json_envelope(value: Value) -> Value {
+    json!({
+        "format": "json",
+        "value": value,
+        "contextProvenance": []
+    })
+}
+
+pub fn task_text_envelope(value: impl Into<String>) -> Value {
+    json!({
+        "format": "text",
+        "value": value.into(),
+        "contextProvenance": []
+    })
+}
+
+pub fn task_image_envelope(url: &str, width: u32, height: u32) -> Value {
+    json!({
+        "format": "image",
+        "value": { "url": url, "width": width, "height": height },
+        "contextProvenance": []
+    })
+}
 
 #[cfg(test)]
 mod tests {

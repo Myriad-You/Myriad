@@ -10,6 +10,7 @@ import {
   resetTurnTraceForTest,
   serializeTurnTrace,
   snapshotTurnTrace,
+  stageVoiceInputTrace,
   stampTurnTrace,
   subscribeTurnTrace,
   TURN_TRACE_SPANS,
@@ -38,7 +39,7 @@ test('pending input stamps attach to the next turn without using the run hub', (
   assert.ok(snap.delays.llmFirstTokenMs >= 0)
   assert.equal(snap.delays.firstAudioMs, 0)
   assert.equal(snap.delays.requestToFirstAudioMs, 0)
-  assert.equal(TURN_TRACE_SPANS.length, 14)
+  assert.equal(TURN_TRACE_SPANS.length, 17)
 })
 
 test('an abandoned recording does not inflate the next turn asrMs', async () => {
@@ -112,4 +113,25 @@ test('trace sources stay off the run hub and never persist visemes', () => {
   assert.match(engine, /captureTurnBody\(/)
   const face = readFileSync(new URL('./engineFace.ts', import.meta.url), 'utf8')
   assert.match(face, /livePresenceFacts\(/)
+})
+
+test('ASR measures recognition rather than talking and belongs to the next reply', () => {
+  resetTurnTraceForTest()
+  beginTurnTrace('previous')
+  const t = performance.now()
+  stageVoiceInputTrace({
+    input_started: t - 20_000,
+    input_ended: t - 500,
+    asr_started: t - 400,
+    asr_completed: t - 100,
+  })
+  assert.equal(snapshotTurnTrace().marks.length, 0)
+  beginTurnTrace('next')
+  const snap = snapshotTurnTrace()
+  assert.equal(snap.delays.asrMs, 300)
+  assert.ok(snap.marks.every((mark) => mark.turnId === 'next'))
+  assert.equal(
+    snap.marks.find((mark) => mark.span === 'input_started')!.t,
+    t - 20_000,
+  )
 })

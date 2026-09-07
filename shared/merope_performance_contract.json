@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "phraseIntents": ["ask", "hesitate", "tease", "explain", "check-in", "laugh", "none"],
   "baselineExpressions": ["withdrawn", "subdued", "steady", "warm", "tense"],
   "postures": ["closed", "neutral", "open"],
   "cueIntents": [

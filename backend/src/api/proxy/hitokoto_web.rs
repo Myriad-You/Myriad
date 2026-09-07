@@ -28,22 +28,20 @@ pub struct HitokotoQuery {
 /// Prefer tightening quota / outbound policy over mandatory JWT.
 ///
 /// Catalog alignment (do not drift):
-/// - Source ids: `api/config/public_ui::HITOKOTO_SOURCE_IDS` ↔ FE `quote.ts`
-/// - Builtin hosts: `HITOKOTO_BUILTIN_HOSTS` (`v1.hitokoto.cn`, `api.quotable.io`,
-/// `meigen.doodlenote.net`)
+/// - Source ids: `api/config::HITOKOTO_SOURCE_IDS` ↔ FE `quote.ts`
+/// - Builtin hosts / default URL: `HITOKOTO_BUILTIN_HOSTS` / `default_hitokoto_url`
 /// The proxy still accepts any **SSRF-safe** public URL so `custom` sources work;
 /// product security is outbound policy + rate limit, not a host-only allowlist.
 ///
 /// 解决前端直接调用一言 API 时的 CORS 问题；
 /// 支持通过 `url` 参数使用自定义 / 其他语言的一言源。
 pub async fn proxy_hitokoto(Query(params): Query<HitokotoQuery>) -> Response {
-    const DEFAULT_URL: &str = "https://v1.hitokoto.cn/?c=d&c=i&c=k&encode=json";
     /// 一言响应是一小段 JSON；给足余量即可，不必按 MiB 计。
     const MAX_BODY: usize = 64 * 1024;
 
     let url = match params.url.as_deref().map(str::trim) {
         Some(custom) if !custom.is_empty() => custom.to_string(),
-        _ => DEFAULT_URL.to_string(),
+        _ => crate::api::config::default_hitokoto_url(),
     };
 
     // 这是一个**未认证**的任意 URL 出站端点。以前只用 `is_internal_url` 做

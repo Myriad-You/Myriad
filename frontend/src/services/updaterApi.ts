@@ -130,7 +130,7 @@ export interface UpdaterStatus {
   rollback_version?: string | null
   available_channels?: string[]
   /** Last TCB self-update helper outcome (`state/self-update-last.json`), when present. */
-  self_update_last?: SelfUpdateLastStatus | null
+  self_update_last?: InfraUpdateLastStatus | null
   /** Last manual proxy upgrade outcome (`state/proxy-update-last.json`), when present. */
   proxy_update_last?: InfraUpdateLastStatus | null
   /**
@@ -182,9 +182,6 @@ export interface InfraUpdateLastStatus {
   /** Proxy only: true when PROXY_TAG was restored after failure. */
   rolled_back?: boolean
 }
-
-/** @deprecated Prefer InfraUpdateLastStatus — same JSON shape. */
-export type SelfUpdateLastStatus = InfraUpdateLastStatus
 
 export interface ImageRef {
   ref: string

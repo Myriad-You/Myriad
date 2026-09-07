@@ -91,14 +91,29 @@ function meropeError(
   )
 }
 
+let siteFaceInflight: Promise<SiteFace> | null = null
+
 export async function getSiteFace(): Promise<SiteFace> {
+  if (siteFaceInflight) return siteFaceInflight
+  siteFaceInflight = loadSiteFace().finally(() => {
+    siteFaceInflight = null
+  })
+  return siteFaceInflight
+}
+
+async function loadSiteFace(): Promise<SiteFace> {
   const response = await api.get<{
     manifest?: unknown
     portraitUrl?: unknown
     generationFingerprint?: unknown
     assetId?: unknown
   }>(`${PREFIX}/active`)
-  if (response.status === 404) {
+  return readFaceResponse(response.status, response.data)
+}
+
+export async function getWardrobeFace(outfitId: string): Promise<SiteFace> {
+  const id = outfitId.trim()
+  if (!id) {
     return {
       manifest: null,
       portraitUrl: null,
@@ -106,20 +121,43 @@ export async function getSiteFace(): Promise<SiteFace> {
       assetId: null,
     }
   }
-  assertSuccess(response.status, response.data, currentCopy().merope.loadFailed)
-  const manifest = isLiveMeropeManifest(response.data.manifest)
-    ? response.data.manifest
-    : null
+  const response = await api.get<{
+    manifest?: unknown
+    portraitUrl?: unknown
+    generationFingerprint?: unknown
+    assetId?: unknown
+  }>(`/api/agent/wardrobe/${encodeURIComponent(id)}/face`)
+  return readFaceResponse(response.status, response.data)
+}
+
+function readFaceResponse(
+  status: number,
+  data: {
+    manifest?: unknown
+    portraitUrl?: unknown
+    generationFingerprint?: unknown
+    assetId?: unknown
+  },
+): SiteFace {
+  if (status === 404) {
+    return {
+      manifest: null,
+      portraitUrl: null,
+      generationFingerprint: null,
+      assetId: null,
+    }
+  }
+  assertSuccess(status, data, currentCopy().merope.loadFailed)
+  const manifest = isLiveMeropeManifest(data.manifest) ? data.manifest : null
   return {
     manifest,
-    portraitUrl: readPortraitUrl(response.data),
+    portraitUrl: readPortraitUrl(data),
     generationFingerprint:
-      typeof response.data.generationFingerprint === 'string' &&
-      /^[0-9a-f]{64}$/iu.test(response.data.generationFingerprint)
-        ? response.data.generationFingerprint.toLowerCase()
+      typeof data.generationFingerprint === 'string' &&
+      /^[0-9a-f]{64}$/iu.test(data.generationFingerprint)
+        ? data.generationFingerprint.toLowerCase()
         : null,
-    assetId:
-      typeof response.data.assetId === 'string' ? response.data.assetId : null,
+    assetId: typeof data.assetId === 'string' ? data.assetId : null,
   }
 }
 
@@ -141,7 +179,7 @@ export async function getSeeThroughStatus(): Promise<SeeThroughStatus> {
     defaultResolution:
       typeof response.data.defaultResolution === 'number'
         ? response.data.defaultResolution
-        : 768,
+        : 1280,
     splitArmsAndLegs: response.data.splitArmsAndLegs !== false,
   }
 }
@@ -164,7 +202,7 @@ export async function updateSeeThroughToken(
         ? response.data.provider
         : '24yearsold/see-through-demo',
     tokenConfigured: response.data.tokenConfigured === true,
-    defaultResolution: 768,
+    defaultResolution: 1280,
     splitArmsAndLegs: true,
   }
 }
@@ -343,14 +381,49 @@ export async function uploadSitePortrait(image: Blob): Promise<{
   }
 }
 
+/**
+ * 生成人设的 Q 版贴纸头像。身份锚是已确认的主立绘，所以没有主立绘时后端会
+ * 直接拒（`portrait_required`）；换主立绘会把旧头像清掉，需要重新生成。
+ */
+export async function generateStickerAvatar(): Promise<{
+  avatarUrl: string | null
+}> {
+  try {
+    const response = await api.post<{ avatarUrl?: unknown }>(
+      `${PREFIX}/avatar`,
+      {},
+      { timeout: PORTRAIT_GENERATION_TIMEOUT_MS },
+    )
+    assertSuccess(
+      response.status,
+      response.data,
+      currentCopy().merope.avatarFailed,
+    )
+    return {
+      avatarUrl:
+        typeof response.data.avatarUrl === 'string' &&
+        response.data.avatarUrl.trim()
+          ? response.data.avatarUrl
+          : null,
+    }
+  } catch (reason) {
+    if (reason instanceof MeropeApiError) throw reason
+    throw meropeError(reason, currentCopy().merope.avatarFailed)
+  }
+}
+
 export async function generateSitePortrait(
   prompt?: string,
   options?: { edit?: boolean },
 ): Promise<{
   portraitUrl: string | null
+  generationFingerprint: string | null
 }> {
   try {
-    const response = await api.post<{ portraitUrl?: unknown }>(
+    const response = await api.post<{
+      portraitUrl?: unknown
+      generationFingerprint?: unknown
+    }>(
       `${PREFIX}/portrait`,
       { prompt, edit: options?.edit === true },
       { timeout: PORTRAIT_GENERATION_TIMEOUT_MS },
@@ -360,7 +433,15 @@ export async function generateSitePortrait(
       response.data,
       currentCopy().merope.visualFailed,
     )
-    return { portraitUrl: readPortraitUrl(response.data) }
+    const fingerprint =
+      typeof response.data.generationFingerprint === 'string' &&
+      /^[0-9a-f]{64}$/iu.test(response.data.generationFingerprint)
+        ? response.data.generationFingerprint.toLowerCase()
+        : null
+    return {
+      portraitUrl: readPortraitUrl(response.data),
+      generationFingerprint: fingerprint,
+    }
   } catch (reason) {
     if (reason instanceof MeropeApiError) throw reason
     throw meropeError(reason, currentCopy().merope.visualFailed)

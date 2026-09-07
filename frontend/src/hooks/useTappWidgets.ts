@@ -7,7 +7,7 @@ import type {
   WidgetComponentProps,
   WidgetSize,
   WidgetType,
-} from '../components/WidgetGrid'
+} from '../components/widgetGridTypes'
 import type { RegisteredWidget } from '../tapp/types'
 import {
   createElement,

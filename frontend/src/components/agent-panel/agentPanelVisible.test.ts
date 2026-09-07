@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 import {
   getAgentPanelVisible,
+  isLookingAtAgentPanel,
   setAgentPanelVisible,
   subscribeAgentPanelVisible,
 } from './agentPanelVisible'
@@ -19,4 +20,12 @@ test('agent panel visibility defaults off and notifies on change', () => {
   setAgentPanelVisible(false)
   stop()
   assert.deepEqual(seen, [true, false])
+})
+
+test('looking at the panel requires it to be open', () => {
+  assert.equal(isLookingAtAgentPanel(), false)
+  setAgentPanelVisible(true)
+  assert.equal(isLookingAtAgentPanel(), true)
+  setAgentPanelVisible(false)
+  assert.equal(isLookingAtAgentPanel(), false)
 })

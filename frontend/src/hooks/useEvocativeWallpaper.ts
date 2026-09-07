@@ -34,8 +34,8 @@ const THRESHOLD = 0.05 // 静止检测阈值
 const PARALLAX_SCALE = 1.02
 const PARALLAX_MAX_OFFSET = 8
 const GYRO_SENS = 0.5
-/** 特效从全关恢复 / 关停时的 scale·位移过渡（资料库画布等场景避免硬切） */
-const EFFECT_EDGE_MS = 420
+/** 进资料库画布 / 离场恢复：soft-lock 与 soft-restore 的 scale·位移过渡 */
+const EFFECT_EDGE_MS = 960
 const EFFECT_EDGE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 const EFFECT_EDGE_TRANSITION = `transform ${EFFECT_EDGE_MS}ms ${EFFECT_EDGE_EASE}`
 const IDENTITY_TF = 'scale(1) translate3d(0,0,0)'
@@ -78,6 +78,16 @@ function softLockWallpaperTransform(el: HTMLElement): void {
   void el.offsetWidth
   el.style.setProperty('transition', EFFECT_EDGE_TRANSITION, 'important')
   el.style.transform = IDENTITY_TF
+}
+
+/** True when the pointer actually left the viewport, not a chrome hit-test drop. */
+export function isWallpaperMouseLeaveFromViewport(
+  relatedTarget: EventTarget | null,
+): boolean {
+  if (relatedTarget == null) return true
+  if (typeof document === 'undefined' || typeof Node === 'undefined') return true
+  if (!(relatedTarget instanceof Node)) return true
+  return !document.contains(relatedTarget)
 }
 
 /**
@@ -1051,8 +1061,11 @@ export function useEvocativeWallpaper(
       wake()
     }
 
-    const onMouseLeave = () => {
+    const onMouseLeave = (e: MouseEvent) => {
       if (!interactionReady) return
+      // Fixed chrome (nav idle-hide) toggling pointer-events can synthesize
+      // mouseleave while the cursor is still in the viewport.
+      if (!isWallpaperMouseLeaveFromViewport(e.relatedTarget)) return
       s.returning = true
 
       if (enableParallax && !s.gyroEnabled) {
@@ -1142,7 +1155,7 @@ export function useEvocativeWallpaper(
 
     if (!isMobileOnly) {
       window.addEventListener('mousemove', onMouseMove, { passive: true })
-      document.addEventListener('mouseleave', onMouseLeave)
+      document.documentElement.addEventListener('mouseleave', onMouseLeave)
 
       if (enableRipple) {
         window.addEventListener('click', onClick, { passive: true })
@@ -1150,9 +1163,18 @@ export function useEvocativeWallpaper(
     }
 
     // 陀螺仪设置
+    let gyroProbeCancelled = false
+    let gyroProbeTimer: number | null = null
+    let testGyro: ((e: DeviceOrientationEvent) => void) | null = null
+
+    // Hover devices must keep mouse parallax/blur. A Mac that emits
+    // deviceorientation would otherwise set gyroEnabled and drop mousemove.
+    const preferMouse = window.matchMedia('(hover: hover)').matches
+
     if (
       enableParallax &&
       enableGyroscope &&
+      !preferMouse &&
       'DeviceOrientationEvent' in window
     ) {
       const DOE = DeviceOrientationEvent as {
@@ -1182,11 +1204,15 @@ export function useEvocativeWallpaper(
         document.addEventListener('touchend', requestPermission)
       } else {
         let received = false
-        const testGyro = (e: DeviceOrientationEvent) => {
+        testGyro = (e: DeviceOrientationEvent) => {
+          if (gyroProbeCancelled) return
           if (e.beta != null && e.gamma != null) {
             received = true
             s.gyroEnabled = true
-            window.removeEventListener('deviceorientation', testGyro)
+            if (testGyro) {
+              window.removeEventListener('deviceorientation', testGyro)
+              testGyro = null
+            }
             window.addEventListener('deviceorientation', onGyro, {
               passive: true,
             })
@@ -1195,9 +1221,12 @@ export function useEvocativeWallpaper(
         window.addEventListener('deviceorientation', testGyro, {
           passive: true,
         })
-        setTimeout(() => {
-          if (!received)
+        gyroProbeTimer = window.setTimeout(() => {
+          gyroProbeTimer = null
+          if (!received && testGyro) {
             window.removeEventListener('deviceorientation', testGyro)
+            testGyro = null
+          }
         }, 3000)
       }
     }
@@ -1205,6 +1234,15 @@ export function useEvocativeWallpaper(
     // 清理
     return () => {
       s.active = false
+      gyroProbeCancelled = true
+      if (gyroProbeTimer != null) {
+        window.clearTimeout(gyroProbeTimer)
+        gyroProbeTimer = null
+      }
+      if (testGyro) {
+        window.removeEventListener('deviceorientation', testGyro)
+        testGyro = null
+      }
       if (s.raf) cancelAnimationFrame(s.raf)
       if (s.rippleRaf) cancelAnimationFrame(s.rippleRaf)
       if (s.rippleFadeoutTimer) clearTimeout(s.rippleFadeoutTimer)
@@ -1215,7 +1253,7 @@ export function useEvocativeWallpaper(
       unsubscribeVisibility()
 
       window.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseleave', onMouseLeave)
+      document.documentElement.removeEventListener('mouseleave', onMouseLeave)
       window.removeEventListener('click', onClick)
       window.removeEventListener('deviceorientation', onGyro)
 
@@ -1225,11 +1263,16 @@ export function useEvocativeWallpaper(
         s.reqHandler = null
       }
 
-      if (s.rippleCanvas && s.rippleCanvas.parentNode) {
-        s.rippleCanvas.parentNode.removeChild(s.rippleCanvas)
+      if (s.rippleCanvas) {
+        s.rippleCanvas.width = 0
+        s.rippleCanvas.height = 0
+        s.rippleCanvas.parentNode?.removeChild(s.rippleCanvas)
         s.rippleCanvas = null
         s.rippleCtx = null
       }
+      s.sourceImageData = null
+      s.destImageData = null
+      s.activeRipples = []
 
       // 资料库画布激活时：各端 soft-lock 缓入 identity；离场时不会弹回旧 parallax 位移。
       if (isLibraryCanvasHoldingWallpaper()) {

@@ -71,6 +71,18 @@ export function shouldUseAnime25DRuntime(input: {
   )
 }
 
+export function shouldApplyAnime25DResize(
+  cssWidth: number,
+  cssHeight: number,
+): boolean {
+  return (
+    Number.isFinite(cssWidth) &&
+    Number.isFinite(cssHeight) &&
+    cssWidth >= 1 &&
+    cssHeight >= 1
+  )
+}
+
 export function shouldAnimateAnime25D(state: Anime25DAnimationState): boolean {
   return (
     state.atlasReady &&
@@ -78,6 +90,24 @@ export function shouldAnimateAnime25D(state: Anime25DAnimationState): boolean {
     state.inViewport &&
     !state.cancelled
   )
+}
+
+/**
+ * IntersectionObserver can report 0×0 before layout. Treat that as still
+ * visible so we do not freeze (and, with the default drawing buffer, blank)
+ * the face on the first callback after load.
+ */
+export function intersectionKeepsAnime25DVisible(entry: {
+  isIntersecting: boolean
+  boundingClientRect: { width: number; height: number }
+}): boolean {
+  if (
+    entry.boundingClientRect.width < 1 ||
+    entry.boundingClientRect.height < 1
+  ) {
+    return true
+  }
+  return entry.isIntersecting
 }
 
 function finiteDimension(value: number): number {

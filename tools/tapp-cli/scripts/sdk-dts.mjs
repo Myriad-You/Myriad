@@ -76,6 +76,7 @@ function localMembers() {
     get(key: string): Promise<unknown>
     set(key: string, value: unknown): Promise<unknown>
     getAll(): Promise<Record<string, unknown>>
+    onChanged(callback: (event: { key?: string; operation?: string }) => void): () => void
   }
 
   ui: {
@@ -180,13 +181,13 @@ function localMembers() {
 
   ai: {
     tasks: {
-      create(request: TappAITaskRequest): Promise<unknown>
-      get(taskId: string): Promise<unknown>
-      cancel(taskId: string): Promise<unknown>
-      usage(): Promise<unknown>
+      create(request: TappAITaskRequest): Promise<TappAITaskSnapshot>
+      get(taskId: string): Promise<TappAITaskSnapshot>
+      cancel(taskId: string): Promise<{ success: boolean; taskId: string }>
+      usage(): Promise<TappAIUsageSnapshot>
       subscribe(
         taskId: string,
-        callback: (event: { event: unknown; data: unknown }) => void,
+        callback: (event: { event: TappAITaskEventKind; data: unknown }) => void,
       ): Promise<() => void>
     }
   }
@@ -286,6 +287,31 @@ export interface TappAIImageInput {
   referenceImages?: string[]
 }
 
+export interface TappAISearchInput {
+  query: string
+  searchType?: 'rss_source' | 'api_docs' | 'general'
+  maxResults?: number
+  searchPrompt?: string
+}
+
+export interface TappAIGenerateInput {
+  prompt: string
+}
+
+export interface TappAIAnalyzeInput {
+  data: unknown
+  instruction?: string
+}
+
+export interface TappAIChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export interface TappAIChatInput {
+  messages: TappAIChatMessage[]
+}
+
 export type TappAITaskRequest = {
   version: 2
   context?: Array<
@@ -299,8 +325,67 @@ export type TappAITaskRequest = {
   idempotencyKey?: string
 } & (
   | { operation: 'image'; input: string | TappAIImageInput }
-  | { operation: 'generate' | 'analyze' | 'chat'; input: unknown }
+  | { operation: 'search'; input: string | TappAISearchInput }
+  | { operation: 'generate'; input: string | TappAIGenerateInput }
+  | { operation: 'analyze'; input: TappAIAnalyzeInput }
+  | { operation: 'chat'; input: TappAIChatInput }
 )
+
+export type TappAITaskStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export type TappAITaskEventKind =
+  | 'snapshot'
+  | 'state'
+  | 'delta'
+  | 'progress'
+  | 'result'
+  | 'error'
+  | 'cancelled'
+  | 'resync'
+
+export interface TappAIUsageSnapshot {
+  calls: {
+    limit: number | null
+    used: number
+    remaining: number | null
+    resetsAt: string
+  }
+  tokens: {
+    limit: number | null
+    used: number
+    remaining: number | null
+    resetsAt: string
+  }
+  cooldown: {
+    requiredSeconds: number
+    remainingSeconds: number
+  }
+  restricted: boolean
+  restrictionReason?: 'daily_calls' | 'daily_tokens' | 'cooldown'
+  unlimited: boolean
+  role: 'guest' | 'user' | 'admin'
+}
+
+export interface TappAITaskSnapshot {
+  taskId: string
+  status: TappAITaskStatus
+  operation: 'generate' | 'analyze' | 'chat' | 'image' | 'search'
+  delivery: 'result' | 'stream'
+  createdAt: string
+  updatedAt: string
+  result?: {
+    format: 'text' | 'json' | 'image'
+    value: unknown
+    contextProvenance: unknown[]
+  }
+  error?: { code: string; message: string }
+  usage: TappAIUsageSnapshot
+}
 
 export interface TappSdk {
 ${localMembers()}

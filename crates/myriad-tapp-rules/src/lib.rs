@@ -39,7 +39,7 @@ pub use package_fs::{
     MANIFEST_JSON, TAPP_INSTALL_STATE_FILE,
 };
 pub use prepared::{
-    check_manifest_byte_size, nonempty_content, parse_manifest_json, resolved_style_content,
+    check_manifest_byte_size, nonempty_content, parse_manifest_json,
     validate_widget_template_contents, widget_template_path, PackageLoadError,
     PackageValidateError, PreparedTappPackage, PreparedTappResources, WidgetTemplateContents,
 };

@@ -1,8 +1,8 @@
+use crate::services::data_paths;
 use axum::{extract::State, http::StatusCode, Json};
 use sea_orm::{DatabaseConnection, EntityTrait, QueryOrder};
 use serde_json::{json, Value};
 use std::collections::HashSet;
-use std::path::Path;
 
 use crate::db::schema_check::{default_platform_seeds, DefaultPlatformSeed};
 use crate::models::entities::platforms;
@@ -40,7 +40,7 @@ fn cache_slug_for_platform(name: &str) -> &str {
 /// This is the source of truth for Tapp `listEnabled` — the catalog `enabled`
 /// column is only a seed default and is not kept in sync with config toggles.
 fn platforms_with_library_cache() -> HashSet<String> {
-    let cache_dir = Path::new("cache/platforms");
+    let cache_dir = data_paths::platforms_cache_dir();
     let mut out = HashSet::new();
     let Ok(entries) = std::fs::read_dir(cache_dir) else {
         return out;

@@ -10,15 +10,18 @@
 # CI builds assets once on amd64, then packages runtime per-arch with:
 #   --build-context assets=./frontend-export
 ARG NODE_VERSION=24
-ARG PNPM_VERSION=10.34.5
+ARG PNPM_VERSION=11.25.0
 
 # Prefer the builder machine's native arch (avoids QEMU for Node when used).
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files (workspace yaml carries pnpm overrides / settings)
+# Copy package files (workspace yaml carries pnpm overrides / settings).
+# patchedDependencies hashes the patch files during install — they must
+# be in the layer before `pnpm install`, not only with the later source COPY.
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+COPY frontend/patches ./patches
 
 # Disable husky in Docker (no .git directory)
 ENV HUSKY=0

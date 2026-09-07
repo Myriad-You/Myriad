@@ -97,7 +97,7 @@ pub enum ConsumeOutcome {
 }
 
 impl ConsumeOutcome {
-    #[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
+    #[cfg(test)]
     pub fn stored(&self) -> &StoredState {
         match self {
             Self::Fresh { stored, .. } | Self::Replay { stored, .. } => stored,
@@ -105,7 +105,7 @@ impl ConsumeOutcome {
     }
 
     /// Browser transaction nonce from the signed payload (cookie binding value).
-    #[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
+    #[cfg(test)]
     pub fn browser_tx(&self) -> &str {
         match self {
             Self::Fresh { browser_tx, .. } | Self::Replay { browser_tx, .. } => browser_tx,
@@ -113,7 +113,7 @@ impl ConsumeOutcome {
     }
 
     /// Consume the outcome, returning the verified [`StoredState`] regardless of Fresh/Replay.
-    #[allow(dead_code)] // public helper for handlers/tests
+    #[cfg(test)]
     pub fn into_stored(self) -> StoredState {
         match self {
             Self::Fresh { stored, .. } | Self::Replay { stored, .. } => stored,
@@ -499,7 +499,7 @@ impl VerifiedState {
     }
 
     /// True if the nonce was already marked used when this state was verified.
-    #[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
+    #[cfg(test)]
     pub fn already_used(&self) -> bool {
         self.already_used
     }
@@ -632,7 +632,7 @@ pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateErro
 ///
 /// After process restart the used-nonce map is empty; a still-valid signature is
 /// accepted as Fresh (provider authorization codes remain one-time).
-#[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
+#[cfg(test)]
 pub async fn consume_state(token: &str) -> Result<ConsumeOutcome, ConsumeStateError> {
     let verified = verify_state(token).await?;
     Ok(verified.mark_used().await)

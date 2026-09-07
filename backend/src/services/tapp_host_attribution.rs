@@ -51,7 +51,7 @@ pub enum HostDomain {
 }
 
 impl HostDomain {
-    #[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
+    #[cfg(test)]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Speech => "speech",
@@ -69,7 +69,7 @@ impl HostDomain {
         }
     }
 
-    #[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
+    #[cfg(test)]
     pub const ALL: [Self; 3] = [Self::Speech, Self::Brew, Self::Federation];
 }
 
@@ -101,7 +101,7 @@ struct HostRouteIndex {
     brew: Vec<CompiledHostRoute>,
     federation: Vec<CompiledHostRoute>,
     /// Full fixture rows (for reverse coverage tests / introspection).
-    #[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
+    #[cfg(test)]
     entries: Vec<HostRouteEntry>,
 }
 
@@ -151,6 +151,7 @@ fn load_host_route_index() -> HostRouteIndex {
         speech,
         brew,
         federation,
+        #[cfg(test)]
         entries: fixture.routes,
     }
 }
@@ -202,18 +203,6 @@ pub fn federation_permission(method: &str, path: &str) -> Option<TappPermission>
     permission_for(HostDomain::Federation, method, path)
 }
 
-/// Compiled routes for a domain (fixture partition).
-#[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
-pub fn routes_for_domain(domain: HostDomain) -> &'static [CompiledHostRoute] {
-    routes_slice(domain)
-}
-
-/// All fixture rows in load order.
-#[allow(dead_code)] // 仅测试调用：夹具与查询辅助，生产路径直接查库。
-pub fn fixture_entries() -> &'static [HostRouteEntry] {
-    &HOST_ROUTE_INDEX.entries
-}
-
 /// Safe / read methods are never counted against host write rate limits, even
 /// when the route permission is a write-capable class (e.g. GET speech voices
 /// shares `speech:tts` with POST TTS).
@@ -257,12 +246,12 @@ mod tests {
     #[test]
     fn fixture_loads_and_indexes_all_host_domains() {
         assert!(
-            !fixture_entries().is_empty(),
+            !HOST_ROUTE_INDEX.entries.is_empty(),
             "host_route_permissions.json must list at least one route"
         );
         for domain in HostDomain::ALL {
             assert!(
-                !routes_for_domain(domain).is_empty(),
+                !routes_slice(domain).is_empty(),
                 "domain {} must have routes",
                 domain.as_str()
             );
@@ -271,7 +260,7 @@ mod tests {
 
     #[test]
     fn every_fixture_route_matches_domain_mapper() {
-        for entry in fixture_entries() {
+        for entry in &HOST_ROUTE_INDEX.entries {
             let domain = HostDomain::from_str(&entry.domain)
                 .unwrap_or_else(|| panic!("unknown domain {}", entry.domain));
             let expected = TappPermission::from_str(&entry.permission)
@@ -299,7 +288,7 @@ mod tests {
                 .filter(|r| r.domain == domain.as_str())
                 .map(|r| (r.method.to_ascii_uppercase(), r.path.clone()))
                 .collect();
-            let actual: BTreeSet<(String, String)> = routes_for_domain(domain)
+            let actual: BTreeSet<(String, String)> = routes_slice(domain)
                 .iter()
                 .map(|r| (r.method.clone(), r.path.clone()))
                 .collect();
@@ -773,7 +762,7 @@ mod tests {
 
     #[test]
     fn fixture_write_routes_have_rate_limit_operation() {
-        for entry in fixture_entries() {
+        for entry in &HOST_ROUTE_INDEX.entries {
             let method_upper = entry.method.to_ascii_uppercase();
             let permission = TappPermission::from_str(&entry.permission)
                 .unwrap_or_else(|| panic!("unknown permission {}", entry.permission));

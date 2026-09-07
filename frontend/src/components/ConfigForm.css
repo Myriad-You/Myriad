@@ -20,6 +20,8 @@
    - text-3 提示 / 元信息 / 占位
    强调色：
    - --cfg-accent：自适应可读强调色（JS 写入，fallback 到壁纸主色）
+   - --cfg-accent-fill / -ink / -line：壁纸强调色混入白与黑，给按钮做填色/字色/描边
+     （避免壁纸色底 + 壁纸色字糊成一团，也不要直接改成纯黑白字）
    ========================================== */
 :root {
   --cfg-subtle-bg: rgb(255 255 255 / 42%);
@@ -44,6 +46,37 @@
 
   /* 强调色：JS 同步前先回落到壁纸主色 */
   --cfg-accent: var(--color-primary, #8b5cf6);
+
+  /*
+   * 按钮用：浅色填色多掺白、不掺黑；字色掺黑拉开对比。
+   */
+  --cfg-accent-fill: color-mix(in srgb, var(--cfg-accent) 18%, white);
+  --cfg-accent-fill-2: color-mix(
+    in srgb,
+    var(--color-secondary, var(--cfg-accent)) 18%,
+    white
+  );
+  --cfg-accent-fill-hover: color-mix(in srgb, var(--cfg-accent) 26%, white);
+  --cfg-accent-fill-2-hover: color-mix(
+    in srgb,
+    var(--color-secondary, var(--cfg-accent)) 26%,
+    white
+  );
+  --cfg-accent-ink: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--cfg-accent) 48%, black) 90%,
+    white
+  );
+  --cfg-accent-line: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--cfg-accent) 38%, white) 78%,
+    black
+  );
+  --cfg-accent-line-hover: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--cfg-accent) 48%, white) 72%,
+    black
+  );
 
   /* 文字层级（亮色） */
   --cfg-text-1: #1d1d1f;
@@ -117,9 +150,9 @@ html.dark .settings-inset-card {
 }
 
 .settings-stat-chip.is-info {
-  background: color-mix(in srgb, var(--cfg-accent) 10%, transparent);
-  border-color: color-mix(in srgb, var(--cfg-accent) 22%, transparent);
-  color: var(--cfg-accent);
+  background: var(--cfg-accent-fill);
+  border-color: var(--cfg-accent-line);
+  color: var(--cfg-accent-ink);
 }
 
 .settings-stat-chip.is-muted {
@@ -147,9 +180,9 @@ html.dark .settings-stat-chip.is-ok {
 }
 
 html.dark .settings-stat-chip.is-info {
-  background: color-mix(in srgb, var(--cfg-accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--cfg-accent) 28%, transparent);
-  color: var(--cfg-accent);
+  background: var(--cfg-accent-fill);
+  border-color: var(--cfg-accent-line);
+  color: var(--cfg-accent-ink);
 }
 
 html.dark .settings-stat-chip.is-muted {
@@ -203,6 +236,43 @@ html.dark {
   --cfg-text-2: rgb(235 235 245 / 78%);
   --cfg-text-3: rgb(235 235 245 / 52%);
   --cfg-text-placeholder: rgb(235 235 245 / 42%);
+
+  /* 按钮用：壁纸色先掺黑再掺一点白，填色能从暗底里抬出来 */
+  --cfg-accent-fill: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--cfg-accent) 32%, black) 86%,
+    white
+  );
+  --cfg-accent-fill-2: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--color-secondary, var(--cfg-accent)) 32%, black) 86%,
+    white
+  );
+  --cfg-accent-fill-hover: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--cfg-accent) 42%, black) 84%,
+    white
+  );
+  --cfg-accent-fill-2-hover: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--color-secondary, var(--cfg-accent)) 42%, black) 84%,
+    white
+  );
+  --cfg-accent-ink: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--cfg-accent) 46%, white) 92%,
+    black
+  );
+  --cfg-accent-line: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--cfg-accent) 40%, black) 72%,
+    white
+  );
+  --cfg-accent-line-hover: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--cfg-accent) 50%, black) 66%,
+    white
+  );
 }
 
 /* ==========================================
@@ -251,7 +321,6 @@ html.dark {
   font-weight: 600;
   cursor: pointer;
   transition: all var(--sm-dur-slow) var(--sm-ease-standard);
-  backdrop-filter: blur(8px);
   position: relative;
   overflow: hidden;
   white-space: nowrap;
@@ -288,15 +357,15 @@ html.dark {
   transform: scale(1.1);
 }
 
-/* 主要按钮 - 使用主题渐变色 */
+/* 主要按钮：壁纸色掺白/黑，填色与字色拉开，不再透壁纸 */
 .btn-primary {
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--cfg-accent) 20%, transparent),
-    color-mix(in srgb, var(--color-secondary) 20%, transparent)
+    var(--cfg-accent-fill),
+    var(--cfg-accent-fill-2)
   );
-  color: var(--cfg-accent);
-  border-color: color-mix(in srgb, var(--cfg-accent) 35%, transparent);
+  color: var(--cfg-accent-ink);
+  border-color: var(--cfg-accent-line);
   box-shadow: 0 2px 8px -2px
     color-mix(in srgb, var(--cfg-accent) 25%, transparent);
 }
@@ -304,31 +373,13 @@ html.dark {
 .btn-primary:hover {
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--cfg-accent) 30%, transparent),
-    color-mix(in srgb, var(--color-secondary) 30%, transparent)
+    var(--cfg-accent-fill-hover),
+    var(--cfg-accent-fill-2-hover)
   );
-  border-color: color-mix(in srgb, var(--cfg-accent) 50%, transparent);
+  border-color: var(--cfg-accent-line-hover);
   transform: translateY(var(--sm-lift));
   box-shadow: 0 4px 12px -2px
     color-mix(in srgb, var(--cfg-accent) 35%, transparent);
-}
-
-html.dark .btn-primary {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--cfg-accent) 25%, transparent),
-    color-mix(in srgb, var(--color-secondary) 25%, transparent)
-  );
-  border-color: color-mix(in srgb, var(--cfg-accent) 40%, transparent);
-}
-
-html.dark .btn-primary:hover {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--cfg-accent) 35%, transparent),
-    color-mix(in srgb, var(--color-secondary) 35%, transparent)
-  );
-  border-color: color-mix(in srgb, var(--cfg-accent) 55%, transparent);
 }
 
 /* 危险按钮 - 重置/删除 */
@@ -359,31 +410,21 @@ html.dark .btn-danger:hover {
   box-shadow: 0 4px 12px -2px rgb(239 68 68 / 40%);
 }
 
-/* 次要按钮 - 使用accent色 */
+/* 次要按钮：同套壁纸色掺白/黑，单色填，和主按钮梯度区分 */
 .btn-secondary {
-  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
-  color: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
+  border-color: var(--cfg-accent-line);
   box-shadow: 0 2px 8px -2px
-    color-mix(in srgb, var(--color-accent) 20%, transparent);
+    color-mix(in srgb, var(--cfg-accent) 20%, transparent);
 }
 
 .btn-secondary:hover {
-  background: color-mix(in srgb, var(--color-accent) 25%, transparent);
-  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: var(--cfg-accent-fill-hover);
+  border-color: var(--cfg-accent-line-hover);
   transform: translateY(var(--sm-lift));
   box-shadow: 0 4px 12px -2px
-    color-mix(in srgb, var(--color-accent) 30%, transparent);
-}
-
-html.dark .btn-secondary {
-  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
-  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
-}
-
-html.dark .btn-secondary:hover {
-  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
-  border-color: color-mix(in srgb, var(--color-accent) 50%, transparent);
+    color-mix(in srgb, var(--cfg-accent) 30%, transparent);
 }
 
 /* 图标按钮 */
@@ -391,9 +432,9 @@ html.dark .btn-secondary:hover {
   width: 2.25rem;
   height: 2.25rem;
   padding: 0;
-  background: color-mix(in srgb, var(--cfg-accent) 15%, transparent);
-  color: var(--cfg-accent);
-  border-color: color-mix(in srgb, var(--cfg-accent) 30%, transparent);
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
+  border-color: var(--cfg-accent-line);
   border-radius: 0.625rem;
   box-shadow: 0 2px 8px -2px
     color-mix(in srgb, var(--cfg-accent) 20%, transparent);
@@ -405,8 +446,8 @@ html.dark .btn-secondary:hover {
 }
 
 .btn-icon:hover {
-  background: color-mix(in srgb, var(--cfg-accent) 25%, transparent);
-  border-color: color-mix(in srgb, var(--cfg-accent) 45%, transparent);
+  background: var(--cfg-accent-fill-hover);
+  border-color: var(--cfg-accent-line-hover);
   transform: translateY(var(--sm-lift)) scale(1.05);
   box-shadow: 0 4px 12px -2px
     color-mix(in srgb, var(--cfg-accent) 30%, transparent);
@@ -414,16 +455,6 @@ html.dark .btn-secondary:hover {
 
 .btn-icon:hover svg {
   transform: rotate(90deg);
-}
-
-html.dark .btn-icon {
-  background: color-mix(in srgb, var(--cfg-accent) 20%, transparent);
-  border-color: color-mix(in srgb, var(--cfg-accent) 35%, transparent);
-}
-
-html.dark .btn-icon:hover {
-  background: color-mix(in srgb, var(--cfg-accent) 30%, transparent);
-  border-color: color-mix(in srgb, var(--cfg-accent) 50%, transparent);
 }
 
 /* 小尺寸按钮 */
@@ -954,21 +985,13 @@ html.dark .config-sidebar-search .search-input:focus {
 }
 
 .config-nav-item.is-active {
-  background: color-mix(in srgb, var(--cfg-accent) 16%, transparent);
-  color: var(--cfg-accent);
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
   font-weight: 600;
 }
 
 .config-nav-item.is-active:hover {
-  background: color-mix(in srgb, var(--cfg-accent) 22%, transparent);
-}
-
-html.dark .config-nav-item.is-active {
-  background: color-mix(in srgb, var(--cfg-accent) 24%, transparent);
-}
-
-html.dark .config-nav-item.is-active:hover {
-  background: color-mix(in srgb, var(--cfg-accent) 30%, transparent);
+  background: var(--cfg-accent-fill-hover);
 }
 
 .config-nav-item-icon {
@@ -1088,32 +1111,13 @@ html.dark .config-nav-item.is-active:hover {
   flex: 0 0 auto;
   padding: 0.08rem 0.35rem;
   border-radius: 999px;
-  border: 1px solid
-    color-mix(in srgb, var(--cfg-accent, #3b82f6) 28%, var(--cfg-subtle-border));
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #3b82f6) 10%,
-    var(--cfg-subtle-bg)
-  );
-  color: color-mix(in srgb, var(--cfg-accent, #3b82f6) 75%, var(--cfg-label));
+  border: 1px solid var(--cfg-accent-line);
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
   font-size: 0.625rem;
   font-weight: 650;
   letter-spacing: 0.02em;
   line-height: 1.3;
-}
-
-html.dark .config-nav-result-badge {
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 32%,
-    var(--cfg-subtle-border)
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #60a5fa) 14%,
-    var(--cfg-subtle-bg)
-  );
-  color: color-mix(in srgb, var(--cfg-accent, #93c5fd) 70%, var(--cfg-label));
 }
 
 .config-nav-result-desc {
@@ -1446,8 +1450,8 @@ html.dark .section-description.is-warning {
 }
 
 .section-header-back:hover {
-  color: var(--cfg-accent, #3b82f6);
-  background: color-mix(in srgb, var(--cfg-accent, #3b82f6) 10%, transparent);
+  color: var(--cfg-accent-ink);
+  background: var(--cfg-accent-fill);
 }
 
 html.dark .section-header-back {
@@ -1455,8 +1459,8 @@ html.dark .section-header-back {
 }
 
 html.dark .section-header-back:hover {
-  color: var(--cfg-accent, #93c5fd);
-  background: color-mix(in srgb, var(--cfg-accent, #93c5fd) 14%, transparent);
+  color: var(--cfg-accent-ink);
+  background: var(--cfg-accent-fill);
 }
 
 .section-header-back:disabled {
@@ -2228,9 +2232,15 @@ html.dark .platform-status-dot.is-unconfigured {
   min-width: 0;
 }
 
+/* 开关本身 40×22，低于教程洞的 24px 下限；锚在整行上并保证能量到。 */
+.ai-llm-tier-head[data-tour] {
+  min-height: 2rem;
+}
+
 .ai-llm-tier-switch {
   display: flex;
   align-items: center;
+  gap: 0.35rem;
   flex-shrink: 0;
 }
 
@@ -2566,7 +2576,6 @@ html.dark .config-form {
 /* 信息卡片 - 使用主题色 */
 .info-card {
   background: color-mix(in srgb, var(--cfg-accent) 8%, transparent);
-  backdrop-filter: blur(12px);
   border: 1px solid color-mix(in srgb, var(--cfg-accent) 20%, transparent);
   border-radius: 0.75rem;
   padding: 0.75rem;
@@ -2670,21 +2679,21 @@ html.dark .info-text a {
   box-shadow: 0 2px 8px -2px rgb(0 0 0 / 5%);
 }
 
-html.dark .provider-option {
+html.dark .provider-option:not(.active) {
   background: var(--cfg-subtle-bg);
   border-color: var(--cfg-subtle-border);
   color: var(--cfg-text-1);
   box-shadow: 0 2px 8px -2px rgb(0 0 0 / 30%);
 }
 
-.provider-option:hover {
+.provider-option:hover:not(.active) {
   background: var(--cfg-subtle-bg-hover);
   border-color: color-mix(in srgb, var(--cfg-accent) 40%, transparent);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px -2px rgb(0 0 0 / 10%);
 }
 
-html.dark .provider-option:hover {
+html.dark .provider-option:hover:not(.active) {
   background: var(--cfg-subtle-bg-hover);
   border-color: color-mix(in srgb, var(--cfg-accent) 50%, transparent);
   box-shadow: 0 4px 12px -2px rgb(0 0 0 / 40%);
@@ -2693,23 +2702,21 @@ html.dark .provider-option:hover {
 .provider-option.active {
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--cfg-accent) 15%, transparent),
-    color-mix(in srgb, var(--color-secondary) 15%, transparent)
+    var(--cfg-accent-fill),
+    var(--cfg-accent-fill-2)
   );
-  border-color: color-mix(in srgb, var(--cfg-accent) 60%, transparent);
-  color: var(--cfg-accent);
+  border-color: var(--cfg-accent-line);
+  color: var(--cfg-accent-ink);
   box-shadow: 0 4px 12px -2px
     color-mix(in srgb, var(--cfg-accent) 25%, transparent);
   transform: translateY(var(--sm-lift));
 }
 
 html.dark .provider-option.active {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--cfg-accent) 20%, transparent),
-    color-mix(in srgb, var(--color-secondary) 20%, transparent)
-  );
-  border-color: var(--cfg-accent);
+  background: color-mix(in srgb, var(--cfg-accent) 40%, black);
+  border-color: color-mix(in srgb, var(--cfg-accent) 56%, black);
+  color: var(--cfg-accent-ink);
+  box-shadow: 0 4px 12px -2px rgb(0 0 0 / 50%);
 }
 
 .provider-icon {
@@ -2978,8 +2985,8 @@ html.dark .copy-btn:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--cfg-accent) 20%, transparent);
-  color: var(--cfg-accent);
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
   font-size: 0.6875rem;
   font-weight: 700;
 }
@@ -3198,8 +3205,8 @@ html.dark .oidc-preset-card {
   width: 1.25rem;
   height: 1.25rem;
   border-radius: 0.28rem;
-  background: color-mix(in srgb, var(--cfg-accent) 14%, transparent);
-  color: var(--cfg-accent);
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
   font-weight: 700;
   font-size: 0.7rem;
 }
@@ -3250,7 +3257,6 @@ html.dark .oidc-preset-card {
   width: 100%;
   height: 100%;
   background: rgb(0 0 0 / 60%);
-  backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;

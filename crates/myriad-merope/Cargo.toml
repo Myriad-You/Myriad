@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "Pure Merope domain rules and contracts for Myriad."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 earcutr = "0.5"

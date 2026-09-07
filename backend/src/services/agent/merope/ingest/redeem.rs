@@ -1,4 +1,5 @@
-//! Speak intent in → sentence out. Rechecks chatting / dnd / working here.
+//! Speak intent in → sentence out. Rechecks sight here. Live and notify are
+//! independent channels.
 
 use chrono::Utc;
 use sea_orm::DatabaseConnection;
@@ -9,29 +10,23 @@ use super::super::store::{
     recent_proactive, recently_spoke_event, set_activity, touch_proactive,
 };
 use super::super::{
-    activity_is_busy, addressee_speaking_section, current_activity, direct_motion,
-    effective_do_not_disturb, format_mood_section, public_persona_name, resolve_addressee_label,
-    resolve_round_motion_style, MoodTransition, MotionContext, MotionPhase, PerformanceDirective,
+    addressee_speaking_section, direct_motion, format_mood_section, public_persona_name,
+    resolve_addressee_label, resolve_round_motion_style, MoodTransition, MotionContext,
+    MotionPhase, PerformanceDirective,
 };
 use super::{
-    addressee_is_chatting, compact_summary, is_enabled, is_trivial_line, SAME_EVENT_MINUTES,
+    compact_summary, current_sight, is_enabled, is_trivial_line, log_skip, SAME_EVENT_MINUTES,
 };
 use crate::config::ModelTier;
 use crate::services::agent::consciousness::{drain_speak_intents, last_live_presence, SpeakIntent};
+use crate::services::agent::merope::gates::IngestSight;
 use crate::services::agent::notifications::{
-    get_notification_manager, Notification, NotificationPriority, NotificationType,
+    get_notification_manager, LiveSpeech, Notification, NotificationPriority, NotificationType,
 };
 use crate::services::ai::create_ai_analyzer_for_tier;
 
-const MEROPE_OWNED_NOTIFY: &[&str] = &[
-    "agent.merope.platform_activity",
-    "agent.merope.report_ready",
-];
-
-/// Re-check chatting / dnd / working at redeem time. Produce-time gates
-/// are stale after the 15s autonomy loop.
-pub fn may_redeem_speech(event_key: &str, dnd: bool, chatting: bool, working: bool) -> bool {
-    decide_ingest(event_key, dnd, chatting, working).allow_model
+fn merope_owns_notify(event_key: &str) -> bool {
+    event_key.starts_with("agent.merope.")
 }
 
 pub async fn tick_speak_intents(db: DatabaseConnection) {
@@ -54,19 +49,20 @@ async fn redeem_speak_intent(
         return Ok(());
     }
     let state = get_or_create_state(db, intent.user_id).await?;
-    let chatting = addressee_is_chatting(db, intent.user_id).await;
-    let working = activity_is_busy(current_activity(&state));
-    let dnd = effective_do_not_disturb(&state);
-    if !may_redeem_speech(&intent.topic, dnd, chatting, working) {
+    let sight = current_sight(intent.user_id, &state).await;
+    let decision = decide_ingest(&intent.topic, &sight);
+    if !decision.allow_model {
+        log_skip(intent.user_id, &intent.topic, decision.reason);
         return Ok(());
     }
-    let decision = decide_ingest(&intent.topic, dnd, chatting, working);
     if recently_spoke_event(db, intent.user_id, &intent.topic, SAME_EVENT_MINUTES).await? {
+        log_skip(intent.user_id, &intent.topic, "recently_spoke");
         return Ok(());
     }
 
     let source_intent_id = intent.work_intent_id.as_deref();
-    let shown = (source_intent_id.is_some() && is_valuable_event(&intent.topic))
+    let shown = decision.live
+        || (source_intent_id.is_some() && is_valuable_event(&intent.topic))
         || speech_is_shown(&intent.topic, decision.notify);
     let spoken = if shown {
         let _ = set_activity(db, intent.user_id, "thinking").await;
@@ -78,6 +74,7 @@ async fn redeem_speak_intent(
     };
 
     if is_trivial_line(&spoken) {
+        log_skip(intent.user_id, &intent.topic, "trivial_line");
         return Ok(());
     }
     if let Ok(recent) = recent_proactive(db, intent.user_id, 1).await {
@@ -85,6 +82,7 @@ async fn redeem_speak_intent(
             .first()
             .is_some_and(|last| last.content.trim() == spoken.trim())
         {
+            log_skip(intent.user_id, &intent.topic, "duplicate_line");
             return Ok(());
         }
     }
@@ -127,10 +125,31 @@ async fn redeem_speak_intent(
         (None, None)
     };
 
-    insert_proactive(db, intent.user_id, &spoken, Some(&intent.topic), shown).await?;
+    // Merope toasts only what it owns. Task / brew / sync already have a
+    // producer; sending ours as well would be two notices for one event.
+    let merope_notifies = speech_is_shown(&intent.topic, decision.notify);
+    insert_proactive(
+        db,
+        intent.user_id,
+        &spoken,
+        Some(&intent.topic),
+        merope_notifies,
+    )
+    .await?;
     let _ = touch_proactive(db, intent.user_id).await;
 
-    if shown {
+    if decision.live && shown {
+        emit_live_speech(
+            intent.user_id,
+            &intent.id,
+            &intent.topic,
+            &spoken,
+            performance.as_ref(),
+            motion_mood.as_ref(),
+            source_intent_id,
+        );
+    }
+    if merope_notifies {
         emit_speech_notification(
             db,
             intent.user_id,
@@ -149,7 +168,7 @@ async fn redeem_speak_intent(
 /// notification an existing producer already owns are excluded: sending our own
 /// would mean two notifications for one thing.
 fn speech_is_shown(event_key: &str, notify: bool) -> bool {
-    notify && MEROPE_OWNED_NOTIFY.contains(&event_key)
+    notify && merope_owns_notify(event_key)
 }
 
 pub fn fallback_line(summary: &str) -> String {
@@ -236,6 +255,32 @@ fn sanitize_speech(raw: &str) -> String {
         .unwrap_or(text)
         .trim();
     first.chars().take(160).collect()
+}
+
+fn emit_live_speech(
+    user_id: i32,
+    id: &str,
+    event_key: &str,
+    spoken: &str,
+    performance: Option<&PerformanceDirective>,
+    mood: Option<&MoodTransition>,
+    source_intent_id: Option<&str>,
+) {
+    let Some(manager) = get_notification_manager() else {
+        return;
+    };
+    manager.emit_live_speech(
+        user_id,
+        LiveSpeech {
+            id: id.to_string(),
+            body: spoken.to_string(),
+            event_key: event_key.to_string(),
+            performance: performance.and_then(|value| serde_json::to_value(value).ok()),
+            merope_state: mood
+                .map(|mood| serde_json::json!({ "mood": mood, "activity": "talking" })),
+            intention_id: source_intent_id.map(str::to_string),
+        },
+    );
 }
 
 async fn emit_speech_notification(
@@ -347,36 +392,76 @@ mod tests {
         assert!(redeem.contains("last.content.trim() == spoken.trim()"));
         assert!(redeem.contains("insert_proactive"));
         assert!(redeem.contains("emit_speech_notification"));
+        assert!(redeem.contains("emit_live_speech"));
         assert!(redeem.contains("if shown {"));
         assert!(redeem.contains("direct_motion"));
         assert!(!redeem.contains("enqueue_speak_intent"));
         assert!(!src.contains("consider_event"));
+        let notify_at = redeem
+            .find("emit_speech_notification")
+            .expect("redeem notifies");
+        let owns_at = redeem
+            .find("speech_is_shown(&intent.topic, decision.notify)")
+            .expect("merope notify is owned-event only");
+        assert!(
+            owns_at < notify_at,
+            "existing producers must keep the toast; merope must not add a second"
+        );
     }
 
     #[test]
-    fn chatting_at_redeem_does_not_compose_a_sentence() {
-        assert!(!may_redeem_speech(
-            "agent.merope.platform_activity",
-            false,
-            true,
-            false
-        ));
-        assert!(may_redeem_speech(
-            "agent.merope.platform_activity",
-            false,
-            false,
-            false
-        ));
+    fn executing_at_redeem_does_not_compose_a_sentence() {
+        let looking = IngestSight {
+            on_page: true,
+            panel_open: true,
+            ..Default::default()
+        };
+        assert!(
+            !decide_ingest(
+                "agent.merope.platform_activity",
+                &IngestSight {
+                    executing: true,
+                    ..looking.clone()
+                }
+            )
+            .allow_model
+        );
+        assert!(decide_ingest("agent.merope.platform_activity", &looking).allow_model);
+    }
+
+    #[test]
+    fn greeting_is_worth_composing_on_the_page() {
+        assert!(
+            decide_ingest(
+                "agent.merope.greeting",
+                &IngestSight {
+                    on_page: true,
+                    panel_open: true,
+                    ..Default::default()
+                }
+            )
+            .allow_model
+        );
+        assert!(
+            decide_ingest(
+                "agent.merope.greeting",
+                &IngestSight {
+                    on_page: true,
+                    ..Default::default()
+                }
+            )
+            .allow_model
+        );
     }
 
     #[test]
     fn only_merope_owned_speech_is_worth_a_model_call() {
         assert!(speech_is_shown("agent.merope.platform_activity", true));
         assert!(speech_is_shown("agent.merope.report_ready", true));
+        assert!(speech_is_shown("agent.merope.greeting", true));
         // These already have a producer sending the notification.
         assert!(!speech_is_shown("agent.task_failed", true));
         assert!(!speech_is_shown("brew.source_error", true));
-        // Ambient speech never notifies at all.
         assert!(!speech_is_shown("agent.merope.greeting", false));
     }
 }

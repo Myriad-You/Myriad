@@ -1,212 +1,204 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { Anime25DBehaviorMotionController } from '../anime25drig/behaviorMotion'
+import { realizeAnime25DBehaviorPlan } from '../anime25drig/behaviorRealizer'
+import { sanitizePerformanceDirective } from '../performanceEvents'
+import { predictTextProsody } from '../speech/textProsody'
+import { meropeSpeechEventDetail } from '../speechEvents'
 import { RigMotionCoordinator } from './coordinator'
-import { setLiveMotionGeneration } from './liveGeneration'
+import { HumanPerformanceRuntime } from './humanPerformanceRuntime'
 import { SpeechMotionSource } from './speechSource'
 
-test('text-only speech sends one predicted prosody to scheduler and rig', () => {
-  const source = new SpeechMotionSource(new RigMotionCoordinator(), () => {})
-  source.start()
-  source.handleForTest({
-    phase: 'start',
-    messageId: 'message-a',
-    utteranceId: 'utterance-a',
-    source: 'reply',
-  })
-  source.handleForTest({
-    phase: 'chunk',
-    messageId: 'message-a',
-    utteranceId: 'utterance-a',
-    source: 'reply',
-    text: '不过这个部分很重要，所以需要自然一点。',
-  })
-  const intent = source.current()
-  assert.equal(intent.prosody?.utteranceId, 'utterance-a')
-  assert.ok((intent.prosody?.accents.length ?? 0) > 0)
-  assert.equal(intent.behaviorPlan?.id, 'speech:utterance-a')
-  assert.deepEqual(
-    intent.behaviorPlan?.behaviors
-      .filter((behavior) => behavior.form.id === 'accent')
-      .map((behavior) => behavior.timing.strokePeak),
-    intent.prosody?.accents.map(
-      (_, index) => `speech:utterance-a:accent-${index}:stroke-peak`,
-    ),
+test('a rolling speech window reaches the final question through the real scheduler and body adapter', () => {
+  let now = 1_000
+  const scheduler = {
+    now: () => now,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+  }
+  const human = new HumanPerformanceRuntime()
+  const body = new Anime25DBehaviorMotionController()
+  const source = new SpeechMotionSource(
+    new RigMotionCoordinator(),
+    () => {},
+    () => human.snapshots(now),
+    scheduler,
   )
-  source.stop()
-})
-
-test('a replacement utterance keeps its new predicted plan', () => {
-  const source = new SpeechMotionSource(new RigMotionCoordinator(), () => {})
   source.start()
-  source.handleForTest({
-    phase: 'start',
-    messageId: 'message-a',
-    utteranceId: 'utterance-a',
-    source: 'reply',
-  })
-  source.handleForTest({
-    phase: 'start',
-    messageId: 'message-b',
-    utteranceId: 'utterance-b',
-    source: 'reply',
-  })
-  assert.equal(source.current().prosody?.utteranceId, 'utterance-b')
-  assert.equal(source.current().behaviorPlan?.id, 'speech:utterance-b')
-  source.stop()
-})
-
-test('stale generations cannot publish a body behavior', () => {
-  setLiveMotionGeneration(8)
+  const event = {
+    source: 'reply' as const,
+    messageId: 'long',
+    utteranceId: 'long',
+  }
   try {
-    const source = new SpeechMotionSource(new RigMotionCoordinator(), () => {})
-    source.start()
+    source.handleForTest({ ...event, phase: 'start' })
     source.handleForTest({
-      phase: 'start',
-      messageId: 'stale',
-      utteranceId: 'stale',
-      source: 'reply',
-      generation: 7,
+      ...event,
+      phase: 'chunk',
+      text: `${'这一句说完了。'.repeat(20)}不过还有个办法。你觉得呢？`,
     })
-    assert.equal(source.current().active, false)
+    const prosody = source.current().prosody!
+    const last = prosody.accents.at(-1)!
+    assert.equal(last.gesture, 'question')
+    assert.ok(prosody.accents.length > 12)
+    assert.ok(
+      source.current().behaviorPlan!.behaviors.length < prosody.accents.length,
+    )
+    const identities = new Map<string, number>()
+    let question = 0
+    let revision = -1
+    for (; now <= prosody.startedAtMs + last.offsetMs + 700; now += 16) {
+      const intent = source.current()
+      assert.strictEqual(
+        source.current().behaviorPlan,
+        intent.behaviorPlan,
+        'unchanged windows must reuse their plan',
+      )
+      // A 4s lookahead + 1.1s recovery and 380ms minimum spacing bound live work.
+      assert.ok(intent.behaviorPlan!.behaviors.length <= 16)
+      const frame = human.frame([intent.behaviorPlan], now)
+      for (const behavior of frame.plan!.behaviors) {
+        const peak = frame.plan!.pegs.find(
+          (peg) => peg.id === behavior.timing.strokePeak,
+        )!.atMs
+        if (identities.has(behavior.id))
+          assert.equal(peak, identities.get(behavior.id))
+        identities.set(behavior.id, peak)
+      }
+      if (frame.revision !== revision) {
+        revision = frame.revision
+        const realized = realizeAnime25DBehaviorPlan(frame.plan!, now)
+        assert.ok(
+          realized.reports.every((report) => report.result === 'accepted'),
+        )
+        body.replace(realized.units, now, now / 1_000)
+      }
+      question = Math.max(
+        question,
+        body.sample(now / 1_000).coSpeechGesture.question,
+      )
+    }
+    assert.ok(identities.has(`speech:long:text-${last.textOffset}`))
+    assert.ok(
+      question > 0.5,
+      'the final semantic gesture must produce body output, not only a plan entry',
+    )
+    source.handleForTest({ ...event, phase: 'cancel' })
     assert.equal(source.current().behaviorPlan, null)
-    source.stop()
+    assert.equal(source.current().prosody, null)
+    human.frame([], now)
+    const stopped = human.frame([], now + 1_000).behaviors
+    assert.ok(
+      stopped.every((behavior) => behavior.phase === 'complete'),
+      JSON.stringify(stopped),
+    )
   } finally {
-    setLiveMotionGeneration(0)
+    source.stop()
   }
 })
 
-test('losing real prosody mid-utterance falls back to the predicted plan', () => {
-  const source = new SpeechMotionSource(new RigMotionCoordinator(), () => {})
-  source.start()
-  source.handleForTest({
-    phase: 'start',
-    messageId: 'message-c',
-    utteranceId: 'utterance-c',
-    source: 'reply',
-  })
-  source.handleForTest({
-    phase: 'chunk',
-    messageId: 'message-c',
-    utteranceId: 'utterance-c',
-    source: 'reply',
-    text: '这句话得有重音，不然身体就不动了。',
-  })
-  assert.ok(source.current().behaviorPlan)
-  // TTS drops out and clears prosody: the utterance must not lose its body.
-  source.handleForTest({
-    phase: 'prosody',
-    messageId: 'message-c',
-    utteranceId: 'utterance-c',
-    source: 'reply',
-    prosody: null,
-  })
-  const intent = source.current()
-  assert.equal(intent.behaviorPlan?.id, 'speech:utterance-c')
-  assert.ok(
-    intent.behaviorPlan?.behaviors.some(
-      (behavior) => behavior.form.id === 'presence',
-    ),
-  )
-  source.stop()
-})
-
-test('cancelling speech clears predicted behavior and queued text', () => {
-  const frames: Array<{ active: boolean; behaviorPlan: unknown }> = []
+test('queued TTS fragments survive later direction updates, corrections, and quoted evidence', () => {
+  const scheduler = {
+    now: () => 1_000,
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+  }
   const source = new SpeechMotionSource(
     new RigMotionCoordinator(),
-    (intent) => {
-      frames.push({ active: intent.active, behaviorPlan: intent.behaviorPlan })
-    },
+    () => {},
+    undefined,
+    scheduler,
   )
   source.start()
-  source.handleForTest({
-    phase: 'start',
-    messageId: 'message-cancel',
-    utteranceId: 'utterance-cancel',
-    source: 'reply',
-  })
-  source.handleForTest({
-    phase: 'chunk',
-    messageId: 'message-cancel',
-    utteranceId: 'utterance-cancel',
-    source: 'reply',
-    text: '这句话会被打断。',
-  })
-  assert.ok(source.current().behaviorPlan)
-  assert.ok(source.current().queuedText.length > 0)
-
-  source.handleForTest({
-    phase: 'cancel',
-    messageId: 'message-cancel',
-    source: 'reply',
-  })
-
-  assert.equal(source.current().active, false)
-  assert.equal(source.current().prosody, null)
-  assert.equal(source.current().behaviorPlan, null)
-  assert.deepEqual(source.current().queuedText, [])
-  assert.ok(
-    frames
-      .filter((frame) => !frame.active)
-      .every((frame) => frame.behaviorPlan === null),
-  )
-  source.stop()
+  const event = { source: 'reply' as const, messageId: 'queued', text: '' }
+  const direct = (text: string, intent: string) =>
+    source.applyDirector(
+      sanitizePerformanceDirective({
+        phase: 'delivery',
+        moodRevision: 999,
+        motionStyle: 'even',
+        plan: {
+          baseline: {
+            expression: 'warm',
+            posture: 'open',
+            motionEnergy: 1,
+            attention: 0.7,
+          },
+          cues: [],
+        },
+        phrases: [{ text, intent }],
+      })!,
+      event,
+      null,
+    )
+  const speak = (text: string, id: string) => {
+    const base = { ...event, utteranceId: id }
+    source.handleForTest({ ...base, phase: 'start' })
+    source.handleForTest(
+      meropeSpeechEventDetail({
+        ...base,
+        phase: 'prosody',
+        text,
+        prosody: predictTextProsody({
+          text,
+          utteranceId: id,
+          startedAtMs: 1_000,
+        }),
+      })!,
+    )
+    return source.current().prosody!.accents.map((accent) => accent.gesture)
+  }
+  try {
+    direct('你真的这么想吗？', 'tease')
+    direct('你觉得呢？', 'check-in')
+    assert.ok(speak('你真的这么想吗？', 'first').includes('tease'))
+    assert.ok(speak('你觉得呢？', 'second').includes('check-in'))
+    assert.ok(!speak('他说：“你真的这么想吗？”', 'quoted').includes('tease'))
+    direct('你真的这么想吗？', 'none')
+    assert.ok(speak('你真的这么想吗？', 'corrected').includes('none'))
+    source.handleForTest({ ...event, phase: 'cancel' })
+    assert.ok(speak('你真的这么想吗？', 'after-cancel').includes('question'))
+  } finally {
+    source.stop()
+  }
 })
 
-test('authored speech end cannot resurrect an inactive co-speech plan', () => {
+test('text increments reach the source without renaming earlier beats, and cancel clears them', () => {
   const source = new SpeechMotionSource(new RigMotionCoordinator(), () => {})
   source.start()
-  source.handleForTest({
-    phase: 'start',
-    messageId: 'message-authored',
-    utteranceId: 'utterance-authored',
-    source: 'reply',
-  })
-  source.handleForTest({
-    phase: 'articulation',
-    messageId: 'message-authored',
-    utteranceId: 'utterance-authored',
-    source: 'reply',
-    articulation: { energy: 0.7, viseme: 'open', amount: 0.8 },
-  })
-  source.handleForTest({
-    phase: 'end',
-    messageId: 'message-authored',
-    utteranceId: 'utterance-authored',
-    source: 'reply',
-  })
-
-  assert.equal(source.current().active, false)
-  assert.equal(source.current().prosody, null)
-  assert.equal(source.current().behaviorPlan, null)
-  source.stop()
-})
-
-test('a foreign end cannot replace the live utterance behavior', () => {
-  const source = new SpeechMotionSource(new RigMotionCoordinator(), () => {})
-  source.start()
-  source.handleForTest({
-    phase: 'start',
-    messageId: 'message-live',
-    utteranceId: 'utterance-live',
-    source: 'reply',
-  })
-  source.handleForTest({
-    phase: 'chunk',
-    messageId: 'message-live',
-    utteranceId: 'utterance-live',
-    source: 'reply',
-    text: '正在说话。',
-  })
-  source.handleForTest({
-    phase: 'end',
-    messageId: 'message-old',
-    utteranceId: 'utterance-old',
-    source: 'reply',
-  })
-
-  assert.equal(source.current().active, true)
-  assert.equal(source.current().prosody?.utteranceId, 'utterance-live')
-  assert.equal(source.current().behaviorPlan?.id, 'speech:utterance-live')
-  source.stop()
+  try {
+    const base = {
+      messageId: 'message',
+      utteranceId: 'stream',
+      source: 'reply' as const,
+    }
+    source.handleForTest({ ...base, phase: 'start' })
+    source.handleForTest({
+      ...base,
+      phase: 'chunk',
+      text: '其实我们可以试试。',
+    })
+    const first = source.current().prosody!
+    assert.ok(first.accents.length > 0)
+    source.handleForTest({
+      ...base,
+      phase: 'chunk',
+      text: '不过后面的结果呢？',
+    })
+    const later = source.current().prosody!
+    assert.ok(later.accents.length > first.accents.length)
+    assert.deepEqual(
+      later.accents.slice(0, first.accents.length),
+      first.accents,
+    )
+    source.handleForTest({ ...base, phase: 'end' })
+    assert.deepEqual(source.current().prosody!.accents, later.accents)
+    source.handleForTest({ ...base, phase: 'cancel' })
+    assert.equal(source.current().behaviorPlan, null)
+    assert.equal(source.current().prosody, null)
+    source.handleForTest({ ...base, utteranceId: 'next', phase: 'start' })
+    assert.deepEqual(source.current().prosody!.accents, [])
+  } finally {
+    source.stop()
+  }
 })

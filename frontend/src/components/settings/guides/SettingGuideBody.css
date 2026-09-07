@@ -66,29 +66,12 @@ html.dark .setting-guide-block-text {
   height: 1.2rem;
   margin-top: 0.1rem;
   border-radius: 999px;
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #6c8cff) 16%,
-    transparent
-  );
-  color: var(--cfg-accent, #4f6ef7);
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
   font-size: 0.6875rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-}
-
-html.dark .setting-guide-step-num {
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #8ba3ff) 22%,
-    transparent
-  );
-  color: color-mix(
-    in srgb,
-    var(--color-light, var(--cfg-accent, #a5b8ff)) 70%,
-    white
-  );
 }
 
 .setting-guide-step-text {

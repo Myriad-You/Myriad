@@ -3,6 +3,9 @@
  *
  * 外层标题由 AiConfigSection 的 Agent 分组承担，这里只做和大语言模型
  * 档位同一套的内层标题（.ai-llm-tier）。
+ *
+ * 三条列表不能无限平铺。短的跟着内容长；超过窗口就进滚动，
+ * 首批条数对齐统计排行（先挂 30，其余「显示更多」）。
  */
 
 import type { ReactNode } from 'react'
@@ -31,13 +34,17 @@ import {
   SCHEDULE_PRESETS,
 } from '../agent-panel/agentSchedule'
 import {
+  guideDomProps,
   InputItem,
   ManagedList,
   SegmentedControl,
   SettingFieldErrorTag,
   SettingsButton,
+  SettingTitleGuideEntry,
   ToggleSwitch,
+  useSettingGuide,
 } from '../settings'
+import { agentOptionsListWindow } from './agentOptionsList'
 
 export function AgentNestedSection({
   title,
@@ -45,6 +52,10 @@ export function AgentNestedSection({
   badge,
   error,
   toggle,
+  guide,
+  guidePath,
+  tourAnchor,
+  toggleTourAnchor,
   children,
 }: {
   title: string
@@ -58,15 +69,24 @@ export function AgentNestedSection({
     ariaLabel?: string
     title?: string
   }
+  guide?: ReactNode
+  guidePath?: string
+  tourAnchor?: string
+  toggleTourAnchor?: string
   children?: ReactNode
 }) {
   return (
-    <div className="ai-llm-tier">
-      <div className="ai-llm-tier-head">
+    <div
+      className={`ai-llm-tier${guidePath ? ' has-guide-anchor' : ''}`}
+      data-tour={tourAnchor}
+      {...guideDomProps(guidePath)}
+    >
+      <div className="ai-llm-tier-head" data-tour={toggleTourAnchor}>
         <div className="ai-llm-tier-copy">
           <h3 className="ai-llm-tier-title">
             {title}
             {badge}
+            <SettingTitleGuideEntry title={title} guide={guide} />
           </h3>
           {description ? (
             <p className="ai-llm-tier-desc">{description}</p>
@@ -149,6 +169,7 @@ function skillOriginBadge(
 export const AgentOptionsPanel: React.FC = () => {
   const { t, format, locale } = useI18n()
   const { isAuthenticated } = useAuth()
+  const { catalog: g, bindGuide } = useSettingGuide()
   const m = t.agentPanel.manage
   const [tasks, setTasks] = useState<HeartbeatTask[]>([])
   const [skills, setSkills] = useState<SkillInfo[]>([])
@@ -690,11 +711,12 @@ export const AgentOptionsPanel: React.FC = () => {
         title={t.config.agentHeartbeatTitle}
         description={t.config.agentHeartbeatDesc}
         error={errorFor('heartbeat')}
+        {...bindGuide('ai.heartbeat', g.ai.heartbeat)}
       >
         <ManagedList
           stats={heartbeatStats}
           loading={loading}
-          maxHeight={null}
+          {...agentOptionsListWindow(filteredTasks.length)}
           emptyText={
             tasks.length === 0 ? m.emptyHeartbeat : m.noneMatch
           }
@@ -756,10 +778,11 @@ export const AgentOptionsPanel: React.FC = () => {
         title={t.config.agentSkillsTitle}
         description={t.config.agentSkillsDesc}
         error={errorFor('skills')}
+        {...bindGuide('ai.skills', g.ai.skills)}
       >
         <ManagedList
           loading={loading}
-          maxHeight={null}
+          {...agentOptionsListWindow(filteredSkills.length)}
           emptyText={skills.length === 0 ? m.emptySkills : m.noneMatch}
           stats={skillStats}
           toolbar={[refreshAction]}
@@ -813,10 +836,11 @@ export const AgentOptionsPanel: React.FC = () => {
         title={t.config.agentMemoryTitle}
         description={t.config.agentMemoryDesc}
         error={errorFor('memory')}
+        {...bindGuide('ai.memory', g.ai.memory)}
       >
         <ManagedList
           loading={loading}
-          maxHeight={null}
+          {...agentOptionsListWindow(filteredMemories.length)}
           emptyText={memories.length === 0 ? m.emptyMemory : m.noneMatch}
           stats={memoryStats}
           toolbar={[refreshAction]}

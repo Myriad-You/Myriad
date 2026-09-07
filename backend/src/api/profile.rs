@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
 
 // Platform refresh / site owner live in services (scheduler must not depend on HTTP).
 use crate::services::platform_refresh::{
@@ -461,7 +460,7 @@ pub async fn delete_platform_cache(
     let mut messages = Vec::new();
 
     // 1. 删除分平台数据
-    let raw_dir = PathBuf::from("./cache/raw");
+    let raw_dir = crate::services::data_paths::raw_cache_dir();
     if raw_dir.exists() {
         match fs::remove_dir_all(&raw_dir) {
             Ok(_) => {
@@ -500,10 +499,10 @@ pub use crate::services::image_proxy_urls::{normalize_json_media_urls, proxy_ima
 
 // Library item shaping (pure) — DB I/O stays in this module.
 pub use crate::services::library_items::{
-    append_bangumi_library_items, append_mal_library_items, apply_library_source_preferences,
-    cached_library_items, collect_library_source_options, invalidate_library_assembly_cache,
-    paginate_library_items, store_library_items, CachedLibraryItems, LibraryItem,
-    LibrarySourcePreferences, LIBRARY_SOURCE_PREFERENCES_KEY,
+    append_bangumi_library_items, append_mal_library_items, cached_library_items,
+    collect_library_source_options, invalidate_library_assembly_cache, paginate_library_items,
+    store_library_items, CachedLibraryItems, LibraryItem, LibrarySourcePreferences,
+    LIBRARY_SOURCE_PREFERENCES_KEY,
 };
 async fn load_library_source_preferences(db: &DatabaseConnection) -> LibrarySourcePreferences {
     let sql = "SELECT value FROM configurations WHERE key = $1";

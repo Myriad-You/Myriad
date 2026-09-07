@@ -37,6 +37,7 @@ import { userFacingError } from '../../utils/userFacingError'
 import {
   AutoHeight,
   FieldSelect,
+  guideDomProps,
   InfoActionCard,
   InputItem,
   ManagedList,
@@ -45,6 +46,7 @@ import {
   SettingGroup,
   SettingsButton,
   SettingSection,
+  SettingTitleGuideEntry,
   SwitchItem,
   useSettingGuide,
 } from '../settings'
@@ -923,12 +925,24 @@ export const FederationConfigSection: React.FC<
               },
             ]}
             footer={
-              <span className="setting-description">
-                {g.federation.rotateKeys.notes}
+              <span
+                className="has-guide-anchor"
+                {...guideDomProps('federation.rotateKeys')}
+              >
+                <SettingTitleGuideEntry
+                  title={c.federationKeysRotate}
+                  guide={
+                    bindGuide('federation.rotateKeys', g.federation.rotateKeys)
+                      .guide
+                  }
+                />
+                <span className="setting-description">
+                  {g.federation.rotateKeys.notes}
+                </span>
               </span>
             }
           />
-          {/* 轮换完整指南挂在分组 guide 已有 keys；动作补充 title + 底部 notes */}
+          {/* 轮换指南挂在卡片底部入口；按钮 title 仍用 what 作短提示 */}
         </SettingGroup>
 
         <SettingGroup

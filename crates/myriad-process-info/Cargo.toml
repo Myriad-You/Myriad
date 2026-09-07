@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "Process memory, uptime, and build identity helpers for Myriad (agent + /health)."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 serde_json = "1"

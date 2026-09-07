@@ -6,7 +6,6 @@ pub(crate) async fn extract_steam_library_items(
     metadata: &SmartFilteredData,
 ) -> Result<Vec<Value>, String> {
     use std::fs;
-    use std::path::PathBuf;
 
     let mut library_items = Vec::new();
 
@@ -16,7 +15,7 @@ pub(crate) async fn extract_steam_library_items(
         println!("✅ Steam analysis found!");
 
         // 读取Steam原始数据以获取游戏封面信息
-        let raw_cache_path = PathBuf::from("./cache/raw/steam.json");
+        let raw_cache_path = crate::services::data_paths::platform_raw_file("steam");
         let mut game_map: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
 
@@ -623,9 +622,8 @@ pub(crate) async fn extract_bilibili_user_stats(
     metadata: &SmartFilteredData,
 ) -> Result<BilibiliUserStats, String> {
     use std::fs;
-    use std::path::PathBuf;
 
-    let raw_cache_path = PathBuf::from("./cache/raw/bilibili.json");
+    let raw_cache_path = crate::services::data_paths::platform_raw_file("bilibili");
     if raw_cache_path.exists() {
         if let Ok(content) = fs::read_to_string(&raw_cache_path) {
             if let Ok(raw_json) = serde_json::from_str::<Value>(&content) {
@@ -874,7 +872,6 @@ pub(crate) async fn extract_bilibili_library_items(
     metadata: &SmartFilteredData,
 ) -> Result<Vec<Value>, String> {
     use std::fs;
-    use std::path::PathBuf;
 
     let mut library_items = Vec::new();
 
@@ -884,7 +881,7 @@ pub(crate) async fn extract_bilibili_library_items(
         println!("✅ Bilibili analysis found!");
 
         // 读取B站原始数据：封面 + 追番进度（progress / season_id）
-        let raw_cache_path = PathBuf::from("./cache/raw/bilibili.json");
+        let raw_cache_path = crate::services::data_paths::platform_raw_file("bilibili");
         // title → (cover, progress, season_id)
         let mut bangumi_map: std::collections::HashMap<
             String,

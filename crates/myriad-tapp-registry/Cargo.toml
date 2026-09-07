@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "PostgreSQL-backed Tapp runtime registry and mailbox (shared leases across replicas)."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 # Align with backend: sea-orm 2.0 + tokio runtime

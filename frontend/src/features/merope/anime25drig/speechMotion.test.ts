@@ -14,6 +14,31 @@ function seededRandom(initialSeed: number): () => number {
   }
 }
 
+test('a queued long phrase still articulates after the old 256-cue cutoff', async () => {
+  const speech = new AutoSpeechController(
+    () => 0.5,
+    async () => [
+      ...Array.from({ length: 300 }, () => ({
+        viseme: 'rest' as const,
+        duration: 0.02,
+        emphasis: false,
+      })),
+      { viseme: 'open' as const, duration: 0.25, emphasis: false },
+    ],
+  )
+  speech.sample(0, true)
+  speech.enqueueText('长句')
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  let tailOpen = 0
+  for (let time = 0; time < 8; time += 0.01) {
+    const pose = speech.sample(time, true)
+    if (time > 5) tailOpen = Math.max(tailOpen, pose.mouthOpen)
+  }
+  assert.ok(tailOpen > 0.3)
+  speech.clear(8)
+  assert.equal(speech.sample(9, false).mouthOpen, 0)
+})
+
 test('shapes phrase onset, center, and ending without exceeding unity', () => {
   const onset = speechPhraseAmplitudeScale(0)
   const center = speechPhraseAmplitudeScale(0.5)
@@ -280,8 +305,10 @@ test('leads an emphasized syllable with the brow before the head nod', () => {
   const speech = new AutoSpeechController(() => 0)
   speech.sample(0, true)
   speech.sample(0.08, true)
-  const anticipation = { ...speech.sample(0.12, true) }
-  const followingNod = { ...speech.sample(0.16, true) }
+  // Sampled at the same points of the accent's own shape as before: the
+  // arrival doubled, so 40ms and 80ms into it are now 0.16s and 0.24s.
+  const anticipation = { ...speech.sample(0.16, true) }
+  const followingNod = { ...speech.sample(0.24, true) }
 
   assert.ok(anticipation.phraseActivity > 0)
   assert.ok(anticipation.browAccent > 0.4)

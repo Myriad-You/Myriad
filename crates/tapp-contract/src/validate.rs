@@ -2,12 +2,13 @@
 
 use crate::contract_rules::{
     API_INJECT_RESERVED_PREFIXES, FORBIDDEN_OUTBOUND_HEADERS, HTTP_BODY_METHODS, HTTP_METHODS,
-    MAX_CREDENTIAL_HEADER_PREFIX_LEN, MAX_CREDENTIAL_KEY_LEN, MAX_DATA_EXCHANGE_DECLARATIONS,
-    MAX_DATA_EXCHANGE_RESPONSE_BYTES, MAX_OPEN_URLS, MAX_OPEN_URL_ID_LEN, MAX_TAPP_ASSETS,
-    MAX_TAPP_CREDENTIALS, MAX_TAPP_GAME_ASSETS, MAX_TAPP_GAME_MESSAGE_BYTES, MAX_TAPP_GAME_PLAYERS,
-    MAX_TAPP_GAME_PROTOCOL_LEN, MAX_TAPP_RUNTIME_MODULES, MAX_WIDGETS_PER_TAPP,
-    MIN_TAPP_GAME_PLAYERS, OPEN_URL_PERMISSION, ROUTE_MAX_MAX_SKEW_SECS, ROUTE_MAX_PREFIX_LEN,
-    ROUTE_METHODS, ROUTE_MIN_MAX_SKEW_SECS, TAPP_RUNTIME_MODULES,
+    MAX_AI_OPERATIONS, MAX_CREDENTIAL_HEADER_PREFIX_LEN, MAX_CREDENTIAL_KEY_LEN,
+    MAX_DATA_EXCHANGE_DECLARATIONS, MAX_DATA_EXCHANGE_RESPONSE_BYTES, MAX_OPEN_URLS,
+    MAX_OPEN_URL_ID_LEN, MAX_TAPP_ASSETS, MAX_TAPP_CREDENTIALS, MAX_TAPP_GAME_ASSETS,
+    MAX_TAPP_GAME_MESSAGE_BYTES, MAX_TAPP_GAME_PLAYERS, MAX_TAPP_GAME_PROTOCOL_LEN,
+    MAX_TAPP_RUNTIME_MODULES, MAX_WIDGETS_PER_TAPP, MIN_TAPP_GAME_PLAYERS, OPEN_URL_PERMISSION,
+    ROUTE_MAX_MAX_SKEW_SECS, ROUTE_MAX_PREFIX_LEN, ROUTE_METHODS, ROUTE_MIN_MAX_SKEW_SECS,
+    TAPP_RUNTIME_MODULES,
 };
 use crate::manifest::{
     valid_agent_name, valid_event_topic, valid_inbound_route_path, valid_inbound_verify_header,
@@ -966,8 +967,10 @@ pub fn validate_tapp_manifest(
         if ai.protocol_version != 2 {
             return Err("Tapp AI protocolVersion must be 2".to_string());
         }
-        if ai.operations.is_empty() || ai.operations.len() > 4 {
-            return Err("Tapp AI operations must contain 1-4 entries".to_string());
+        if ai.operations.is_empty() || ai.operations.len() > MAX_AI_OPERATIONS {
+            return Err(format!(
+                "Tapp AI operations must contain 1-{MAX_AI_OPERATIONS} entries"
+            ));
         }
         if ai.output_formats.is_empty() || ai.output_formats.len() > 3 {
             return Err("Tapp AI outputFormats must contain 1-3 entries".to_string());
@@ -1026,6 +1029,11 @@ pub fn validate_tapp_manifest(
             && !output_formats.contains(&TappAiOutputFormat::Image)
         {
             return Err("Tapp AI image operation requires image output format".to_string());
+        }
+        if operations.contains(&TappAiOperation::Search)
+            && !output_formats.contains(&TappAiOutputFormat::Json)
+        {
+            return Err("Tapp AI search operation requires json output format".to_string());
         }
     }
 

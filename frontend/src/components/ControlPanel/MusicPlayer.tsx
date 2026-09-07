@@ -895,6 +895,7 @@ const MusicPlaylistView: React.FC<{
     let attempt = 0
     let rafId = 0
     let timerId = 0
+    let remeasureTimer = 0
     const maxAttempts = 10
 
     const scrollToActive = (): boolean => {
@@ -939,7 +940,9 @@ const MusicPlaylistView: React.FC<{
     // 面板高度重测后再锁一次（MusicPlayer 会 dispatch gcp-remeasure）
     const onRemeasure = () => {
       if (cancelled) return
-      window.setTimeout(() => {
+      window.clearTimeout(remeasureTimer)
+      remeasureTimer = window.setTimeout(() => {
+        remeasureTimer = 0
         if (!cancelled) scrollToActive()
       }, 30)
     }
@@ -948,6 +951,7 @@ const MusicPlaylistView: React.FC<{
     return () => {
       cancelled = true
       window.clearTimeout(timerId)
+      window.clearTimeout(remeasureTimer)
       if (rafId) cancelAnimationFrame(rafId)
       window.removeEventListener('gcp-remeasure', onRemeasure)
     }

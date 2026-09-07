@@ -62,7 +62,7 @@ pub const MAX_API_INJECT_TEMPLATE_LEN: usize = 2_048;
 pub const MAX_DATA_EXCHANGE_DESCRIPTION_LEN: usize = 500;
 pub const MAX_DATA_EXCHANGE_RECORDS: usize = 10_000;
 pub const MAX_INLINE_SCHEMA_DEPTH: usize = 32;
-pub const MAX_AI_OPERATIONS: usize = 4;
+pub const MAX_AI_OPERATIONS: usize = 5;
 pub const MAX_AI_CONTEXT_SOURCES: usize = 4;
 pub const MAX_AI_OUTPUT_FORMATS: usize = 3;
 pub const MAX_EVENT_TOPICS: usize = 100;
@@ -199,7 +199,7 @@ pub const AI_CONTEXT_PERMISSION_RULES: &[(&str, &str)] =
 pub const AI_BUILTIN_OUTPUT_FORMAT: &str = "text";
 pub const REQUIRED_MANIFEST_FIELDS: &[&str] = &["category"];
 pub const INLINE_SCHEMA_ROOT_KEYS: &[&str] = &["type", "properties", "enum", "const"];
-pub const AI_OPERATION_OUTPUT_RULES: &[(&str, &str)] = &[("image", "image")];
+pub const AI_OPERATION_OUTPUT_RULES: &[(&str, &str)] = &[("image", "image"), ("search", "json")];
 pub const API_BUILTIN_AI_OPERATIONS: &[(&str, &str)] =
     &[("ai:chat", "chat"), ("ai:generate", "generate")];
 pub const API_BUILTIN_PERMISSIONS: &[(&str, &str)] =

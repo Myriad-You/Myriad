@@ -1,16 +1,24 @@
-//! Pro onboarding helpers: name roll, structured persona draft, visual design.
+//! Onboarding helpers: strict-Lite name roll; Pro persona draft and visual design.
 //! Prompts live in `onboarding_prompts`.
 
 use serde_json::{json, Map, Value};
 use std::time::Duration;
 
 use crate::config::ModelTier;
-use crate::services::ai::create_ai_analyzer_for_tier_with_timeout;
-use crate::services::analyzer::OutputBudget;
+use crate::services::ai::{
+    create_ai_analyzer_for_tier_with_timeout, create_strict_lite_ai_analyzer_with_timeout,
+};
+use crate::services::ai_config::get_ai_config_for_tier;
+use crate::services::ai_cost_ledger::record_ai_call_from_attribution;
+use crate::services::analyzer::{openai_chat_completions_url, AiProvider, OutputBudget};
+use crate::services::gemini_media;
+use crate::services::http_client::get_long_running_client;
+use crate::services::image_generation::ImageReference;
+use crate::GLOBAL_DYNAMIC_CONFIG;
 
 use super::onboarding_prompts::{
-    visual_design_system_prompt, IMPORT_PERSONA_SYSTEM_PROMPT, NAME_SYSTEM_PROMPT,
-    PERSONA_SYSTEM_PROMPT,
+    name_system_prompt, observe_portrait_visual_prompt, visual_design_system_prompt,
+    IMPORT_PERSONA_SYSTEM_PROMPT, PERSONA_SYSTEM_PROMPT,
 };
 use super::report_dna::sanitize_onboarding_tags_for_language;
 
@@ -27,7 +35,7 @@ const ONBOARDING_AI_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// 没有状态码的传输错误。所以最坏情况是一次慢调用，不是三次叠加。
 ///
 /// Keep in sync with `NAME_SUGGEST_TIMEOUT_MS`（前端必须比这个大）。
-const NAME_CALL_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+const NAME_CALL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// 失控保险，不是调优旋钮。
 ///
 /// 名字加含义大概四十个 token。这里给到四千，是因为多数网关把思考 token 也
@@ -46,9 +54,9 @@ const NAME_OUTPUT_BUDGET: OutputBudget = OutputBudget { max_tokens: 4096 };
 /// 同样五道，视觉设定六道——模型在一次正常生成里踩中一道是常态。不重试就等于
 /// 把重试写成给人看的提示，用户看到的是「不可用，请再试一次」。
 ///
-/// 名字走 Lite、几十个 token，抽三次也很快；这三条是 Pro 的长文生成，一次几十
-/// 秒，两次够把「这一把没写好」和「配置真有问题」分开，再多就是拿站长的时间
-/// 换概率。
+/// 名字走严格 Lite、几十个 token，抽三次也很快；这三条是 Pro 的长文生成，一次
+/// 几十秒，两次够把「这一把没写好」和「配置真有问题」分开，再多就是拿站长的
+/// 时间换概率。
 const VISUAL_DESIGN_ATTEMPTS: u8 = 2;
 const PERSONA_ATTEMPTS: u8 = 2;
 /// 名字的字形闸口很严：中文名要 2–4 个全汉字、不以 阿/小 开头、不在屏蔽名单
@@ -96,13 +104,11 @@ impl std::fmt::Display for OnboardingAiError {
 }
 
 pub async fn suggest_display_name(
-    selected_tags: &[String],
     gender: &str,
     avoid_name: Option<&str>,
     language: &str,
     name_style: &str,
 ) -> Result<String, OnboardingAiError> {
-    let seeds = sanitize_onboarding_tags_for_language(selected_tags, language);
     let style = normalize_name_style(name_style, language);
     let avoid = avoid_name
         .map(str::trim)
@@ -110,18 +116,17 @@ pub async fn suggest_display_name(
         .map(|value| value.chars().take(40).collect::<String>());
     let mut last_reason = "name had no usable meaning or script";
     for attempt in 0..NAME_ATTEMPTS {
-        let input = json!({
-            "task": "name",
+        // 风格写进系统提示，这里只剩语言、性别、避开上次、换一次 roll。
+        // 标签是人设草稿的材料，不进起名。
+        let mut input = json!({
             "language": language,
-            "nameStyle": style,
             "genderPresentation": normalize_gender(gender),
-            "avoidName": avoid.clone().unwrap_or_default(),
-            "selectedTags": seeds,
-            // 每次换一个，否则重试只会拿回同一个过不了闸的名字。
             "rollId": format!("n{}", uuid::Uuid::new_v4().simple()),
-        })
-        .to_string();
-        let raw = run_name_call(NAME_SYSTEM_PROMPT, &input).await?;
+        });
+        if let Some(avoid) = avoid.clone() {
+            input["avoidName"] = json!(avoid);
+        }
+        let raw = run_name_call(&name_system_prompt(style), &input.to_string()).await?;
         match parse_display_name_suggestion(&raw, avoid.as_deref(), style) {
             Ok(name) => return Ok(name),
             Err(reason) => {
@@ -335,6 +340,58 @@ pub async fn suggest_visual_design(
     .await
 }
 
+fn existing_outfit_palette_hint(identity: Option<&Value>) -> Value {
+    let Some(root) = identity else {
+        return Value::Null;
+    };
+    let palette = root
+        .get("outfit")
+        .and_then(|outfit| outfit.get("paletteHint"))
+        .or_else(|| root.get("paletteHint"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    match palette {
+        Some(text) => json!(text.chars().take(340).collect::<String>()),
+        None => Value::Null,
+    }
+}
+
+fn visual_design_variety(
+    requirements_named: bool,
+    keep_character: bool,
+    remap_existing_palette: bool,
+) -> Value {
+    if requirements_named {
+        json!({
+            "keepNamedVisualRequirements": true,
+            "clothingStyleIsFamilyNotKit": true,
+            "fillSilenceFromGrammar": true,
+        })
+    } else if remap_existing_palette {
+        json!({
+            "clothingStyleIsFamilyNotKit": true,
+            "keepExistingOutfitPalette": true,
+            "remapExistingHuesOntoNewGarments": true,
+            "changeConstructionNotJustColors": true,
+            "forbidInterchangeableDefaultKit": true,
+        })
+    } else if keep_character {
+        json!({
+            "clothingStyleIsFamilyNotKit": true,
+            "changeConstructionNotJustColors": true,
+            "forbidInterchangeableDefaultKit": true,
+        })
+    } else {
+        json!({
+            "clothingStyleIsFamilyNotKit": true,
+            "appliesToEveryStyle": true,
+            "changeConstructionNotJustColors": true,
+            "forbidInterchangeableDefaultKit": true,
+        })
+    }
+}
+
 async fn suggest_visual_design_once(
     name: &str,
     language: &str,
@@ -361,6 +418,14 @@ async fn suggest_visual_design_once(
     } else {
         Value::Null
     };
+    let requirements = visual_requirements.chars().take(500).collect::<String>();
+    let requirements_named = !requirements.trim().is_empty();
+    let existing_outfit_palette = if kept_character.is_some() && regenerate && !requirements_named {
+        existing_outfit_palette_hint(existing_visual_identity)
+    } else {
+        Value::Null
+    };
+    let remap_existing_palette = !existing_outfit_palette.is_null();
     let input = json!({
         "pipeline": "onboarding/upper-body-visual-design",
         "task": "design_upper_body_visual_identity",
@@ -370,13 +435,16 @@ async fn suggest_visual_design_once(
         "genderPresentation": normalize_gender(gender),
         "clothingStyle": clothing_style,
         "clothingStyleGrammar": clothing_grammar,
+        "clothingStyleGrammarRole": "gap-fill only",
         "keepCharacter": kept_character.is_some(),
         "existingCharacter": kept_character.clone().unwrap_or(Value::Null),
+        "existingOutfitPalette": existing_outfit_palette,
         "persona": persona_input,
-        "visualRequirements": visual_requirements.chars().take(500).collect::<String>(),
+        "visualRequirements": requirements,
         "paletteFromPersona": {
             "from": ["likes", "temperament", "drives"],
             "onlyWhenVisualRequirementsDoNotSetPalette": true,
+            "onlyWhenExistingOutfitPaletteAbsent": true,
             "citeSourcesInPaletteHint": false,
             "paletteNamedColorsOnPartsOnly": true,
             "sameSourcesForCostumeAndAccessory": true,
@@ -385,12 +453,11 @@ async fn suggest_visual_design_once(
             "forbidMonochromeFamily": true,
             "accessories": "hero plus two or three supporting",
         },
-        "variety": {
-            "clothingStyleIsFamilyNotKit": true,
-            "appliesToEveryStyle": true,
-            "changeConstructionNotJustColors": true,
-            "forbidInterchangeableDefaultKit": true,
-        },
+        "variety": visual_design_variety(
+            requirements_named,
+            kept_character.is_some(),
+            remap_existing_palette,
+        ),
         "regenerate": regenerate,
         "previousVisualIdentityForDifferenceOnly": comparison_identity,
     })
@@ -454,7 +521,193 @@ async fn suggest_visual_design_once(
     Ok(identity)
 }
 
-/// `{"name":..., "meaning":...}` —— 和 `NAME_SYSTEM_PROMPT` 里那句同一个契约，
+pub struct ObservedPortraitVisual {
+    pub clothing_style: &'static str,
+    pub visual_identity: Value,
+}
+
+/// Read the uploaded master portrait into the visual-identity contract.
+pub async fn observe_visual_from_portrait(
+    language: &str,
+    gender: &str,
+    image: &ImageReference,
+) -> Result<ObservedPortraitVisual, OnboardingAiError> {
+    retry_unusable(
+        VISUAL_DESIGN_ATTEMPTS,
+        "portrait observation was unusable",
+        || observe_visual_from_portrait_once(language, gender, image),
+    )
+    .await
+}
+
+async fn observe_visual_from_portrait_once(
+    language: &str,
+    gender: &str,
+    image: &ImageReference,
+) -> Result<ObservedPortraitVisual, OnboardingAiError> {
+    let prompt = observe_portrait_visual_prompt(language, normalize_gender(gender));
+    let raw = run_vision_call(&prompt, image).await?;
+    parse_observed_visual(&raw, language, gender)
+}
+
+fn parse_observed_visual(
+    raw: &str,
+    language: &str,
+    gender: &str,
+) -> Result<ObservedPortraitVisual, OnboardingAiError> {
+    let parsed = parse_json_object(raw).ok_or(OnboardingAiError::UnusableResponse(
+        "portrait observation was not valid JSON",
+    ))?;
+    let clothing_style = parsed
+        .get("clothingStyle")
+        .and_then(Value::as_str)
+        .and_then(myriad_merope::normalize_clothing_style)
+        .unwrap_or("everyday");
+    let mut identity = myriad_merope::sanitize_upper_body_visual_identity(&parsed).ok_or(
+        OnboardingAiError::UnusableResponse("portrait observation failed field sanitize"),
+    )?;
+    myriad_merope::stamp_clothing_style(&mut identity, clothing_style);
+    if let Some(fixed) = myriad_merope::ensure_visual_identity_states_gender(
+        &identity,
+        normalize_gender(gender),
+        language,
+    ) {
+        identity = fixed;
+    }
+    if myriad_merope::visual_identity_has_literary_sludge(&identity) {
+        return Err(OnboardingAiError::UnusableResponse(
+            "portrait observation used literary sludge",
+        ));
+    }
+    if !visual_design_matches_ui_language(&identity, language) {
+        return Err(OnboardingAiError::LanguageMismatch);
+    }
+    Ok(ObservedPortraitVisual {
+        clothing_style,
+        visual_identity: identity,
+    })
+}
+
+async fn run_vision_call(
+    prompt: &str,
+    image: &ImageReference,
+) -> Result<String, OnboardingAiError> {
+    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+    if !config.pro_enabled {
+        return Err(OnboardingAiError::AnalyzerUnavailable);
+    }
+    drop(config);
+    let Ok(config) = get_ai_config_for_tier(ModelTier::Pro).await else {
+        return Err(OnboardingAiError::AnalyzerUnavailable);
+    };
+    let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image.bytes);
+    let client = get_long_running_client().await;
+    let request = match config.provider {
+        AiProvider::Gemini => client
+            .post(gemini_media::generate_content_url(
+                config.base_url.as_deref().unwrap_or_default(),
+                &config.model,
+            ))
+            .header("x-goog-api-key", &config.api_key)
+            .json(&json!({
+                "contents": [{ "parts": [
+                    { "inlineData": { "mimeType": image.media_type, "data": encoded } },
+                    { "text": prompt }
+                ]}],
+                "generationConfig": { "responseMimeType": "application/json" }
+            })),
+        AiProvider::OpenAI => {
+            let data_url = format!("data:{};base64,{encoded}", image.media_type);
+            client
+                .post(openai_chat_completions_url(config.base_url.as_deref()))
+                .bearer_auth(&config.api_key)
+                .json(&json!({
+                    "model": config.model,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            { "type": "text", "text": prompt },
+                            { "type": "image_url", "image_url": { "url": data_url } }
+                        ]
+                    }],
+                    "response_format": { "type": "json_object" }
+                }))
+        }
+    };
+    let response = match tokio::time::timeout(ONBOARDING_AI_TIMEOUT, request.send()).await {
+        Ok(Ok(response)) => response,
+        Ok(Err(error)) => {
+            tracing::error!(%error, "portrait observation provider failed");
+            return Err(OnboardingAiError::ProviderFailed(error.to_string()));
+        }
+        Err(_) => {
+            return Err(OnboardingAiError::ProviderFailed(
+                "portrait observation timed out".into(),
+            ));
+        }
+    };
+    let status = response.status();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| OnboardingAiError::ProviderFailed(error.to_string()))?;
+    let preview = String::from_utf8_lossy(&bytes);
+    record_ai_call_from_attribution(
+        config.provider.as_str(),
+        &config.model,
+        prompt.len(),
+        preview.len(),
+        if status.is_success() {
+            "completed"
+        } else {
+            "failed"
+        },
+        (!status.is_success()).then_some("AI_PROVIDER_ERROR"),
+    )
+    .await;
+    if !status.is_success() {
+        tracing::error!(%status, body = %preview.chars().take(400).collect::<String>(), "portrait observation HTTP error");
+        return Err(OnboardingAiError::ProviderFailed(format!(
+            "vision provider returned HTTP {status}"
+        )));
+    }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
+        OnboardingAiError::UnusableResponse("portrait observation was not valid JSON")
+    })?;
+    let text = match config.provider {
+        AiProvider::Gemini => value
+            .pointer("/candidates/0/content/parts")
+            .and_then(Value::as_array)
+            .and_then(|parts| {
+                parts
+                    .iter()
+                    .find_map(|part| part.get("text").and_then(Value::as_str))
+            })
+            .map(str::to_string),
+        AiProvider::OpenAI => {
+            let content = value.pointer("/choices/0/message/content");
+            content
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    content.and_then(Value::as_array).and_then(|parts| {
+                        parts.iter().find_map(|part| {
+                            part.get("text")
+                                .and_then(Value::as_str)
+                                .or_else(|| part.pointer("/text/value").and_then(Value::as_str))
+                                .map(str::to_string)
+                        })
+                    })
+                })
+        }
+    };
+    text.filter(|value| !value.trim().is_empty())
+        .ok_or(OnboardingAiError::UnusableResponse(
+            "portrait observation contained no text",
+        ))
+}
+
+/// `{"name":..., "meaning":...}` —— 和 `name_system_prompt` 里那句同一个契约，
 /// 只是这一份是发给供应商的，由 API 强制，而不是求模型自觉。
 fn name_response_schema() -> Value {
     json!({
@@ -467,28 +720,13 @@ fn name_response_schema() -> Value {
     })
 }
 
-async fn run_name_call(system: &str, input: &str) -> Result<String, OnboardingAiError> {
-    if crate::GLOBAL_DYNAMIC_CONFIG.read().await.lite_enabled {
-        match run_name_call_on_tier(ModelTier::Lite, system, input).await {
-            Ok(raw) => return Ok(raw),
-            Err(OnboardingAiError::AnalyzerUnavailable) => {}
-            Err(error) => return Err(error),
-        }
-    }
-    run_name_call_on_tier(ModelTier::Standard, system, input).await
-}
-
-/// 起名走短结构化调用：限输出、关思考、JSON 由 API 保证。
+/// 起名只走严格 Lite：限输出、短 JSON，绝不借 Standard / Pro 的模型。
 ///
 /// 和 `run_onboarding_call_on_tier` 分开是因为那条是给人设起草和视觉设定用的
-/// ——那两个确实要写长文，给它们套预算会截断。
-async fn run_name_call_on_tier(
-    tier: ModelTier,
-    system: &str,
-    input: &str,
-) -> Result<String, OnboardingAiError> {
-    let Some(analyzer) =
-        create_ai_analyzer_for_tier_with_timeout(tier, Some(NAME_CALL_TIMEOUT)).await
+/// ——那两个确实要写长文，给它们套预算会截断。Lite 没配好就直接不可用，
+/// 不能静默落到 Standard，否则「换一个」会按思考模型的延迟转圈。
+async fn run_name_call(system: &str, input: &str) -> Result<String, OnboardingAiError> {
+    let Some(analyzer) = create_strict_lite_ai_analyzer_with_timeout(Some(NAME_CALL_TIMEOUT)).await
     else {
         return Err(OnboardingAiError::AnalyzerUnavailable);
     };
@@ -510,13 +748,13 @@ async fn run_name_call_on_tier(
     {
         Ok(raw) if !raw.trim().is_empty() => Ok(raw),
         Ok(_) => {
-            tracing::warn!(?tier, "name model returned empty text");
+            tracing::warn!("name model returned empty text");
             Err(OnboardingAiError::ProviderFailed(
                 "name model returned empty text".into(),
             ))
         }
         Err(error) => {
-            tracing::error!(%error, ?tier, "name model call failed");
+            tracing::error!(%error, "name model call failed");
             Err(OnboardingAiError::ProviderFailed(error.to_string()))
         }
     }
@@ -813,7 +1051,7 @@ fn is_katakana_letter(ch: char) -> bool {
     matches!(ch, '\u{30A1}'..='\u{30FA}' | '\u{30FC}')
 }
 
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
+#[cfg(test)]
 fn japanese_name_length_hint(roll_id: &str) -> (&'static str, u8) {
     let seed = roll_id.bytes().fold(0u32, |acc, byte| {
         acc.wrapping_mul(33).wrapping_add(byte as u32)
@@ -1008,6 +1246,73 @@ mod tests {
     use super::*;
 
     #[test]
+    fn observed_portrait_visual_keeps_clothing_style_and_fields() {
+        let raw = r#"{
+            "clothingStyle": "urban",
+            "visualIdentity": {
+                "character": {
+                    "faceDesign": "柔和的鹅蛋脸，鼻唇简洁，面部比例成熟而非幼态",
+                    "eyeDesign": "紫蓝宝石感大眼，深色上睫与多层虹膜高光",
+                    "hairShape": "粉色齐颌短发，空气刘海，侧发包住脸颊",
+                    "hairLayerPlan": "后发形成完整轮廓，前刘海、左右侧发和顶部呆毛可分层"
+                },
+                "outfit": {
+                    "upperBodySilhouette": "窄肩与清晰领口，胸像轮廓紧凑，左右袖片伸入画面",
+                    "outfitConstruction": "水手领内搭叠短外套，领巾形成胸前主形，结构止于高腰",
+                    "sleeveArmDesign": "宽松袖口包住局部前臂，左右形状不完全对称，手可以不出现",
+                    "materialPlan": "哑光布料为主，丝带带柔和光泽，金属与宝石只用于小面积焦点",
+                    "heroAccessory": "左侧星形发夹与胸前星形扣形成一次呼应",
+                    "paletteHint": "粉色头发，淡紫与白为主体，深紫压边，少量金色点缀",
+                    "motif": "星轨与小型鸟笼，集中在发饰和胸前，不铺满服装"
+                }
+            }
+        }"#;
+        let observed = parse_observed_visual(raw, "zh-CN", "female").expect("usable observation");
+        assert_eq!(observed.clothing_style, "urban");
+        assert!(observed.visual_identity["character"]["faceDesign"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("女性化。"));
+        assert_eq!(observed.visual_identity["outfit"]["clothingStyle"], "urban");
+    }
+
+    #[test]
+    fn keep_character_without_requirements_reuses_existing_outfit_palette() {
+        let identity = json!({
+            "character": {
+                "faceDesign": "女性化鹅蛋脸",
+                "eyeDesign": "紫色眼睛",
+                "hairShape": "银灰短发",
+                "hairLayerPlan": "后发、刘海、侧发"
+            },
+            "outfit": {
+                "paletteHint": "淡紫与白为主体，深紫压边"
+            }
+        });
+        assert_eq!(
+            existing_outfit_palette_hint(Some(&identity)),
+            json!("淡紫与白为主体，深紫压边")
+        );
+        assert_eq!(existing_outfit_palette_hint(None), Value::Null);
+        assert_eq!(
+            existing_outfit_palette_hint(Some(&json!({ "paletteHint": " mist blue " }))),
+            json!("mist blue")
+        );
+    }
+
+    #[test]
+    fn new_outfit_does_not_keep_the_worn_palette() {
+        let fresh = visual_design_variety(false, true, false);
+        assert!(fresh.get("keepExistingOutfitPalette").is_none());
+        assert!(fresh.get("remapExistingHuesOntoNewGarments").is_none());
+        let remapped = visual_design_variety(false, true, true);
+        assert_eq!(remapped["keepExistingOutfitPalette"], true);
+        assert_eq!(remapped["remapExistingHuesOntoNewGarments"], true);
+        let named = visual_design_variety(true, true, true);
+        assert!(named.get("keepExistingOutfitPalette").is_none());
+    }
+
+    #[test]
     fn sanitize_display_name_follows_name_style() {
         assert_eq!(normalize_name_style("", "zh-CN"), "chinese");
         assert_eq!(normalize_name_style("european", "zh-CN"), "european");
@@ -1159,13 +1464,38 @@ mod tests {
         // 每次要换 rollId，否则重试拿回同一个过不了闸的名字。
         assert!(body.contains("\"rollId\""));
         // 供应商真的失败（没配模型、网关挂了）不该被重试掩盖成「不合规则」。
-        assert!(body.contains("run_name_call(NAME_SYSTEM_PROMPT, &input).await?"));
+        assert!(body.contains("run_name_call(&name_system_prompt(style)"));
+        assert!(body.contains(".await?"));
+        // 标签是人设草稿的材料。塞进起名只会拖慢 Lite、还可能把字形带偏。
+        assert!(!body.contains("selectedTags"));
+        assert!(!body.contains("selected_tags"));
+        // 风格已经写进系统提示，用户载荷里再带一份是重复。
+        assert!(!body.contains("\"nameStyle\""));
 
         // 提示词得说清楚新的 rollId 意味着换一个名字，否则模型会忽略它。
-        assert!(
-            crate::services::agent::merope::onboarding_prompts::NAME_SYSTEM_PROMPT
-                .contains("rollId")
-        );
+        assert!(super::name_system_prompt("chinese").contains("rollId"));
+    }
+
+    /// 起名必须是严格 Lite，不能借 Standard 的模型或思考延迟。
+    ///
+    /// `create_ai_analyzer_for_tier(Lite)` 在 Lite 模型留空时会静默落到
+    /// Standard 的模型——账单和转圈都按 Standard 走，日志却写 Lite。
+    /// 开关关着再回落到 Standard 调用，是同一件事的第二条路。
+    #[test]
+    fn name_roll_is_strict_lite_with_a_small_payload() {
+        let source = include_str!("onboarding_ai.rs");
+        let body = source
+            .split("async fn run_name_call(")
+            .nth(1)
+            .and_then(|rest| rest.split("\nasync fn ").next())
+            .expect("run_name_call body");
+
+        assert!(body.contains("create_strict_lite_ai_analyzer_with_timeout"));
+        assert!(!body.contains("create_ai_analyzer_for_tier"));
+        assert!(!body.contains("ModelTier::Standard"));
+        assert!(!body.contains("ModelTier::Lite"));
+        assert!(!body.contains("lite_enabled"));
+        assert!(body.contains("analyze_json_short"));
     }
 
     /// 每一条带校验闸的生成都得自己重试，不能只有名字和视觉设定有。

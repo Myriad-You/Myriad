@@ -46,8 +46,6 @@ export interface SpinnerProps {
   /** 无障碍标签，默认「加载中」 */
   label?: string
   className?: string
-  /** @deprecated 旧 API：等价于 color="primary" / color="white" */
-  variant?: 'primary' | 'white'
 }
 
 export function Spinner({
@@ -59,10 +57,9 @@ export function Spinner({
   center = false,
   label = currentCopy().common.loading,
   className = '',
-  variant,
 }: SpinnerProps) {
   const px = typeof size === 'number' ? size : SIZE_PX[size]
-  const resolved = color ?? variant ?? 'primary'
+  const resolved = color ?? 'primary'
   const style = {
     '--spinner-size': `${px}px`,
     '--spinner-color': COLOR_VALUE[resolved] ?? resolved,

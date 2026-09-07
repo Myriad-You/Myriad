@@ -4,6 +4,8 @@ import test from 'node:test'
 import {
   BehaviorScheduler,
   MAX_PREPARATION_RETIME_MS,
+  MAX_RECOVERY_MS,
+  MIN_RECOVERY_MS,
 } from './behaviorScheduler'
 
 function plan(endMs = 1_000): BehaviorPlan {
@@ -242,4 +244,80 @@ test('keeps rhythmic and tracking behaviors open until an explicit interruption'
     assert.equal(scheduler.tick(5_000)[0]?.phase, 'recovering')
     assert.equal(scheduler.tick(5_200)[0]?.phase, 'complete')
   }
+})
+
+test('an interruption mid-stroke leaves a timing that still reads forwards', () => {
+  const scheduler = new BehaviorScheduler()
+  scheduler.replace(plan(), 0)
+  // 300 <= now < 380 is the committed window: the stroke has peaked but has
+  // not finished, so `strokeEnd` is the one boundary still in the future.
+  scheduler.tick(340)
+  assert.equal(scheduler.snapshots(340)[0]?.phase, 'committed')
+  scheduler.interrupt('behavior-1', 340)
+  const retreating = scheduler.snapshots(340)[0]!
+  const boundaries = [
+    retreating.startedAtMs,
+    retreating.readyAtMs,
+    retreating.strokeStartAtMs,
+    retreating.strokePeakAtMs,
+    retreating.strokeEndAtMs,
+    retreating.relaxAtMs!,
+    retreating.endsAtMs!,
+  ]
+  // A `strokeEnd` left behind its own `relax` is what the realizer refuses as
+  // invalid timing, dropping the behavior in one frame instead of retreating.
+  for (let index = 1; index < boundaries.length; index += 1) {
+    assert.ok(
+      boundaries[index]! >= boundaries[index - 1]!,
+      `boundary ${index} runs backwards: ${boundaries.join(' ')}`,
+    )
+  }
+})
+
+test('a retreat never walks back into the phase it was interrupted from', () => {
+  const scheduler = new BehaviorScheduler()
+  const phases: string[] = []
+  scheduler.replace(plan(), 0)
+  scheduler.tick(340)
+  scheduler.interrupt('behavior-1', 340)
+  scheduler.subscribe((event) => {
+    if (event.type === 'phase') phases.push(`${event.from}->${event.phase}`)
+  })
+  for (const at of [350, 360, 370, 385, 450, 600, 900]) scheduler.tick(at)
+  // `committed` is what the reaction policy reads as an occupied resource, so
+  // returning to it keeps a behavior that is already invisible blocking the
+  // one meant to replace it.
+  assert.deepEqual(
+    phases.filter((step) => step.endsWith('->committed')),
+    [],
+  )
+})
+
+test('recovery scales with how much of the gesture was delivered', () => {
+  const early = new BehaviorScheduler()
+  early.replace(plan(), 0)
+  early.tick(160)
+  early.interrupt('behavior-1', 160)
+  const late = new BehaviorScheduler()
+  late.replace(plan(), 0)
+  late.tick(370)
+  late.interrupt('behavior-1', 370)
+
+  const earlyRecovery = early.snapshots(160)[0]!.endsAtMs! - 160
+  const lateRecovery = late.snapshots(370)[0]!.endsAtMs! - 370
+  assert.ok(
+    lateRecovery > earlyRecovery,
+    `a nearly complete stroke must take longer to put away: ${lateRecovery} vs ${earlyRecovery}`,
+  )
+  for (const recovery of [earlyRecovery, lateRecovery]) {
+    assert.ok(recovery >= MIN_RECOVERY_MS && recovery <= MAX_RECOVERY_MS)
+  }
+})
+
+test('an explicit recovery still wins over the derived one', () => {
+  const scheduler = new BehaviorScheduler()
+  scheduler.replace(plan(), 0)
+  scheduler.tick(340)
+  scheduler.interrupt('behavior-1', 340, 250)
+  assert.equal(scheduler.snapshots(340)[0]?.endsAtMs, 590)
 })

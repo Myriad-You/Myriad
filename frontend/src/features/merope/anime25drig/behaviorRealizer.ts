@@ -1,10 +1,12 @@
 import type { BehaviorPlan, BehaviorRealizerReport } from '../motion/behavior'
 import type { BehaviorRealizerContext } from '../motion/behaviorRealizerRegistry'
+import type { SpeechGesture } from '../speech/phraseGestures'
 import type { Anime25DMotionUnit } from './behaviorMotion'
 import type { CueIntent } from './performanceCueDefinitions'
 import { BehaviorRealizerRegistry } from '../motion/behaviorRealizerRegistry'
 import { PERFORMANCE_CUE_INTENTS } from '../performanceContract'
 import { isMusicMode } from '../singing/musicSignal'
+import { SPEECH_GESTURES } from '../speech/phraseGestures'
 import { completeBehaviorQuality } from './behaviorMotion'
 
 export interface Anime25DBehaviorRealization {
@@ -38,7 +40,11 @@ const registry = new BehaviorRealizerRegistry<Anime25DMotionUnit>().register(
 )
 
 registry.register('co-speech', (behavior, context) => {
-  if (behavior.form.id !== 'presence' && behavior.form.id !== 'accent') {
+  if (
+    behavior.form.id !== 'presence' &&
+    behavior.form.id !== 'accent' &&
+    !SPEECH_GESTURES.includes(behavior.form.id as SpeechGesture)
+  ) {
     return null
   }
   const timing = realizedUnitTiming(behavior.timing, context)

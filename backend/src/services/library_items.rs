@@ -539,17 +539,6 @@ pub fn collect_library_source_options(
     options
 }
 
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-pub fn apply_library_source_preferences(
-    items: Vec<LibraryItem>,
-    preferences: &LibrarySourcePreferences,
-) -> Vec<LibraryItem> {
-    items
-        .into_iter()
-        .filter(|item| preferences.source_enabled(&item.item_type, &item.platform))
-        .collect()
-}
-
 #[derive(Debug)]
 pub struct LibraryPage {
     pub items: Vec<LibraryItem>,
@@ -1058,9 +1047,9 @@ mod tests {
             ..LibrarySourcePreferences::default()
         }
         .normalized();
-        let filtered = apply_library_source_preferences(items, &prefs);
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].id, "1");
+        let page = paginate_library_items(&items, Some(&prefs), None, None, None).unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].id, "1");
     }
 
     #[test]

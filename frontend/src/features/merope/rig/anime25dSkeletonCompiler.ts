@@ -233,6 +233,10 @@ function handlesForLayer(
     ]
   }
   if (layer.role === 'bottomwear') return [fullLayerHandle(layer, 'root')]
+  if (['neckwear', 'wings', 'tail'].includes(layer.role)) {
+    return [fullLayerHandle(layer, 'body')]
+  }
+  if (layer.role === 'eyewear') return [fullLayerHandle(layer, 'head')]
   const dedicated = `a25d-${layer.role}`
   if (has(dedicated)) return [fullLayerHandle(layer, dedicated)]
   const group =

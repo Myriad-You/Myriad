@@ -121,6 +121,7 @@ backend/data/.bootstrap-claimed
 /backend/data
 .brew-shots/
 /frontend/public/merope-demo
+/frontend/tests
 
 # 本地截图（不提交）
 .local-shots/

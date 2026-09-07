@@ -7,7 +7,10 @@
  */
 import type { AgentPanelMode } from '../../components/agent-panel/agentPanelMode'
 import type { Locale } from '../../i18n'
-import type { MoodTransition, RigStateSummary } from '../../services/agent/types'
+import type {
+  MoodTransition,
+  RigStateSummary,
+} from '../../services/agent/types'
 import type { PerceptionAdapter } from './body/types'
 import type { FaceDelivery, FaceSpeechLine } from './faceSpeechArbitration'
 import { agentFace } from './agentFaceChannel'
@@ -18,6 +21,7 @@ import {
   faceSpeechGate,
   openGatedReply,
   setLiveBody,
+  silentReplyUtterance,
 } from './faceSpeechArbitration'
 import { livePresenceFacts } from './livePresence'
 import { setLiveMotionGeneration } from './motion/liveGeneration'
@@ -33,7 +37,15 @@ export function openTurnSpeech(
   messageId: string,
   generation = 0,
   locale?: Locale,
+  output: 'local' | 'external' = 'local',
 ) {
+  if (output === 'external') {
+    return {
+      cancel() {},
+      push: (_token: string): number | null => 0,
+      end: () => 0,
+    }
+}
   const pipeline = getSpeechPipeline()
   void pipeline.probe()
   const segmenter = new SpeechSegmenter(messageId, generation, locale)
@@ -73,7 +85,9 @@ export function openTurnReply(
   mode: AgentPanelMode,
   messageId: string,
   locale?: string,
+  output: 'local' | 'external' = 'local',
 ): ReturnType<typeof openGatedReply> {
+  if (output === 'external') return silentReplyUtterance()
   return openGatedReply(agentFace, faceSpeechGate, mode, messageId, locale)
 }
 

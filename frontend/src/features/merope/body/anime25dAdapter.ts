@@ -38,19 +38,22 @@ export class Anime25DBodyAdapter implements BodyAdapter {
 
   intend(intent: BodyIntent): void {
     if (!liveFaceVisible()) return
+    const source = intent.source ?? 'reply'
+    const generation = source === 'reply' ? liveMotionGeneration() : 0
     if (intent.speechText && intent.messageId) {
       getSpeechPipeline().speakLine({
         messageId: intent.messageId,
         text: intent.speechText,
-        generation: liveMotionGeneration(),
+        generation,
+        source,
         interrupt: 'queue',
       })
     }
     if (intent.performance?.plan) {
-      const generation = liveMotionGeneration()
       this.runtime.performance.handle({
         text: intent.speechText ?? '',
-        source: 'reply',
+        source,
+        ...(intent.runId ? { runId: intent.runId } : {}),
         ...(intent.messageId ? { messageId: intent.messageId } : {}),
         ...(generation ? { generation } : {}),
         motionIntentId: newMotionIntentId(),

@@ -766,6 +766,13 @@ async fn run_server() -> anyhow::Result<()> {
                     Ok(_) => {}
                     Err(e) => tracing::error!("Configuration encryption migration failed: {e}"),
                 }
+                match services::retired_configuration::purge_retired_configuration_keys(&db).await {
+                    Ok(n) if n > 0 => {
+                        tracing::info!("✅ Retired configuration purge: {n} row(s)")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::error!("Retired configuration purge failed: {e}"),
+                }
                 let legacy_jwt_secret = {
                     let cfg = GLOBAL_CONFIG.read().await;
                     cfg.jwt_secret.clone()
@@ -916,12 +923,14 @@ async fn export_settings(
 }
 
 /// 路由已挂 `admin_middleware`；`AdminClaims` 把同一个检查写进签名。
-/// 这个端点只做校验预演，不碰数据库。
+/// 预演对照当前 `configurations` 活键计算保留数，不写库。
 async fn preview_settings_restore(
     extract::AdminClaims(_claims): extract::AdminClaims,
+    extract::Db(db): extract::Db,
     Json(payload): Json<api::config::SettingsBackup>,
 ) -> Response {
-    let (status, json) = api::config::preview_settings_restore(Json(payload)).await;
+    let (status, json) =
+        api::config::preview_settings_restore(axum::extract::State(db), Json(payload)).await;
     (status, json).into_response()
 }
 
@@ -1086,10 +1095,7 @@ mod cache_control_tests {
         );
         assert_eq!(static_asset_cache_control("/logo.webp"), expected);
         assert_eq!(static_asset_cache_control("/favicon.webp"), expected);
-        assert_eq!(
-            static_asset_cache_control("/fonts/hoyo/GenshinUI-subset.woff2"),
-            expected
-        );
+        assert_eq!(static_asset_cache_control("/fonts/title.woff2"), expected);
     }
 
     #[test]

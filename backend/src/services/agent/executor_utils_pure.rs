@@ -14,6 +14,55 @@ pub fn truncate_str(s: &str, max_bytes: usize) -> &str {
     &s[..end]
 }
 
+/// 步骤超时的下限与上限（秒）。上限对齐生图 HTTP 客户端的 15 分钟。
+pub const STEP_TIMEOUT_MIN_SECS: u64 = 10;
+pub const STEP_TIMEOUT_MAX_SECS: u64 = 900;
+/// AI 能力的保底（秒）：生图与 Pro 长文经常超过一分钟。
+pub const AI_STEP_TIMEOUT_FLOOR_SECS: u64 = 300;
+/// Skill 子步骤的地板（秒）。子步骤大多是小操作，但不能因此把声明需要更久的
+/// 能力也压到这里——`ai.image` 声明 300 秒、`model3d.generate` 声明 180 秒。
+pub const SKILL_SUB_STEP_MIN_SECS: u64 = 60;
+
+/// 能力没有声明预估时长时的类别兜底（秒）。
+pub fn category_timeout_fallback_secs(
+    category: &crate::services::agent::types::CapabilityCategory,
+) -> u64 {
+    use crate::services::agent::types::CapabilityCategory;
+    match category {
+        CapabilityCategory::AiProcess | CapabilityCategory::ResourceCreate => 300,
+        CapabilityCategory::ExternalIntegration => 30,
+        _ => 30,
+    }
+}
+
+/// 一个步骤的超时（秒）。
+///
+/// 显式值优先；否则按能力声明的预估时长取 3 倍缓冲；两者都没有就用类别兜底。
+/// 最后给 AI 能力抬一个保底。
+///
+/// 抽出来是因为 Skill 内部 DAG 曾经绕开它，给每个子步骤硬写 60 秒——于是
+/// `ai.image`（声明 300 秒）只拿到 AI 保底的 300 秒，`model3d.generate`
+/// （声明 180 秒）只拿到 60 秒，后者不可能跑完。
+pub fn step_timeout_secs(
+    explicit_ms: Option<u64>,
+    estimated_duration_ms: Option<u64>,
+    category_fallback_secs: u64,
+    requires_ai: bool,
+) -> u64 {
+    let secs = explicit_ms
+        .map(|ms| (ms / 1000).clamp(STEP_TIMEOUT_MIN_SECS, STEP_TIMEOUT_MAX_SECS))
+        .unwrap_or_else(|| {
+            estimated_duration_ms
+                .map(|ms| (ms * 3 / 1000).clamp(STEP_TIMEOUT_MIN_SECS, STEP_TIMEOUT_MAX_SECS))
+                .unwrap_or(category_fallback_secs)
+        });
+    if requires_ai && secs < AI_STEP_TIMEOUT_FLOOR_SECS {
+        AI_STEP_TIMEOUT_FLOOR_SECS
+    } else {
+        secs
+    }
+}
+
 /// 支持的平台名称列表
 pub const VALID_PLATFORMS: &[&str] = &[
     "steam", "bilibili", "github", "youtube", "netease", "bangumi", "x", "discord", "mal", "xbox",
@@ -178,9 +227,10 @@ pub fn brew_category_token_matches(source_category: &str, category_name: &str) -
 
 /// 从步骤输出中提取图片 URL（如果存在）
 pub fn extract_image_url(output: &Value) -> Option<String> {
-    output
+    let inner = crate::services::agent::ai_process_pure::task_inner_value(output);
+    inner
         .as_object()
-        .and_then(|obj| obj.get("imageUrl"))
+        .and_then(|obj| obj.get("url").or_else(|| obj.get("imageUrl")))
         .and_then(|v| v.as_str())
         .filter(|url| {
             url.starts_with("http://") || url.starts_with("https://") || url.starts_with("/api/")
@@ -191,6 +241,146 @@ pub fn extract_image_url(output: &Value) -> Option<String> {
 /// 简化输出摘要（用于实时进度显示）— 委托给 response_agent
 pub fn summarize_output(output: &Value) -> Option<String> {
     crate::services::agent::response_agent::summarize_step_output(output)
+}
+
+#[cfg(test)]
+mod step_timeout_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_value_wins_and_is_clamped() {
+        assert_eq!(step_timeout_secs(Some(45_000), Some(1_000), 30, false), 45);
+        assert_eq!(
+            step_timeout_secs(Some(1), None, 30, false),
+            STEP_TIMEOUT_MIN_SECS
+        );
+        assert_eq!(
+            step_timeout_secs(Some(9_999_000), None, 30, false),
+            STEP_TIMEOUT_MAX_SECS
+        );
+    }
+
+    #[test]
+    fn declared_duration_gets_a_three_times_buffer() {
+        assert_eq!(step_timeout_secs(None, Some(10_000), 30, false), 30);
+        assert_eq!(step_timeout_secs(None, None, 30, false), 30);
+    }
+
+    /// 声明需要很久的能力必须真的拿到那么久。这两个曾经被 Skill 那条路
+    /// 硬写的 60 秒压死。
+    #[test]
+    fn long_capabilities_keep_their_declared_budget() {
+        assert_eq!(step_timeout_secs(None, Some(300_000), 300, true), 900);
+        assert_eq!(step_timeout_secs(None, Some(180_000), 300, false), 540);
+    }
+
+    /// Skill 子步骤既要有地板，也不能盖掉能力自己声明的预算。
+    #[test]
+    fn skill_sub_steps_floor_short_work_without_capping_long_work() {
+        let sub_step = |est, fallback, ai| {
+            step_timeout_secs(None, est, fallback, ai).max(SKILL_SUB_STEP_MIN_SECS)
+        };
+        // 小操作抬到地板
+        assert_eq!(sub_step(Some(100), 30, false), SKILL_SUB_STEP_MIN_SECS);
+        // 能力声明更久时以声明为准
+        assert_eq!(sub_step(Some(300_000), 300, true), 900); // ai.image
+        assert_eq!(sub_step(Some(180_000), 300, false), 540); // model3d.generate
+        assert_eq!(sub_step(Some(120_000), 300, false), 360); // model3d.rig
+    }
+
+    /// 产物会被执行的提示词，必须给第三方内容划边界。
+    ///
+    /// 这三处的输入里都有 `ai.webSearch` / `web.scrape` / `brew.article` 抓回来
+    /// 的正文，或 TAPP 自己渲染的 DOM——都是别人能写的字；而它们的输出分别是
+    /// 执行步骤和 click/input 计划。少一处边界，正文里一句「忽略以上」就通到
+    /// 执行层。
+    #[test]
+    fn prompts_that_yield_executable_plans_frame_untrusted_input() {
+        for (label, source, expected) in [
+            (
+                "动态步骤生成",
+                include_str!("executor/path_ai_helpers.rs"),
+                1,
+            ),
+            (
+                "Skill 内部 DAG",
+                include_str!("executor/execute_step.rs"),
+                1,
+            ),
+            (
+                "UI / 页面动作计划",
+                include_str!("executor/handlers/ui_control.rs"),
+                2,
+            ),
+        ] {
+            assert_eq!(
+                source.matches("untrusted_block(").count(),
+                expected,
+                "{label} 的第三方输入没有全部带边界"
+            );
+        }
+    }
+
+    /// 产物只是文字、但输入同样来自公网的那一档。
+    ///
+    /// `ai.summarize` / `ai.analyze` 的 `data` 由 Planner 用 `dataFrom` 从上游
+    /// 接过来，常常就是 `ai.webSearch` 的结果。执行不了动作，但正文里的祈使句
+    /// 仍然能改写「总结成什么」。
+    #[test]
+    fn text_only_prompts_over_fetched_content_are_framed_too() {
+        let ai_process = include_str!("executor/handlers/ai_process.rs");
+        assert_eq!(
+            ai_process.matches("untrusted_block(").count(),
+            2,
+            "ai.summarize / ai.analyze 的上游输入没有全部带边界"
+        );
+    }
+
+    /// 手抠花括号的地方必须收敛到共享实现上。
+    ///
+    /// `raw.find('{')` + `raw.rfind('}')` 再 `&raw[start..=end]`，少了区间校验
+    /// 就会在「最后一个 `}` 出现在第一个 `{` 之前」时 panic——模型被 max_tokens
+    /// 截断就可能长这样。共享实现带校验，也认 ```json 围栏。
+    #[test]
+    fn json_extraction_is_not_rehand_rolled() {
+        for (label, source) in [
+            ("Skill DAG", include_str!("executor/execute_step.rs")),
+            ("动态步骤", include_str!("executor/path_ai_helpers.rs")),
+            ("追问判定", include_str!("executor/resume_and_dynamic.rs")),
+            ("记忆提取", include_str!("memory/manager.rs")),
+            ("报告 DNA", include_str!("merope/report_dna.rs")),
+        ] {
+            assert!(
+                !source.contains("rfind('}')") && !source.contains("rfind(']')"),
+                "{label} 又自己抠了一遍花括号"
+            );
+        }
+    }
+
+    /// Skill 那条路曾经硬写 `Some(60000)` 盖掉全部推断。别再写回去。
+    #[test]
+    fn the_dag_path_derives_its_timeout_instead_of_hardcoding_one() {
+        let dag = include_str!("executor/execute_step.rs");
+        assert!(
+            !dag.contains("timeout_ms: Some(60000)"),
+            "Skill 子步骤又把超时写死了"
+        );
+        assert_eq!(
+            dag.matches("step_timeout_secs(").count(),
+            2,
+            "消费端与 DAG 构建各调一次；数量变了说明有人另开了第三套算法"
+        );
+    }
+
+    #[test]
+    fn ai_capabilities_never_fall_under_the_floor() {
+        assert_eq!(
+            step_timeout_secs(None, Some(3_000), 300, true),
+            AI_STEP_TIMEOUT_FLOOR_SECS
+        );
+        // 非 AI 能力不受这个保底影响
+        assert_eq!(step_timeout_secs(None, Some(3_000), 30, false), 10);
+    }
 }
 
 #[cfg(test)]
@@ -270,6 +460,14 @@ mod tests {
         assert_eq!(
             extract_image_url(&json!({"imageUrl": "https://x/a.png"})).as_deref(),
             Some("https://x/a.png")
+        );
+        assert_eq!(
+            extract_image_url(&json!({
+                "format": "image",
+                "value": { "url": "https://x/b.png", "width": 1, "height": 1 }
+            }))
+            .as_deref(),
+            Some("https://x/b.png")
         );
         assert_eq!(
             extract_image_url(&json!({"imageUrl": "/api/brew/image-cache/ab/abcd.png"})).as_deref(),

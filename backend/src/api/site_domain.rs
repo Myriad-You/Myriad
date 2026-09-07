@@ -275,9 +275,9 @@ pub fn apply_site_domain_to_env_content(
     }
 
     let mut content = env_content.to_string();
-    content = crate::api::config::update_env_var(&content, "BASE_URL", &normalized);
-    content = crate::api::config::update_env_var(&content, "FRONTEND_URL", &normalized);
-    content = crate::api::config::update_env_var(&content, "CORS_ORIGINS", &merged_cors);
+    content = crate::api::config::update_env_var(&content, "BASE_URL", &normalized)?;
+    content = crate::api::config::update_env_var(&content, "FRONTEND_URL", &normalized)?;
+    content = crate::api::config::update_env_var(&content, "CORS_ORIGINS", &merged_cors)?;
 
     Ok((content, normalized))
 }

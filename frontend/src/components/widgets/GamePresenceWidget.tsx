@@ -8,14 +8,13 @@
  * Xbox / PSN 已升级为独立的数据报告卡（report-xbox / report-psn），不再挤在这里。
  */
 
-import type { WidgetComponentProps } from '../WidgetGrid'
-import { FaTimes } from '@lib/icons'
+import type { WidgetComponentProps } from '../widgetGridTypes'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
+import type { CSSProperties } from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { useVisibilityInterval } from '../../hooks/animation'
@@ -23,8 +22,20 @@ import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { useThemeMode } from '../../utils/themeSubscriber'
 import { userFacingError } from '../../utils/userFacingError'
+import {
+  sanitizeWidgetFontUrl,
+  uploadWidgetFont,
+  widgetFontFaceUrl,
+  widgetFontFamilyName,
+} from '../../utils/widgetFonts'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
+import {
+  WidgetSettingsChoice,
+  WidgetSettingsChoices,
+  WidgetSettingsSection,
+  WidgetSettingsTip,
+} from './shared/WidgetSettingsTip'
 import { WidgetShell } from './shared/WidgetShell'
 import { WidgetSkeleton } from './shared/WidgetSkeleton'
 import './GamePresenceWidget.css'
@@ -39,6 +50,8 @@ export interface GamePresenceWidgetConfig {
   platformId?: GamePlatformId
   accountId?: string
   game?: HoyoGame
+  /** Host-stored font URL from POST /api/home/widget-fonts; empty = system font */
+  fontUrl?: string
 }
 
 interface GameIdentity {
@@ -114,7 +127,7 @@ const HOYO_GAMES: { id: HoyoGame, labelKey: 'genshin' | 'hsr' | 'zzz' }[] = [
   { id: 'zzz', labelKey: 'zzz' },
 ]
 
-/** 每个游戏的品牌资产：App 图标（前景）+ wordmark（低透明度背景装饰）+ 游戏字体 */
+/** 每个游戏的品牌资产：App 图标（前景）+ wordmark（低透明度背景装饰）+ 系统字体气质 */
 const GAME_META: Record<
   HoyoGame,
   {
@@ -188,14 +201,20 @@ interface SettingsState {
   isOpen: boolean
   accountId: string
   game: HoyoGame
+  fontUrl: string
   anchorRect?: DOMRect
-  onSave?: (cfg: Required<Pick<GamePresenceWidgetConfig, 'platformId' | 'accountId' | 'game'>>) => void
+  onSave?: (
+    cfg: Required<
+      Pick<GamePresenceWidgetConfig, 'platformId' | 'accountId' | 'game'>
+    > & { fontUrl: string },
+  ) => void
 }
 
 let globalSettings: SettingsState = {
   isOpen: false,
   accountId: '',
   game: 'genshin',
+  fontUrl: '',
 }
 
 const settingsListeners = new Set<() => void>()
@@ -203,6 +222,7 @@ const settingsListeners = new Set<() => void>()
 function openGamePresenceSettings(
   accountId: string,
   game: HoyoGame,
+  fontUrl: string,
   anchorRect: DOMRect,
   onSave: SettingsState['onSave'],
 ) {
@@ -210,6 +230,7 @@ function openGamePresenceSettings(
     isOpen: true,
     accountId,
     game,
+    fontUrl,
     anchorRect,
     onSave,
   }
@@ -233,58 +254,40 @@ const GamePresenceSettingsModal = memo(() => {
   const [, forceUpdate] = useState({})
   const [draftAccountId, setDraftAccountId] = useState('')
   const [draftGame, setDraftGame] = useState<HoyoGame>('genshin')
-  const modalRef = useRef<HTMLDivElement>(null)
-
+  const [draftFontUrl, setDraftFontUrl] = useState('')
+  const [fontBusy, setFontBusy] = useState(false)
+  const [fontError, setFontError] = useState<string | null>(null)
+  const fontInputRef = useRef<HTMLInputElement | null>(null)
   useEffect(() => subscribeSettings(() => forceUpdate({})), [])
 
   const { isOpen, anchorRect, onSave } = globalSettings
+  const tw = t.gamePresenceWidget
 
   // Sync draft when opening
   useEffect(() => {
     if (isOpen) {
       setDraftAccountId(globalSettings.accountId)
       setDraftGame(globalSettings.game)
+      setDraftFontUrl(globalSettings.fontUrl)
+      setFontBusy(false)
+      setFontError(null)
     }
   }, [isOpen])
 
-  const position = useMemo(() => {
-    if (!anchorRect) return { top: 0, left: 0 }
-    const modalWidth = 300
-    const modalHeight = 340
-    const padding = 16
-    let top = anchorRect.bottom + 8
-    let left = anchorRect.left + (anchorRect.width - modalWidth) / 2
-    if (left + modalWidth > window.innerWidth - padding) {
-      left = window.innerWidth - modalWidth - padding
+  const handlePickFont = useCallback(async (file: File | undefined) => {
+    if (!file) return
+    setFontBusy(true)
+    setFontError(null)
+    try {
+      const url = await uploadWidgetFont(file)
+      setDraftFontUrl(url)
+    } catch (error) {
+      setFontError(userFacingError(error, tw.customFontFailed))
+    } finally {
+      setFontBusy(false)
+      if (fontInputRef.current) fontInputRef.current.value = ''
     }
-    if (left < padding) left = padding
-    if (top + modalHeight > window.innerHeight - padding) {
-      top = anchorRect.top - modalHeight - 8
-    }
-    if (top < padding) top = padding
-    return { top, left }
-  }, [anchorRect])
-
-  useEffect(() => {
-    if (!isOpen) return
-    const onOutside = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        closeGamePresenceSettings()
-      }
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeGamePresenceSettings()
-    }
-    const timer = setTimeout(() => {
-      document.addEventListener('mousedown', onOutside, { passive: true })
-      document.addEventListener('keydown', onKey)
-    }, 100)
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener('mousedown', onOutside)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [isOpen])
+  }, [tw.customFontFailed])
 
   const handleSave = useCallback(() => {
     const id = draftAccountId.trim()
@@ -293,127 +296,96 @@ const GamePresenceSettingsModal = memo(() => {
       platformId: 'hoyolab',
       accountId: id,
       game: draftGame,
+      fontUrl: draftFontUrl,
     })
     closeGamePresenceSettings()
-  }, [draftAccountId, draftGame, onSave])
+  }, [draftAccountId, draftFontUrl, draftGame, onSave])
 
-  const tw = t.gamePresenceWidget
-  const isDark = useThemeMode()
-
-  if (!isOpen) return null
-
-  return createPortal(
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-10000"
-      style={{ pointerEvents: 'none' }}
+  return (
+    <WidgetSettingsTip
+      open={isOpen}
+      anchor={anchorRect ?? null}
+      title={t.widgets.gamePresence}
+      width={300}
+      height={440}
+      onClose={closeGamePresenceSettings}
     >
-      <motion.div
-        ref={modalRef}
-        initial={{ opacity: 0, scale: 0.95, y: -5 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.15 }}
-        className="absolute glass rounded-2xl shadow-2xl overflow-hidden border border-white/20 dark:border-white/10"
-        style={{
-          top: position.top,
-          left: position.left,
-          width: 300,
-          pointerEvents: 'auto',
-        }}
-      >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/50 dark:border-white/10">
-          <span className="flex items-center gap-2 font-bold text-sm text-gray-800 dark:text-gray-200">
-            <img
-              src={GAME_META[draftGame].appIcon}
-              alt=""
-              className="w-5 h-5 rounded-md object-cover"
-            />
-            {tw.settingsTitle}
-          </span>
-          <button
-            type="button"
-            onClick={closeGamePresenceSettings}
-            className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-            aria-label={tw.close}
-          >
-            <FaTimes size={12} className="text-gray-500 dark:text-gray-400" />
-          </button>
-        </div>
-
-        <div className="p-3 space-y-3 max-h-96 overflow-y-auto">
-          {/* Hoyo game */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
-              {tw.selectGame}
-            </label>
-            <div className="flex gap-1.5">
-              {HOYO_GAMES.map((g) => {
-                const selected = draftGame === g.id
-                return (
-                  <button
-                    key={g.id}
-                    type="button"
-                    onClick={() => setDraftGame(g.id)}
-                    className="flex-1 flex flex-col items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-xs font-medium transition-all"
-                    style={
-                      selected
-                        ? { background: 'var(--color-primary)', color: '#fff' }
-                        : {
-                            background: isDark
-                              ? 'rgba(255,255,255,0.06)'
-                              : 'rgba(0,0,0,0.04)',
-                          }
-                    }
-                  >
-                    <img
-                      src={GAME_META[g.id].appIcon}
-                      alt=""
-                      className="w-7 h-7 rounded-lg object-cover shrink-0"
-                      style={{ opacity: selected ? 1 : 0.8 }}
-                    />
-                    <span className={selected ? '' : 'text-gray-700 dark:text-gray-200'}>
-                      {tw[g.labelKey]}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Account id */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
-              {tw.uidLabel}
-            </label>
-            <input
-              type="text"
-              value={draftAccountId}
-              onChange={(e) => setDraftAccountId(e.target.value)}
-              placeholder={UID_PLACEHOLDER}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-gray-900 dark:text-gray-100 text-sm focus:ring-2 focus:ring-[var(--color-primary)] focus:border-transparent outline-none"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
-              {tw.publicOnlyHint}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={!draftAccountId.trim()}
-            className="w-full py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
-            style={{ background: 'var(--color-primary)' }}
-          >
-            {tw.save}
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>,
-    document.body,
+      <WidgetSettingsSection label={tw.selectGame}>
+        <WidgetSettingsChoices label={tw.selectGame} row>
+          {HOYO_GAMES.map((g) => (
+            <WidgetSettingsChoice
+              key={g.id}
+              selected={draftGame === g.id}
+              onClick={() => setDraftGame(g.id)}
+            >
+              <img
+                src={GAME_META[g.id].appIcon}
+                alt=""
+                className="w-7 h-7 rounded-lg object-cover shrink-0"
+              />
+              <span className="widget-settings-tip__choice-label">
+                {tw[g.labelKey]}
+              </span>
+            </WidgetSettingsChoice>
+          ))}
+        </WidgetSettingsChoices>
+      </WidgetSettingsSection>
+      <WidgetSettingsSection label={tw.uidLabel}>
+        <input
+          type="text"
+          value={draftAccountId}
+          onChange={(e) => setDraftAccountId(e.target.value)}
+          placeholder={UID_PLACEHOLDER}
+          className="widget-settings-tip__field"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <p className="widget-settings-tip__subtitle" style={{ marginTop: '0.35rem' }}>
+          {tw.publicOnlyHint}
+        </p>
+      </WidgetSettingsSection>
+      <WidgetSettingsSection label={tw.customFont}>
+        <input
+          ref={fontInputRef}
+          type="file"
+          accept=".woff2,.woff,.ttf,.otf"
+          hidden
+          onChange={(e) => void handlePickFont(e.target.files?.[0])}
+        />
+        <WidgetSettingsChoices label={tw.customFont}>
+          <WidgetSettingsChoice
+            selected={!draftFontUrl}
+            label={tw.customFontClear}
+            onClick={() => {
+              if (fontBusy) return
+              setDraftFontUrl('')
+              setFontError(null)
+            }}
+          />
+          <WidgetSettingsChoice
+            selected={Boolean(draftFontUrl)}
+            label={fontBusy ? tw.customFontUploading : tw.customFontChoose}
+            hint={draftFontUrl && !fontBusy ? tw.customFontInUse : undefined}
+            onClick={() => {
+              if (fontBusy) return
+              fontInputRef.current?.click()
+            }}
+          />
+        </WidgetSettingsChoices>
+        <p className="widget-settings-tip__subtitle">{tw.customFontHint}</p>
+        {fontError ? (
+          <p className="widget-settings-tip__subtitle">{fontError}</p>
+        ) : null}
+        <button
+          type="button"
+          className="widget-settings-tip__save"
+          onClick={handleSave}
+          disabled={!draftAccountId.trim() || fontBusy}
+        >
+          {tw.save}
+        </button>
+      </WidgetSettingsSection>
+    </WidgetSettingsTip>
   )
 })
 
@@ -424,7 +396,18 @@ GamePresenceSettingsModal.displayName = 'GamePresenceSettingsModal'
 const dataCache = new Map<string, { data: GamePresenceData, at: number }>()
 /** 展柜数据变化以天计，6 小时刷新一次足够 */
 const DATA_TTL = 6 * 3600 * 1000
+const MAX_DATA_CACHE = 20
 const inflight = new Map<string, Promise<GamePresenceData | null>>()
+
+function setDataCache(key: string, data: GamePresenceData): void {
+  dataCache.delete(key)
+  dataCache.set(key, { data, at: Date.now() })
+  while (dataCache.size > MAX_DATA_CACHE) {
+    const oldest = dataCache.keys().next().value
+    if (oldest === undefined) break
+    dataCache.delete(oldest)
+  }
+}
 
 async function fetchGamePresence(
   platformId: GamePlatformId,
@@ -454,7 +437,7 @@ async function fetchGamePresence(
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const body = await res.json()
       if (body?.success && body?.data) {
-        dataCache.set(key, { data: body.data, at: Date.now() })
+        setDataCache(key, body.data as GamePresenceData)
         return body.data as GamePresenceData
       }
       return null
@@ -478,6 +461,7 @@ function resolveConfig(config: WidgetComponentProps['config']): {
   platformId: GamePlatformId
   accountId: string
   game: HoyoGame
+  fontUrl: string
 } {
   const c = (config.config || {}) as GamePresenceWidgetConfig
   const game = (['genshin', 'hsr', 'zzz'] as const).includes(c.game as HoyoGame)
@@ -489,6 +473,7 @@ function resolveConfig(config: WidgetComponentProps['config']): {
     platformId: 'hoyolab',
     accountId: (c.accountId || '').trim(),
     game,
+    fontUrl: sanitizeWidgetFontUrl(c.fontUrl),
   }
 }
 
@@ -515,6 +500,8 @@ const GamePresenceWidget = memo(
     const resolved = resolveConfig(config)
     const [accountId, setAccountId] = useState(resolved.accountId)
     const [game, setGame] = useState(resolved.game)
+    const [fontUrl, setFontUrl] = useState(resolved.fontUrl)
+    const [customFamily, setCustomFamily] = useState<string | null>(null)
 
     const [data, setData] = useState<GamePresenceData | null>(null)
     const [loading, setLoading] = useState(false)
@@ -528,7 +515,31 @@ const GamePresenceWidget = memo(
       const next = resolveConfig(config)
       setAccountId(next.accountId)
       setGame(next.game)
-    }, [config.config?.accountId, config.config?.game])
+      setFontUrl(next.fontUrl)
+    }, [config.config?.accountId, config.config?.fontUrl, config.config?.game])
+
+    useEffect(() => {
+      if (!fontUrl) {
+        setCustomFamily(null)
+        return
+      }
+      const family = widgetFontFamilyName(fontUrl)
+      const face = new FontFace(family, `url(${widgetFontFaceUrl(fontUrl)})`)
+      let cancelled = false
+      void face
+        .load()
+        .then((loaded) => {
+          if (cancelled) return
+          document.fonts.add(loaded)
+          setCustomFamily(family)
+        })
+        .catch(() => {
+          if (!cancelled) setCustomFamily(null)
+        })
+      return () => {
+        cancelled = true
+      }
+    }, [fontUrl])
 
     // Fetch (initial load + 6h 低频轮询 —— 展柜数据变化以天计，长驻页面兜底刷新用)
     useEffect(() => {
@@ -634,14 +645,17 @@ const GamePresenceWidget = memo(
         platformId: GamePlatformId
         accountId: string
         game: HoyoGame
+        fontUrl: string
       }) => {
         setAccountId(next.accountId)
         setGame(next.game)
+        setFontUrl(next.fontUrl)
         const payload = {
           ...config.config,
           platformId: next.platformId,
           accountId: next.accountId,
           game: next.game,
+          fontUrl: next.fontUrl,
         }
         if (typeof onConfigChange === 'function') {
           onConfigChange(payload)
@@ -661,10 +675,11 @@ const GamePresenceWidget = memo(
       openGamePresenceSettings(
         accountId,
         game,
+        fontUrl,
         localRef.current.getBoundingClientRect(),
         persist,
       )
-    }, [accountId, game, persist])
+    }, [accountId, fontUrl, game, persist])
 
     const handlePressStart = useCallback(() => {
       if (!isEditMode) return
@@ -1004,7 +1019,14 @@ const GamePresenceWidget = memo(
           />
         }
         contentClassName={`flex flex-col ${!isEditMode && hasAccount ? 'cursor-pointer' : ''}`}
-        className="select-none"
+        className={`select-none ${meta.fontClass}`}
+        style={
+          customFamily
+            ? ({
+                '--gp-font': `'${customFamily}', system-ui, sans-serif`,
+              } as CSSProperties)
+            : undefined
+        }
       >
         <div
           className="h-full w-full"
@@ -1019,7 +1041,7 @@ const GamePresenceWidget = memo(
           {content}
         </div>
 
-        <WidgetLongPressHint visible={isEditMode} title={tw.longPressHint} />
+        <WidgetLongPressHint visible={isEditMode} title={tw.longPressHint} onClick={openSettings} />
       </WidgetShell>
     )
   },

@@ -47,7 +47,12 @@ export const AboutConfigSection: React.FC<AboutConfigSectionProps> = ({
       icon: <LuTag />,
       href: buildInfo.commitUrl ?? undefined,
     },
-    { label: t.config.aboutLicense, value: 'GPL-3.0', icon: <LuScale /> },
+    {
+      label: t.config.aboutLicense,
+      value: 'AGPL-3.0',
+      icon: <LuScale />,
+      href: `${REPO_URL}/blob/preview/LICENSE`,
+    },
     {
       label: t.config.aboutOrganization,
       value: ORG_NAME,

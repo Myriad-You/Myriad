@@ -27,6 +27,8 @@ const cacheGeneration = new Map<string, number>()
 
 // LRU 缓存最大容量
 const MAX_CACHE_SIZE = 50
+/** 代际表单独封顶：clear 后的 key 不在 resultCache 里，不能跟结果一起淘汰 */
+const MAX_GENERATION_KEYS = 200
 
 // 默认缓存时间（毫秒）
 const DEFAULT_CACHE_TTL = 30 * 1000 // 30秒
@@ -36,7 +38,19 @@ function generationOf(key: string): number {
 }
 
 function bumpGeneration(key: string): void {
-  cacheGeneration.set(key, generationOf(key) + 1)
+  const next = generationOf(key) + 1
+  cacheGeneration.delete(key)
+  cacheGeneration.set(key, next)
+  pruneGenerationStore()
+}
+
+function pruneGenerationStore(): void {
+  if (cacheGeneration.size <= MAX_GENERATION_KEYS) return
+  for (const key of cacheGeneration.keys()) {
+    if (cacheGeneration.size <= MAX_GENERATION_KEYS) break
+    if (pendingRequests.has(key)) continue
+    cacheGeneration.delete(key)
+  }
 }
 
 /**

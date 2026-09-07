@@ -124,6 +124,11 @@ export function getAgentSelectionSnapshot(): AgentSelectionSnapshot {
   return current
 }
 
+/** Fresh pointed-at text for a turn, or nothing. */
+export function turnSelectionText(nowMs: number = Date.now()): string | undefined {
+  return selectionIsFresh(current, nowMs) ? current.text : undefined
+}
+
 export function getServerAgentSelectionSnapshot(): AgentSelectionSnapshot {
   return EMPTY
 }

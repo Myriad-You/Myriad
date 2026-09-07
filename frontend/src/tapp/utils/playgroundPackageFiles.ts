@@ -8,6 +8,7 @@
 
 import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
 import type { TappCodeStructure, TappManifest } from '../types'
+import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
 
 /** Package entry content: text files as string; binary assets as Uint8Array. */
 export type PackageFileContent = string | Uint8Array
@@ -68,8 +69,26 @@ export function playgroundCodeToRuntime(
     styles: code.styles,
     widgetHtml: code.widgetHtml,
     pageHtml: code.pageHtml,
-    widgetCSS: code.widgetCSS,
-    pageCSS: code.pageCSS,
+    widgetCSS:
+      code.widgetCSS ||
+      generateOnDemandTailwindCSS(
+        [
+          code.widgetHtml || '',
+          code.styles || '',
+          code.core || '',
+          code.widget || '',
+        ].join('\n'),
+      ),
+    pageCSS:
+      code.pageCSS ||
+      generateOnDemandTailwindCSS(
+        [
+          code.pageHtml || '',
+          code.styles || '',
+          code.core || '',
+          code.page || '',
+        ].join('\n'),
+      ),
     i18n: code.i18n,
     assets: code.assets,
   }

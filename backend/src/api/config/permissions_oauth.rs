@@ -84,9 +84,8 @@ pub struct UpdatePermissionsPayload {
     pub user_perm_ai_analyze: Option<bool>,
     pub user_perm_ai_chat: Option<bool>,
     pub user_perm_ai_image: Option<bool>,
+    pub user_perm_ai_search: Option<bool>,
     pub user_perm_3d_generate: Option<bool>,
-    #[allow(dead_code)]
-    pub user_perm_report_write: Option<bool>, // 忽略：强制 false
     pub user_perm_network_fetch: Option<bool>,
     pub user_perm_media_control: Option<bool>,
     pub user_perm_component_theme: Option<bool>,
@@ -101,24 +100,17 @@ pub struct UpdatePermissionsPayload {
     pub user_perm_federation_room: Option<bool>,
     /// brew:commentWrite - 写 Brew 评论（Elevated，需登录主体）
     pub user_perm_brew_comment_write: Option<bool>,
-    // 游客 elevated 配置；认证绑定字段仅为兼容旧请求，实际强制关闭
+    // 游客 elevated 配置（需持久登录主体的能力不在请求体里，保存时强制关闭）
     pub guest_perm_ai_generate: Option<bool>,
     pub guest_perm_ai_analyze: Option<bool>,
     pub guest_perm_ai_chat: Option<bool>,
     pub guest_perm_ai_image: Option<bool>,
+    pub guest_perm_ai_search: Option<bool>,
     pub guest_perm_3d_generate: Option<bool>,
     pub guest_perm_network_fetch: Option<bool>,
     pub guest_perm_media_control: Option<bool>,
     pub guest_perm_event_publish: Option<bool>,
     pub guest_perm_storage_write: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; federation writes need a durable subject
-    pub guest_perm_federation_post: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; federation writes need a durable subject
-    pub guest_perm_federation_channel: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; federation writes need a durable subject
-    pub guest_perm_federation_room: Option<bool>,
-    #[allow(dead_code)] // accepted for compatibility; update endpoint forces false
-    pub guest_perm_brew_comment_write: Option<bool>,
     // AI 使用限额配置
     pub user_ai_daily_calls: Option<i32>,
     pub user_ai_daily_tokens: Option<i32>,
@@ -134,6 +126,8 @@ mod tapp_permission_payload_tests {
 
     #[test]
     fn accepts_permission_delegation_fields() {
+        // Extra keys (report:write / guest federation / guest brew comment) are
+        // ignored: those grants are forced closed on save, not taken from the body.
         let payload: UpdatePermissionsPayload = serde_json::from_value(serde_json::json!({
             "user_perm_speech_tts": true,
             "user_perm_speech_asr": false,
@@ -142,11 +136,12 @@ mod tapp_permission_payload_tests {
             "user_perm_federation_post": true,
             "user_perm_federation_channel": false,
             "user_perm_federation_room": true,
+            "user_perm_brew_comment_write": true,
+            "user_perm_report_write": true,
             "guest_perm_federation_post": true,
             "guest_perm_federation_channel": true,
             "guest_perm_federation_room": false,
-            "user_perm_brew_comment_write": true,
-            "guest_perm_brew_comment_write": false
+            "guest_perm_brew_comment_write": true
         }))
         .unwrap();
 
@@ -157,11 +152,7 @@ mod tapp_permission_payload_tests {
         assert_eq!(payload.user_perm_federation_post, Some(true));
         assert_eq!(payload.user_perm_federation_channel, Some(false));
         assert_eq!(payload.user_perm_federation_room, Some(true));
-        assert_eq!(payload.guest_perm_federation_post, Some(true));
-        assert_eq!(payload.guest_perm_federation_channel, Some(true));
-        assert_eq!(payload.guest_perm_federation_room, Some(false));
         assert_eq!(payload.user_perm_brew_comment_write, Some(true));
-        assert_eq!(payload.guest_perm_brew_comment_write, Some(false));
     }
 }
 
@@ -192,6 +183,9 @@ pub async fn update_permissions(
     }
     if let Some(v) = payload.user_perm_ai_image {
         updates.insert("user_perm_ai_image".to_string(), json!(v));
+    }
+    if let Some(v) = payload.user_perm_ai_search {
+        updates.insert("user_perm_ai_search".to_string(), json!(v));
     }
     if let Some(v) = payload.user_perm_3d_generate {
         updates.insert("user_perm_3d_generate".to_string(), json!(v));
@@ -238,7 +232,7 @@ pub async fn update_permissions(
         updates.insert("user_perm_brew_comment_write".to_string(), json!(v));
     }
 
-    // 游客权限。需要持久登录主体的能力保留兼容字段，但强制关闭。
+    // 游客权限。需要持久登录主体的能力不接收请求字段，保存时强制关闭。
     if let Some(v) = payload.guest_perm_ai_generate {
         updates.insert("guest_perm_ai_generate".to_string(), json!(v));
     }
@@ -250,6 +244,9 @@ pub async fn update_permissions(
     }
     if let Some(v) = payload.guest_perm_ai_image {
         updates.insert("guest_perm_ai_image".to_string(), json!(v));
+    }
+    if let Some(v) = payload.guest_perm_ai_search {
+        updates.insert("guest_perm_ai_search".to_string(), json!(v));
     }
     if let Some(v) = payload.guest_perm_3d_generate {
         updates.insert("guest_perm_3d_generate".to_string(), json!(v));
@@ -275,8 +272,7 @@ pub async fn update_permissions(
     if let Some(v) = payload.guest_perm_storage_write {
         updates.insert("guest_perm_storage_write".to_string(), json!(v));
     }
-    // federation 写路由全部要求持久登录主体（AuthedClaims）：游客下放配置
-    // 接受但强制写入 false，与 component:theme 等认证绑定能力一致。
+    // federation 写路由全部要求持久登录主体（AuthedClaims）：游客下放强制 false。
     updates.insert("guest_perm_federation_post".to_string(), json!(false));
     updates.insert("guest_perm_federation_channel".to_string(), json!(false));
     updates.insert("guest_perm_federation_room".to_string(), json!(false));

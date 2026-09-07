@@ -1,12 +1,36 @@
+import type { PerformanceDirective } from '../../../services/agent/types'
 import type { MusicMotionSource, SingingFrame } from './musicSource'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { resetMeropeState, resolveLoadedMeropeAffect } from '../performanceEvents'
 import { RigMotionCoordinator } from './coordinator'
 import {
   createLiveMotionRuntime,
   createPreviewMotionRuntime,
   MotionRuntime,
 } from './runtime'
+
+test('late director keeps its gesture without reinstalling a pre-appraisal standing face', () => {
+  resetMeropeState()
+  try {
+    resolveLoadedMeropeAffect({ mood: 60, arousal: 48, moodRevision: 12 })
+    const runtime = new MotionRuntime(new RigMotionCoordinator())
+    runtime.mood.set(60, 'idle', 48)
+    runtime.performance.handleForTest({
+      phase: 'delivery', moodRevision: 10, motionStyle: 'even',
+      plan: {
+        baseline: { expression: 'tense', posture: 'closed', motionEnergy: 0.8, attention: 0.5 },
+        cues: [{ intent: 'question', atMs: 0, intensity: 1, tempo: 1, fadeInMs: 80, fadeOutMs: 400, interrupt: 'if-lower' }],
+      },
+    })
+    const frame = runtime.frame()
+    assert.equal(frame.bearing?.expression, 'steady')
+    assert.ok(frame.behaviors.some((behavior) => behavior.form.id === 'question'))
+    assert.equal(frame.snapshot.owners.mouth, 'idle')
+  } finally {
+    resetMeropeState()
+  }
+})
 
 function stubMusic(): MusicMotionSource & { listeners: number } {
   const listeners = new Set<(frame: SingingFrame) => void>()
@@ -22,6 +46,30 @@ function stubMusic(): MusicMotionSource & { listeners: number } {
     },
   } as MusicMotionSource & { listeners: number }
 }
+
+test('delivery reaches the scheduler while acknowledgement recovers', () => {
+  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const reaction: PerformanceDirective = {
+    phase: 'reaction', moodRevision: 42, motionStyle: 'even',
+    plan: { cues: [{
+      intent: 'respond', atMs: 0, intensity: 1, tempo: 1,
+      fadeInMs: 80, fadeOutMs: 400, interrupt: 'if-lower',
+    }] },
+  }
+  const event = { text: '', source: 'reply' as const, runId: 'run-42', messageId: 'reply-42' }
+  runtime.performance.handleForTest(reaction, event)
+  runtime.frame()
+  runtime.performance.handleForTest({
+    ...reaction, phase: 'delivery',
+    plan: { cues: [{ ...reaction.plan.cues[0]!, intent: 'maniac' }] },
+  }, event)
+  const frame = runtime.frame()
+  assert.ok(frame.behaviors.some((behavior) => behavior.form.id === 'maniac'))
+  assert.ok(frame.behaviors.some((behavior) =>
+    behavior.form.id === 'respond' && behavior.phase === 'recovering',
+  ))
+  assert.equal(frame.snapshot.owners.mouth, 'idle')
+})
 
 test('stopping speech drops queued viseme text so a remount does not replay it', () => {
   const runtime = new MotionRuntime(new RigMotionCoordinator())

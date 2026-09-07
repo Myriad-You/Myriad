@@ -1,0 +1,159 @@
+/**
+ * GitHub 项目小徽章 — 流体 token，不要链接下划线。
+ */
+
+a.github-project-badge,
+a.github-project-badge:link,
+a.github-project-badge:visited,
+a.github-project-badge:hover,
+a.github-project-badge:active,
+a.github-project-badge:focus,
+a.github-project-badge:focus-visible {
+  text-decoration: none;
+}
+
+.github-project-badge,
+.github-project-badge * {
+  text-decoration: none;
+}
+
+.github-project-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.1rem 0.2rem 0.1rem 0.38rem;
+  border-radius: 999px;
+  border: 1px solid
+    color-mix(in srgb, var(--cfg-text-1, #1f2328) 8%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, #fff 42%, transparent),
+      transparent 46%
+    ),
+    color-mix(in srgb, var(--cfg-subtle-bg, #f4f5f7) 82%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 64%, transparent),
+    0 1px 2px color-mix(in srgb, var(--cfg-text-1, #1f2328) 6%, transparent);
+  color: color-mix(in srgb, var(--cfg-text-1, #1f2328) 88%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 620;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  vertical-align: middle;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--sm-t-control);
+}
+
+.github-project-badge:hover {
+  border-color: color-mix(in srgb, var(--cfg-text-1, #1f2328) 14%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, #fff 58%, transparent),
+      transparent 50%
+    ),
+    color-mix(in srgb, var(--cfg-subtle-bg-hover, #eef0f3) 88%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 78%, transparent),
+    0 4px 10px color-mix(in srgb, var(--cfg-text-1, #1f2328) 8%, transparent);
+  color: var(--cfg-text-1, #111);
+  transform: translateY(var(--sm-lift));
+}
+
+.github-project-badge:active {
+  transform: scale(var(--sm-scale-press));
+}
+
+.github-project-badge:focus-visible {
+  outline: 2px solid
+    color-mix(in srgb, var(--cfg-accent, #3b82f6) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.github-project-badge-mark,
+.github-project-badge-stars svg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.github-project-badge-mark svg,
+.github-project-badge-stars svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.github-project-badge-mark {
+  opacity: 0.78;
+}
+
+.github-project-badge-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.github-project-badge-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.14rem;
+  margin-left: 0.04rem;
+  padding: 0.08rem 0.38rem 0.08rem 0.3rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentcolor 9%, transparent);
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+}
+
+html.dark .github-project-badge {
+  border-color: color-mix(in srgb, #fff 12%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, #fff 12%, transparent),
+      transparent 48%
+    ),
+    color-mix(in srgb, #fff 6%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent),
+    0 1px 2px color-mix(in srgb, #000 28%, transparent);
+  color: color-mix(in srgb, #f0f6fc 90%, #fff);
+}
+
+html.dark .github-project-badge:hover {
+  border-color: color-mix(in srgb, #fff 20%, transparent);
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, #fff 16%, transparent),
+      transparent 52%
+    ),
+    color-mix(in srgb, #fff 9%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent),
+    0 6px 14px color-mix(in srgb, #000 34%, transparent);
+}
+
+html.dark .github-project-badge-stars {
+  background: color-mix(in srgb, #fff 10%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .github-project-badge {
+    transition: none;
+  }
+
+  .github-project-badge:hover,
+  .github-project-badge:active {
+    transform: none;
+  }
+}

@@ -18,6 +18,8 @@ export const IMPORT_STEP = 1 satisfies OnboardingStep
 export const GUIDED_FIRST_STEP = 2 satisfies OnboardingStep
 /** 生成链的最后一页（主立绘）。 */
 export const GUIDED_LAST_STEP = 6 satisfies OnboardingStep
+/** 生成链要从报告里抽词条。导入不吃这个门槛。 */
+export const GUIDED_MIN_REPORTS = 3
 
 /**
  * 上一页。`null` 表示已经在最前面，再往回就是离开引导页。
@@ -186,6 +188,7 @@ export interface UpperBodyVisualIdentity {
   outfit: OutfitVisual
 }
 
+/** Keep in sync with myriad-merope `CHARACTER_VISUAL_FIELDS` / `OUTFIT_VISUAL_FIELDS`. */
 export const UPPER_BODY_VISUAL_IDENTITY_LIMITS: Record<
   UpperBodyVisualIdentityKey,
   number
@@ -202,6 +205,9 @@ export const UPPER_BODY_VISUAL_IDENTITY_LIMITS: Record<
   paletteHint: 500,
   motif: 500,
 }
+
+/** Keep in sync with myriad-merope `MAX_VISUAL_NOTES_CHARS`. */
+export const VISUAL_NOTES_LIMIT = 1_000
 
 function parseFieldGroup<K extends string>(
   source: Record<string, unknown>,

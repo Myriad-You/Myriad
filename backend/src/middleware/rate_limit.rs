@@ -357,6 +357,9 @@ fn is_compute_intensive(path: &str) -> bool {
     let p = path.trim_end_matches('/');
     // Bulk / AI / analysis
     p == "/api/prompt/generate"
+        || p == "/api/home/stickers/generate"
+        || p == "/api/home/stickers/upload"
+        || p == "/api/home/widget-fonts"
         || p == "/api/seo/generate-copy"
         || p == "/api/profile/refresh"
         || p == "/api/profile/fetch-all"
@@ -426,6 +429,10 @@ mod tests {
         assert!(is_compute_intensive("/api/agent/process"));
         assert!(is_compute_intensive("/api/agent/process/stream"));
         assert!(is_compute_intensive("/api/tapp/ai/v2/tasks"));
+        assert!(is_compute_intensive("/api/home/stickers/generate"));
+        assert!(is_compute_intensive("/api/home/stickers/upload"));
+        assert!(is_compute_intensive("/api/home/widget-fonts"));
+        assert!(!is_compute_intensive("/api/home/widget-fonts/abc.woff2"));
         // Image proxy is media volume, not compute.
         assert!(is_image_proxy("/api/proxy/image"));
         assert!(!is_compute_intensive("/api/proxy/image"));

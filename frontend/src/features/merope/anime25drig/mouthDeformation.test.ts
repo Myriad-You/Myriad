@@ -35,7 +35,7 @@ test('classifies the exact continuous and locally deformed mouth sets', () => {
   assert.equal(isAnime25DMouthDeformation(null), false)
 })
 
-test('pure mouth stage matches the frozen player sequence across all materials', () => {
+test('mouth stage preserves the frozen sequence outside ordinary expression curvature', () => {
   for (let frameIndex = 0; frameIndex < 120; frameIndex += 1) {
     const progress = frameIndex / 119
     const expression: Anime25DDriver = {
@@ -74,6 +74,9 @@ test('pure mouth stage matches the frozen player sequence across all materials',
             },
     }
     for (const [fadeIndex, fade] of FADES.entries()) {
+      // Ordinary curvature now belongs to the shared live morph; preserve the
+      // frozen oracle for all other stages and for special-expression artwork.
+      expression.mouthForm = fade === 'mouthManiac' ? Math.sin(progress * 9.2) * 0.9 : 0
       const source = mouthLayer(fade, fadeIndex)
       for (let row = 0; row <= 5; row += 1) {
         for (let column = 0; column <= 7; column += 1) {
@@ -102,6 +105,44 @@ test('pure mouth stage matches the frozen player sequence across all materials',
             `${fade} frame ${frameIndex} vertex ${row}:${column}`,
           )
         }
+      }
+    }
+  }
+})
+
+test('ordinary mouth curvature is visible, symmetric and continuous across materials and opening', () => {
+  const regular: Anime25DFade[] = ['mouthClose', 'mouthOpen', 'mouthWide', 'mouthRound', 'mouthNarrow']
+  const sample = (fade: Anime25DFade, form: number, opening: number, x: number, scale = 1) => {
+    const source = { fade, x: 100 * scale, y: 160 * scale, w: 60 * scale, h: 20 * scale }
+    const restX = source.x + source.w * x
+    const restY = source.y + source.h / 2
+    const point = { x: restX, y: restY }
+    deformAnime25DMouthPoint(point, restX, restY, source, {
+      mouth: MOUTH, face: FACE, faceScale: scale,
+      morph: { centerX: 130 * scale, centerY: 170 * scale, width: 60 * scale,
+        height: 20 * scale, openMix: opening, round: opening, wide: 0, narrow: 0 },
+      expression: { ...IDENTITY_DRIVER, mouthForm: form },
+      jawDrop: 0, jawOpen: opening, time: 0, stylizedMotion: null,
+    }, 'continuous')
+    return point
+  }
+  for (const form of [-1, -0.55, 0.5, 1]) {
+    let previous = 0
+    for (let step = 0; step <= 100; step++) {
+      const opening = step / 100
+      const delta = (fade: Anime25DFade, x: number, scale = 1) =>
+        sample(fade, form, opening, x, scale).y - sample(fade, 0, opening, x, scale).y
+      const edge = delta('mouthClose', 0)
+      const center = delta('mouthClose', 0.5)
+      assert.ok((edge - center) * form < 0, 'negative form lowers corners; positive form raises them')
+      assert.ok(Math.abs(edge - delta('mouthClose', 1)) < 1e-10)
+      assert.ok(Math.abs(edge) < 11, 'bounded relative to the 60px mouth')
+      if (step === 0 && form < 0) assert.ok(edge - center > 6, 'negative standing face must overcome a shallow painted smile')
+      if (step > 0) assert.ok(Math.abs(edge - previous) < 0.15, 'opening cannot jump the curvature')
+      previous = edge
+      for (const fade of regular) {
+        assert.ok(Math.abs(delta(fade, 0) - edge) < 1e-10, 'crossfading material cannot change the expression curve')
+        assert.ok(Math.abs(delta(fade, 0, 2) - edge * 2) < 1e-10, 'asset scaling preserves shape')
       }
     }
   }

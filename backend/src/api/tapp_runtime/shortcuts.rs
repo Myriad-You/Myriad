@@ -42,10 +42,17 @@ fn shortcut_http_error(err: ShortcutRegistryError) -> (StatusCode, Json<Value>) 
             status,
             Json(json!({
                 "error": "Shortcut key conflict",
+                "code": err.code(),
                 "conflicting_shortcut": conflicting_shortcut,
             })),
         ),
-        _ => (status, Json(json!({ "error": err.message() }))),
+        _ => (
+            status,
+            Json(json!({
+                "error": err.message(),
+                "code": err.code(),
+            })),
+        ),
     }
 }
 

@@ -272,10 +272,10 @@ html.dark .setting-group-header-toggle:hover {
   border-radius: 0.5rem;
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--cfg-accent, #3b82f6) 15%, transparent),
-    color-mix(in srgb, var(--cfg-accent, #3b82f6) 6%, transparent)
+    var(--cfg-accent-fill),
+    var(--cfg-accent-fill-2)
   );
-  color: var(--cfg-accent, #3b82f6);
+  color: var(--cfg-accent-ink);
   font-size: 0.875rem;
   flex-shrink: 0;
   position: relative;
@@ -312,10 +312,10 @@ html.dark .setting-group-header-toggle:hover {
 html.dark .setting-group-icon {
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--cfg-accent, #60a5fa) 22%, transparent),
-    color-mix(in srgb, var(--cfg-accent, #60a5fa) 8%, transparent)
+    var(--cfg-accent-fill),
+    var(--cfg-accent-fill-2)
   );
-  color: var(--cfg-accent, #60a5fa);
+  color: var(--cfg-accent-ink);
 }
 
 html.dark .setting-group-title {

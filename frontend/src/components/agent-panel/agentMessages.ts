@@ -48,6 +48,8 @@ export interface AgentMessage {
   question?: AgentMessageQuestion
   /** 答完之后给的下一步建议 */
   suggestions?: string[]
+  /** 闲聊里听成了要干活，点了就进做事档 */
+  workOffer?: { input: string }
   /** 说这句话的时刻（epoch ms） */
   at?: number
 }
@@ -96,6 +98,7 @@ function sameMessage(x: AgentMessage, y: AgentMessage): boolean {
     x.question?.id === y.question?.id &&
     x.question?.answered === y.question?.answered &&
     x.suggestions?.length === y.suggestions?.length &&
+    x.workOffer?.input === y.workOffer?.input &&
     x.thought === y.thought &&
     sameSteps(x.steps, y.steps)
   )

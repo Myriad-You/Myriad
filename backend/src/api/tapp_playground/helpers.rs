@@ -1,6 +1,7 @@
 //! Playground project validation helpers (production).
 
 use super::*;
+use crate::api::tapp_store::{TappAiOperation, TappAiOutputFormat};
 use serde_json::json;
 use std::collections::HashSet;
 
@@ -105,6 +106,9 @@ pub(super) fn validate_playground_project(project: &PlaygroundProject) -> Result
     validate_generated_source(&code_fields)?;
     validate_sdk_namespaces(&code_fields)?;
     validate_permission_usage(manifest, &code_fields)?;
+    validate_ai_usage(manifest, &code_fields)?;
+    validate_capability_usage(manifest, &code_fields)?;
+    validate_widget_layer_sdk(manifest, &code_fields)?;
 
     if has_widgets
         && (code.widget.as_deref().is_none_or(str::is_empty)
@@ -161,6 +165,18 @@ pub(super) fn validate_template_html(name: &str, html: &str) -> Result<(), Strin
         " onsubmit=",
         " oninput=",
         " onchange=",
+        " onmousedown=",
+        " onmouseup=",
+        " onkeydown=",
+        " onkeyup=",
+        " onkeypress=",
+        " onfocus=",
+        " onblur=",
+        " ontouchstart=",
+        " ontouchend=",
+        " onpointerdown=",
+        " onpointerup=",
+        " oncontextmenu=",
     ];
     if let Some(pattern) = forbidden.iter().find(|pattern| lower.contains(**pattern)) {
         return Err(format!("{name} contains forbidden HTML pattern: {pattern}"));
@@ -181,6 +197,15 @@ pub(super) fn validate_generated_source(fields: &[(&str, &str)]) -> Result<(), S
         ("localStorage", "localstorage"),
         ("sessionStorage", "sessionstorage"),
         ("dynamic import", "import("),
+        (
+            "host chrome CSS variable --color-primary (use var(--tapp-primary))",
+            "--color-primary",
+        ),
+        ("CDN script host unpkg", "unpkg.com"),
+        ("CDN script host jsdelivr", "jsdelivr"),
+        ("CDN script host cdnjs", "cdnjs"),
+        ("CDN script host esm.sh", "esm.sh"),
+        ("CDN script host threejs.org/build", "threejs.org/build"),
     ];
     for (name, source) in fields {
         let lower = source.to_ascii_lowercase();
@@ -190,8 +215,35 @@ pub(super) fn validate_generated_source(fields: &[(&str, &str)]) -> Result<(), S
         {
             return Err(format!("{name} uses forbidden capability: {capability}"));
         }
+        if let Some(prefix) = unsupported_tailwind_breakpoint(source) {
+            return Err(format!(
+                "{name} uses unsupported Tailwind breakpoint `{prefix}` (sandbox on-demand compile ignores sm:/md:/lg:; use CSS media queries or container width)"
+            ));
+        }
     }
     Ok(())
+}
+
+/// Tailwind `sm:`/`md:`/`lg:` (and `xl:`/`2xl:`) prefixes. `text-sm` / `rounded-md`
+/// have no colon after the size token and are allowed. `{ md: 1 }` is allowed
+/// because the colon is not followed by a utility class.
+fn unsupported_tailwind_breakpoint(source: &str) -> Option<&'static str> {
+    const PREFIXES: &[&str] = &["sm:", "md:", "lg:", "xl:", "2xl:"];
+    for prefix in PREFIXES {
+        let mut rest = source;
+        while let Some(position) = rest.find(prefix) {
+            let after = &rest[position + prefix.len()..];
+            if after
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_alphabetic() || character == '[')
+            {
+                return Some(prefix);
+            }
+            rest = &rest[position + prefix.len()..];
+        }
+    }
+    None
 }
 
 fn calls_sdk_method(source: &str, method: &str) -> bool {
@@ -226,7 +278,6 @@ pub(super) fn validate_permission_usage(
                 "Tapp.storage.usage",
                 "Tapp.settings.get",
                 "Tapp.settings.getAll",
-                "Tapp.file.download",
             ][..],
             "storage:read",
         ),
@@ -236,8 +287,20 @@ pub(super) fn validate_permission_usage(
                 "Tapp.storage.remove",
                 "Tapp.storage.clear",
                 "Tapp.settings.set",
+                "Tapp.shared.set",
+                "Tapp.shared.remove",
+                "Tapp.shared.clear",
             ][..],
             "storage:write",
+        ),
+        (
+            &[
+                "Tapp.shared.get",
+                "Tapp.shared.keys",
+                "Tapp.shared.getAll",
+                "Tapp.shared.usage",
+            ][..],
+            "storage:read",
         ),
         (&["Tapp.ui.confirm"][..], "ui:confirm"),
         (&["Tapp.ui.requestFullscreen"][..], "ui:fullscreen"),
@@ -263,6 +326,375 @@ pub(super) fn validate_permission_usage(
     Ok(())
 }
 
+fn ai_operation_token(operation: TappAiOperation) -> &'static str {
+    match operation {
+        TappAiOperation::Generate => "generate",
+        TappAiOperation::Analyze => "analyze",
+        TappAiOperation::Chat => "chat",
+        TappAiOperation::Image => "image",
+        TappAiOperation::Search => "search",
+    }
+}
+
+fn source_mentions_ai_operation(source: &str, operation: &str) -> bool {
+    [
+        format!("operation: \"{operation}\""),
+        format!("operation: '{operation}'"),
+        format!("operation: `{operation}`"),
+        format!("operation:\"{operation}\""),
+        format!("operation:'{operation}'"),
+        format!("\"operation\": \"{operation}\""),
+        format!("\"operation\":\"{operation}\""),
+        format!("'operation': '{operation}'"),
+    ]
+    .iter()
+    .any(|needle| source.contains(needle.as_str()))
+}
+
+pub(super) fn validate_ai_usage(
+    manifest: &TappManifest,
+    fields: &[(&str, &str)],
+) -> Result<(), String> {
+    let source = fields
+        .iter()
+        .map(|(_, value)| *value)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !calls_sdk_method(&source, "Tapp.ai") {
+        return Ok(());
+    }
+
+    let Some(ai) = &manifest.ai else {
+        return Err(
+            "Code calls Tapp.ai but manifest.ai is missing (protocolVersion 2, operations, outputFormats)"
+                .to_string(),
+        );
+    };
+
+    let mentioned = [
+        TappAiOperation::Generate,
+        TappAiOperation::Analyze,
+        TappAiOperation::Chat,
+        TappAiOperation::Image,
+        TappAiOperation::Search,
+    ]
+    .into_iter()
+    .filter(|operation| source_mentions_ai_operation(&source, ai_operation_token(*operation)))
+    .collect::<Vec<_>>();
+
+    let required = if mentioned.is_empty() {
+        ai.operations.clone()
+    } else {
+        mentioned
+    };
+
+    for operation in required {
+        let permission = operation.permission();
+        let token = ai_operation_token(operation);
+        if !manifest
+            .permissions
+            .iter()
+            .any(|declared| declared == permission)
+        {
+            return Err(format!(
+                "Code calls Tapp.ai.tasks with operation {token} but manifest.permissions is missing {permission}"
+            ));
+        }
+        if !ai.operations.contains(&operation) {
+            return Err(format!(
+                "Code calls AI operation {token} but manifest.ai.operations does not include {token}"
+            ));
+        }
+        if operation == TappAiOperation::Image
+            && !ai.output_formats.contains(&TappAiOutputFormat::Image)
+        {
+            return Err(
+                "Code calls AI operation image but manifest.ai.outputFormats is missing image"
+                    .to_string(),
+            );
+        }
+        if operation == TappAiOperation::Search
+            && !ai.output_formats.contains(&TappAiOutputFormat::Json)
+        {
+            return Err(
+                "Code calls AI operation search but manifest.ai.outputFormats is missing json"
+                    .to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn has_permission(manifest: &TappManifest, permission: &str) -> bool {
+    manifest.permissions.iter().any(|value| value == permission)
+}
+
+fn require_permission(
+    manifest: &TappManifest,
+    permission: &str,
+    needle: &str,
+) -> Result<(), String> {
+    if has_permission(manifest, permission) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Code calls {needle} but manifest.permissions is missing {permission}"
+        ))
+    }
+}
+
+fn require_any_permission(
+    manifest: &TappManifest,
+    permissions: &[&str],
+    needle: &str,
+) -> Result<(), String> {
+    if permissions
+        .iter()
+        .any(|permission| has_permission(manifest, permission))
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "Code calls {needle} but manifest.permissions is missing one of {}",
+            permissions.join(", ")
+        ))
+    }
+}
+
+pub(super) fn validate_capability_usage(
+    manifest: &TappManifest,
+    fields: &[(&str, &str)],
+) -> Result<(), String> {
+    let source = fields
+        .iter()
+        .map(|(_, value)| *value)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if calls_sdk_method(&source, "Tapp.ui.openUrl")
+        || calls_sdk_method(&source, "Tapp.ui.listOpenUrls")
+    {
+        require_permission(manifest, "ui:openUrl", "Tapp.ui.openUrl")?;
+        if manifest
+            .open_urls
+            .as_ref()
+            .is_none_or(|urls| urls.is_empty())
+        {
+            return Err("Code calls Tapp.ui.openUrl but manifest.openUrls is missing".to_string());
+        }
+    }
+    if calls_sdk_method(&source, "Tapp.ui.showNotification") {
+        require_permission(manifest, "ui:notification", "Tapp.ui.showNotification")?;
+    }
+    if source.contains("Tapp.api(") || source.contains("Tapp.api (") {
+        if manifest.apis.as_ref().is_none_or(|apis| apis.is_empty()) {
+            return Err("Code calls Tapp.api() but manifest.apis is missing".to_string());
+        }
+    }
+    if calls_sdk_method(&source, "Tapp.game") && manifest.game.is_none() {
+        return Err("Code calls Tapp.game but manifest.game is missing".to_string());
+    }
+    if calls_sdk_method(&source, "Tapp.model3d.createTask")
+        || calls_sdk_method(&source, "Tapp.model3d.upload")
+        || calls_sdk_method(&source, "Tapp.model3d.awaitTask")
+        || calls_sdk_method(&source, "Tapp.model3d.status")
+    {
+        require_permission(manifest, "3d:generate", "Tapp.model3d")?;
+    }
+    if calls_sdk_method(&source, "Tapp.event.publish") {
+        require_permission(manifest, "event:publish", "Tapp.event.publish")?;
+    }
+    if calls_sdk_method(&source, "Tapp.event.on") {
+        require_permission(manifest, "event:subscribe", "Tapp.event.on")?;
+    }
+    if calls_sdk_method(&source, "Tapp.scheduler") {
+        require_permission(manifest, "scheduler:register", "Tapp.scheduler")?;
+    }
+    if calls_sdk_method(&source, "Tapp.platform.addItem")
+        || calls_sdk_method(&source, "Tapp.platform.addItems")
+    {
+        require_permission(manifest, "platform:write", "Tapp.platform.addItem")?;
+    } else if calls_sdk_method(&source, "Tapp.platform.registerPlatform") {
+        require_permission(
+            manifest,
+            "platform:register",
+            "Tapp.platform.registerPlatform",
+        )?;
+    } else if calls_sdk_method(&source, "Tapp.platform") {
+        require_permission(manifest, "platform:read", "Tapp.platform")?;
+    }
+    if calls_sdk_method(&source, "Tapp.analytics") {
+        require_permission(manifest, "analytics:read", "Tapp.analytics")?;
+    }
+    if calls_sdk_method(&source, "Tapp.speech") {
+        require_any_permission(manifest, &["speech:tts", "speech:asr"], "Tapp.speech")?;
+    }
+    if calls_sdk_method(&source, "Tapp.media") {
+        require_any_permission(
+            manifest,
+            &["media:read", "media:control", "media:audio"],
+            "Tapp.media",
+        )?;
+    }
+    if calls_sdk_method(&source, "Tapp.federation") {
+        require_permission(manifest, "federation:read", "Tapp.federation")?;
+    }
+    if calls_sdk_method(&source, "Tapp.agent") {
+        require_permission(manifest, "component:agent", "Tapp.agent")?;
+        if manifest.agent.is_none() {
+            return Err("Code calls Tapp.agent but manifest.agent is missing".to_string());
+        }
+    }
+    if calls_sdk_method(&source, "Tapp.tappList.install")
+        || calls_sdk_method(&source, "Tapp.tappList.uninstall")
+        || calls_sdk_method(&source, "Tapp.tappList.start")
+        || calls_sdk_method(&source, "Tapp.tappList.stop")
+        || calls_sdk_method(&source, "Tapp.tappList.export")
+    {
+        require_permission(manifest, "tappList:manage", "Tapp.tappList")?;
+    } else if calls_sdk_method(&source, "Tapp.tappList") {
+        require_permission(manifest, "tappList:read", "Tapp.tappList")?;
+    }
+    if calls_sdk_method(&source, "Tapp.brewList") {
+        require_any_permission(
+            manifest,
+            &[
+                "brew:read",
+                "brew:write",
+                "brew:commentWrite",
+                "brew:manage",
+            ],
+            "Tapp.brewList",
+        )?;
+    }
+    if calls_sdk_method(&source, "Tapp.report.create")
+        || calls_sdk_method(&source, "Tapp.report.update")
+        || calls_sdk_method(&source, "Tapp.report.delete")
+    {
+        require_permission(manifest, "report:write", "Tapp.report")?;
+    } else if calls_sdk_method(&source, "Tapp.report") {
+        require_permission(manifest, "report:read", "Tapp.report")?;
+    }
+    if calls_sdk_method(&source, "Tapp.background.require")
+        && manifest
+            .background_requirements
+            .as_ref()
+            .is_none_or(|requirements| requirements.is_empty())
+    {
+        return Err(
+            "Code calls Tapp.background.require but manifest.backgroundRequirements is empty"
+                .to_string(),
+        );
+    }
+    if calls_sdk_method(&source, "Tapp.dataExchange") && manifest.data_exchange.is_none() {
+        return Err(
+            "Code calls Tapp.dataExchange but manifest.dataExchange is missing".to_string(),
+        );
+    }
+    if calls_sdk_method(&source, "Tapp.shortcut.register") {
+        require_permission(manifest, "shortcut:register", "Tapp.shortcut.register")?;
+    }
+    if calls_sdk_method(&source, "Tapp.component.registerTheme") {
+        require_permission(manifest, "component:theme", "Tapp.component.registerTheme")?;
+    }
+    if calls_sdk_method(&source, "Tapp.component.registerAgent") {
+        require_permission(manifest, "component:agent", "Tapp.component.registerAgent")?;
+    }
+    Ok(())
+}
+
+/// Widget 层跑在精简 SDK 上：没有 register / confirm / fullscreen / 联邦 / 对局。
+pub(super) fn validate_widget_layer_sdk(
+    manifest: &TappManifest,
+    fields: &[(&str, &str)],
+) -> Result<(), String> {
+    let has_widgets = !manifest.widgets.as_deref().unwrap_or_default().is_empty();
+    if !has_widgets {
+        return Ok(());
+    }
+
+    let widget_source = fields
+        .iter()
+        .filter(|(name, _)| *name == "widget" || *name == "widgetHtml" || *name == "core")
+        .map(|(_, value)| *value)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if !widget_source.contains("Tapp.widgets") {
+        return Err(
+            "Widget projects must assign Tapp.widgets[<id>] = { render } so the host can paint the card"
+                .to_string(),
+        );
+    }
+
+    let page_only = [
+        (
+            "Tapp.widget.register",
+            "Tapp.widget.register is Page-only; Widget code must assign Tapp.widgets[id] = { render }",
+        ),
+        (
+            "Tapp.ui.confirm",
+            "Tapp.ui.confirm is not on the Widget SDK",
+        ),
+        (
+            "Tapp.ui.setTitle",
+            "Tapp.ui.setTitle is not on the Widget SDK",
+        ),
+        (
+            "Tapp.ui.requestFullscreen",
+            "Tapp.ui.requestFullscreen is not on the Widget SDK",
+        ),
+        (
+            "Tapp.ui.exitFullscreen",
+            "Tapp.ui.exitFullscreen is not on the Widget SDK",
+        ),
+        (
+            "Tapp.ui.fullscreen",
+            "Tapp.ui.fullscreen is not on the Widget SDK",
+        ),
+        (
+            "Tapp.game",
+            "Tapp.game is not on the Widget SDK",
+        ),
+        (
+            "Tapp.federation",
+            "Tapp.federation is not on the Widget SDK",
+        ),
+        (
+            "Tapp.tappList",
+            "Tapp.tappList is not on the Widget SDK",
+        ),
+        (
+            "Tapp.brewList",
+            "Tapp.brewList is not on the Widget SDK",
+        ),
+        (
+            "Tapp.component",
+            "Tapp.component is not on the Widget SDK",
+        ),
+        (
+            "Tapp.shortcut",
+            "Tapp.shortcut is not on the Widget SDK",
+        ),
+        (
+            "Tapp.dynamicContent",
+            "Tapp.dynamicContent is not on the Widget SDK",
+        ),
+    ];
+    let layer = fields
+        .iter()
+        .filter(|(name, _)| *name == "widget" || *name == "widgetHtml")
+        .map(|(_, value)| *value)
+        .collect::<Vec<_>>()
+        .join("\n");
+    for (needle, message) in page_only {
+        if calls_sdk_method(&layer, needle) {
+            return Err(message.to_string());
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn validate_sdk_namespaces(fields: &[(&str, &str)]) -> Result<(), String> {
     const KNOWN_NAMESPACES: &[&str] = &[
         "id",
@@ -277,9 +709,11 @@ pub(super) fn validate_sdk_namespaces(fields: &[(&str, &str)]) -> Result<(), Str
         "tappList",
         "brewList",
         "platform",
+        "analytics",
         "ai",
         "report",
         "storage",
+        "shared",
         "dataExchange",
         "settings",
         "ui",
@@ -300,6 +734,10 @@ pub(super) fn validate_sdk_namespaces(fields: &[(&str, &str)]) -> Result<(), Str
         "animation",
         "speech",
         "federation",
+        "persona",
+        "game",
+        "model3d",
+        "agent",
         "on",
     ];
 
@@ -336,18 +774,6 @@ pub(super) const PREVIEW_PERMISSIONS: &[&str] = &[
     "ui:fullscreen",
     "ui:openUrl",
 ];
-
-/// Intersect manifest declarations with temporary preview grants.
-///
-/// Deny-by-default: undeclared allowlist entries are not auto-granted.
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-pub(super) fn select_preview_granted_permissions(declared: &[String]) -> Vec<String> {
-    declared
-        .iter()
-        .filter(|permission| PREVIEW_PERMISSIONS.contains(&permission.as_str()))
-        .cloned()
-        .collect()
-}
 
 pub(super) fn preview_warnings(permissions: &[String]) -> Vec<String> {
     let unavailable: Vec<&str> = permissions
@@ -400,7 +826,7 @@ mod tests {
             "code": {
                 "core": "",
                 "page": "Tapp.lifecycle.onReady(function () {});",
-                "styles": ".app { color: var(--color-primary); }",
+                "styles": ".app { color: var(--tapp-primary); }",
                 "pageHtml": format!("<main class=\"app\">{name}</main>"),
                 "i18n": { "zh-CN": {}, "en-US": {}, "ja-JP": {} }
             }
@@ -427,7 +853,7 @@ mod tests {
                 "code": {
                     "core": "",
                     "page": "Tapp.lifecycle.onReady(function () {});",
-                    "styles": ".app { color: var(--color-primary); }",
+                    "styles": ".app { color: var(--tapp-primary); }",
                     "pageHtml": "<main class=\"app\">Counter</main>",
                     "i18n": { "zh-CN": {}, "en-US": {}, "ja-JP": {} }
                 }
@@ -852,9 +1278,161 @@ mod tests {
     }
 
     #[test]
+    fn file_download_does_not_require_storage_read() {
+        let mut project = sample_project("Export");
+        project.manifest.permissions = vec![];
+        assert!(validate_permission_usage(
+            &project.manifest,
+            &[(
+                "page",
+                "Tapp.file.download('hello', 'hello.txt', 'text/plain')"
+            )]
+        )
+        .is_ok());
+    }
+
+    fn image_create_source() -> &'static str {
+        r#"
+Tapp.lifecycle.onReady(function () {
+  Tapp.ai.tasks.create({
+    version: 2,
+    operation: "image",
+    input: { prompt: "a cat" },
+    output: { format: "image" }
+  });
+});
+"#
+    }
+
+    #[test]
+    fn ai_usage_requires_manifest_ai_block() {
+        let project = sample_project("Painter");
+        let error = validate_ai_usage(&project.manifest, &[("page", image_create_source())])
+            .expect_err("Tapp.ai without manifest.ai");
+        assert!(error.contains("manifest.ai"), "{error}");
+    }
+
+    #[test]
+    fn ai_image_usage_requires_matching_declaration() {
+        let mut project = sample_project("Painter");
+        project.manifest.permissions = vec!["ai:image".into()];
+        project.manifest.ai = serde_json::from_value(json!({
+            "protocolVersion": 2,
+            "operations": ["image"],
+            "modelTier": "standard",
+            "contextSources": [],
+            "outputFormats": ["image"]
+        }))
+        .expect("ai manifest");
+        assert!(validate_ai_usage(&project.manifest, &[("page", image_create_source())]).is_ok());
+
+        project.manifest.ai = serde_json::from_value(json!({
+            "protocolVersion": 2,
+            "operations": ["generate"],
+            "modelTier": "standard",
+            "contextSources": [],
+            "outputFormats": ["text"]
+        }))
+        .expect("text ai manifest");
+        let error = validate_ai_usage(&project.manifest, &[("page", image_create_source())])
+            .expect_err("image code vs generate declaration");
+        assert!(
+            error.contains("image") && error.contains("operations"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn accepts_generated_image_project_with_ai_declaration() {
+        let mut value: Value = serde_json::from_str(&project_json()).unwrap();
+        value["project"]["manifest"]["permissions"] = json!(["ai:image"]);
+        value["project"]["manifest"]["ai"] = json!({
+            "protocolVersion": 2,
+            "operations": ["image"],
+            "modelTier": "standard",
+            "contextSources": [],
+            "outputFormats": ["image"]
+        });
+        value["project"]["code"]["page"] = json!(image_create_source());
+        parse_and_validate_model_output(&value.to_string()).expect("valid AI image project");
+    }
+
+    #[test]
+    fn known_namespaces_include_preview_and_install_sdk_surfaces() {
+        for namespace in ["persona", "game", "model3d", "shared", "agent", "analytics"] {
+            assert!(
+                validate_sdk_namespaces(&[("page", &format!("Tapp.{namespace}.get()"))]).is_ok(),
+                "Tapp.{namespace} should be a known SDK namespace"
+            );
+        }
+    }
+
+    #[test]
+    fn capability_usage_requires_matching_manifest_fields() {
+        let mut project = sample_project("Caps");
+        let open_err = validate_capability_usage(
+            &project.manifest,
+            &[("page", "Tapp.ui.openUrl({ id: 'docs' })")],
+        )
+        .expect_err("openUrl needs ui:openUrl and openUrls");
+        assert!(
+            open_err.contains("ui:openUrl") || open_err.contains("openUrls"),
+            "{open_err}"
+        );
+
+        project.manifest.permissions = vec!["ui:openUrl".into()];
+        let still = validate_capability_usage(
+            &project.manifest,
+            &[("page", "Tapp.ui.openUrl({ id: 'docs' })")],
+        )
+        .expect_err("openUrl still needs openUrls");
+        assert!(still.contains("openUrls"), "{still}");
+
+        let api_err = validate_capability_usage(
+            &project.manifest,
+            &[("page", "Tapp.api('weather', { q: 'x' })")],
+        )
+        .expect_err("Tapp.api() needs manifest.apis");
+        assert!(api_err.contains("manifest.apis"), "{api_err}");
+        assert!(
+            validate_capability_usage(&project.manifest, &[("page", "Tapp.api.list()")]).is_ok()
+        );
+
+        let game_err = validate_capability_usage(
+            &project.manifest,
+            &[("page", "Tapp.game.create({ isPublic: true })")],
+        )
+        .expect_err("Tapp.game needs manifest.game");
+        assert!(game_err.contains("manifest.game"), "{game_err}");
+    }
+
+    #[test]
+    fn rejects_host_chrome_primary_css_variable() {
+        let mut value: Value = serde_json::from_str(&project_json()).unwrap();
+        value["project"]["code"]["styles"] = json!(".app { color: var(--color-primary); }");
+        let error = parse_and_validate_model_output(&value.to_string()).unwrap_err();
+        assert!(error.contains("--color-primary"), "{error}");
+        assert!(error.contains("--tapp-primary"), "{error}");
+    }
+
+    #[test]
+    fn rejects_unsupported_tailwind_breakpoint_prefixes() {
+        let mut value: Value = serde_json::from_str(&project_json()).unwrap();
+        value["project"]["code"]["pageHtml"] = json!(r#"<div class="p-4 md:p-6 lg:grid">Hi</div>"#);
+        let error = parse_and_validate_model_output(&value.to_string()).unwrap_err();
+        assert!(error.contains("md:"), "{error}");
+        assert!(error.contains("breakpoint"), "{error}");
+
+        value["project"]["code"]["pageHtml"] =
+            json!(r#"<div class="p-4 text-sm rounded-md">Hi</div>"#);
+        parse_and_validate_model_output(&value.to_string())
+            .expect("text-sm and rounded-md are not breakpoint prefixes");
+    }
+
+    #[test]
     fn preview_grants_are_allowlist_intersection_not_full_manifest() {
         // MYR-024: declared ≠ granted for real host capabilities in preview.
-        let declared = vec![
+        let declared: Vec<String> = vec![
             "storage:read".into(),
             "storage:write".into(),
             "storage".into(),
@@ -863,21 +1441,27 @@ mod tests {
             "ui:theme".into(),
             "platform:read".into(),
         ];
+        let granted: Vec<String> = declared
+            .iter()
+            .filter(|permission| PREVIEW_PERMISSIONS.contains(&permission.as_str()))
+            .cloned()
+            .collect();
         assert_eq!(
-            select_preview_granted_permissions(&declared),
+            granted,
             vec![
                 "storage:read".to_string(),
                 "storage:write".to_string(),
                 "ui:theme".to_string()
             ]
         );
-        assert!(select_preview_granted_permissions(&[]).is_empty());
         // Deny-by-default: allowlist entries not declared stay ungranted.
-        assert_eq!(
-            select_preview_granted_permissions(&["ui:confirm".into()]),
-            vec!["ui:confirm".to_string()]
+        assert!(
+            !PREVIEW_PERMISSIONS.contains(&"media:read")
+                && PREVIEW_PERMISSIONS.contains(&"ui:confirm")
         );
-        assert!(select_preview_granted_permissions(&["media:read".into()]).is_empty());
+        assert!(preview_warnings(&["media:read".into()])
+            .join(" ")
+            .contains("media:read"));
     }
 
     #[test]
@@ -894,7 +1478,9 @@ mod tests {
             "templates": { "2x2": "templates/widget-2x2.html" }
         }]);
         value["project"]["manifest"]["assets"] = json!(["templates/widget-2x2.html"]);
-        value["project"]["code"]["widget"] = json!("Tapp.lifecycle.onReady(function () {});");
+        value["project"]["code"]["widget"] = json!(
+            "Tapp.widgets['summary'] = { render: function (container) { container.textContent = 'Hi'; } };"
+        );
         value["project"]["code"]["widgetHtml"] = json!("<div class=\"widget\">Hi</div>");
         value["project"]["code"]["assets"] = json!({
             "templates/widget-2x2.html": "<div>should not be an asset</div>"
@@ -1031,9 +1617,9 @@ mod tests {
             "code": {
                 "core": "Tapp.lifecycle.onReady(function () {});",
                 "page": "",
-                "styles": ".widget { color: var(--color-primary); }",
+                "styles": ".widget { color: var(--tapp-primary); }",
                 "pageHtml": "",
-                "widget": "Tapp.widget.register('card', { render: function () {} });",
+                "widget": "Tapp.widgets['card'] = { render: function (container) { container.textContent = 'Hi'; } };",
                 "widgetHtml": "<div class=\"widget\">Hi</div>",
                 "i18n": { "zh-CN": {}, "en-US": {}, "ja-JP": {} }
             }
@@ -1048,6 +1634,39 @@ mod tests {
         assert!(!project.manifest.has_page());
         assert!(project.code.page_html.trim().is_empty());
         assert!(!project.manifest.widgets.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn widget_layer_rejects_page_only_sdk() {
+        let mut project = sample_widget_only_project();
+        project.code.widget = Some("Tapp.widget.register({ id: 'card', name: 'Card' });".into());
+        let error = validate_widget_layer_sdk(
+            &project.manifest,
+            &[("widget", project.code.widget.as_deref().unwrap())],
+        )
+        .expect_err("register is Page-only");
+        assert!(error.contains("Tapp.widgets"), "{error}");
+
+        let confirm = validate_widget_layer_sdk(
+            &project.manifest,
+            &[(
+                "widget",
+                "Tapp.widgets['card'] = { render: function () {} }; Tapp.ui.confirm('x');",
+            )],
+        )
+        .expect_err("confirm is not on Widget SDK");
+        assert!(confirm.contains("confirm"), "{confirm}");
+    }
+
+    #[test]
+    fn widget_projects_must_assign_tapp_widgets() {
+        let project = sample_widget_only_project();
+        let error = validate_widget_layer_sdk(
+            &project.manifest,
+            &[("widget", "Tapp.lifecycle.onReady(function () {});")],
+        )
+        .expect_err("missing Tapp.widgets assignment");
+        assert!(error.contains("Tapp.widgets"), "{error}");
     }
 
     #[test]

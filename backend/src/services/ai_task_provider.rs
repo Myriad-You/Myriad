@@ -37,49 +37,11 @@ impl std::fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
-/// Parse image width/height: JSON int, whole float, or numeric string (`"768"` / `"768px"`).
-pub fn parse_image_dim(value: &Value) -> Option<u32> {
-    if let Some(n) = value.as_u64() {
-        return u32::try_from(n).ok().filter(|&n| n > 0);
-    }
-    if let Some(n) = value.as_i64() {
-        return u32::try_from(n).ok().filter(|&n| n > 0);
-    }
-    if let Some(n) = value.as_f64() {
-        if n.is_finite() && n > 0.0 && n.fract() == 0.0 && n <= u32::MAX as f64 {
-            return Some(n as u32);
-        }
-        return None;
-    }
-    if let Some(s) = value.as_str() {
-        let s = s.trim();
-        let s = s
-            .strip_suffix("px")
-            .or_else(|| s.strip_suffix("PX"))
-            .unwrap_or(s)
-            .trim();
-        return s.parse::<u32>().ok().filter(|&n| n > 0);
-    }
-    None
-}
+pub use myriad_agent_rules::parse_image_dim;
 
-/// Read resolution from task input; missing keys use local defaults (not global config).
+/// Read width/height from task input via the shared image-size rule.
 pub fn image_size_from_input(input: &Value) -> (u32, u32) {
-    const DEFAULT_W: u32 = 1024;
-    const DEFAULT_H: u32 = 1024;
-    const MIN: u32 = 256;
-    const MAX: u32 = 2048;
-    let width = input
-        .get("width")
-        .and_then(parse_image_dim)
-        .map(|v| v.clamp(MIN, MAX))
-        .unwrap_or(DEFAULT_W);
-    let height = input
-        .get("height")
-        .and_then(parse_image_dim)
-        .map(|v| v.clamp(MIN, MAX))
-        .unwrap_or(DEFAULT_H);
-    (width, height)
+    myriad_agent_rules::resolve_image_size(input.get("width"), input.get("height"))
 }
 
 /// Run a text model. When `stream` is true, `on_delta` receives each token chunk.

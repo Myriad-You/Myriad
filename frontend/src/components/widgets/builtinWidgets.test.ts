@@ -13,6 +13,13 @@ test('agent persona widget supports 2x2 and 4x4', () => {
   assert.deepEqual(config.supportedSizes, ['2x2', '4x4'])
 })
 
+test('github repos widget is in the home catalog', () => {
+  const homeIds = getBuiltinWidgets(widgetsI18n, 'home').map(({ id }) => id)
+  assert.ok(homeIds.includes('github-repos'))
+  const config = BUILTIN_WIDGET_BASE_CONFIG['github-repos']
+  assert.equal(config.defaultSize, '2x2')
+})
+
 test('agent persona widget is available on Home only', () => {
   const homeIds = getBuiltinWidgets(widgetsI18n, 'home').map(({ id }) => id)
   const controlPanelIds = getBuiltinWidgets(widgetsI18n, 'control-panel').map(

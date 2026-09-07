@@ -117,10 +117,10 @@ export function isAnalyticsOptedOut(): boolean {
 }
 
 /**
- * 访客自己的退出开关。
+ * 访客自己的退出开关（本机 localStorage）。
  *
- * 上面的 `isAnalyticsOptedOut` 一直在读这把钥匙 —— 没有写入口的话，这条隐私开关
- * 就只剩下让人去 devtools 里手改 localStorage 一条路了。设置界面还没接上它。
+ * 设置页「本机退出采集」写入；`isAnalyticsOptedOut` 在每次上报前读取。
+ * 退出时丢掉未发送队列，避免开关打上之后还把积压的 beacon 发出去。
  */
 export function setAnalyticsOptOut(optOut: boolean) {
   try {
@@ -129,6 +129,7 @@ export function setAnalyticsOptOut(optOut: boolean) {
   } catch {
     /* ignore */
   }
+  if (optOut) haltCollection()
 }
 
 function ensureSiteCollectionFlag(): void {
@@ -141,15 +142,7 @@ function ensureSiteCollectionFlag(): void {
           ? true
           : raw !== false && raw !== 'false' && raw !== '0'
       siteCollectionEnabled = enabled
-      if (!enabled) {
-        queue = []
-        flushAgainAfter = false
-        if (flushTimer) {
-          clearTimeout(flushTimer)
-          flushTimer = null
-        }
-        clearEngagementTimers()
-      }
+      if (!enabled) haltCollection()
       return enabled
     })
     .catch(() => {
@@ -172,6 +165,16 @@ function clearEngagementTimers() {
   }
 }
 
+function haltCollection() {
+  queue = []
+  flushAgainAfter = false
+  if (flushTimer) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  clearEngagementTimers()
+}
+
 /**
  * Staff browsing own site must not inflate stats.
  * Call with isAdmin / isOwner from AuthContext.
@@ -182,20 +185,7 @@ export function setAnalyticsStaffSession(opts: {
 }) {
   const next = Boolean(opts.isAdmin || opts.isOwner)
   excludeStaffSelf = next
-  if (next) {
-    queue = []
-    flushAgainAfter = false
-    if (flushTimer) {
-      clearTimeout(flushTimer)
-      flushTimer = null
-    }
-    clearEngagementTimers()
-  }
-}
-
-/** @deprecated use setAnalyticsStaffSession */
-export function setAnalyticsAdminSession(isAdmin: boolean) {
-  setAnalyticsStaffSession({ isAdmin })
+  if (next) haltCollection()
 }
 
 function baseAllowed(): boolean {

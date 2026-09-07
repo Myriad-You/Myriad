@@ -180,6 +180,7 @@ function deriveAnime25DTorsoShellProfile(
     centerX: playback.anchors.neckPivot.x,
     radiusX: Math.max(1, faceWidth * 0.95),
     radiusZ: Math.max(1, faceWidth * 0.55),
+    yawFollowScale: 1,
   }
 }
 

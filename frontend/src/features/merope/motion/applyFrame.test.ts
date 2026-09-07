@@ -1,10 +1,12 @@
 import type { PerformanceDirective } from '../../../services/agent/types'
+import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { RigBearing } from './bearing'
 import type { MotionFrame } from './intents'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { bearingDriverPatch } from '../anime25drig/performanceExpression'
+import { CoSpeechExpressionController } from '../anime25drig/speechExpression'
 import { musicSignalAt } from '../singing/musicSignal.test-support'
 import { applyMotionFrame, createMotionApplyState } from './applyFrame'
 import { RigMotionCoordinator } from './coordinator'
@@ -209,6 +211,55 @@ test('forwards an incremental prosody revision with the same utterance id', () =
     host.calls.filter((call) => call === 'prosody:utt-live').length,
     2,
   )
+})
+
+test('a gesture-only suppression reaches the rig even when prosody timing is unchanged', () => {
+  const coordinator = new RigMotionCoordinator()
+  coordinator.claim('speech', ['mouth'], { nowMs: 1 })
+  const host = recordingRig()
+  const expression = new CoSpeechExpressionController()
+  const rig = {
+    ...host.rig,
+    setSpeechProsody(value: SpeechProsodyPlan | null) {
+      host.rig.setSpeechProsody(value)
+      expression.setProsody(value, 0, 10)
+    },
+  }
+  const state = createMotionApplyState()
+  const prosody = {
+    utteranceId: 'suppressed',
+    startedAtMs: 10,
+    durationMs: 900,
+    accents: [{ offsetMs: 400, intensity: 0.8, textOffset: 6 }],
+  }
+  const speech = {
+    active: true,
+    autoSpeech: false,
+    energy: null,
+    articulation: null,
+    behaviorPlan: null,
+    behaviors: [],
+    queuedText: [],
+    prosody,
+  }
+  applyMotionFrame(rig, frame(coordinator, 1, { speech }), state)
+  const revised = {
+    ...speech,
+    prosody: {
+      ...prosody,
+      accents: [{ ...prosody.accents[0]!, gesture: 'none' as const }],
+    },
+  }
+  applyMotionFrame(rig, frame(coordinator, 2, { speech: revised }), state)
+  applyMotionFrame(rig, frame(coordinator, 3, { speech: revised }), state)
+  assert.equal(
+    host.calls.filter((call) => call === 'prosody:suppressed').length,
+    2,
+  )
+  for (let frame = 0; frame < 50; frame++) {
+    const pose = expression.sample(frame / 60, true, 0.8, 0, 0, 0)
+    assert.equal(pose.angleY, 0)
+  }
 })
 
 test('mood and activity enter the rig through the shared frame', () => {

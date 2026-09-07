@@ -26,9 +26,7 @@ use crate::middleware::auth::{Claims, OptionalClaims};
 use crate::models::entities::tapps;
 use crate::services::tapp_catalog::{catalog_install_flags, tapp_list_item_from_model};
 use crate::services::tapp_context::role_for_optional_subject;
-use crate::services::tapp_ownership::{
-    parse_tapp_visibility, public_install_visible_to_viewer, TAPP_VISIBILITY_ALL,
-};
+use crate::services::tapp_ownership::{parse_tapp_visibility, public_install_visible_to_viewer};
 use myriad_error::AppError;
 
 // Path-stable for parent module / manifest_tests (`super::tapp_detail_from_model`).
@@ -244,12 +242,6 @@ pub(super) async fn set_tapp_visibility(
         "id": updated.tapp_id,
         "visibility": visibility,
     }))))
-}
-
-/// Convenience for tests / default when a row lacks a value (should not happen after heal).
-#[allow(dead_code)]
-pub(super) fn default_visibility() -> &'static str {
-    TAPP_VISIBILITY_ALL
 }
 
 pub(super) async fn get_tapp(

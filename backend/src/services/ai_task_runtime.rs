@@ -300,6 +300,7 @@ pub fn operation_name(operation: TappAiOperation) -> &'static str {
         TappAiOperation::Analyze => "analyze",
         TappAiOperation::Chat => "chat",
         TappAiOperation::Image => "image",
+        TappAiOperation::Search => "search",
     }
 }
 

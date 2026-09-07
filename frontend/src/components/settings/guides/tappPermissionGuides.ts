@@ -78,6 +78,13 @@ const zh: TappPermissionGuides = {
     frontend: '应用内的出图/配图功能。',
     notes: '图像模型通常更贵或更慢；需站点已配置 image 能力。',
   },
+  'ai:search': {
+    what: '允许 Tapp 通过 Tapp.ai.tasks.create({ operation: "search" }) 联网搜索。',
+    chain:
+      '① 应用提交 query。\n② 宿主走 TinyFish Search，未配置时回退 Gemini grounding。\n③ 密钥不出沙箱；结果以 JSON envelope 返回。',
+    frontend: '应用内的搜索/资料补充；设置里的 AI 权限与 TinyFish 密钥。',
+    notes: '与 ai:generate 分开下放。Chat 档 Agent 仍不能搜。会出站。',
+  },
   '3d:generate': {
     what: '允许调用 Tripo 生成、绑定或重定向 3D 模型（图/多视图 → GLB）。',
     chain:
@@ -410,6 +417,13 @@ const en: TappPermissionGuides = {
     frontend: 'In-app image generation.',
     notes: 'Often slower/costlier; image capability must be configured.',
   },
+  'ai:search': {
+    what: 'Allows Tapp.ai.tasks.create({ operation: "search" }) for live web search.',
+    chain:
+      '1) App submits a query.\n2) Host prefers TinyFish Search, else Gemini grounding.\n3) Host secrets never enter the sandbox; result is a JSON envelope.',
+    frontend: 'In-app search; site AI permissions and TinyFish key.',
+    notes: 'Delegated separately from ai:generate. Agent Chat still cannot search. Outbound.',
+  },
   '3d:generate': {
     what: 'Allows Tripo to generate, rig, or retarget 3D models (image/multiview → GLB).',
     chain:
@@ -741,6 +755,13 @@ const ja: TappPermissionGuides = {
       '① 画像リクエスト。\n② 画像モデル設定。\n③ URL/データを返す。',
     frontend: 'アプリ内の画像生成。',
     notes: '遅延・コスト大。画像能力の設定が必要。',
+  },
+  'ai:search': {
+    what: 'Tapp.ai.tasks.create({ operation: "search" }) でウェブ検索できます。',
+    chain:
+      '① query を送る。\n② 宿主は TinyFish Search を優先し、未設定時は Gemini grounding。\n③ 鍵はサンドボックスに入らず、結果は JSON envelope。',
+    frontend: 'アプリ内検索。設定の AI 権限と TinyFish キー。',
+    notes: 'ai:generate とは別に委譲。Agent の Chat 档では検索できません。出站します。',
   },
   '3d:generate': {
     what: 'Tripo で 3D モデルの生成・リグ・リターゲットができます（画像/多視点 → GLB）。',

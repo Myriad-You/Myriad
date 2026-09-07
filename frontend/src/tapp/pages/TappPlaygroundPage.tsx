@@ -70,7 +70,10 @@ import {
   switchSession,
   updateActiveSessionWithMeta,
 } from '../utils/playgroundSession'
-import { selectPreviewGrantedPermissions } from '../utils/previewGrants'
+import {
+  isPlaygroundPreviewExpectedError,
+  selectPreviewGrantedPermissions,
+} from '../utils/previewGrants'
 import { TAPP_LIST_PATH, tappDetailPath } from '../utils/tappPaths'
 import {
   formatPlaygroundPackageErrors,
@@ -203,6 +206,7 @@ interface FloatingPaneProps {
   interactive: boolean
   /** 静态模式下的高度 class */
   staticClassName?: string
+  tourAnchor?: string
 }
 
 function FloatingPane({
@@ -214,6 +218,7 @@ function FloatingPane({
   children,
   interactive,
   staticClassName,
+  tourAnchor,
 }: FloatingPaneProps) {
   const paneRef = useRef<HTMLDivElement>(null)
   const [rect, setRect] = useState<Rect>(() => defaultRect)
@@ -337,6 +342,7 @@ function FloatingPane({
     return (
       <div
         className={`relative flex flex-col overflow-hidden rounded-xl w-full ${staticClassName || ''}`}
+        data-tour={tourAnchor}
         style={{
           border: '1px solid var(--border-color)',
           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
@@ -364,6 +370,7 @@ function FloatingPane({
     <div
       ref={paneRef}
       className="absolute flex flex-col overflow-hidden rounded-xl"
+      data-tour={tourAnchor}
       style={{
         top: 0,
         left: 0,
@@ -552,6 +559,20 @@ export function TappPlaygroundPage() {
   // 小组件预览选择：无效值自动回退到首个声明的组件及其默认尺寸
   const [widgetId, setWidgetId] = useState('')
   const [widgetSize, setWidgetSize] = useState<WidgetSize | ''>('')
+  const previewStorageRef = useRef(new Map<string, unknown>())
+  const previewSettingsRef = useRef(new Map<string, unknown>())
+  const previewSharedRef = useRef(new Map<string, unknown>())
+  const previewStores = useMemo(
+    () => ({
+      storage: previewStorageRef.current,
+      settings: previewSettingsRef.current,
+      shared: previewSharedRef.current,
+    }),
+    [],
+  )
+  const [widgetConfigs, setWidgetConfigs] = useState<
+    Record<string, Record<string, unknown>>
+  >({})
   // 手动编辑代码的草稿：为空表示未编辑，直接展示项目内容
   const [draft, setDraft] = useState<string | null>(null)
   const [draftInvalid, setDraftInvalid] = useState(false)
@@ -879,6 +900,7 @@ export function TappPlaygroundPage() {
       ),
       userRole: 'admin',
       isTemporary: true,
+      previewMode: true,
       isAdminTapp: false,
     }
   }, [project])
@@ -1084,6 +1106,9 @@ export function TappPlaygroundPage() {
     setPreviewError(mapPlaygroundRuntimeError(message, t.tapp, format))
     // Widget-only projects have no page sandbox; never auto-repair for page absence.
     if (isWidgetOnly || !hasUsablePage) return
+    // Preview cannot run AI / federation / other host APIs. Do not let those
+    // expected failures rewrite the generated install-time code.
+    if (isPlaygroundPreviewExpectedError(message)) return
     if (!project || busy || runtimeRepairCountRef.current >= 2) return
 
     const errorKey = `${revision?.createdAt || 0}:${message}`
@@ -1443,6 +1468,7 @@ export function TappPlaygroundPage() {
           tappInstance={tappInstance}
           code={playgroundCodeToRuntime(project.manifest, project.code)}
           previewMode
+          previewStores={previewStores}
           onError={handleSandboxError}
           onReady={() => setPreviewError('')}
           style={{ borderRadius: 0 }}
@@ -1540,18 +1566,28 @@ export function TappPlaygroundPage() {
       getComputedStyle(document.documentElement)
         .getPropertyValue('--color-primary')
         .trim() || '#8b5cf6'
+    const defaults: Record<string, unknown> = {}
+    for (const setting of activeWidget?.settings || []) {
+      if (setting.defaultValue !== undefined) {
+        defaults[setting.key] = setting.defaultValue
+      }
+    }
+    const config = {
+      ...defaults,
+      ...(activeWidget ? widgetConfigs[activeWidget.id] : undefined),
+    }
     // Playground widget pane must receive clicks (buttons/inputs). Catalog
     // previews keep isPreview:true → pointer-events:none; here we do not.
     return {
       size: activeWidgetSize,
-      config: {},
+      config,
       isEditMode: false,
       isPreview: false,
       theme: (isDark ? 'dark' : 'light') as 'light' | 'dark',
       primaryColor,
       locale,
     }
-  }, [activeWidgetSize, locale])
+  }, [activeWidget, activeWidgetSize, locale, widgetConfigs])
 
   const widgetHeader = (
     <div className="flex items-center gap-2 min-w-0 w-full px-3">
@@ -1637,6 +1673,17 @@ export function TappPlaygroundPage() {
             widgetId={activeWidget.id}
             widgetProps={widgetRenderProps}
             previewMode
+            previewStores={previewStores}
+            onInstanceSettingsChange={(patch) => {
+              setWidgetConfigs((current) => ({
+                ...current,
+                [activeWidget.id]: {
+                  ...(current[activeWidget.id] || {}),
+                  ...patch,
+                },
+              }))
+              return true
+            }}
             onError={handleWidgetError}
             onReady={() => setPreviewError('')}
             className="w-full h-full"
@@ -1945,7 +1992,7 @@ export function TappPlaygroundPage() {
       data-no-ripple
     >
       {/* 顶部工具栏 - 与多窗口运行页一致的浮动样式 */}
-      <div className="absolute top-3.5 left-3.5 z-40">
+      <div className="absolute top-3.5 left-3.5 z-40" data-tour="tapp-playground-toolbar">
         <div
           className="flex items-center gap-1.5 rounded-xl pl-1.5 pr-3 py-1.5 glass-surface glass-80"
           style={{
@@ -1995,6 +2042,7 @@ export function TappPlaygroundPage() {
       </div>
 
       {/* 工作区窗格 */}
+      <div className="absolute inset-0">
       {interactive ? (
         defaultLayout && (
           <>
@@ -2013,6 +2061,7 @@ export function TappPlaygroundPage() {
                 onFocus={() => setActivePane('preview')}
                 header={previewHeader}
                 interactive
+                tourAnchor="tapp-playground-preview"
               >
                 {previewContent}
               </FloatingPane>
@@ -2026,6 +2075,7 @@ export function TappPlaygroundPage() {
                 onFocus={() => setActivePane('widget')}
                 header={widgetHeader}
                 interactive
+                tourAnchor="tapp-playground-widget"
               >
                 {widgetContent}
               </FloatingPane>
@@ -2037,6 +2087,7 @@ export function TappPlaygroundPage() {
               onFocus={() => setActivePane('code')}
               header={codeHeader}
               interactive
+              tourAnchor="tapp-playground-code"
             >
               {codeContent}
             </FloatingPane>
@@ -2053,6 +2104,7 @@ export function TappPlaygroundPage() {
               header={previewHeader}
               interactive={false}
               staticClassName="h-[56vh]"
+              tourAnchor="tapp-playground-preview"
             >
               {previewContent}
             </FloatingPane>
@@ -2066,6 +2118,7 @@ export function TappPlaygroundPage() {
               header={widgetHeader}
               interactive={false}
               staticClassName={isWidgetOnly ? 'h-[56vh]' : 'h-[36vh]'}
+              tourAnchor="tapp-playground-widget"
             >
               {widgetContent}
             </FloatingPane>
@@ -2079,6 +2132,7 @@ export function TappPlaygroundPage() {
               header={previewHeader}
               interactive={false}
               staticClassName="h-[56vh]"
+              tourAnchor="tapp-playground-preview"
             >
               {previewContent}
             </FloatingPane>
@@ -2091,11 +2145,13 @@ export function TappPlaygroundPage() {
             header={codeHeader}
             interactive={false}
             staticClassName="h-[42vh]"
+            tourAnchor="tapp-playground-code"
           >
             {codeContent}
           </FloatingPane>
         </div>
       )}
+      </div>
 
       {/* 底部控制岛（Composer） */}
       <PlaygroundComposer

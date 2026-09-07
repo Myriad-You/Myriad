@@ -180,7 +180,7 @@ pub async fn get_context_system(
 
     let db_connected = db.ping().await.is_ok();
     let platforms = get_available_platforms().await;
-    let cache_dir = std::path::Path::new("cache/platforms");
+    let cache_dir = crate::services::data_paths::platforms_cache_dir();
 
     let mut last_fetch: HashMap<String, Option<String>> = HashMap::new();
     let futures: Vec<_> = platforms

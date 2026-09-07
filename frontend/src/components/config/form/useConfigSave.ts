@@ -30,6 +30,7 @@ import notificationPreferencesApi, {
 import { invalidateSpeechStatusCache } from '../../../services/speechApi'
 import { getCSRFToken } from '../../../utils/csrf'
 import { deepEqual } from '../../../utils/deepEqual'
+import { ISLAND_CONTENT_CHANGED_EVENT } from '../../../utils/islandContent'
 import { dispatchLibraryPreferencesUpdated } from '../../../utils/libraryPreferences'
 import {
   areModuleVisibilityPreferencesEqual,
@@ -77,6 +78,7 @@ import {
 import {
   configChangesNeedFooterReload,
   configChangesNeedHardReload,
+  configChangesNeedIslandReload,
   configChangesNeedMetadataReload,
   configChangesNeedPersonaPublicNameRefresh,
   configChangesNeedPlatformsCacheInvalidation,
@@ -465,6 +467,9 @@ export function useConfigSave(args: {
       const needFooterReload =
         Boolean(initialConfig) &&
         configChangesNeedFooterReload(config, initialConfig!)
+      const needIslandReload =
+        Boolean(initialConfig) &&
+        configChangesNeedIslandReload(config, initialConfig!)
       const needPwaReload =
         Boolean(initialConfig) &&
         configChangesNeedPwaReload(config, initialConfig!)
@@ -502,6 +507,10 @@ export function useConfigSave(args: {
       if (needFooterReload) {
         clearDedupCache(`${API_URL}/api/config/ui`)
         window.dispatchEvent(new CustomEvent('footerConfigChanged'))
+      }
+      if (needIslandReload) {
+        clearDedupCache(`${API_URL}/api/config/ui`)
+        window.dispatchEvent(new CustomEvent(ISLAND_CONTENT_CHANGED_EVENT))
       }
       if (needPwaReload) {
         clearDedupCache(`${API_URL}/api/config/ui`)

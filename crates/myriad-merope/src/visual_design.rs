@@ -1,8 +1,127 @@
+use std::collections::HashSet;
+
 use serde_json::{json, Map, Value};
+
+/// Saved outfits for one character. Face and hair stay on the character module.
+pub const MAX_WARDROBE_ITEMS: usize = 8;
+pub const MAX_WARDROBE_ID_CHARS: usize = 64;
+pub const MAX_WARDROBE_NAME_CHARS: usize = 40;
+/// Owner notes on visual profile / onboarding (`extraRequirements`,
+/// `personaExtraRequirements`, and visual-design requirements).
+pub const MAX_VISUAL_NOTES_CHARS: usize = 1_000;
+/// Master-portrait outfit. Cannot be renamed or removed.
+pub const DEFAULT_WARDROBE_ID: &str = "default";
+
+/// Why a visual profile (or one of its nested values) was rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisualProfileReason {
+    NotObject,
+    NotArray,
+    Empty,
+    TooLong { max_chars: usize },
+    ControlChar,
+    UnknownStyle,
+    DuplicateId,
+    TooMany { max: usize },
+    NeutralizedEmpty,
+    Invalid,
+}
+
+impl VisualProfileReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotObject => "not_object",
+            Self::NotArray => "not_array",
+            Self::Empty => "empty",
+            Self::TooLong { .. } => "too_long",
+            Self::ControlChar => "control_char",
+            Self::UnknownStyle => "unknown_style",
+            Self::DuplicateId => "duplicate_id",
+            Self::TooMany { .. } => "too_many",
+            Self::NeutralizedEmpty => "neutralized_empty",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
+/// Field path plus stable reason. Paths are relative to the value being sanitized.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisualProfileIssue {
+    pub field: String,
+    pub reason: VisualProfileReason,
+}
+
+impl VisualProfileIssue {
+    pub fn new(field: impl Into<String>, reason: VisualProfileReason) -> Self {
+        Self {
+            field: field.into(),
+            reason,
+        }
+    }
+
+    pub fn prefixed(self, prefix: &str) -> Self {
+        if prefix.is_empty() {
+            return self;
+        }
+        if self.field.is_empty() {
+            Self {
+                field: prefix.to_string(),
+                reason: self.reason,
+            }
+        } else {
+            Self {
+                field: format!("{prefix}.{}", self.field),
+                reason: self.reason,
+            }
+        }
+    }
+
+    pub fn message(&self) -> String {
+        let field = if self.field.is_empty() {
+            "visualProfile"
+        } else {
+            self.field.as_str()
+        };
+        match self.reason {
+            VisualProfileReason::NotObject => format!("{field} must be an object"),
+            VisualProfileReason::NotArray => format!("{field} must be an array"),
+            VisualProfileReason::Empty => format!("{field} is empty"),
+            VisualProfileReason::TooLong { max_chars } => {
+                format!("{field} exceeds {max_chars} characters")
+            }
+            VisualProfileReason::ControlChar => {
+                format!("{field} contains a control character")
+            }
+            VisualProfileReason::UnknownStyle => {
+                format!("{field} is not a known clothing style")
+            }
+            VisualProfileReason::DuplicateId => format!("{field} is duplicated"),
+            VisualProfileReason::TooMany { max } => {
+                format!("{field} has more than {max} items")
+            }
+            VisualProfileReason::NeutralizedEmpty => {
+                format!("{field} was emptied by style-lock neutralization")
+            }
+            VisualProfileReason::Invalid => format!("{field} is invalid"),
+        }
+    }
+}
+
+fn join_field(prefix: &str, key: &str) -> String {
+    if prefix.is_empty() {
+        key.to_string()
+    } else if key.is_empty() {
+        prefix.to_string()
+    } else {
+        format!("{prefix}.{key}")
+    }
+}
 
 /// Required visual-identity fields for a close upper-body Merope portrait.
 /// Lower-body garments, footwear, and articulated limb design intentionally do
 /// not belong to this contract.
+///
+/// Field caps must stay in sync with frontend `UPPER_BODY_VISUAL_IDENTITY_LIMITS`.
 pub const CLOTHING_STYLES: [&str; 17] = [
     "everyday",
     "uniform",
@@ -24,20 +143,20 @@ pub const CLOTHING_STYLES: [&str; 17] = [
 ];
 
 pub const CHARACTER_VISUAL_FIELDS: [(&str, usize); 4] = [
-    ("faceDesign", 260),
-    ("eyeDesign", 360),
-    ("hairShape", 300),
-    ("hairLayerPlan", 380),
+    ("faceDesign", 500),
+    ("eyeDesign", 500),
+    ("hairShape", 500),
+    ("hairLayerPlan", 700),
 ];
 
 pub const OUTFIT_VISUAL_FIELDS: [(&str, usize); 7] = [
-    ("upperBodySilhouette", 320),
-    ("outfitConstruction", 520),
-    ("sleeveArmDesign", 360),
-    ("materialPlan", 420),
-    ("heroAccessory", 420),
-    ("paletteHint", 340),
-    ("motif", 280),
+    ("upperBodySilhouette", 700),
+    ("outfitConstruction", 1_200),
+    ("sleeveArmDesign", 700),
+    ("materialPlan", 1_200),
+    ("heroAccessory", 500),
+    ("paletteHint", 500),
+    ("motif", 500),
 ];
 
 /// Flat field list for prompts and language checks. Order is character then outfit.
@@ -119,7 +238,22 @@ pub fn clothing_style_grammar(id: &str) -> Option<&'static str> {
 }
 
 pub fn sanitize_upper_body_visual_identity(value: &Value) -> Option<Value> {
-    sanitize_modular_identity(value).or_else(|| wrap_flat_identity(value))
+    sanitize_upper_body_visual_identity_checked(value).ok()
+}
+
+pub fn sanitize_upper_body_visual_identity_checked(
+    value: &Value,
+) -> Result<Value, VisualProfileIssue> {
+    match sanitize_modular_identity(value) {
+        Ok(identity) => Ok(identity),
+        Err(modular_err) => {
+            if looks_modular(value) {
+                Err(modular_err)
+            } else {
+                wrap_flat_identity(value)
+            }
+        }
+    }
 }
 
 pub fn upper_body_visual_identity_is_complete(value: &Value) -> bool {
@@ -148,6 +282,432 @@ pub fn character_module(value: &Value) -> Option<Value> {
         .cloned()
 }
 
+pub fn sanitize_outfit_module(value: &Value) -> Option<Value> {
+    sanitize_outfit_module_checked(value).ok()
+}
+
+pub fn sanitize_outfit_module_checked(value: &Value) -> Result<Value, VisualProfileIssue> {
+    sanitize_fields(value, &OUTFIT_VISUAL_FIELDS, "")
+}
+
+/// Owner-saved outfits. Each item is one portrait of the same character in
+/// different clothes: replaceable `outfit` module, style, optional master
+/// portrait, and optional compiled rig package.
+pub fn sanitize_wardrobe(value: &Value) -> Option<Vec<Value>> {
+    sanitize_wardrobe_checked(value).ok()
+}
+
+pub fn sanitize_wardrobe_checked(value: &Value) -> Result<Vec<Value>, VisualProfileIssue> {
+    let items = value
+        .as_array()
+        .ok_or_else(|| VisualProfileIssue::new("", VisualProfileReason::NotArray))?;
+    if items.len() > MAX_WARDROBE_ITEMS {
+        return Err(VisualProfileIssue::new(
+            "",
+            VisualProfileReason::TooMany {
+                max: MAX_WARDROBE_ITEMS,
+            },
+        ));
+    }
+    let mut out = Vec::with_capacity(items.len());
+    let mut seen = HashSet::new();
+    for (index, item) in items.iter().enumerate() {
+        let prefix = index.to_string();
+        if !item.is_object() {
+            return Err(VisualProfileIssue::new(
+                prefix,
+                VisualProfileReason::NotObject,
+            ));
+        }
+        let id = match item.get("id").and_then(Value::as_str).map(str::trim) {
+            Some(id) if id.is_empty() => {
+                return Err(VisualProfileIssue::new(
+                    join_field(&prefix, "id"),
+                    VisualProfileReason::Empty,
+                ));
+            }
+            Some(id) if id.chars().count() > MAX_WARDROBE_ID_CHARS => {
+                return Err(VisualProfileIssue::new(
+                    join_field(&prefix, "id"),
+                    VisualProfileReason::TooLong {
+                        max_chars: MAX_WARDROBE_ID_CHARS,
+                    },
+                ));
+            }
+            Some(id) if id.chars().any(char::is_control) => {
+                return Err(VisualProfileIssue::new(
+                    join_field(&prefix, "id"),
+                    VisualProfileReason::ControlChar,
+                ));
+            }
+            Some(id) if !seen.insert(id.to_string()) => {
+                return Err(VisualProfileIssue::new(
+                    join_field(&prefix, "id"),
+                    VisualProfileReason::DuplicateId,
+                ));
+            }
+            Some(id) => id.to_string(),
+            None => {
+                return Err(VisualProfileIssue::new(
+                    join_field(&prefix, "id"),
+                    if item.get("id").is_some() {
+                        VisualProfileReason::Invalid
+                    } else {
+                        VisualProfileReason::Empty
+                    },
+                ));
+            }
+        };
+        let style = match item.get("clothingStyle").and_then(Value::as_str) {
+            Some(raw) => normalize_clothing_style(raw).ok_or_else(|| {
+                VisualProfileIssue::new(
+                    join_field(&prefix, "clothingStyle"),
+                    VisualProfileReason::UnknownStyle,
+                )
+            })?,
+            None => {
+                return Err(VisualProfileIssue::new(
+                    join_field(&prefix, "clothingStyle"),
+                    if item.get("clothingStyle").is_some() {
+                        VisualProfileReason::Invalid
+                    } else {
+                        VisualProfileReason::Empty
+                    },
+                ));
+            }
+        };
+        let outfit = match item.get("outfit") {
+            Some(outfit) => sanitize_fields(outfit, &OUTFIT_VISUAL_FIELDS, "")
+                .map_err(|issue| issue.prefixed(&join_field(&prefix, "outfit")))?,
+            None => {
+                return Err(VisualProfileIssue::new(
+                    join_field(&prefix, "outfit"),
+                    VisualProfileReason::Empty,
+                ));
+            }
+        };
+        let mut saved = json!({
+            "id": id,
+            "clothingStyle": style,
+            "outfit": outfit,
+        });
+        let obj = saved.as_object_mut().expect("wardrobe item is an object");
+        if let Some(portrait) = item
+            .get("portraitAssetId")
+            .and_then(Value::as_str)
+            .and_then(sanitize_wardrobe_portrait)
+        {
+            obj.insert("portraitAssetId".into(), json!(portrait));
+        }
+        if let Some(rig) = item
+            .get("rigAssetId")
+            .and_then(Value::as_str)
+            .and_then(sanitize_wardrobe_hex_id)
+        {
+            obj.insert("rigAssetId".into(), json!(rig));
+        }
+        if let Some(fingerprint) = item
+            .get("generationFingerprint")
+            .and_then(Value::as_str)
+            .and_then(sanitize_wardrobe_hex_id)
+        {
+            obj.insert("generationFingerprint".into(), json!(fingerprint));
+        }
+        if id != DEFAULT_WARDROBE_ID {
+            if let Some(name) = item
+                .get("name")
+                .and_then(Value::as_str)
+                .and_then(sanitize_wardrobe_name)
+            {
+                obj.insert("name".into(), json!(name));
+            }
+        }
+        out.push(saved);
+    }
+    Ok(out)
+}
+
+fn sanitize_wardrobe_name(raw: &str) -> Option<String> {
+    let value = raw.trim();
+    if value.is_empty() || value.chars().any(char::is_control) {
+        return None;
+    }
+    let trimmed: String = value.chars().take(MAX_WARDROBE_NAME_CHARS).collect();
+    let trimmed = trimmed.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn is_default_wardrobe_item(item: &Value) -> bool {
+    item.get("id").and_then(Value::as_str) == Some(DEFAULT_WARDROBE_ID)
+}
+
+fn default_wardrobe_item(style: &str, outfit: &Value) -> Value {
+    json!({
+        "id": DEFAULT_WARDROBE_ID,
+        "clothingStyle": style,
+        "outfit": outfit,
+    })
+}
+
+/// Keep the master-portrait outfit as the default set.
+///
+/// Empty wardrobe + visual identity seeds it. A wardrobe that already had
+/// `default` cannot drop it. A legacy wardrobe without that id promotes the
+/// first stored set.
+pub fn ensure_default_wardrobe(profile: &mut Value, previous: Option<&Map<String, Value>>) {
+    let Some(root) = profile.as_object() else {
+        return;
+    };
+    let identity = match root.get("visualIdentity") {
+        Some(value) if !value.is_null() => value,
+        _ => return,
+    };
+    if !root.contains_key("wardrobe") {
+        return;
+    }
+    let outfit = identity.get("outfit").cloned();
+    let style = root
+        .get("clothingStyle")
+        .and_then(Value::as_str)
+        .and_then(normalize_clothing_style)
+        .or_else(|| clothing_style_of(identity))
+        .map(str::to_string);
+    let previous_default = previous
+        .and_then(|value| value.get("wardrobe"))
+        .and_then(Value::as_array)
+        .and_then(|items| items.iter().find(|item| is_default_wardrobe_item(item)))
+        .cloned()
+        .map(|mut item| {
+            if let Some(obj) = item.as_object_mut() {
+                obj.remove("name");
+            }
+            item
+        });
+
+    let Some(root) = profile.as_object_mut() else {
+        return;
+    };
+    let mut promoted_from = None;
+    let mut seeded = false;
+    {
+        let Some(items) = root.get_mut("wardrobe").and_then(Value::as_array_mut) else {
+            return;
+        };
+        for item in items.iter_mut() {
+            if is_default_wardrobe_item(item) {
+                if let Some(obj) = item.as_object_mut() {
+                    obj.remove("name");
+                }
+            }
+        }
+        if items.iter().any(is_default_wardrobe_item) {
+            return;
+        }
+        if let Some(default_item) = previous_default {
+            items.insert(0, default_item);
+            while items.len() > MAX_WARDROBE_ITEMS {
+                if let Some(index) = (1..items.len())
+                    .rev()
+                    .find(|&index| !is_default_wardrobe_item(&items[index]))
+                {
+                    items.remove(index);
+                } else {
+                    break;
+                }
+            }
+            return;
+        }
+        if items.is_empty() {
+            let (Some(style), Some(outfit)) = (style.as_deref(), outfit.as_ref()) else {
+                return;
+            };
+            items.push(default_wardrobe_item(style, outfit));
+            seeded = true;
+        } else if previous.is_some() {
+            promoted_from = items[0]
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            if let Some(obj) = items[0].as_object_mut() {
+                obj.insert("id".into(), json!(DEFAULT_WARDROBE_ID));
+                obj.remove("name");
+            }
+        }
+    }
+    if seeded {
+        root.insert("activeOutfitId".into(), json!(DEFAULT_WARDROBE_ID));
+        return;
+    }
+    if let Some(old_id) = promoted_from {
+        if root.get("activeOutfitId").and_then(Value::as_str) == Some(old_id.as_str()) {
+            root.insert("activeOutfitId".into(), json!(DEFAULT_WARDROBE_ID));
+        }
+    }
+}
+
+fn sanitize_wardrobe_hex_id(raw: &str) -> Option<String> {
+    let value = raw.trim();
+    if value.len() != 64 || !value.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(value.to_ascii_lowercase())
+}
+
+fn wardrobe_item_id(item: &Value) -> Option<&str> {
+    item.get("id").and_then(Value::as_str)
+}
+
+fn wardrobe_portrait(item: &Value) -> Option<&str> {
+    item.get("portraitAssetId").and_then(Value::as_str)
+}
+
+/// Drop a stored rig when that outfit's portrait is no longer the one it was
+/// compiled from. Other outfits keep their packages.
+pub fn reconcile_wardrobe_rigs(profile: &mut Value, previous: Option<&Map<String, Value>>) {
+    let Some(previous_items) = previous
+        .and_then(|value| value.get("wardrobe"))
+        .and_then(Value::as_array)
+    else {
+        return;
+    };
+    let Some(items) = profile
+        .as_object_mut()
+        .and_then(|root| root.get_mut("wardrobe"))
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for item in items {
+        let Some(id) = wardrobe_item_id(item).map(str::to_string) else {
+            continue;
+        };
+        let previous_item = previous_items
+            .iter()
+            .find(|candidate| wardrobe_item_id(candidate) == Some(id.as_str()));
+        let previous_portrait = previous_item.and_then(wardrobe_portrait);
+        if wardrobe_portrait(item) == previous_portrait {
+            continue;
+        }
+        if let Some(obj) = item.as_object_mut() {
+            obj.remove("rigAssetId");
+            obj.remove("generationFingerprint");
+        }
+    }
+}
+
+/// Bind a compiled package to the outfit currently being worn.
+pub fn bind_active_outfit_rig(profile: &mut Value, rig_asset_id: &str) -> bool {
+    let Some(rig) = sanitize_wardrobe_hex_id(rig_asset_id) else {
+        return false;
+    };
+    let Some(root) = profile.as_object_mut() else {
+        return false;
+    };
+    let active = root
+        .get("activeOutfitId")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let Some(items) = root.get_mut("wardrobe").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    let target = active.or_else(|| {
+        (items.len() == 1)
+            .then(|| wardrobe_item_id(&items[0]).map(str::to_string))
+            .flatten()
+    });
+    let Some(target) = target else {
+        return false;
+    };
+    for item in items {
+        if wardrobe_item_id(item) != Some(target.as_str()) {
+            continue;
+        }
+        if let Some(obj) = item.as_object_mut() {
+            obj.insert("rigAssetId".into(), json!(rig));
+            return true;
+        }
+    }
+    false
+}
+
+/// Forget the worn outfit's rig after its portrait changes. Other sets stay.
+pub fn detach_active_outfit_rig(profile: &mut Value) {
+    let Some(root) = profile.as_object_mut() else {
+        return;
+    };
+    let Some(active) = root
+        .get("activeOutfitId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return;
+    };
+    let Some(items) = root.get_mut("wardrobe").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for item in items {
+        if wardrobe_item_id(item) != Some(active.as_str()) {
+            continue;
+        }
+        if let Some(obj) = item.as_object_mut() {
+            obj.remove("rigAssetId");
+            obj.remove("generationFingerprint");
+        }
+        return;
+    }
+}
+
+/// Live pointer for the worn outfit. Missing means play the portrait only.
+pub fn active_outfit_rig_asset_id(profile: Option<&Value>) -> Option<String> {
+    let profile = profile?;
+    let active = profile.get("activeOutfitId").and_then(Value::as_str)?;
+    profile
+        .get("wardrobe")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|item| wardrobe_item_id(item) == Some(active))
+        .and_then(|item| item.get("rigAssetId").and_then(Value::as_str))
+        .and_then(sanitize_wardrobe_hex_id)
+}
+
+/// Provenance of the worn outfit's portrait, used to match that outfit's rig.
+pub fn active_outfit_generation_fingerprint(profile: Option<&Value>) -> Option<String> {
+    let profile = profile?;
+    let active = profile.get("activeOutfitId").and_then(Value::as_str)?;
+    profile
+        .get("wardrobe")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|item| wardrobe_item_id(item) == Some(active))
+        .and_then(|item| item.get("generationFingerprint").and_then(Value::as_str))
+        .and_then(sanitize_wardrobe_hex_id)
+}
+
+fn sanitize_wardrobe_portrait(raw: &str) -> Option<String> {
+    let value = raw.trim();
+    if value.is_empty()
+        || value.len() > 512
+        || value.contains(':')
+        || value.contains("..")
+        || value.starts_with("//")
+        || value.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return None;
+    }
+    let bare_id = value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if value.starts_with('/') || bare_id {
+        Some(value.to_string())
+    } else {
+        None
+    }
+}
+
 pub fn clothing_style_of(value: &Value) -> Option<&'static str> {
     let root = value.get("visualIdentity").unwrap_or(value);
     [
@@ -171,10 +731,31 @@ pub fn stamp_clothing_style(identity: &mut Value, style: &str) -> Option<&'stati
     Some(style)
 }
 
-fn sanitize_modular_identity(value: &Value) -> Option<Value> {
+fn looks_modular(value: &Value) -> bool {
     let root = value.get("visualIdentity").unwrap_or(value);
-    let character = sanitize_fields(root.get("character")?, &CHARACTER_VISUAL_FIELDS)?;
-    let mut outfit = sanitize_fields(root.get("outfit")?, &OUTFIT_VISUAL_FIELDS)?;
+    root.get("character").is_some() || root.get("outfit").is_some()
+}
+
+fn sanitize_modular_identity(value: &Value) -> Result<Value, VisualProfileIssue> {
+    let root = value.get("visualIdentity").unwrap_or(value);
+    let character = match root.get("character") {
+        Some(character) => sanitize_fields(character, &CHARACTER_VISUAL_FIELDS, "character")?,
+        None => {
+            return Err(VisualProfileIssue::new(
+                "character",
+                VisualProfileReason::Empty,
+            ));
+        }
+    };
+    let mut outfit = match root.get("outfit") {
+        Some(outfit) => sanitize_fields(outfit, &OUTFIT_VISUAL_FIELDS, "outfit")?,
+        None => {
+            return Err(VisualProfileIssue::new(
+                "outfit",
+                VisualProfileReason::Empty,
+            ));
+        }
+    };
     if let Some(style) = root
         .get("outfit")
         .and_then(|outfit| outfit.get("clothingStyle"))
@@ -182,19 +763,20 @@ fn sanitize_modular_identity(value: &Value) -> Option<Value> {
         .and_then(normalize_clothing_style)
     {
         outfit
-            .as_object_mut()?
+            .as_object_mut()
+            .ok_or_else(|| VisualProfileIssue::new("outfit", VisualProfileReason::NotObject))?
             .insert("clothingStyle".into(), json!(style));
     }
-    Some(json!({
+    Ok(json!({
         "character": character,
         "outfit": outfit,
     }))
 }
 
-fn wrap_flat_identity(value: &Value) -> Option<Value> {
+fn wrap_flat_identity(value: &Value) -> Result<Value, VisualProfileIssue> {
     let source = value.get("visualIdentity").unwrap_or(value);
-    let character = sanitize_fields(source, &CHARACTER_VISUAL_FIELDS)?;
-    let mut outfit = sanitize_fields(source, &OUTFIT_VISUAL_FIELDS)?;
+    let character = sanitize_fields(source, &CHARACTER_VISUAL_FIELDS, "")?;
+    let mut outfit = sanitize_fields(source, &OUTFIT_VISUAL_FIELDS, "")?;
     if let Some(style) = source
         .get("clothingStyle")
         .and_then(Value::as_str)
@@ -207,26 +789,58 @@ fn wrap_flat_identity(value: &Value) -> Option<Value> {
         })
     {
         outfit
-            .as_object_mut()?
+            .as_object_mut()
+            .ok_or_else(|| VisualProfileIssue::new("outfit", VisualProfileReason::NotObject))?
             .insert("clothingStyle".into(), json!(style));
     }
-    Some(json!({
+    Ok(json!({
         "character": character,
         "outfit": outfit,
     }))
 }
 
-fn sanitize_fields(source: &Value, fields: &[(&str, usize)]) -> Option<Value> {
-    let source = source.as_object()?;
+fn sanitize_fields(
+    source: &Value,
+    fields: &[(&str, usize)],
+    prefix: &str,
+) -> Result<Value, VisualProfileIssue> {
+    let source = source.as_object().ok_or_else(|| {
+        VisualProfileIssue::new(prefix.to_string(), VisualProfileReason::NotObject)
+    })?;
     let mut sanitized = Map::new();
     for (key, max_chars) in fields {
-        let raw = source.get(*key)?.as_str()?.trim();
-        if raw.is_empty() || raw.chars().count() > *max_chars || raw.chars().any(char::is_control) {
-            return None;
+        let field = join_field(prefix, key);
+        match source.get(*key) {
+            None => {
+                return Err(VisualProfileIssue::new(field, VisualProfileReason::Empty));
+            }
+            Some(Value::String(raw)) => {
+                let raw = raw.trim();
+                if raw.is_empty() {
+                    return Err(VisualProfileIssue::new(field, VisualProfileReason::Empty));
+                }
+                if raw.chars().count() > *max_chars {
+                    return Err(VisualProfileIssue::new(
+                        field,
+                        VisualProfileReason::TooLong {
+                            max_chars: *max_chars,
+                        },
+                    ));
+                }
+                if raw.chars().any(char::is_control) {
+                    return Err(VisualProfileIssue::new(
+                        field,
+                        VisualProfileReason::ControlChar,
+                    ));
+                }
+                sanitized.insert((*key).to_string(), Value::String(raw.to_string()));
+            }
+            Some(_) => {
+                return Err(VisualProfileIssue::new(field, VisualProfileReason::Invalid));
+            }
         }
-        sanitized.insert((*key).to_string(), Value::String(raw.to_string()));
     }
-    Some(Value::Object(sanitized))
+    Ok(Value::Object(sanitized))
 }
 
 fn copy_module_fields(
@@ -314,9 +928,49 @@ mod tests {
             .unwrap()
             .remove("eyeDesign");
         assert!(!upper_body_visual_identity_is_complete(&missing));
+        let missing_err = sanitize_upper_body_visual_identity_checked(&missing).unwrap_err();
+        assert_eq!(missing_err.field, "eyeDesign");
+        assert_eq!(missing_err.reason, VisualProfileReason::Empty);
         let mut control = complete_flat();
         control["visualIdentity"]["motif"] = json!("星轨\u{0000}");
         assert!(!upper_body_visual_identity_is_complete(&control));
+        let control_err = sanitize_upper_body_visual_identity_checked(&control).unwrap_err();
+        assert_eq!(control_err.field, "motif");
+        assert_eq!(control_err.reason, VisualProfileReason::ControlChar);
+    }
+
+    #[test]
+    fn visual_identity_accepts_the_frontend_field_caps() {
+        let mut identity = complete_flat();
+        identity["visualIdentity"]["faceDesign"] = json!("甲".repeat(500));
+        assert!(sanitize_upper_body_visual_identity(&identity).is_some());
+        identity["visualIdentity"]["faceDesign"] = json!("甲".repeat(501));
+        let err = sanitize_upper_body_visual_identity_checked(&identity).unwrap_err();
+        assert_eq!(err.field, "faceDesign");
+        assert_eq!(err.reason, VisualProfileReason::TooLong { max_chars: 500 });
+    }
+
+    #[test]
+    fn modular_identity_names_the_missing_character_field() {
+        let identity = complete_flat()["visualIdentity"].clone();
+        let mut character = Map::new();
+        character.insert("faceDesign".into(), identity["faceDesign"].clone());
+        let err = sanitize_upper_body_visual_identity_checked(&json!({
+            "character": character,
+            "outfit": {
+                "upperBodySilhouette": identity["upperBodySilhouette"],
+                "outfitConstruction": identity["outfitConstruction"],
+                "sleeveArmDesign": identity["sleeveArmDesign"],
+                "materialPlan": identity["materialPlan"],
+                "heroAccessory": identity["heroAccessory"],
+                "paletteHint": identity["paletteHint"],
+                "motif": identity["motif"]
+            }
+        }))
+        .unwrap_err();
+        assert_eq!(err.field, "character.eyeDesign");
+        assert_eq!(err.reason, VisualProfileReason::Empty);
+        assert_eq!(err.message(), "character.eyeDesign is empty");
     }
 
     #[test]
@@ -398,5 +1052,206 @@ mod tests {
             first["outfit"]["outfitConstruction"]
         );
         assert_eq!(clothing_style_of(&swapped), Some("urban"));
+    }
+
+    #[test]
+    fn wardrobe_keeps_outfit_modules_and_rejects_bad_ids() {
+        let outfit = json!({
+            "upperBodySilhouette": complete_flat()["visualIdentity"]["upperBodySilhouette"],
+            "outfitConstruction": complete_flat()["visualIdentity"]["outfitConstruction"],
+            "sleeveArmDesign": complete_flat()["visualIdentity"]["sleeveArmDesign"],
+            "materialPlan": complete_flat()["visualIdentity"]["materialPlan"],
+            "heroAccessory": complete_flat()["visualIdentity"]["heroAccessory"],
+            "paletteHint": complete_flat()["visualIdentity"]["paletteHint"],
+            "motif": complete_flat()["visualIdentity"]["motif"]
+        });
+        let wardrobe = json!([
+            { "id": "w-a", "clothingStyle": "urban", "outfit": outfit },
+            { "id": "w-b", "clothingStyle": "idol", "outfit": outfit }
+        ]);
+        let with_portrait = json!([
+            {
+                "id": "w-a",
+                "clothingStyle": "urban",
+                "outfit": outfit,
+                "portraitAssetId": "/uploads/urban.png",
+                "ignored": true
+            },
+            {
+                "id": "w-b",
+                "clothingStyle": "idol",
+                "outfit": outfit,
+                "portraitAssetId": "https://cdn.example.com/x.png"
+            }
+        ]);
+        let sanitized = sanitize_wardrobe(&wardrobe).unwrap();
+        assert_eq!(sanitized.len(), 2);
+        assert_eq!(sanitized[0]["clothingStyle"], "urban");
+        assert!(sanitize_outfit_module(&outfit).is_some());
+        let portraits = sanitize_wardrobe(&with_portrait).unwrap();
+        assert_eq!(portraits[0]["portraitAssetId"], "/uploads/urban.png");
+        assert!(portraits[1].get("portraitAssetId").is_none());
+        let named = json!([{
+            "id": "w-a",
+            "clothingStyle": "urban",
+            "outfit": outfit,
+            "name": "  冬日大衣  "
+        }]);
+        assert_eq!(sanitize_wardrobe(&named).unwrap()[0]["name"], "冬日大衣");
+
+        let duplicate = json!([
+            { "id": "w-a", "clothingStyle": "urban", "outfit": outfit },
+            { "id": "w-a", "clothingStyle": "idol", "outfit": outfit }
+        ]);
+        assert!(sanitize_wardrobe(&duplicate).is_none());
+        let duplicate_err = sanitize_wardrobe_checked(&duplicate).unwrap_err();
+        assert_eq!(duplicate_err.field, "1.id");
+        assert_eq!(duplicate_err.reason, VisualProfileReason::DuplicateId);
+        assert!(sanitize_wardrobe(&json!([])).unwrap().is_empty());
+
+        let default_named = json!([{
+            "id": DEFAULT_WARDROBE_ID,
+            "clothingStyle": "urban",
+            "outfit": outfit,
+            "name": "想改的名字"
+        }]);
+        let default_saved = sanitize_wardrobe(&default_named).unwrap();
+        assert_eq!(default_saved[0]["id"], DEFAULT_WARDROBE_ID);
+        assert!(default_saved[0].get("name").is_none());
+
+        let rig = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let with_rig = json!([{
+            "id": "w-a",
+            "clothingStyle": "urban",
+            "outfit": outfit,
+            "portraitAssetId": "/uploads/urban.png",
+            "rigAssetId": rig
+        }]);
+        assert_eq!(sanitize_wardrobe(&with_rig).unwrap()[0]["rigAssetId"], rig);
+        let bad_rig = json!([{
+            "id": "w-a",
+            "clothingStyle": "urban",
+            "outfit": outfit,
+            "rigAssetId": "not-a-package"
+        }]);
+        assert!(sanitize_wardrobe(&bad_rig).unwrap()[0]
+            .get("rigAssetId")
+            .is_none());
+    }
+
+    #[test]
+    fn wardrobe_keeps_each_outfit_rig_and_drops_it_when_that_portrait_changes() {
+        let identity = sanitize_upper_body_visual_identity(&complete_flat()).unwrap();
+        let rig_a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let rig_b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let mut profile = json!({
+            "clothingStyle": "urban",
+            "visualIdentity": identity,
+            "activeOutfitId": "w-b",
+            "wardrobe": [
+                {
+                    "id": DEFAULT_WARDROBE_ID,
+                    "clothingStyle": "urban",
+                    "outfit": identity["outfit"],
+                    "portraitAssetId": "/uploads/a.png",
+                    "rigAssetId": rig_a
+                },
+                {
+                    "id": "w-b",
+                    "clothingStyle": "idol",
+                    "outfit": identity["outfit"],
+                    "portraitAssetId": "/uploads/b.png",
+                    "rigAssetId": rig_b,
+                    "generationFingerprint": rig_b
+                }
+            ]
+        });
+        assert_eq!(
+            active_outfit_rig_asset_id(Some(&profile)).as_deref(),
+            Some(rig_b)
+        );
+        assert_eq!(
+            active_outfit_generation_fingerprint(Some(&profile)).as_deref(),
+            Some(rig_b)
+        );
+        let previous = profile.as_object().cloned().unwrap();
+        profile["wardrobe"][1]["portraitAssetId"] = json!("/uploads/b-next.png");
+        reconcile_wardrobe_rigs(&mut profile, Some(&previous));
+        assert_eq!(profile["wardrobe"][0]["rigAssetId"], rig_a);
+        assert!(profile["wardrobe"][1].get("rigAssetId").is_none());
+        assert!(profile["wardrobe"][1]
+            .get("generationFingerprint")
+            .is_none());
+        detach_active_outfit_rig(&mut profile);
+        assert_eq!(profile["wardrobe"][0]["rigAssetId"], rig_a);
+        bind_active_outfit_rig(&mut profile, rig_b);
+        assert_eq!(profile["wardrobe"][1]["rigAssetId"], rig_b);
+        assert_eq!(
+            active_outfit_rig_asset_id(Some(&profile)).as_deref(),
+            Some(rig_b)
+        );
+    }
+
+    #[test]
+    fn default_wardrobe_is_seeded_and_restored() {
+        let identity = sanitize_upper_body_visual_identity(&complete_flat()).unwrap();
+        let mut empty = json!({
+            "clothingStyle": "urban",
+            "visualIdentity": identity,
+            "wardrobe": []
+        });
+        ensure_default_wardrobe(&mut empty, None);
+        assert_eq!(empty["wardrobe"][0]["id"], DEFAULT_WARDROBE_ID);
+        assert_eq!(empty["activeOutfitId"], DEFAULT_WARDROBE_ID);
+        assert_eq!(empty["wardrobe"][0]["outfit"], identity["outfit"]);
+
+        let previous = empty.as_object().cloned().unwrap();
+        let extra_outfit = identity["outfit"].clone();
+        let mut omitted = json!({
+            "clothingStyle": "idol",
+            "visualIdentity": identity,
+            "wardrobe": [{
+                "id": "w-new",
+                "clothingStyle": "idol",
+                "outfit": extra_outfit
+            }],
+            "activeOutfitId": "w-new"
+        });
+        ensure_default_wardrobe(&mut omitted, Some(&previous));
+        assert_eq!(omitted["wardrobe"][0]["id"], DEFAULT_WARDROBE_ID);
+        assert_eq!(omitted["wardrobe"][1]["id"], "w-new");
+        assert_eq!(omitted["activeOutfitId"], "w-new");
+
+        let mut later = identity.clone();
+        later["outfit"]["outfitConstruction"] =
+            json!("敞开领口内搭叠短风衣，胸前只有一条结构线，止于高腰");
+        let mut emptied = json!({
+            "clothingStyle": "idol",
+            "visualIdentity": later,
+            "wardrobe": []
+        });
+        ensure_default_wardrobe(&mut emptied, Some(&previous));
+        assert_eq!(emptied["wardrobe"][0]["id"], DEFAULT_WARDROBE_ID);
+        assert_eq!(emptied["wardrobe"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            emptied["wardrobe"][0]["outfit"],
+            previous["wardrobe"][0]["outfit"]
+        );
+
+        let mut legacy = json!({
+            "clothingStyle": "urban",
+            "visualIdentity": identity,
+            "wardrobe": [{
+                "id": "w-old",
+                "clothingStyle": "urban",
+                "outfit": identity["outfit"],
+                "name": "旧名字"
+            }],
+            "activeOutfitId": "w-old"
+        });
+        ensure_default_wardrobe(&mut legacy, Some(&Map::new()));
+        assert_eq!(legacy["wardrobe"][0]["id"], DEFAULT_WARDROBE_ID);
+        assert!(legacy["wardrobe"][0].get("name").is_none());
+        assert_eq!(legacy["activeOutfitId"], DEFAULT_WARDROBE_ID);
     }
 }

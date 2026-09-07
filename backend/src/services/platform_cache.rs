@@ -107,6 +107,10 @@ pub fn validate_platform_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn platforms_cache_dir() -> &'static std::path::Path {
+    crate::services::data_paths::platforms_cache_dir()
+}
+
 /// Available platforms from cache/platforms/*_filtered.json (60s TTL).
 pub async fn get_available_platforms() -> Vec<String> {
     {
@@ -116,7 +120,7 @@ pub async fn get_available_platforms() -> Vec<String> {
         }
     }
 
-    let cache_dir = std::path::Path::new("cache/platforms");
+    let cache_dir = platforms_cache_dir();
     let mut platforms = Vec::new();
 
     if let Ok(mut entries) = tokio::fs::read_dir(cache_dir).await {
@@ -210,7 +214,7 @@ pub async fn get_cached_platform_data(platform: &str) -> Result<Value, String> {
         }
     }
 
-    let cache_file = format!("cache/platforms/{}_filtered.json", key);
+    let cache_file = filtered_cache_path(&key);
     let content = tokio::fs::read_to_string(&cache_file)
         .await
         .map_err(|error| platform_cache_read_failed(&key, error))?;
@@ -272,7 +276,7 @@ impl std::fmt::Display for PlatformCacheError {
 impl std::error::Error for PlatformCacheError {}
 
 fn filtered_cache_path(platform_key: &str) -> std::path::PathBuf {
-    std::path::Path::new("cache/platforms").join(format!("{platform_key}_filtered.json"))
+    platforms_cache_dir().join(format!("{platform_key}_filtered.json"))
 }
 
 /// On-disk path for a platform's filtered cache file.
@@ -283,7 +287,7 @@ pub fn platform_filtered_cache_path(platform: &str) -> Result<std::path::PathBuf
 
 /// Ensure `cache/platforms` exists.
 pub async fn ensure_platforms_dir() -> Result<(), PlatformCacheError> {
-    tokio::fs::create_dir_all("cache/platforms")
+    tokio::fs::create_dir_all(platforms_cache_dir())
         .await
         .map_err(|error| {
             tracing::error!(%error, "[PLATFORM] Failed to create platform cache directory");

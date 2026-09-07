@@ -52,6 +52,51 @@ Both Anime2.5DRig names and native See-through tags such as `hairf`, `hairb`,
 `eyer`, and side-suffixed eye layers map into stable roles. Unknown decorative
 layers stay renderable but do not create new semantic bones.
 
+`anime25dLayerSemantics.ts` owns category and alias resolution for both import
+and live binding. See-through's `neckwear`, `eyewear`, `wings`, `tail`, and
+`objects` are recognized drawings, not additional articulated rig roles.
+Numbered and sided accessory fragments retain independent identities. Existing
+packages whose named accessory layers carry `unknown` are resolved in memory;
+their atlas, draw order, and stored manifest are not rewritten.
+
+Independent ornaments ride a rigid local frame sampled from the existing
+neck/head/garment deformation (`layerAttachment.ts`). They inherit the mount's
+translation and rotation, not its scale or shear. This also supplies a bounded
+head/body attachment for unknown decoration; it does not infer material or add
+wing, tail, or hanging-jewelry physics. `neckwear` is an upstream region that
+includes necklaces, ties, scarves, and collars—not evidence of a high collar.
+Ordinary neck roots share torso projection, fading it out toward the head.
+Binding measures the visible alpha footprint once, ignoring transparent PSD
+padding and preferring a same-side host with actual pixel overlap over an empty
+bounding rectangle. Ear ornaments use the upper visible root and prefer ears;
+detached artwork without overlap retains its semantic surface mount. This does
+not split a combined chain/pendant or infer cloth physics. Pixel reads are shared
+within binding and are never performed by the frame loop.
+
+High-collar recovery first requires broad upper-neck material differences from
+the co-located neck raster, in addition to the existing alpha coverage gate.
+Copied skin/shadows and narrow chains cannot establish a collar. Once there is
+positive evidence, the established reference/colour partition remains intact;
+uniform real collars can still use the geometric partition. Already authored
+collar topology is left alone. Multiple candidate necklines are ambiguous for
+the single runtime aperture and are left unsplit, not arbitrarily merged.
+This remains an image heuristic: near-identical skin/garment colours can be
+uncertain. It neither repaints textures nor reconstructs hidden skin or fabric.
+
+Open-neck compositing is a separate runtime binding decision (`neckSurface.ts`).
+See-through sometimes inpaints chest skin into `topwear`; drawing it over the
+neck truncates the chin shadow into a horizontal seam. Only a unique neck/body
+pair with an exposed upper neck, an opaque lower backing, and a broad matching
+colour interval can draw the neck over that body. Its bottom fades in rest UV
+space, before contaminated cut-edge pixels, without changing the stored atlas
+or playback. Compiled collars always bypass this path; covered upper necks,
+unsupported joins, and ambiguous pairs leave the original ordering intact.
+This cannot remove necklace remnants already baked into the chest texture.
+
+Large `objects`, `wings`, and `tail` drawings have the same non-framing policy as
+large unclassified extras. Recognizing a name must not suddenly shrink the
+portrait; these drawings remain in the asset. Small extras retain their margins.
+
 Myriad extends the upstream eye-diff path with `eye_dizzy`, `eye_squeeze`, and
 `eye_cry` layers. Artist artwork is split per eye like `eye_close`; when it is
 absent, import generates character-tinted spiral, inward-chevron, or
@@ -141,7 +186,8 @@ active layered package
 
 Agent reply speech enters through `speechEvents.ts`. The lifecycle controller
 handles streamed chunks, complete replies, interruption, and proactive lines,
-then drives the mounted `RigCharacter`. Real audio energy or phoneme events own
+then publishes into `../motion/speechSource.ts`, not directly into a player.
+Real audio energy or phoneme events own
 the mouth when present; otherwise the bounded local auto-prosody controller is
 used. The bridge reuses fixed typed arrays; the jaw and chest paths use fixed
 scalar state with constant-time spring arithmetic. Clothing analysis never runs
@@ -151,23 +197,52 @@ Without a live Anime2.5D package, `RigCharacter` draws the master portrait as a
 still image. Manifests do not carry clip stacks. There is no separate global
 face overlay.
 
+### Speech delivery ownership
+
+- `../speech/phrasePlan.ts` grounds the director's optional `phrases` in unique
+  response fragments. It annotates existing prosody anchors; it does not invent
+  another clock. Quotes/code/URLs and ambiguous fragments are not acted from
+  these annotations. Missing matches keep local delivery rather than guessing.
+- `../motion/speechSource.ts` keeps raw timing separate from annotated delivery.
+  Direction is bounded in memory and scoped by source, generation and message;
+  consecutive TTS segments retain that message's direction. Actual speech
+  events own the utterance lifetime and cancellation.
+- `../motion/humanPerformanceRuntime.ts` merges speech, music and performance
+  candidates. Its resolved pegs are authoritative. Phrase revisions preserve
+  committed beats; same-meaning director coverage can suppress future ones.
+- `../anime25drig/behaviorMotion.ts` realizes speech shape shares under the
+  existing unit envelope. `speechFormTransition.ts` smooths a changed shape
+  from the drawn mixture without adding a new behavior or moving its peak.
+  An unseen beat changes directly; cancellation releases the drawn level.
+- `../motion/applyFrame.ts` forwards changes in gesture as well as timing.
+  `../anime25drig/speechExpression.ts` respects `none` in its TTS accent path,
+  while keeping normal speech activity and later unsuppressed accents.
+
+These are separate responsibilities, not interchangeable fallbacks. `none`
+suppresses an accent, not all body motion or the mouth. An unmatched fragment,
+a phrase crossing TTS segment boundaries, or a revision arriving after
+commitment may leave local delivery unchanged. Unit tests establish routing,
+timing and numeric continuity; they do not establish live-model interpretation
+quality or visually validate every outfit. No extra model call, per-frame
+network trace or second renderer is needed for this path.
+
 ## Module ownership
 
-| Area                                               | Owner                                                                                                                       |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Shared limits and semantic IR                      | `contract.ts`, `types.ts`, `semantics.ts`, `shared/merope_rig_contract.json`                                                |
-| Import orchestration and normalization             | `psdImporter.ts`, `anime25dImporter.ts`, `anime25dImportTypes.ts`                                                           |
-| Expression, collar, atlas and skeleton compilation | `anime25dExpressionCompiler.ts`, `anime25dCollarCompiler.ts`, `anime25dAtlasCompiler.ts`, `anime25dSkeletonCompiler.ts`     |
-| Raster, capability and asset validation            | `anime25dRaster.ts`, `anime25dCapabilities.ts`, `anime25dAssetValidation.ts`, `diagnostics.ts`                              |
-| Asset transaction                                  | `../assets/pipeline.ts`, `../assets/compiler.ts`                                                                            |
-| Runtime orchestration and performance registry     | `../anime25drig/player.ts`, `../anime25drig/driver.ts`, `../anime25drig/expressionRegistry.ts`, `../performanceContract.ts` |
+| Area                                               | Owner                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shared limits and semantic IR                      | `contract.ts`, `types.ts`, `semantics.ts`, `shared/merope_rig_contract.json`                                                                                                                                                                                                                    |
+| Import orchestration and normalization             | `psdImporter.ts`, `anime25dImporter.ts`, `anime25dImportTypes.ts`                                                                                                                                                                                                                               |
+| Expression, collar, atlas and skeleton compilation | `anime25dExpressionCompiler.ts`, `anime25dCollarCompiler.ts`, `anime25dAtlasCompiler.ts`, `anime25dSkeletonCompiler.ts`                                                                                                                                                                         |
+| Raster, capability and asset validation            | `anime25dRaster.ts`, `anime25dCapabilities.ts`, `anime25dAssetValidation.ts`, `diagnostics.ts`                                                                                                                                                                                                  |
+| Asset transaction                                  | `../assets/pipeline.ts`, `../assets/compiler.ts`                                                                                                                                                                                                                                                |
+| Runtime orchestration and performance registry     | `../anime25drig/player.ts`, `../anime25drig/driver.ts`, `../anime25drig/expressionRegistry.ts`, `../performanceContract.ts`                                                                                                                                                                     |
 | Runtime WebGL, deformation and fallback policy     | `../anime25drig/webglRuntime.ts`, `../anime25drig/mouthRuntime.ts`, `../anime25drig/collarRuntime.ts`, `../anime25drig/atlasUv.ts`, `../anime25drig/layerTransform.ts`, `../anime25drig/layerDeformationPolicy.ts`, `../anime25drig/runtimePolicy.ts`, `../anime25drig/performanceTelemetry.ts` |
 
 ## Verification
 
 ```sh
 cd frontend
-pnpm exec tsx --test "src/features/merope/**/*.test.ts"
+pnpm exec tsx --test "src/features/merope/**/*.test.ts" "src/features/merope/*.test.ts"
 pnpm exec eslint src/features/merope
 pnpm typecheck
 ```

@@ -5,6 +5,8 @@
 use super::tier_router::TierRouter;
 use super::types::*;
 use crate::config::ModelTier;
+/// 步骤数量上限。提示词、Planner schema 和这里的截断必须是同一个数。
+use myriad_agent_rules::MAX_PLAN_STEPS as MAX_STEPS;
 use std::collections::HashMap;
 
 /// 根据 capability_id 建议 model_tier（复用 TierRouter 逻辑）
@@ -15,9 +17,6 @@ fn suggest_tier(capability_id: &str) -> Option<ModelTier> {
     }
     Some(TierRouter::resolve_with_override(capability_id, None))
 }
-
-/// 步骤数量上限
-const MAX_STEPS: usize = 8;
 
 /// 校验 AI 生成的步骤并转换为 RecipeStep（供 Planner 复用）
 pub fn validate_and_convert_steps(

@@ -1,6 +1,7 @@
 //! 画像源（头像来源）选择 API。
 //!
-//! 头像有四类来源且都保留（账号 / OAuth 身份 / 站长平台画像 / 生成兜底），
+//! 头像有五类来源且都保留（账号 / OAuth 身份 / 站长平台画像 / 人设贴纸头像 /
+//! 生成兜底），
 //! 由本人显式选定一个，写进 `users.avatar_source_*` 并解析成
 //! `users.avatar_resolved_url` 快照 —— 之后 `/api/auth/me`、
 //! `/api/tapp/context/user`、`/api/profile/user-info`、`/api/admin/users`
@@ -25,7 +26,7 @@ type ApiError = (StatusCode, Json<Value>);
 
 #[derive(Debug, Deserialize)]
 pub struct SetAvatarSourceRequest {
-    /// auto | account | identity | platform
+    /// auto | account | identity | platform | persona
     pub kind: String,
     /// identity id 或平台名；auto/account 可省略
     #[serde(default, rename = "ref")]
@@ -84,6 +85,7 @@ fn parse_kind(raw: &str) -> Result<AvatarSourceKind, ApiError> {
         "account" => Ok(AvatarSourceKind::Account),
         "identity" => Ok(AvatarSourceKind::Identity),
         "platform" => Ok(AvatarSourceKind::Platform),
+        "persona" => Ok(AvatarSourceKind::Persona),
         other => Err(bad_request(format!("Unknown avatar source kind: {other}"))),
     }
 }

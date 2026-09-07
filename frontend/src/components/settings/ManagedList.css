@@ -103,16 +103,12 @@ html.dark .managed-list-stat-label {
 }
 
 .managed-list-stat--active {
-  border-color: color-mix(in srgb, var(--cfg-accent) 28%, transparent);
-  background: color-mix(in srgb, var(--cfg-accent) 8%, transparent);
+  border-color: var(--cfg-accent-line);
+  background: var(--cfg-accent-fill);
 }
 
 .managed-list-stat--active .managed-list-stat-value {
-  color: var(--cfg-accent);
-}
-
-html.dark .managed-list-stat--active .managed-list-stat-value {
-  color: var(--cfg-accent);
+  color: var(--cfg-accent-ink);
 }
 
 .managed-list-stat--success {
@@ -744,15 +740,9 @@ html.dark .managed-list-badge {
 }
 
 .managed-list-badge--active {
-  background: color-mix(in srgb, var(--cfg-accent) 14%, transparent);
-  color: var(--cfg-accent);
-  border-color: color-mix(in srgb, var(--cfg-accent) 22%, transparent);
-}
-
-html.dark .managed-list-badge--active {
-  background: color-mix(in srgb, var(--cfg-accent) 20%, transparent);
-  color: var(--cfg-accent);
-  border-color: color-mix(in srgb, var(--cfg-accent) 28%, transparent);
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
+  border-color: var(--cfg-accent-line);
 }
 
 .managed-list-badge--success {

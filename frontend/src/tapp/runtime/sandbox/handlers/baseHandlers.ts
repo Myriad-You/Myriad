@@ -19,9 +19,19 @@ import {
   resolveOpenUrl,
 } from '../../../utils/openUrlAllowlist'
 import {
+  emitTappSettingsChange,
   emitTappSharedChange,
   emitTappStorageChange,
 } from '../../WidgetRuntimeSignals'
+import {
+  FILE_DOWNLOAD_BLOB_MAX_BYTES,
+  decodeDownloadBase64,
+  defaultDownloadFilename,
+  isSafeDownloadFilename,
+  normalizeFileDownloadOptions,
+  parseHostDownloadUrl,
+  triggerBrowserDownload,
+} from '../fileDownload'
 import { sanitizeStorageValue, validateStorageKey } from '../security'
 
 /** Per-tapp openUrl rate limit (host-side; shared across sandboxes in this tab). */
@@ -481,6 +491,12 @@ export function registerStorageHandlers(
         key as string,
         sanitizeStorageValue(value),
       )
+      emitTappSettingsChange({
+        tappId,
+        key: key as string,
+        operation: 'set',
+        source: bridge,
+      })
       return { success: true, data: null }
     } catch (error) {
       return {
@@ -833,60 +849,96 @@ export function registerAssetHandlers(
  */
 export function registerFileHandlers(bridge: TappBridge): void {
   bridge.registerHandler('file.download', async (message) => {
-    const [options] = (message.payload as { args: unknown[] }).args || []
+    const [rawOptions] = (message.payload as { args: unknown[] }).args || []
+    const options = normalizeFileDownloadOptions(rawOptions)
     if (!options) return { success: false, error: 'Options required' }
 
-    const { content, filename, mimeType } = options as {
-      content: string
-      filename: string
-      mimeType?: string
-    }
+    const { content, url, base64, filename, mimeType } = options
 
-    if (typeof content !== 'string' || content.length === 0) {
-      return { success: false, error: 'Content must be a non-empty string' }
-    }
-    if (typeof filename !== 'string' || filename.length === 0) {
-      return { success: false, error: 'Filename is required' }
-    }
-
-    // 验证文件名（防止路径遍历）
-    if (
-      filename.includes('..') ||
-      filename.includes('/') ||
-      filename.includes('\\')
-    ) {
-      return { success: false, error: 'Invalid filename' }
-    }
-
-    // 限制文件大小（最大 10MB）
-    const MAX_SIZE = 10 * 1024 * 1024
-    const blob = new Blob([content], {
-      type: mimeType || 'text/plain;charset=utf-8',
-    })
-    if (blob.size > MAX_SIZE) {
+    const hasContent = typeof content === 'string' && content.length > 0
+    const hasUrl = typeof url === 'string' && url.length > 0
+    const hasBase64 = typeof base64 === 'string' && base64.length > 0
+    if (Number(hasContent) + Number(hasUrl) + Number(hasBase64) !== 1) {
       return {
         success: false,
-        error: `Content too large: ${blob.size} bytes (max ${MAX_SIZE})`,
+        error: 'Provide exactly one of content, url, or base64',
       }
     }
 
     try {
-      // 在主应用上下文中创建下载（绕过 iframe 沙箱限制）
-      const url = URL.createObjectURL(blob)
+      if (hasUrl) {
+        const asset = parseHostDownloadUrl(url)
+        if (!asset) {
+          return {
+            success: false,
+            error:
+              'Only local /api/brew/image-cache images or /api/model3d/assets models can be downloaded',
+          }
+        }
+        const downloadName = filename || asset.defaultFilename
+        if (!isSafeDownloadFilename(downloadName)) {
+          return { success: false, error: 'Invalid filename' }
+        }
+        const response = await fetch(asset.path, {
+          redirect: 'error',
+          credentials: 'same-origin',
+        })
+        if (!response.ok) {
+          return {
+            success: false,
+            error:
+              response.status === 404
+                ? 'Generated file not found'
+                : 'Could not read generated file',
+          }
+        }
+        const blob = await response.blob()
+        if (blob.size === 0 || blob.size > FILE_DOWNLOAD_BLOB_MAX_BYTES) {
+          return {
+            success: false,
+            error: `Content too large: ${blob.size} bytes (max ${FILE_DOWNLOAD_BLOB_MAX_BYTES})`,
+          }
+        }
+        const type = mimeType || blob.type || asset.mimeType
+        triggerBrowserDownload(
+          type && type !== blob.type ? blob.slice(0, blob.size, type) : blob,
+          downloadName,
+        )
+        return { success: true, data: { filename: downloadName } }
+      }
 
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
+      if (hasBase64) {
+        const decoded = decodeDownloadBase64(base64 as string)
+        if (!decoded) {
+          return { success: false, error: 'Invalid or oversized base64 payload' }
+        }
+        const downloadName =
+          filename && isSafeDownloadFilename(filename)
+            ? filename
+            : defaultDownloadFilename(mimeType || decoded.mimeType)
+        triggerBrowserDownload(
+          new Blob([decoded.bytes], {
+            type: mimeType || decoded.mimeType || 'application/octet-stream',
+          }),
+          downloadName,
+        )
+        return { success: true, data: { filename: downloadName } }
+      }
 
-      // 清理
-      setTimeout(() => {
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-      }, 100)
+      if (!filename || !isSafeDownloadFilename(filename)) {
+        return { success: false, error: 'Invalid filename' }
+      }
 
+      const blob = new Blob([content as string], {
+        type: mimeType || 'text/plain;charset=utf-8',
+      })
+      if (blob.size > FILE_DOWNLOAD_BLOB_MAX_BYTES) {
+        return {
+          success: false,
+          error: `Content too large: ${blob.size} bytes (max ${FILE_DOWNLOAD_BLOB_MAX_BYTES})`,
+        }
+      }
+      triggerBrowserDownload(blob, filename)
       return { success: true, data: { filename } }
     } catch (error) {
       return {

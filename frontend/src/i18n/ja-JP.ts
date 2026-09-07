@@ -38,6 +38,7 @@ export const jaJP: TranslationKeys = {
     durationSeconds: '{sec}秒',
     durationMinutes: '{min}分',
     durationMinutesSeconds: '{min}分 {sec}秒',
+    editMode: '編集モード',
   },
 
   // ナビゲーション
@@ -136,15 +137,27 @@ export const jaJP: TranslationKeys = {
     visualGenerating: '生成中です。他の設定は続けられます。',
     visualDownload: '立ち絵をダウンロード',
     visualFailed: 'メイン立ち絵を生成できませんでした',
+    avatarTitle: 'ステッカーアバター',
+    avatarHint:
+      'メイン立ち絵からデフォルメのステッカーを作ります。「アバターの取得元」で自分のアバターに選べて、Agent の通知にも使われます。メイン立ち絵を変えると消えます。',
+    avatarGenerate: 'ステッカーを作る',
+    avatarRegenerate: '作り直す',
+    avatarGenerating: '生成中…',
+    avatarNeedsPortrait: '先にメイン立ち絵を作ってください。ステッカーはそれを元に描きます。',
+    avatarConfirm: '画像モデルは費用が発生する場合があります。ステッカーアバターを生成しますか？',
+    avatarFailed: 'ステッカーアバターを生成できませんでした',
     motionPsdUpload: 'レイヤー PSD をアップロード',
     motionPsdUploading: 'PSD を読み込み中…',
     visualConfirm:
       '画像モデルの料金が発生する場合があります。生成を開始しますか？再生成すると取り込み済みのリグは消えます。',
-    anime25dRuntimeCredit:
-      'See-through のあと、モーション実行系は Anime2.5DRig（MIT）を復刻しています。',
+    anime25dSeeThroughCredit: '立ち絵を髪・顔・服などのレイヤーに分ける。',
+    anime25dRuntimeCredit: 'まばたき、会話、首振りを動かす。',
+    anime25dProjectThanks:
+      'キャラクター機能はこれらのプロジェクトを基に整えています。感謝',
     anime25dDebug: 'モーション',
     overviewGroup: '概要',
-    overviewGroupDescription: '名前、気分、今の状態、立ち絵とリグの準備状況。',
+    overviewGroupDescription: '衣装ごとの立ち絵とリグ、および取り込み中。',
+    statusGroup: '状態',
     overviewName: '名前',
     overviewMood: '気分',
     overviewActivity: '今の状態',
@@ -161,6 +174,16 @@ export const jaJP: TranslationKeys = {
     overviewRig: 'レイヤーリグ',
     overviewRigReady: '有効',
     overviewRigEmpty: 'まだない',
+    overviewOutfitPortrait: '立ち絵',
+    overviewOutfitRig: 'リグ',
+    overviewWardrobeWearing: '{name}を着ている',
+    overviewWardrobeCount: '全部で {n} 着',
+    overviewWardrobeNoneReady: '立ち絵もリグもない',
+    overviewWardrobeAllPortraits: '立ち絵はあるが、リグはまだない',
+    overviewWardrobeAllRigs: 'リグはあるが、立ち絵はまだない',
+    overviewWardrobeMixed: '立ち絵は {portrait} 着、リグは {rig} 着',
+    overviewWardrobeOnePortrait: '立ち絵はあるが、リグはまだない',
+    overviewWardrobeOneRig: 'リグはあるが、立ち絵はまだない',
     overviewSummary: '性格の要約',
     overviewEmpty: 'キャラクター概要がまだありません。',
     personaGroup: '人格',
@@ -168,11 +191,41 @@ export const jaJP: TranslationKeys = {
     personaEmpty: '人格がまだありません。',
     portraitGroup: '立ち絵',
     portraitGroupDescription:
-      'メイン立ち絵を生成して確認します。光と構図はここで微調整。髪型と衣装はビジュアル契約のままです。',
+      'メイン立ち絵を生成して確認します。衣装箪笥で着替え、光と構図はここで微調整できます。',
     visualSourceTitle: 'キャラクター外観',
     visualSourceEmpty: '確定済みの上半身ビジュアルがまだありません。',
+    wardrobeTitle: '衣装箪笥',
+    wardrobeHint:
+      '服だけ替えます。顔と髪型はそのまま。新しい衣装を絵に出すにはメイン立ち絵を再生成してください。',
+    wardrobeGroupDescription:
+      '衣装を開いて立ち絵を管理します。着替えるのは開いたページで選びます。顔と髪型は固定です。',
+    visualOutfitTitle: 'この衣装',
+    visualFixedTitle: '顔と髪型',
+    wardrobeEmpty: '保存した衣装はまだありません。',
+    wardrobeNeedCharacter:
+      '新しい衣装を作る前に、外観デザインを確定してください。',
+    wardrobeReading: 'メイン立ち絵から視覚特徴を読み取っています…',
+    wardrobeFillFromPortrait: '立ち絵から視覚を補う',
+    wardrobeFillFailed: '立ち絵から視覚特徴を読み取れませんでした',
+    wardrobeNew: '新しい衣装を作る',
+    wardrobeGenerate: 'この衣装を生成',
+    wardrobeWearing: '着用中',
+    wardrobeWear: 'これに着替える',
+    wardrobeDefault: '既定の衣装',
+    wardrobeFull: '箪笥がいっぱいです',
+    wardrobeName: '名前',
+    wardrobeNamePlaceholder: '例：冬のコート',
+    wardrobeRenameFailed: 'この衣装の名前を変えられませんでした',
+    wardrobeRequirements: '衣装の指定',
+    wardrobeRequirementsHint:
+      'この衣装の色、重ね、または飾りだけ書いてください。',
+    wardrobeRequirementsPlaceholder: '例：深紅の短いジャケット、金色のボタン',
+    wardrobeApplyFailed: 'その衣装に着替えられませんでした',
+    wardrobeDeleteFailed: 'その衣装を外せませんでした',
     assetGroup: '立ち絵とリグ',
     assetEmpty: 'メイン立ち絵がまだありません。先に生成してください。',
+    widgetFaceSlotTaken:
+      'ライブのビジュアルは、同時に1か所だけで再生されます。',
     assetNeedsPortrait:
       'レイヤー PSD の分解や取り込みの前に、メイン立ち絵が必要です。',
     rigGroup: 'レイヤーリグ',
@@ -216,6 +269,7 @@ export const jaJP: TranslationKeys = {
     anime25dBust: '胸の揺れ',
     anime25dBustY: '胸位置 上下',
     anime25dLean: '体の傾き',
+    anime25dBodyYaw: '体の回り込み',
     anime25dBrow: '眉（上下）',
     anime25dBrowAngSym: '眉角度 対称',
     anime25dBrowL: '眉角度 左',
@@ -281,10 +335,7 @@ export const jaJP: TranslationKeys = {
     anime25dInspectEmpty:
       'リグデータがまだありません。レイヤーリグを完成させると、再生との対応を確認できます。',
     rigPathUpload: 'PSD を取り込む',
-    rigPathUploadHint: '自分で分けたレイヤー PSD からリグを作ります。',
     rigPathSeeThrough: 'See-through 分解',
-    rigPathSeeThroughHint:
-      '今のメイン立ち絵をリモートで分解し、ローカル事前検証へ進みます。',
     rigTokenReady: 'Token を保存済み',
     rigPreflightTitle: '事前検証の結果',
     rigPreflightSummary: '可動パーツ {parts} 個 · 品質スコア {score}/100',
@@ -396,6 +447,234 @@ export const jaJP: TranslationKeys = {
     wallpaperSwitch: '壁紙切替',
     language: '言語',
     languageSwitch: '言語切替',
+  },
+
+  tour: {
+    start: '案内',
+    startHint: 'このページの操作説明',
+    next: '次へ',
+    back: '戻る',
+    done: '完了',
+    skip: 'スキップ',
+    skipHold: '長押しでスキップ',
+    stepOf: 'ステップ {current} / {total}',
+    hint: 'ページ案内',
+    hintBody: 'このページの主な操作を示します。',
+    hintTitle: '{page}の主な操作を示します。',
+    hintWelcome: '{site}へようこそ',
+    begin: '開始',
+    noTourOnThisPage: 'このページに案内はありません',
+    couldNotStart: 'このページの案内対象が見つかりません',
+    steps: {
+      nav: {
+        title: 'ナビゲーション',
+        body: 'ホーム、ライブラリ、Brew リーダー、プラットフォームレポート、Tapp アプリを切り替えます。',
+      },
+      'home-grid': {
+        title: 'ウィジェット',
+        body: 'サイトを開いたとき最初に表示されるウィジェットボードです。',
+      },
+      'home-edit': {
+        title: '編集',
+        body: '編集モードでレイアウトの変更とウィジェットの追加・削除ができます。',
+      },
+      'home-edit-grid': {
+        title: 'タイル',
+        body: 'ドラッグで移動または拡大縮小します。長押しで設定を開きます。角から削除できます。',
+      },
+      'home-widget-library': {
+        title: 'ウィジェット庫',
+        body: 'ウィジェットをグリッドへドラッグして追加します。',
+      },
+      'home-free-layout': {
+        title: 'フリーレイアウト',
+        body: '標準とフリーを切り替えます。マスの大きさは同じです。フリーのキャンバスは 16×8 で、位置は別に保存します。',
+      },
+      'home-sticker': {
+        title: 'ステッカー',
+        body: '空きマスを選んで生成またはアップロードします。ウィジェットのマス数には入りません。',
+      },
+      'control-island': {
+        title: 'コントロール',
+        body: '収納時はサイト情報を順に表示します。開くとコントロールパネルが展開します。',
+      },
+      'control-island-owner': {
+        title: 'コントロール',
+        body: '収納時はサイト情報を順に表示します。開くとコントロールパネルが展開します。',
+      },
+      'control-panel': {
+        title: 'コントロールパネル',
+        body: '外観、アニメーション、言語。ログインできます。このサイトで音楽を再生できます。「コントロール」と通知を切り替えます。',
+      },
+      'control-panel-owner': {
+        title: 'コントロールパネル',
+        body: '外観、アニメーション、言語。システム設定を開けます。このサイトで音楽を再生できます。「コントロール」と通知を切り替えます。',
+      },
+      'library-filters': {
+        title: '分類',
+        body: 'すべて、ゲーム、動画、音楽、アニメ、ドラマ、書籍で絞り込みます。閉じているときはライブラリをもう一度開きます。',
+      },
+      'library-grid': {
+        title: 'コレクション',
+        body: '同期済みの項目。下へスクロールすると続きを読み込みます。',
+      },
+      'library-grid-canvas': {
+        title: 'コレクション',
+        body: '同期済みの項目が中央から広がります。ドラッグしてキャンバスを移動します。',
+      },
+      'library-card': {
+        title: 'カード',
+        body: 'カードを開くと出典サイトへ移動します。网易雲音楽はこのサイトで再生します。角に出典と評価を表示します。',
+      },
+      'library-canvas': {
+        title: 'キャンバス',
+        body: '無限キャンバスを拡大縮小するか、中央へ戻します。',
+      },
+      'reports-status': {
+        title: 'ステータス',
+        body: 'このページのプラットフォームと再生状態を順に表示します。',
+      },
+      'reports-play': {
+        title: '再生',
+        body: '既存のレポートを順に再生します。',
+      },
+      'reports-cards': {
+        title: 'プラットフォーム',
+        body: 'プラットフォームごとに1枚。既存レポートを開きます。',
+      },
+      'reports-cards-owner': {
+        title: 'プラットフォーム',
+        body: 'プラットフォームごとに1枚。既存レポートを開くか、ここで生成します。',
+      },
+      'tapp-store-entry': {
+        title: 'ストア',
+        body: 'ストアでアプリを閲覧してインストールします。',
+      },
+      'tapp-scope': {
+        title: '範囲',
+        body: '「自分のアプリ」と「サイトのアプリ」を切り替えます。',
+      },
+      'tapp-open-playground': {
+        title: 'プレイグラウンド',
+        body: '自然言語でアプリを生成します。付与権限のない一時サンドボックスで実行します。',
+      },
+      'tapp-install': {
+        title: 'インストール',
+        body: '.tapp ファイルをアップロードしてインストールします。',
+      },
+      'tapp-grid': {
+        title: 'インストール済み',
+        body: 'カードを開くとアプリが起動します。',
+      },
+      'tapp-grid-owner': {
+        title: 'インストール済み',
+        body: 'カードを開くと起動します。開始、停止、設定、アンインストールができます。並びと大きさを変えられます。',
+      },
+      'config-search': {
+        title: '検索',
+        body: '名前またはガイド本文で設定を探します。',
+      },
+      'config-sidebar': {
+        title: 'グループ',
+        body: '設定はグループごとに並びます。',
+      },
+      'config-content': {
+        title: '設定',
+        body: '変更後は保存が必要です。',
+      },
+      'config-ai-persona-toggle': {
+        title: 'ペルソナ',
+        body: 'オンにすると Agent はこの設定で話します。設定の作成には Pro が必要です。',
+      },
+      'config-ai-persona-card': {
+        title: '姿',
+        body: '未設定なら設定を開始します。姿があるときは人物設定を開くか削除します。',
+      },
+      'config-ai-persona-speech': {
+        title: '話す',
+        body: 'チャットの返信を読み上げます。ペルソナがオフのときは使えません。',
+      },
+      'config-persona-tabs': {
+        title: 'タブ',
+        body: '概要、人格、衣装箪笥、動作調整を切り替えます。',
+      },
+      'config-persona-portrait': {
+        title: '主立ち絵',
+        body: '現在の姿のプレビュー。リグがあるときここで再生します。',
+      },
+      'config-persona-overview': {
+        title: '概要',
+        body: '名前、気分と活動、ステッカーアバター、取り込み中。',
+      },
+      'config-persona-identity': {
+        title: '人格',
+        body: '気質、好み、原動力、社交と話し方。取り込み、または項目ごとに編集できます。管理者のみ書き込めます。',
+      },
+      'config-persona-wardrobe': {
+        title: '衣装箪笥',
+        body: 'セットを開くと、その立ち絵を管理できます。顔と髪型は固定です。新しい服を作れます。',
+      },
+      'config-persona-motion': {
+        title: '動作調整',
+        body: 'リグを入れたあと、動作をプレビューして調整できます。',
+      },
+      'tapp-detail-overview': {
+        title: '概要',
+        body: 'アプリ情報。書き出せます。権限があるとき開始、停止、アンインストールができます。',
+      },
+      'tapp-detail-settings': {
+        title: 'アプリ設定',
+        body: 'このインストールの設定。ログイン時に表示されます。公開範囲は管理者のみ変更できます。',
+      },
+      'tapp-detail-permissions': {
+        title: '権限',
+        body: 'このインストールの付与権限を読み取り専用で表示します。',
+      },
+      'tapp-playground-toolbar': {
+        title: 'ツールバー',
+        body: 'アプリ一覧に戻ります。このサンドボックスに付与権限はありません。',
+      },
+      'tapp-playground-preview': {
+        title: 'ページプレビュー',
+        body: '未生成時はプレースホルダです。生成後は一時サンドボックスで実行します。',
+      },
+      'tapp-playground-widget': {
+        title: 'ウィジェットプレビュー',
+        body: '宣言されたサイズで描画します。',
+      },
+      'tapp-playground-code': {
+        title: 'コード',
+        body: '生成されたソース。ファイルを切り替えて直接編集できます。複数バージョンがあるときは比較できます。',
+      },
+      'tapp-playground-prompt': {
+        title: '指示',
+        body: '生成または変更したい内容を自然言語で記述します。空のセッションでは例をタップして入力できます。Enter で送信、Shift+Enter で改行します。',
+      },
+      'tapp-playground-generate': {
+        title: '生成',
+        body: '送信すると生成または変更を適用し、一時サンドボックスで実行します。',
+      },
+      'tapp-playground-history': {
+        title: '履歴',
+        body: 'このセッションの変更履歴。セッションの切替、新規作成、削除ができます。',
+      },
+      'tapp-playground-revisions': {
+        title: '版',
+        body: '生成済みバージョンを前後に移動します。',
+      },
+      'tapp-playground-clear': {
+        title: 'セッションを消去',
+        body: '現在のセッションを消去します。',
+      },
+      'tapp-playground-export': {
+        title: 'エクスポート',
+        body: '.tapp パッケージをダウンロードします。',
+      },
+      'tapp-playground-install': {
+        title: 'インストール',
+        body: 'このサイトにインストールします。付与権限はインストール後にあります。',
+      },
+    },
   },
 
   // ログイン
@@ -622,8 +901,17 @@ export const jaJP: TranslationKeys = {
     analytics: {
       visitorTitle: '訪問統計',
       enableAria: '訪問統計を有効にする',
+      enablePreviewOn:
+        '新しいアクセスの記録を始めます。管理者とオーナーのログインは数えません',
+      enablePreviewOff:
+        '新しいアクセスは記録しません。過去のデータはそのまま残ります',
       disabledBanner:
         '収集は停止中です。新規アクセスは記録されません。過去データは引き続き閲覧できます',
+      optOutLabel: 'この端末では収集しない',
+      optOutDesc:
+        'このブラウザだけに効きます。上のサイト全体スイッチは変わりません。オフにすると送信も訪問者 ID の発行もしません。',
+      optOutPreviewOn: 'このブラウザは訪問統計に入りません',
+      optOutPreviewOff: 'サイト全体の収集スイッチに従います',
       visitorDesc:
         'ファーストパーティ・バッチ・アイドル送信。管理者／オーナーのログインは除外。訪問者 ID は端末に、サーバーはハッシュのみ。proxy のクライアント IP を使用。',
       pagesTitle: 'ページ分析',
@@ -1495,6 +1783,15 @@ export const jaJP: TranslationKeys = {
     musicPlatform: '音楽プラットフォーム',
     playlistId: 'プレイリストID',
     clearMusicCache: '音楽キャッシュをクリア',
+    islandContentTitle: 'コントロールアイランド',
+    islandContentDesc:
+      '右上のコントロールアイランドに出す内容を選びます。通知は通知設定で別途制御します。',
+    islandContentLocations: '表示する内容',
+    islandGreeting: 'あいさつ',
+    islandWeather: '天気',
+    islandQuote: '一言',
+    islandMusic: '音楽',
+    islandTapp: 'Tapp',
     siteMetadata: 'サイトメタデータ',
     siteMetadataDesc: 'サイトタイトル、説明、ファビコン',
     siteIdentity: 'サイト名刺とアプリ',
@@ -1542,12 +1839,17 @@ export const jaJP: TranslationKeys = {
     fieldSiteOgImage: 'シェア用プレビュー画像',
     fieldSiteOgImageHint:
       'クローラー向けの公開 https 画像 URL（data: やローカルアップロードは使えません）。推奨 ≥1200×630、PNG/JPEG/WebP',
+    fieldGoogleSiteVerification: 'Google Search Console 認証',
+    fieldGoogleSiteVerificationHint:
+      'Search Console の「HTML タグ」認証で、content の値または meta タグ全体を貼ります。保存後に google-site-verification として出力されます。サイト URL 設定後は /sitemap.xml を送信できます。',
     fieldSiteNoindex: '検索エンジンのインデックス',
     fieldSiteNoindexHint:
       'オン：検索エンジンにインデックスを許可。オフ：noindex, nofollow を出力（非公開・準備中向け）',
     fieldSiteVisibilityPolicy: '検索と AI の可視性',
     fieldSiteVisibilityPolicyHint:
       '検索エンジンと AI（ChatGPT、Perplexity など）がこのサイトを発見・引用できるかを決めます。公開サイトは「AI 引用を許可」を推奨。',
+    seoOriginMissingHint:
+      'サイト URL が未設定です。sitemap.xml は空になり、シェア用の絶対 URL も出ません。先に上のサイト URL を設定してください。',
     visibilityPrivate: '非公開',
     visibilityPrivateHint: 'noindex を付与、sitemap 空、/llms.txt なし',
     visibilityPrivateHintBefore: '',
@@ -1629,7 +1931,7 @@ export const jaJP: TranslationKeys = {
     memorySaverHint:
       '均衡プロファイルからもう一段締めます。転送チャンク同時量、プロセス内キャッシュ、DB プール、パスワードハッシュ同時数、動画／音声のピークを下げます。日常のメッセージは使えます。大きなメディアは分割転送を、ロスレス音声は節約オフを検討。MYRIAD_MEMORY_PROFILE で上書き可。DB プールは再起動後に完全適用。',
     agentOptions: 'Agent',
-    agentOptionsDesc: 'ペルソナ、定期実行、スキル、記憶。',
+    agentOptionsDesc: 'ペルソナ、話す、定期実行、スキル、記憶。',
     agentHeartbeatTitle: '定期実行',
     agentHeartbeatDesc: '時間になったら自分で動きます。',
     agentSkillsTitle: 'スキル',
@@ -1641,7 +1943,7 @@ export const jaJP: TranslationKeys = {
     agentPersonaHint:
       'オンにすると Agent はサイトの設定で話し、相手ごとの気持ちと日記を残し、名簿上の出来事で自分から口を開きます。オフなら会話と用事だけです。',
     agentPersonaNeedsLite:
-      'Lite がオフです。会話の口は標準モデルに戻ります。自分から話す文は短く、気持ちの微調整は走りません。',
+      'Lite がオフです。会話の口も名前のランダムも動きません。自分から話す文は短く、気持ちの微調整は走りません。',
     agentPersonaNeedsPro:
       '先に上の Pro モデルを有効にしてください。設定案内には Pro が必要です。',
     agentPersonaEmpty: '姿はまだありません',
@@ -1654,8 +1956,7 @@ export const jaJP: TranslationKeys = {
       '今のペルソナを削除しますか？気分と日記も消えます。',
     agentPersonaDeleteFailed: 'ペルソナを削除できませんでした',
     agentPersonaSpeech: '話す',
-    agentPersonaSpeechHint:
-      'オンにすると返信を音声で読みます。オフでも口は動きますが、声は出ません。既定はオフです。',
+    agentPersonaSpeechHint: '返信を音声で読む。オフ時は口の動きのみ。',
     enableProxy: 'ネットワークプロキシを有効化',
     enableProxyHint:
       '有効にすると、外部APIリクエストはプロキシ経由で送信されます',
@@ -1819,6 +2120,7 @@ export const jaJP: TranslationKeys = {
     placeholderSiteTitle: 'Myriad - A myriad of lights, in one place.',
     placeholderSiteDescription: 'A myriad of lights, in one place.',
     placeholderSiteKeywords: '個人サイト, ブログ, デジタルライフ',
+    placeholderGoogleSiteVerification: '認証コードまたは meta タグを貼り付け',
     placeholderSiteOgImage: 'https://example.com/og.png',
     placeholderGaMeasurementId: 'G-XXXXXXXXXX',
     placeholderUmamiWebsiteId: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
@@ -1870,6 +2172,13 @@ export const jaJP: TranslationKeys = {
     aiVendorsTitle: 'サービス設定',
     aiVendorsDesc:
       'ログイン方式と同じく追加できます。同じ会社を複数登録可能。モデルと音声はここから選びます。',
+    webSearchTitle: 'ウェブ検索',
+    webSearchDesc:
+      '仕事モードのウェブ検索で使います。TinyFish のキーがあればそれを使い、なければ Gemini に戻します。訪問者は入力しません。',
+    tinyfishApiKey: 'TinyFish API Key',
+    tinyfishApiKeyHint:
+      '検索自体は無料ですがキーは必要です。agent.tinyfish.ai で登録。カードは不要です。空にして保存すると削除、マスクのまま保存すると維持します。',
+    tinyfishApiKeyPlaceholder: 'agent.tinyfish.ai/api-keys で作成',
     aiVendorAdd: 'サービスを追加',
     aiVendorAddDesc: 'プリセットから',
     aiVendorEmpty: 'まだありません',
@@ -1930,7 +2239,8 @@ export const jaJP: TranslationKeys = {
     aiVendorSetupTencentFillTitle: 'このページに貼る',
     aiVendorSetupTencentFillDesc: '下の2欄に貼り、リージョンを選びます。',
     aiVendorSetupAgoraPortalTitle: '声網 / Agora コンソールを開く',
-    aiVendorSetupAgoraPortalDesc: 'プロジェクトと Conversational AI へ進みます。',
+    aiVendorSetupAgoraPortalDesc:
+      'プロジェクトと Conversational AI へ進みます。',
     aiVendorSetupAgoraCreateTitle: '資格情報をコピー',
     aiVendorSetupAgoraCreateDesc:
       'App ID、証明書、REST の Customer ID / Secret をコピーします。',
@@ -2268,6 +2578,9 @@ export const jaJP: TranslationKeys = {
     permEventPublishHint: 'Tappに他のTappへのイベント発行を許可',
     permAiImage: 'AI画像生成',
     permAiImageHint: 'TappにAIでの画像生成を許可',
+    permAiSearch: 'AI ウェブ検索',
+    permAiSearchHint:
+      'Tappにウェブ検索を許可（TinyFish、未設定時は Gemini grounding）',
     perm3dGenerate: '3Dモデル生成',
     perm3dGenerateHint: 'TappにTripoでの3Dモデル生成・リグ・リターゲットを許可',
     permSchedulerRegister: 'スケジュールタスク登録',
@@ -2364,8 +2677,16 @@ export const jaJP: TranslationKeys = {
     aiCooldownSeconds: 'クールダウン時間',
     aiCooldownSecondsHint: 'AI呼び出し間の最小間隔（秒）',
     unitSeconds: '秒',
+    switchPreviewOnKicker: 'オンにすると',
+    switchPreviewOffKicker: 'オフにすると',
     platformHelpAria: '{name} の説明',
     platformEnableAria: 'レポートページで {name} カードを表示',
+    platformEnablePreviewOn:
+      'レポートページに「{name}」カードが表示されます。並びは今のドラッグ順です',
+    platformEnablePreviewOff:
+      'レポートページからこのカードが消えます。同期済みのデータは残ります',
+    platformEnablePreviewNeedConfig:
+      'カードを開いて認証情報を入れてから、このスイッチをオンにできます',
     platformOpenDetailAria: '{name} の設定を開く',
     // サイトフッターとクラウドスポンサー
     siteFooterTitle: 'サイトフッター',
@@ -2428,6 +2749,9 @@ export const jaJP: TranslationKeys = {
     brewSource: 'フィードタイル',
     brewTopic: 'トピック集約',
     brewFeatured: 'Brew ピック',
+    githubRepos: 'GitHub リポジトリ',
+    githubReposField: 'リポジトリ',
+    githubReposFieldHint: 'GitHub URL または owner/repo',
     library: 'ライブラリ',
     dataReport: 'プラットフォームレポート',
     multiPlatformAggregation: 'マルチプラットフォームコンテンツ集約',
@@ -2500,6 +2824,55 @@ export const jaJP: TranslationKeys = {
   // ホーム
   home: {
     defaultBio: '私のパーソナルダッシュボードへようこそ',
+    switchToFreeLayout: 'フリーレイアウトに切り替え',
+    switchToStandardLayout: '標準レイアウトに切り替え',
+    freeLayout: 'フリーレイアウト',
+    standardLayout: '標準レイアウト',
+    createSticker: 'ステッカーを作成',
+    stickerPromptPlaceholder: 'ステッカーの説明。例：サングラスの猫',
+    stickerSizeHint: 'サイズ {size}',
+    stickerGenerating: '生成中…',
+    stickerFailed: 'ステッカーを生成できませんでした',
+    stickerNoSpace: 'ステッカーを置く空きがありません',
+    stickerPickHint: '空きセルを自由にドラッグ。生成は近い比率、はみ出しはトリミング',
+    stickerGenerateCropHint: '{aspect} で構図。被写体は中央、トリミングでも残る',
+    stickerAddReference: '参考画像を追加',
+    stickerReferenceLimit: '最大 4 枚',
+    stickerModeGenerate: '生成',
+    stickerModeUpload: 'アップロード',
+    stickerUploadImage: '画像を選ぶ',
+    stickerUploading: 'アップロード中…',
+    stickerUploadFailed: 'ステッカーをアップロードできませんでした',
+    stickerCropHint: 'ドラッグまたはスクロールで表示範囲を調整',
+    stickerLongPressEdit: '長押しで表示範囲を調整',
+    stickerSettings: 'ステッカー',
+    stickerFloat: 'ふわふわ',
+    stickerFloatLoop: 'ずっと浮かぶ',
+    stickerFloatHover: 'ホバーで浮かぶ',
+    stickerFloatOff: '浮かばない',
+    stickerFloatLoopHint: 'ゆっくり揺れ続ける',
+    stickerFloatHoverHint: 'ポインターを乗せたときだけ',
+    stickerFloatOffHint: '静止したまま',
+    stickerDownload: '画像をダウンロード',
+    stickerDownloadHint: '生成またはアップロードした原画像を保存',
+    stickerFile: '画像',
+    exportLayout: '書き出す',
+    importLayout: '読み込む',
+    exportLayoutSuccess: 'ホームのレイアウトを書き出しました',
+    exportLayoutFailed: 'ホームのレイアウトを書き出せませんでした',
+    exportLayoutPartial:
+      'ホームのレイアウトを書き出しましたが、ステッカー原画像 {count} 枚を含められませんでした',
+    importLayoutSuccess: 'ホームのレイアウトを読み込みました',
+    importLayoutFailed: 'ホームのレイアウトを読み込めませんでした',
+    importLayoutPartial:
+      'ホームのレイアウトを読み込みましたが、ステッカー原画像 {count} 枚を保存できませんでした',
+    importLayoutConfirm:
+      '現在の標準レイアウトとフリーレイアウトを置き換えます。ファイル内のステッカー原画像はこのサイトに書き戻します。読み込みますか？',
+    importLayoutInvalid: 'これはホームのレイアウトファイルではありません',
+    importLayoutSettingsBackup:
+      'これはサイト設定のバックアップです。システム設定から読み込んでください',
+    importLayoutTooLarge: 'レイアウトファイルが大きすぎます',
+    importLayoutTooMany: 'レイアウトファイルのタイルが多すぎます',
   },
 
   // ライブラリ
@@ -2610,6 +2983,12 @@ export const jaJP: TranslationKeys = {
       dismiss: '今はしない',
       failed: '処理できませんでした。もう一度お試しください。',
     },
+    workOffer: {
+      kicker: '仕事',
+      hint: 'ツールが必要です',
+      accept: '任せる',
+      sent: '進めています',
+    },
     mood: {
       kicker: '気持ち',
     },
@@ -2685,7 +3064,8 @@ export const jaJP: TranslationKeys = {
       turnTraceTitle: 'この発話',
       turnTraceIdle: 'まだ話していません',
       turnTraceExport: 'この発話を保存',
-      turnTraceTiming: '聞き取り {asr} · 最初の語 {llm} · 合成 {tts} · 最初の音 {audio} · 端から端まで {e2e}',
+      turnTraceTiming:
+        '聞き取り {asr} · 最初の語 {llm} · 合成 {tts} · 最初の音 {audio} · 端から端まで {e2e}',
       lastRun: '前回の実行：{time}',
       neverRun: 'まだ実行していません',
       remove: '削除',
@@ -2816,7 +3196,9 @@ export const jaJP: TranslationKeys = {
       saveFirst: '先に設定を保存してください。',
       nameLabel: '呼び名',
       nameHint:
-        '空なら対外は Arael のまま。名前の風格を選んでからランダム。Standard モデルを使います。',
+        '空なら対外は Arael のまま。風格を選んでからランダム。Lite のみで、標準モデルには戻りません。',
+      importNameHint:
+        '空なら対外は Arael のまま。取り込みでは自分で名前を書いてください。',
       namePlaceholder: '名前を入力',
       randomName: 'ランダム',
       randomNameBusy: '生成中',
@@ -2896,7 +3278,9 @@ export const jaJP: TranslationKeys = {
       importLead: 'ペルソナも立ち絵も手元にあるなら、名前だけで完了します。',
       importPersonaReady: 'ペルソナを取り込みました。',
       importPortraitHint:
-        '出来上がった立ち絵をアップロードします。生成しないので、先にビジュアル設定を決める必要はありません。',
+        '出来上がった立ち絵をアップロードします。完了時にこの絵から視覚特徴を読み取ります。',
+      importVisualFailed:
+        '立ち絵から視覚特徴を読めませんでした。再試行してください。',
       importFinish: '次へ：動かす',
       personaFieldGenerating: '生成中',
       editPersona: '編集',
@@ -2917,6 +3301,8 @@ export const jaJP: TranslationKeys = {
       proUnavailable: 'Pro モデルが使えません。先に設定で有効にしてください。',
       standardUnavailable:
         'Standard モデルが使えません。先に設定を確認してください。',
+      liteUnavailable:
+        'Lite モデルが使えません。名前のランダムは Lite のみです。有効にして、Lite 自身のモデル名を入れてください。空欄のまま標準モデルには戻りません。',
       visualRequirements: '外観の追加要件',
       visualRequirementsHint:
         'ここに書いた色、衣装、装飾、モチーフが優先されます。画風、性別、首の露出、衣装の大分類は変わりません。',
@@ -2946,6 +3332,10 @@ export const jaJP: TranslationKeys = {
         'デザインの言語が画面の言語と一致しません。もう一度生成してください。',
       visualDesignRequired:
         '先に上半身デザインを確認してから立ち絵を生成してください。',
+      visualGenderMismatch:
+        '上半身デザインの性別の読みが現在の設定と一致しないため、立ち絵を生成できません。',
+      visualIdentityUnusableForPortrait:
+        '画風ロックでフィールドが消えたため、この上半身デザインでは立ち絵を生成できません。',
       visualDesignSaveFailed: 'キャラクター外観を保存できませんでした',
       portraitTalkLead: '直したいところを話してください',
       portraitLoading: '既存の立ち絵を読み込み中',
@@ -3493,6 +3883,7 @@ export const jaJP: TranslationKeys = {
     profileSourceAutoDesc:
       'プラットフォームのプロフィールを優先し、なければアカウントのアバターを使用',
     profileSourceAccount: 'アカウントのアバター',
+    profileSourcePersona: 'ペルソナのステッカーアバター',
     profileTextSourceTitle: '表示名と自己紹介の取得元',
     profileTextSourceHint:
       '表示名と自己紹介のみに影響し、アバターの取得元とは独立しています。',
@@ -3507,8 +3898,12 @@ export const jaJP: TranslationKeys = {
   // ウィジェットグリッド
   widgetGrid: {
     widgetLibrary: 'ウィジェットライブラリ',
+    restoreWidgetLibrary: 'ウィジェットライブラリに戻る',
     searchWidgets: 'ウィジェットを検索…',
     clearSearch: '検索をクリア',
+    filterWidgets: 'ウィジェットを絞り込み',
+    filterAll: 'すべて',
+    filterReports: 'レポート',
     noSearchResults: '一致するウィジェットがありません',
     deleteWidget: 'ウィジェットを削除',
     positionConflict: '✖ 位置競合',
@@ -3516,6 +3911,8 @@ export const jaJP: TranslationKeys = {
     prevPage: '前のページ',
     nextPage: '次のページ',
     widgetSettings: 'ウィジェット設定',
+    longPressToEdit: 'ウィジェットを長押しして設定',
+    createSticker: 'ステッカーを作成',
   },
 
   // ソーシャルネットワークウィジェット
@@ -3800,6 +4197,16 @@ export const jaJP: TranslationKeys = {
     unavailable: '一言は利用できません',
   },
 
+  githubReposWidget: {
+    empty: 'リポジトリはまだありません',
+    emptyHint: 'ウィジェットを編集し、owner/repo を入力',
+    loadFailed: 'リポジトリを読み込めませんでした',
+    sampleRepo: 'hello-world',
+    sampleRepoAlt: 'toolkit',
+    sampleDesc: 'サンプルリポジトリの説明',
+    sampleDescAlt: '別のサンプル説明',
+  },
+
   // 音楽プレイヤーウィジェット
   musicPlayer: {
     sampleSong: 'サンプル曲',
@@ -3936,6 +4343,13 @@ export const jaJP: TranslationKeys = {
     notConfigured: '未設定',
     fetchFailed: '取得に失敗',
     showcaseEmpty: 'ショーケースが非公開または空です',
+    customFont: 'カスタムフォント',
+    customFontHint: 'ウェブに埋め込める権利のあるフォントを使ってください。任意です。',
+    customFontChoose: 'フォントを選ぶ',
+    customFontClear: 'システムフォントを使う',
+    customFontUploading: 'アップロード中…',
+    customFontFailed: 'フォントをアップロードできませんでした',
+    customFontInUse: 'カスタムフォントを使用中',
   },
 
   // Tapp ショートカットウィジェット
@@ -4047,6 +4461,7 @@ export const jaJP: TranslationKeys = {
     permPublishEvent: 'イベント発行',
     permSubscribeEvent: 'イベント購読',
     permAiImage: 'AI 画像生成',
+    permAiSearch: 'AI ウェブ検索',
     perm3dGenerate: '3Dモデル生成',
     permSchedulerRegister: 'スケジューラ登録',
     permSpeechTts: 'テキスト読み上げ',
@@ -4104,6 +4519,8 @@ export const jaJP: TranslationKeys = {
     permPublishEventDesc: 'システムイベントの発行を許可',
     permSubscribeEventDesc: 'システムイベントの購読を許可',
     permAiImageDesc: 'AI による画像生成を許可',
+    permAiSearchDesc:
+      'TinyFish（未設定時は Gemini grounding）によるウェブ検索を許可',
     perm3dGenerateDesc: 'Tripo による3Dモデル生成・リグ・リターゲットを許可',
     permSchedulerRegisterDesc: 'スケジュールタスクの登録と管理を許可',
     permSpeechTtsDesc: 'テキスト読み上げサービスの使用を許可',
@@ -5246,7 +5663,7 @@ export const jaJP: TranslationKeys = {
     empty: '通知はありません',
     loadFailed: '通知を読み込めませんでした。',
     clearAll: 'すべて削除',
-    clearConfirm: '削除しますか？',
+    clearConfirm: '削除する',
     enableSystemNotif: 'システム通知を有効化',
     justNow: 'たった今',
     minutesAgo: '{n}分前',

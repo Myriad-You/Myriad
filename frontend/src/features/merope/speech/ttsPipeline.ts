@@ -11,7 +11,10 @@ export interface TtsAudioHandle {
 }
 
 export interface TtsPipelineHost {
-  synthesize: (segment: SpeechSegment) => Promise<ArrayBuffer | null>
+  synthesize: (
+    segment: SpeechSegment,
+    signal: AbortSignal,
+  ) => Promise<ArrayBuffer | null>
   play: (
     audio: ArrayBuffer,
     segment: SpeechSegment,
@@ -32,17 +35,19 @@ interface ReadySlot {
   audio: ArrayBuffer | null
 }
 
+interface Synthesis {
+  segment: SpeechSegment
+  controller: AbortController
+}
+
 /**
  * Synthesize up to two segments at once; play in enqueue order.
  * Segment.sequence is per-utterance and must not be the play cursor.
  */
 export class TtsPipeline {
-  private epoch = 0
   private nextPlayId = 0
   private nextPlay = 1
-  private inflight = 0
-  private readonly inflightIds = new Set<number>()
-  private readonly inflightByPlay = new Map<number, string>()
+  private readonly synthesis = new Map<number, Synthesis>()
   private readonly pending: QueuedSegment[] = []
   private readonly ready = new Map<number, ReadySlot>()
   private handle: TtsAudioHandle | null = null
@@ -63,8 +68,8 @@ export class TtsPipeline {
     for (const slot of this.ready.values()) {
       if (slot.segment.messageId === messageId) return true
     }
-    for (const id of this.inflightByPlay.values()) {
-      if (id === messageId) return true
+    for (const task of this.synthesis.values()) {
+      if (task.segment.messageId === messageId) return true
     }
     return false
   }
@@ -73,7 +78,7 @@ export class TtsPipeline {
     return (
       this.pending.length +
       this.ready.size +
-      this.inflight +
+      this.synthesis.size +
       (this.handle ? 1 : 0)
     )
   }
@@ -121,16 +126,15 @@ export class TtsPipeline {
       stopped ||
       this.pending.length > 0 ||
       this.ready.size > 0 ||
-      this.inflight > 0
-    this.epoch += 1
+      this.synthesis.size > 0
     this.stopPlayback()
     this.pending.length = 0
     this.ready.clear()
-    this.inflightIds.clear()
-    this.inflightByPlay.clear()
+    const abandoned = [...this.synthesis.values()]
+    this.synthesis.clear()
     this.nextPlayId = 0
     this.nextPlay = 1
-    this.inflight = 0
+    for (const task of abandoned) task.controller.abort()
     const id = this.playingMessageId
     this.playingMessageId = null
     this.noteQueue()
@@ -165,10 +169,10 @@ export class TtsPipeline {
         dropped = true
       }
     }
-    for (const [playId, id] of [...this.inflightByPlay]) {
-      if (id === messageId) {
-        this.inflightByPlay.delete(playId)
-        this.inflightIds.delete(playId)
+    for (const [playId, task] of this.synthesis) {
+      if (task.segment.messageId === messageId) {
+        this.synthesis.delete(playId)
+        task.controller.abort()
         dropped = true
       }
     }
@@ -176,29 +180,28 @@ export class TtsPipeline {
   }
 
   private pumpSynth(): void {
-    while (this.inflight < MAX_SYNTH && this.pending.length > 0) {
+    while (this.synthesis.size < MAX_SYNTH && this.pending.length > 0) {
       const item = this.pending.shift()!
-      const epoch = this.epoch
+      const task: Synthesis = {
+        segment: item.segment,
+        controller: new AbortController(),
+      }
       const started = nowMs()
-      this.inflight += 1
-      this.inflightIds.add(item.playId)
-      this.inflightByPlay.set(item.playId, item.segment.messageId)
+      this.synthesis.set(item.playId, task)
       this.noteQueue()
-      void this.host
-        .synthesize(item.segment)
+      let result: Promise<ArrayBuffer | null>
+      try {
+        result = this.host.synthesize(item.segment, task.controller.signal)
+      } catch {
+        result = Promise.resolve(null)
+      }
+      void result
         .catch(() => null)
         .then((audio) => {
-          this.inflight = Math.max(0, this.inflight - 1)
-          this.inflightIds.delete(item.playId)
-          const wanted = this.inflightByPlay.delete(item.playId)
-          if (epoch !== this.epoch) {
-            this.pumpSynth()
-            return
-          }
-          if (!wanted) {
-            this.pumpSynth()
-            return
-          }
+          // A cancelled task may settle after IDs have been reused. Check
+          // identity before touching any state belonging to the new reply.
+          if (this.synthesis.get(item.playId) !== task) return
+          this.synthesis.delete(item.playId)
           if (audio) {
             noteTurnTraceDelay('tts', nowMs() - started)
             markTurnTraceOnce('tts_ready')
@@ -224,14 +227,19 @@ export class TtsPipeline {
       return
     }
     this.playingMessageId = slot.segment.messageId
-    const playSeq = this.playSeq
+    const playSeq = ++this.playSeq
+    let ended = false
     markTurnTraceOnce('playback_started')
-    this.handle = this.host.play(slot.audio, slot.segment, () => {
+    this.handle = { stop: () => undefined }
+    const handle = this.host.play(slot.audio, slot.segment, () => {
       if (playSeq !== this.playSeq) return
+      ended = true
       this.handle = null
+      this.playingMessageId = null
       this.noteQueue()
       this.tryPlay()
     })
+    if (!ended && playSeq === this.playSeq) this.handle = handle
   }
 
   private stopPlayback(): void {
@@ -245,7 +253,7 @@ export class TtsPipeline {
     while (
       this.nextPlay <= this.nextPlayId &&
       !this.ready.has(this.nextPlay) &&
-      !this.inflightIds.has(this.nextPlay) &&
+      !this.synthesis.has(this.nextPlay) &&
       !this.pending.some((item) => item.playId === this.nextPlay)
     ) {
       this.nextPlay += 1

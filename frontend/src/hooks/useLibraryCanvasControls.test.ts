@@ -45,5 +45,10 @@ describe('library canvas controls', () => {
     assert.match(grid, /paintCanvasTransform/)
     assert.match(grid, /shouldCommitCanvasTransform/)
     assert.match(grid, /data-canvas-card/)
+    assert.match(grid, /paintCanvasCardFocus/)
+    assert.doesNotMatch(
+      grid,
+      /querySelectorAll<HTMLElement>\('\[data-canvas-card\]'\)/,
+    )
   })
 })

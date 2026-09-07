@@ -9,6 +9,7 @@ import {
   selectionIsFresh,
   selectionIsFromPanel,
   selectionPreview,
+  turnSelectionText,
 } from './agentSelection'
 
 const NOW = 1_700_000_000_000
@@ -49,6 +50,10 @@ test('记住的选区有时效，过久就不再当成他想指的那段', () =>
 
 test('空选区任何时候都不新鲜', () => {
   assert.equal(selectionIsFresh({ text: '', capturedAtMs: NOW }, NOW), false)
+})
+
+test('turn selection is only the still-fresh snapshot', () => {
+  assert.equal(turnSelectionText(NOW), undefined)
 })
 
 test('面板里的选中不算指着页面', () => {

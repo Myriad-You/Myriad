@@ -1,10 +1,49 @@
 //! Federation DM channels: early activity buffer, CRUD, accept, and E2E key exchange.
 //!
-//! Single implementation module [`buffer_types_crud`] (formerly include!-split with accept_e2e).
+//! - `buffer`: ChannelMessage / KeyExchange that arrive before the channel row
+//! - `types`: request/response structs
+//! - `crud`: local Channel CRUD and send/get messages
+//! - `inbox`: inbound ChannelOpen / Message / Close and early-activity flush
+//! - `e2e`: JWT-sealed session, key exchange, accept
 
-mod buffer_types_crud;
+mod buffer;
+mod crud;
+mod e2e;
+mod inbox;
+mod types;
 
-pub use buffer_types_crud::*;
+pub(crate) use buffer::{buffer_early_channel_activity, EARLY_MSG_MAX_PER_CHANNEL};
+pub use crud::*;
+pub use e2e::*;
+pub use inbox::*;
+pub use types::*;
+
+#[cfg(test)]
+mod split_contract_tests {
+    #[test]
+    fn buffer_owns_early_activity_not_crud() {
+        let src = include_str!("buffer.rs");
+        assert!(src.contains("buffer_early_channel_activity"));
+        assert!(!src.contains("fn create_channel"));
+    }
+
+    #[test]
+    fn crud_owns_create_not_inbox() {
+        let src = include_str!("crud.rs");
+        assert!(src.contains("fn create_channel"));
+        assert!(!src.contains("fn handle_channel_open"));
+    }
+
+    #[test]
+    fn inbox_owns_channel_open() {
+        assert!(include_str!("inbox.rs").contains("fn handle_channel_open"));
+    }
+
+    #[test]
+    fn e2e_owns_key_exchange() {
+        assert!(include_str!("e2e.rs").contains("fn handle_key_exchange"));
+    }
+}
 
 #[cfg(test)]
 mod list_smoke_tests {

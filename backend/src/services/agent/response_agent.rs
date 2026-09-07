@@ -103,6 +103,10 @@ pub async fn generate_final_response(ctx: ResponseContext<'_>) -> String {
 
 /// 为单步骤结果生成最终回复
 pub fn generate_single_step_response(result: &Value) -> Option<String> {
+    let result = crate::services::agent::ai_process_pure::task_inner_value(result);
+    if let Some(v) = result.as_str().filter(|s| !s.is_empty()) {
+        return Some(v.to_string());
+    }
     // 优先展示 AI 生成的内容（这些本身就是有人格的）
     if let Some(v) = result
         .get("aiSummary")
@@ -140,25 +144,31 @@ pub fn generate_single_step_response(result: &Value) -> Option<String> {
         return Some(v.to_string());
     }
 
-    // 搜索结果
-    if let Some(source) = result.get("source").and_then(|v| v.as_str()) {
-        if source == "gemini_grounding" || source == "google_search" || source == "local_cache" {
-            if let Some(results) = result.get("results").and_then(|v| v.as_array()) {
-                if results.is_empty() {
-                    return Some("搜索了一圈，没有找到相关结果呢。".to_string());
-                }
-                let query = result.get("query").and_then(|v| v.as_str()).unwrap_or("");
-                return Some(format!(
-                    "找到了 {} 条关于「{}」的信息，来看看吧~",
-                    results.len(),
-                    query
-                ));
-            }
+    // 搜索结果。TinyFish 顶层没有 source，认 searchType / totalResults。
+    if crate::services::agent::search_output::is_web_search_output(result) {
+        let results = result
+            .get("results")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        if results == 0 {
+            return Some("搜索了一圈，没有找到相关结果呢。".to_string());
         }
+        let query = result.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        return Some(format!(
+            "找到了 {} 条关于「{}」的信息，来看看吧~",
+            results, query
+        ));
     }
 
-    // 图片生成
-    if result.get("imageUrl").and_then(|v| v.as_str()).is_some() {
+    // 图片生成（信封内层是 `url`；旧输出仍可能是 `imageUrl`）
+    if result
+        .get("url")
+        .or_else(|| result.get("imageUrl"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .is_some()
+    {
         let prompt = result.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
         if !prompt.is_empty() {
             return Some(format!("图片生成好了~ 画的是「{}」，希望你喜欢！", prompt));
@@ -342,15 +352,47 @@ pub fn recipe_failed(_name: &str, _err: &str) -> String {
 pub fn summarize_step_output(output: &Value) -> Option<String> {
     if let Some(obj) = output.as_object() {
         // 图片生成
-        if obj.get("imageUrl").and_then(|v| v.as_str()).is_some() {
+        let inner = crate::services::agent::ai_process_pure::task_inner_value(output);
+        if inner
+            .get("url")
+            .or_else(|| inner.get("imageUrl"))
+            .and_then(|v| v.as_str())
+            .is_some()
+            || obj.get("imageUrl").and_then(|v| v.as_str()).is_some()
+        {
             let prompt = obj.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
             if !prompt.is_empty() {
                 return Some(format!("生成图片: {}", prompt));
             }
             return Some("图片生成完成".to_string());
         }
+        if let Some(text) = inner.as_str().filter(|s| !s.is_empty()) {
+            let chars: Vec<char> = text.chars().collect();
+            if chars.len() > 80 {
+                return Some(format!("{}...", chars[..80].iter().collect::<String>()));
+            }
+            return Some(text.to_string());
+        }
+        if let Some(summary) = inner.get("summary").and_then(|v| v.as_str()) {
+            let chars: Vec<char> = summary.chars().collect();
+            if chars.len() > 80 {
+                return Some(format!("{}...", chars[..80].iter().collect::<String>()));
+            }
+            return Some(summary.to_string());
+        }
+        if let Some(analysis) = inner.get("analysis").and_then(|v| v.as_str()) {
+            let chars: Vec<char> = analysis.chars().collect();
+            if chars.len() > 80 {
+                return Some(format!("{}...", chars[..80].iter().collect::<String>()));
+            }
+            return Some(analysis.to_string());
+        }
         // 有 message 字段直接用
-        if let Some(msg) = obj.get("message").and_then(|v| v.as_str()) {
+        if let Some(msg) = inner
+            .get("message")
+            .or_else(|| obj.get("message"))
+            .and_then(|v| v.as_str())
+        {
             let chars: Vec<char> = msg.chars().collect();
             if chars.len() > 80 {
                 return Some(format!("{}...", chars[..80].iter().collect::<String>()));
@@ -424,7 +466,11 @@ pub fn summarize_step_output(output: &Value) -> Option<String> {
 /// 注意：这个函数的输出是给 AI 看的，不是直接展示给用户。
 /// 所以即使是 Gemini 的 raw JSON 格式 aiSummary 也可以保留 — AI 能理解并提炼。
 fn extract_step_text(output: &Value) -> String {
+    let output = crate::services::agent::ai_process_pure::task_inner_value(output);
     let mut parts: Vec<String> = Vec::new();
+    if let Some(text) = output.as_str().filter(|s| !s.is_empty()) {
+        return text.to_string();
+    }
 
     // 提取文本字段
     let text_keys = ["analysis", "aiSummary", "reply", "summary", "message"];
@@ -454,7 +500,8 @@ fn extract_step_text(output: &Value) -> String {
 
     // 图片
     if let Some(url) = output
-        .get("imageUrl")
+        .get("url")
+        .or_else(|| output.get("imageUrl"))
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
     {
@@ -595,30 +642,35 @@ fn smart_fallback(step_outputs: &[StepOutput<'_>]) -> String {
     //
     // 注意：step_outputs 按 step_id 字母序排列，不是执行顺序，
     // 所以不能依赖 .rev() 来获取"最后一步"。改用语义优先级筛选。
+    fn payload(output: &Value) -> &Value {
+        crate::services::agent::ai_process_pure::task_inner_value(output)
+    }
+    fn field_text(output: &Value, key: &str) -> Option<String> {
+        payload(output)
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    }
     let mut best_text: Option<String> = None;
 
     // 第一轮：找 analysis（ai.analyze 产出的深度分析/介绍）
     for s in step_outputs.iter() {
-        let o = s.output;
-        if let Some(text) = o
-            .get("analysis")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-        {
-            best_text = Some(text.to_string());
+        if let Some(text) = field_text(s.output, "analysis") {
+            best_text = Some(text);
             break;
         }
     }
-    // 第二轮：找 reply（ai.chat 产出的回复）
+    // 第二轮：找 chat 信封字符串 / 旧 reply 字段
     if best_text.is_none() {
         for s in step_outputs.iter() {
-            if let Some(text) = s
-                .output
-                .get("reply")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-            {
+            let inner = payload(s.output);
+            if let Some(text) = inner.as_str().filter(|s| !s.is_empty()) {
                 best_text = Some(text.to_string());
+                break;
+            }
+            if let Some(text) = field_text(s.output, "reply") {
+                best_text = Some(text);
                 break;
             }
         }
@@ -626,13 +678,8 @@ fn smart_fallback(step_outputs: &[StepOutput<'_>]) -> String {
     // 第三轮：找 summary（ai.summarize 产出的摘要）
     if best_text.is_none() {
         for s in step_outputs.iter() {
-            if let Some(text) = s
-                .output
-                .get("summary")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                best_text = Some(text.to_string());
+            if let Some(text) = field_text(s.output, "summary") {
+                best_text = Some(text);
                 break;
             }
         }
@@ -642,19 +689,14 @@ fn smart_fallback(step_outputs: &[StepOutput<'_>]) -> String {
         // 检查是否有 AI 处理步骤（analysis/reply/summary 的产出方）
         // 如果有，说明搜索步骤的数据已被消化，其 aiSummary 是冗余的
         let has_ai_processed = step_outputs.iter().any(|s| {
-            let o = s.output;
-            o.get("analysis")
-                .and_then(|v| v.as_str())
-                .is_some_and(|s| !s.is_empty())
-                || o.get("reply")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|s| !s.is_empty())
-                || o.get("summary")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|s| !s.is_empty())
+            let inner = payload(s.output);
+            inner.as_str().is_some_and(|s| !s.is_empty())
+                || field_text(s.output, "analysis").is_some()
+                || field_text(s.output, "reply").is_some()
+                || field_text(s.output, "summary").is_some()
         });
         for s in step_outputs.iter() {
-            let o = s.output;
+            let o = payload(s.output);
             // 如果已有 AI 处理输出，跳过搜索步骤的 aiSummary（避免展示 raw JSON）
             if has_ai_processed && o.get("results").and_then(|v| v.as_array()).is_some() {
                 continue;
@@ -678,7 +720,13 @@ fn smart_fallback(step_outputs: &[StepOutput<'_>]) -> String {
     // 2. 统计图片数量并追加提示
     let image_count = step_outputs
         .iter()
-        .filter(|s| s.output.get("imageUrl").and_then(|v| v.as_str()).is_some())
+        .filter(|s| {
+            let o = payload(s.output);
+            o.get("url")
+                .or_else(|| o.get("imageUrl"))
+                .and_then(|v| v.as_str())
+                .is_some()
+        })
         .count();
     if image_count > 0 {
         parts.push(format!(
@@ -754,12 +802,6 @@ pub fn escalation_retry() -> String {
 /// 单参数提问
 pub fn ask_single_param(desc: &str) -> String {
     format!("请告诉我{}", desc)
-}
-
-/// 多参数提问
-#[allow(dead_code)] // kept for multi-param free-text fallback if needed
-pub fn ask_multiple_params(prompts: &str) -> String {
-    format!("在开始之前，我需要了解一些信息：\n{}", prompts)
 }
 
 /// 正在执行预设任务
@@ -1034,14 +1076,6 @@ pub fn subscribe_all_failed(_tried: usize, _last_error: &str) -> String {
     "Could not subscribe to any of the feeds".to_string()
 }
 
-/// 文章摘要占位
-pub fn article_summary_placeholder(source: &str, title: &str) -> String {
-    format!(
-        "这是一篇来自 {} 的文章：{}。点击阅读原文获取完整内容。",
-        source, title
-    )
-}
-
 /// 搜索空提示
 pub fn search_empty_hint() -> String {
     "请提供搜索关键词。系统支持搜索的内容包括：Steam 游戏、Bilibili 追番、Bangumi 收藏、MyAnimeList 列表、GitHub 仓库、网易云音乐播放记录。".to_string()
@@ -1076,5 +1110,132 @@ pub fn bool_result(success: bool) -> String {
         "Succeeded".to_string()
     } else {
         "Failed".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn tinyfish_search_shape_is_recognized_without_source_field() {
+        let found = generate_single_step_response(&json!({
+            "success": true,
+            "query": "rust",
+            "searchType": "general",
+            "aiSummary": "",
+            "results": [{"name": "Rust", "url": "https://www.rust-lang.org/"}],
+            "totalResults": 1
+        }))
+        .expect("search copy");
+        assert!(found.contains('1'));
+        assert!(found.contains("rust"));
+
+        let empty = generate_single_step_response(&json!({
+            "success": true,
+            "query": "zzzz",
+            "searchType": "general",
+            "aiSummary": "",
+            "results": [],
+            "totalResults": 0
+        }))
+        .expect("empty copy");
+        assert!(empty.contains("没有找到"));
+    }
+
+    #[test]
+    fn ai_summary_still_wins_over_search_count_copy() {
+        let text = generate_single_step_response(&json!({
+            "query": "rust",
+            "searchType": "general",
+            "aiSummary": "Rust is a language.",
+            "results": [{"name": "Rust"}],
+            "totalResults": 1
+        }))
+        .expect("summary");
+        assert_eq!(text, "Rust is a language.");
+    }
+
+    #[test]
+    fn platform_local_cache_is_not_empty_web_search_copy() {
+        assert_eq!(
+            generate_single_step_response(&json!({
+                "source": "local_cache",
+                "wishlist": [{"name": "Hades"}],
+                "items": [{"name": "Hades"}],
+                "total": 1
+            })),
+            None
+        );
+    }
+
+    #[test]
+    fn envelope_image_uses_url_not_image_url() {
+        let text = generate_single_step_response(&json!({
+            "format": "image",
+            "value": {
+                "url": "https://example.invalid/a.png",
+                "width": 1024,
+                "height": 768
+            },
+            "contextProvenance": []
+        }))
+        .expect("image copy");
+        assert!(text.contains("图片"));
+    }
+
+    #[test]
+    fn envelope_analyze_text_is_used() {
+        let text = generate_single_step_response(&json!({
+            "format": "json",
+            "value": { "analysis": "分析正文", "type": "custom" },
+            "contextProvenance": []
+        }))
+        .expect("analysis copy");
+        assert_eq!(text, "分析正文");
+    }
+
+    #[test]
+    fn smart_fallback_unwraps_envelopes() {
+        let analyze = json!({
+            "format": "json",
+            "value": { "analysis": "分析正文", "type": "custom" },
+            "contextProvenance": []
+        });
+        let image = json!({
+            "format": "image",
+            "value": {
+                "url": "https://example.invalid/a.png",
+                "width": 1024,
+                "height": 768
+            },
+            "contextProvenance": []
+        });
+        let steps = [
+            StepOutput {
+                step_id: "a",
+                output: &analyze,
+            },
+            StepOutput {
+                step_id: "img",
+                output: &image,
+            },
+        ];
+        let text = smart_fallback(&steps);
+        assert!(text.contains("分析正文"));
+        assert!(text.contains("1 张图片"));
+    }
+
+    #[test]
+    fn summarize_step_output_uses_envelope_analysis() {
+        let text = summarize_step_output(&json!({
+            "format": "json",
+            "value": { "analysis": "分析正文", "type": "custom" },
+            "contextProvenance": []
+        }))
+        .expect("progress copy");
+        assert_eq!(text, "分析正文");
+        assert!(!text.contains("format"));
     }
 }

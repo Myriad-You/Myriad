@@ -8,6 +8,7 @@ import { Font } from 'astro:assets'
 import MachineReadableMetadata from '@components/MachineReadableMetadata.astro'
 import NoScriptFallback from '@components/NoScriptFallback.astro'
 import PageLoader from '@components/PageLoader.astro'
+import StripSpaQuery from '@components/StripSpaQuery.astro'
 import App from '../App'
 import '../styles/tailwind.css'
 
@@ -64,6 +65,7 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
 <html lang="zh-CN" class="light">
   <head>
     <meta charset="UTF-8" />
+    <StripSpaQuery />
     <meta name="description" content={description} id="meta-description" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f5f5f5" media="(prefers-color-scheme: light)" />

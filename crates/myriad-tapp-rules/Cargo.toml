@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "Pure Tapp evaluators (HMAC, transform, package plan, feed merge)."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 base64 = "0.23"

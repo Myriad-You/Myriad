@@ -920,16 +920,6 @@ impl NotionService {
         Vec::new()
     }
 
-    /// 获取页面内容（blocks）- 简单版本
-    #[allow(dead_code)]
-    async fn fetch_page_content(
-        &self,
-        page_id: &str,
-        config: &NotionConfig,
-    ) -> Result<String, NotionError> {
-        self.fetch_page_content_recursive(page_id, config, 0).await
-    }
-
     /// 获取页面内容（blocks）- 支持递归获取子块
     fn fetch_page_content_recursive<'a>(
         &'a self,

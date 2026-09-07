@@ -708,12 +708,6 @@ pub fn unseal_private_key(stored: &str, jwt_secret: &str) -> Result<String, Stri
     Err("e2e unseal failed".into())
 }
 
-/// True when value looks like a sealed blob (not legacy plain base64).
-#[allow(dead_code)]
-pub fn is_sealed_private_key(stored: &str) -> bool {
-    stored.starts_with(E2E_SK_SEAL_PREFIX)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -745,7 +739,7 @@ mod tests {
         let secret = "test-jwt-secret";
         let plain = "dGVzdC1wcml2YXRlLWtleS1iYXNlNjQ=";
         let sealed = seal_private_key(plain, secret).unwrap();
-        assert!(is_sealed_private_key(&sealed));
+        assert!(sealed.starts_with(E2E_SK_SEAL_PREFIX));
         assert_eq!(unseal_private_key(&sealed, secret).unwrap(), plain);
         // Legacy plain passes through
         assert_eq!(unseal_private_key(plain, secret).unwrap(), plain);

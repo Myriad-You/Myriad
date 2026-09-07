@@ -18,6 +18,7 @@ import { getLatestReportDeduped } from '../../../utils/requestDedup'
 import { GlowBackground } from '../shared/GlowBackground'
 import { WidgetLongPressHint } from '../shared/WidgetLongPressHint'
 import { WidgetShell } from '../shared/WidgetShell'
+import { widgetDisplayLabel } from '../../widgetLibraryModel'
 import { WidgetSkeletonCover } from '../shared/WidgetSkeleton'
 import { CardLogoPill } from './CardLogoPill'
 import { PLATFORM_CONFIG } from './platformConfig'
@@ -240,8 +241,12 @@ export const ReportCardWidget = memo(
         () => {
           isLongPressRef.current = false
         },
+        widgetDisplayLabel(
+          { id: config.type, name: config.type },
+          t.widgets as unknown as Record<string, unknown>,
+        ),
       )
-    }, [applyClickAction, clickAction])
+    }, [applyClickAction, clickAction, config.type, t.widgets])
 
     const handlePressStart = useCallback(() => {
       if (!interactive || !isEditMode) return
@@ -381,6 +386,7 @@ export const ReportCardWidget = memo(
         <WidgetLongPressHint
           visible={interactive && isEditMode}
           title={t.platformCard.longPressHint}
+          onClick={openSettings}
         />
       </WidgetShell>
     )

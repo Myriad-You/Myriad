@@ -25,13 +25,13 @@ pub struct DataPaths {
     /// 缓存目录（默认: "cache"）
     pub cache: PathBuf,
     /// 平台数据缓存目录（默认: "cache/platforms"）
-    /// 规范路径；部分历史调用仍写相对字面量 `cache/platforms`
-    #[allow(dead_code)]
     pub cache_platforms: PathBuf,
     /// 原始数据缓存目录（默认: "cache/raw"；可用 `CACHE_DIR` 覆盖根）
     pub cache_raw: PathBuf,
     /// 图片缓存目录（默认: "cache/images"）
     pub cache_images: PathBuf,
+    /// Optional widget custom fonts (default: "data/site/widget-fonts")
+    pub widget_fonts: PathBuf,
 }
 
 impl DataPaths {
@@ -49,6 +49,7 @@ impl DataPaths {
             cache_platforms: cache_root.join("platforms"),
             cache_raw: cache_root.join("raw"),
             cache_images: cache_root.join("images"),
+            widget_fonts: root.join("site/widget-fonts"),
             root,
             cache: cache_root,
         }
@@ -64,6 +65,37 @@ impl DataPaths {
     pub fn rsshub_routes_cache(&self) -> PathBuf {
         self.cache.join("rsshub_routes.json")
     }
+
+    /// Filtered JSON for one platform (`{slug}_filtered.json`).
+    pub fn platform_filtered_file(&self, platform: &str) -> PathBuf {
+        self.cache_platforms
+            .join(format!("{platform}_filtered.json"))
+    }
+
+    /// Raw fetch JSON for one platform (`{slug}.json` under cache_raw).
+    pub fn platform_raw_file(&self, platform: &str) -> PathBuf {
+        self.cache_raw.join(format!("{platform}.json"))
+    }
+}
+
+/// Process-wide platform cache directory (`CACHE_DIR/platforms`).
+pub fn platforms_cache_dir() -> &'static Path {
+    paths().cache_platforms.as_path()
+}
+
+/// Filtered JSON path for one platform slug.
+pub fn platform_filtered_file(platform: impl AsRef<str>) -> PathBuf {
+    paths().platform_filtered_file(platform.as_ref())
+}
+
+/// Process-wide raw platform cache directory (`CACHE_DIR/raw`).
+pub fn raw_cache_dir() -> &'static Path {
+    paths().cache_raw.as_path()
+}
+
+/// Raw fetch JSON path for one platform slug.
+pub fn platform_raw_file(platform: impl AsRef<str>) -> PathBuf {
+    paths().platform_raw_file(platform.as_ref())
 }
 
 impl Default for DataPaths {
@@ -121,6 +153,7 @@ fn verify_storage_layout_writable(data_paths: &DataPaths) -> io::Result<()> {
     verify_directory_writable(&data_paths.root)?;
     verify_directory_writable(&data_paths.cache)?;
     verify_directory_writable(&data_paths.tapps)?;
+    verify_directory_writable(&data_paths.widget_fonts)?;
 
     let entries = fs::read_dir(&data_paths.tapps)
         .map_err(|error| storage_error("list Tapp owner directories", &data_paths.tapps, error))?;
@@ -176,6 +209,7 @@ mod tests {
         assert_eq!(paths.cache_platforms, PathBuf::from("cache/platforms"));
         assert_eq!(paths.cache_raw, PathBuf::from("cache/raw"));
         assert_eq!(paths.cache_images, PathBuf::from("cache/images"));
+        assert_eq!(paths.widget_fonts, PathBuf::from("data/site/widget-fonts"));
     }
 
     #[test]
@@ -210,6 +244,7 @@ mod tests {
             cache_platforms: base.join("cache/platforms"),
             cache_raw: base.join("cache/raw"),
             cache_images: base.join("cache/images"),
+            widget_fonts: base.join("data/site/widget-fonts"),
         };
         fs::create_dir_all(data_paths.tapps.join("1")).unwrap();
         fs::create_dir_all(data_paths.tapps.join("not-an-owner")).unwrap();
@@ -250,6 +285,7 @@ mod tests {
             cache_platforms: base.join("cache/platforms"),
             cache_raw: base.join("cache/raw"),
             cache_images: base.join("cache/images"),
+            widget_fonts: data_file.join("site/widget-fonts"),
         };
 
         let error = verify_storage_layout_writable(&data_paths).unwrap_err();
@@ -281,6 +317,7 @@ mod tests {
             cache_platforms: base.join("cache/platforms"),
             cache_raw: base.join("cache/raw"),
             cache_images: base.join("cache/images"),
+            widget_fonts: base.join("data/site/widget-fonts"),
         };
         fs::create_dir_all(&data_paths.tapps).unwrap();
         fs::create_dir_all(&outside).unwrap();

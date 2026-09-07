@@ -22,10 +22,13 @@ Manifest 是 Tapp 的核心配置文件，定义了应用的元数据、权限�
 | `backgroundRequirements` | string[] | ❌   | 启动后需常驻的 headless core 能力  |
 | `settings`               | object[] | ❌   | 用户可配置的设置项                 |
 | `apis`                   | object   | ❌   | 命名 API 声明（代理+权限校验）     |
+| `credentials`            | object[] | ❌   | 安装级只写凭据（绑定到具名 HTTP API） |
 | `dataExchange`           | object   | ❌   | 跨 Tapp 具名 import/export 契约    |
 | `ai`                     | object   | ❌   | 服务端治理的 AI Task 声明          |
 | `events`                 | object   | ❌   | Event Broker 发布/订阅 topic 声明  |
 | `agent`                  | object   | ❌   | Agent Interaction 声明             |
+| `game`                   | object   | ❌   | 对局会话 `{protocol, maxPlayers?}`（须 `game:session`） |
+| `runtimeModules`         | string[] | ❌   | 宿主注入库；目前仅 `"three"`（game / developer） |
 | `minSystemVersion`       | string   | ❌   | 最低兼容 Myriad 语义版本           |
 | `homepage`               | string   | ❌   | 应用主页 URL                       |
 | `repository`             | string   | ❌   | 代码仓库 URL                       |
@@ -119,7 +122,8 @@ await Tapp.ui.openUrl({ id: "docs", path: "../evil" }); // reject
 Manifest 采用严格字段校验：未声明字段、拼写错误以及已经移除的字段都会让安装失败，
 不会再被静默忽略。需要授权的运行能力都必须直接写入 `permissions`；宿主只会在真正调用时
 按权限和运行时策略决定是否授权。无需权限的公开 SDK（`Tapp.context`、`Tapp.user`、
-`Tapp.persona`）不要写进 `permissions`，也不存在 `persona:read`。
+`Tapp.persona`、`Tapp.file.download`）不要写进 `permissions`，也不存在 `persona:read`。
+`file.download` 不是 `storage:read`：后者只覆盖私有 KV。
 
 ### 多语言名称与描述（locales）
 
@@ -142,7 +146,7 @@ Manifest 采用严格字段校验：未声明字段、拼写错误以及已经�
 - 解析回退链：精确匹配（忽略大小写）→ 语言前缀匹配（`zh-CN` ↔ `zh`）→ 顶层
   `name` / `description`。顶层字段是所有语言未命中时的兜底。
 - `locales` 只覆盖清单展示文案。应用内 UI 仍走 `i18n/{lang}.json` 与 `Tapp.i18n`
-  （见 [PAGE.md](PAGE.md)）。
+  （见 [API_REFERENCE · 国际化](API_REFERENCE.md)）。
 - 商店详情长介绍与静态预览**不要**写进 Manifest `locales`（安装会拒绝未知字段）。
   那些字段属于 `catalog.json` / `index.json`，见 [STORE](STORE.md)。
 
@@ -174,9 +178,12 @@ Page、Widget 和 headless core 是运行形态，由 `page`、`widgets` 和
 `social`←`communication`，`utility`←`demo|page|test|tool|tools|utilities|widget`。
 
 `version` 必须是语义版本；`themeColor` 使用 `#RRGGBB`；`homepage`、`repository` 和
-作者主页只接受 HTTP(S)。声明 Widget 必须同时声明 `widget:register`；所有 HTTP API
-必须声明 `network:fetch`，内置 AI API 必须声明对应的 `ai:*` 权限。层入口只接受
-不重复的 `.js` 文件名。无效声明会在安装或更新时直接拒绝，不留到运行时静默失败。
+作者主页只接受 HTTP(S)。声明 `widgets` 时安装校验要求 Manifest 的**声明权限**含
+`widget:register`（契约 `WIDGET_MANIFEST_PERMISSION`）。这不等于运行时一定**授予**该权限：
+`widget:register` 是 privileged，普通用户安装时会从授予集里滤掉，Manifest Widget 仍由安装
+预注册，但不能调用动态 `Tapp.widget.register`。所有 HTTP API 必须声明 `network:fetch`，
+内置 AI API 必须声明对应的 `ai:*` 权限（含 `ai:search`）。层入口只接受不重复的 `.js`
+文件名。无效声明会在安装或更新时直接拒绝，不留到运行时静默失败。
 
 `minSystemVersion` 使用语义版本。直接安装、商店安装和更新都会由后端与当前 Myriad
 包版本比较；当前版本过低或字段格式无效时会拒绝写入，避免出现“安装成功但运行时才
@@ -346,12 +353,14 @@ Widget 实例，因此同一种 Widget 添加两次时可以采用不同配置�
 设置面板保存并通过 `props.config`、`Tapp.widget.getInstanceSettings()` 提供给沙箱。
 
 `refreshPolicy.mode` 默认为事件驱动语义：同一 Tapp 的其他运行实例发生
-`Tapp.storage` 变更时，宿主会通知并刷新可见 Widget（**跨沙箱首选路径**）。
-当前 **Widget 沙箱**还可用 `Tapp.widget.invalidate()` 对本实例显式 re-render；
-Page / headless **没有**该方法——共用 core 里调用会抛错。确实需要轮询时可设为
+`Tapp.storage` / `Tapp.shared` 变更时，宿主会通知并刷新可见 Widget（兼容垫，与 `mode`
+无关）。`Tapp.settings.set` 只广播 `onChanged`，不拆 iframe。Widget 沙箱可用
+`Tapp.widget.invalidate(reason)` 刷自己；Page / headless 可用
+`Tapp.widget.invalidate(reason, { target: { widgetId } })` 定向刷一张
+（需授予的 `storage:write`，15s / 2 次/分，没有 `all`）。确实需要轮询时可设为
 `interval` 并提供 `intervalSeconds`（15–86400 秒）；计时器仅在页面和 Widget 可见
-且 Tapp 运行时工作。`refreshOnVisible` 默认为 `true`。后台同步应使用
-scheduler/headless core，而不是依赖 Widget 的可见计时器。
+且 Tapp 运行时工作，是额外节拍而不是关掉 storage 刷新。`refreshOnVisible` 默认为
+`true`。后台同步应使用 scheduler/headless core，而不是依赖 Widget 的可见计时器。
 
 模板按 `Widget ID + 尺寸` 隔离。同一个 Tapp 的多个 Widget 可以各自声明不同的 `2x2`
 模板，不会互相覆盖。商店索引中的 `download.widget_templates` 也必须使用
@@ -431,7 +440,7 @@ scheduler/headless core，而不是依赖 Widget 的可见计时器。
 ```
 
 至少要声明 `core`、`page`、`widgets` 之一。声明了 `backgroundRequirements` 必须有
-`core`——后台常驻只运行 core。
+`core`——常驻只运行 core。
 
 声明 `page` 层即表示这个应用有可打开的页面：宿主据此决定卡片能不能点开、Dock 里是否
 列出，不存在独立的开关字段可以和实际内容对不上。`page` 层至少要有 `entry` 或
@@ -448,24 +457,21 @@ scheduler/headless core，而不是依赖 Widget 的可见计时器。
 
 ### 代码结构要求
 
-声明 `page` 层后，在 `page.entry` 指向的文件里定义页面渲染逻辑：
+声明 `page` 层后：有 `page.template`（Playground 固定为 `page.html`）时宿主已经把
+模板画进 `#tapp-content`，**不会**再调 `Tapp.pages[id].render`。页面 JS 从
+`Tapp.lifecycle.onReady` 里查询 `#tapp-content` 或模板里的 id 绑定即可。
+
+只有**没有** HTML 模板的纯 JS 页面，宿主才会在加载后调用 `Tapp.pages` 上第一个
+`render(container)`（`container` 是 `#tapp-content`）。不要把这条路径当成
+Playground 的默认写法。
 
 ```javascript
-// page/index.js
-Tapp.pages["my-page"] = {
-  render: function (container, locale, isDark, primaryColor) {
-    var bgLayer = document.getElementById("tapp-background");
-    var contentLayer = document.getElementById("tapp-content");
-    // 渲染页面...
-  },
-};
-
+// page/index.js — 有 page.html 时（Playground / 混合模式）
 Tapp.lifecycle.onReady(async function () {
   var locale = await Tapp.ui.getLocale();
   var theme = await Tapp.ui.getTheme();
-  var primaryColor = await Tapp.ui.getPrimaryColor();
-
-  Tapp.pages["my-page"].render(null, locale, theme === "dark", primaryColor);
+  var content = document.getElementById("tapp-content");
+  // 绑定模板里的按钮；不要 content.parentElement.textContent = ...（会拆掉 #tapp-root）
 });
 ```
 
@@ -840,7 +846,7 @@ POST 的 PAYLOAD 是原始 body，超过 1 MiB 先拒；`params` 只来自身体
 入站 **不** 使用 Runtime Grant，也 **不** 查看游客 `network:fetch` 策略；HTTP 出站只要求该公开安装已批准 `network:fetch`。`/tapi` 忽略站点登录 Cookie，只解析 `visibility = all` 的公开安装。
 没有 `GET /tapi/{tappId}` 目录；验签参数写在 Manifest 里交给调用方，不由宿主对外广播本机装了哪些路由。
 入站密钥泄露后，owner 在详情页重填即可作废旧指纹；宿主另有每小时 180 次的凭据封顶。
-验签失败过多会按调用方指纹自动拉黑（不落原始 IP）；详情页可暂停该安装的入站或解除本安装拉黑。暂停/拉黑按安装 owner 隔离。
+验签失败过多会按调用方指纹自动拉黑（不落原始 IP）；详情页可停用该安装的入站（`ROUTE_PAUSED`）或解除本安装拉黑。停用/拉黑按安装 owner 隔离。
 
 ---
 
@@ -975,7 +981,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 
 | 权限                 | 说明             |
 | -------------------- | ---------------- |
-| `storage:read`       | 读取本地数据存储 |
+| `storage:read`       | 读取本地数据存储（不含 `Tapp.file.download`，那是 public） |
 | `ui:notification`    | 显示通知         |
 | `ui:theme`           | 读取主题信息     |
 | `ui:confirm`         | 显示确认对话框   |
@@ -1006,6 +1012,7 @@ Tapp 私有 storage、报告和内部状态不会因为知道另一个 `tappId` 
 | `ai:analyze`         | AI 数据分析       |
 | `ai:chat`            | AI 对话           |
 | `ai:image`           | AI 图片生成       |
+| `ai:search`          | AI 联网搜索（`Tapp.ai.tasks` `operation: "search"`；默认不下放） |
 | `3d:generate`        | 3D 模型生成（Tripo；默认不下放） |
 | `network:fetch`      | 发送 HTTP 请求    |
 | `component:theme`    | 注册自定义主题    |

@@ -7,6 +7,7 @@ import {
   agentHttpFailure,
   AgentStreamError,
   decideStreamDropAction,
+  messageFromStepOutput,
   shouldYieldSsePaint,
 } from './sseTransport'
 import { STREAM_SUPERSEDED_MESSAGE } from './turnIdentity'
@@ -130,6 +131,53 @@ describe('decideStreamDropAction', () => {
         hasStreamError: false,
       }),
       'poll_task',
+    )
+  })
+})
+
+describe('messageFromStepOutput', () => {
+  it('unwraps Tapp envelopes for analyze, chat, and summarize', () => {
+    assert.equal(
+      messageFromStepOutput({
+        format: 'json',
+        value: { analysis: '分析正文', type: 'custom' },
+        contextProvenance: [],
+      }),
+      '分析正文',
+    )
+    assert.equal(
+      messageFromStepOutput({
+        format: 'text',
+        value: '回复正文',
+        contextProvenance: [],
+      }),
+      '回复正文',
+    )
+    assert.equal(
+      messageFromStepOutput({
+        format: 'json',
+        value: { summary: '摘要正文', style: 'brief' },
+        contextProvenance: [],
+      }),
+      '摘要正文',
+    )
+  })
+
+  it('still reads flat step output', () => {
+    assert.equal(
+      messageFromStepOutput({ analysis: '旧格式' }),
+      '旧格式',
+    )
+  })
+
+  it('does not treat image envelope url as the reply text', () => {
+    assert.equal(
+      messageFromStepOutput({
+        format: 'image',
+        value: { url: 'https://example.invalid/a.png', width: 1024, height: 768 },
+        contextProvenance: [],
+      }),
+      undefined,
     )
   })
 })

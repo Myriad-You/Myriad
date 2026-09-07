@@ -71,13 +71,19 @@ import {
   registerStorageHandlers,
   registerUIHandlers,
   registerUserHandlers,
+  registerWidgetInvalidateTargetHandler,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
 import { TappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
 import { widgetPerfMark } from './WidgetLoadPerf'
-import { onTappSharedChange, onTappStorageChange } from './WidgetRuntimeSignals'
+import {
+  isForeignTappKvChange,
+  onTappSettingsChange,
+  onTappSharedChange,
+  onTappStorageChange,
+} from './WidgetRuntimeSignals'
 
 export interface TappWidgetSandboxProps {
   /** Tapp 实例 */
@@ -93,6 +99,12 @@ export interface TappWidgetSandboxProps {
    * declarations as real installed host grants.
    */
   previewMode?: boolean
+  /** Shared Playground tab stores so Page and Widget preview see the same KV. */
+  previewStores?: {
+    storage: Map<string, unknown>
+    settings: Map<string, unknown>
+    shared: Map<string, unknown>
+  }
   /** 错误回调 */
   onError?: (error: Error) => void
   /** 就绪回调 */
@@ -299,6 +311,7 @@ export const TappWidgetSandbox = memo(
     widgetId,
     widgetProps,
     previewMode = false,
+    previewStores,
     onReady,
     onInstanceSettingsChange,
     onInvalidate,
@@ -395,13 +408,7 @@ export const TappWidgetSandbox = memo(
       () =>
         onTappStorageChange((change) => {
           const bridge = bridgeRef.current
-          if (
-            !bridge ||
-            change.tappId !== tappInstance.id ||
-            change.source === bridge
-          ) {
-            return
-          }
+          if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
           bridge.emit('storageChanged', {
             key: change.key,
             operation: change.operation,
@@ -415,18 +422,26 @@ export const TappWidgetSandbox = memo(
       () =>
         onTappSharedChange((change) => {
           const bridge = bridgeRef.current
-          if (
-            !bridge ||
-            change.tappId !== tappInstance.id ||
-            change.source === bridge
-          ) {
-            return
-          }
+          if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
           bridge.emit('sharedChanged', {
             key: change.key,
             operation: change.operation,
           })
           invalidateRef.current?.('shared-changed')
+        }),
+      [tappInstance.id],
+    )
+
+    // settings 落盘只通知活着的沙箱，不拆 iframe。
+    useEffect(
+      () =>
+        onTappSettingsChange((change) => {
+          const bridge = bridgeRef.current
+          if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
+          bridge.emit('settingsChanged', {
+            key: change.key,
+            operation: change.operation,
+          })
         }),
       [tappInstance.id],
     )
@@ -581,7 +596,12 @@ export const TappWidgetSandbox = memo(
       // Playground preview: no Runtime Grant (uninstalled id + no real host grants).
       // Installed widgets: share host Runtime Grant (refcount) across same-Tapp iframes.
       if (previewMode) {
-        bridge.initialize(iframe, currentTappInstance, sessionToken, undefined)
+        bridge.initialize(
+          iframe,
+          { ...currentTappInstance, previewMode: true },
+          sessionToken,
+          undefined,
+        )
       } else {
         const shared = TappRuntimeGrant.acquireSharedWidget(
           currentTappInstance.id,
@@ -661,6 +681,9 @@ export const TappWidgetSandbox = memo(
         invalidateRef.current?.(reason)
         return { success: true, data: null }
       })
+      registerWidgetInvalidateTargetHandler(bridge, currentTappInstance, {
+        preview: previewMode,
+      })
       registerAnimationHandlers(bridge)
 
       let closeAITaskStreams: () => void = () => {}
@@ -668,9 +691,14 @@ export const TappWidgetSandbox = memo(
       let closeEventStream: () => void = () => {}
       let closeAgentInteractions: () => void = () => {}
       let closeScheduler: () => void = () => {}
+      let closeMedia: () => void = () => {}
 
       if (previewMode) {
         // MYR-024: ephemeral handlers only — no real storage/API/host surfaces.
+        // user/file match Page preview: Widget SDK exposes them, and they do
+        // not need a Runtime Grant.
+        registerUserHandlers(bridge, currentTappInstance)
+        registerFileHandlers(bridge)
         const defaults = currentTappInstance.manifest.settings || []
         for (const setting of defaults) {
           if (
@@ -683,8 +711,10 @@ export const TappWidgetSandbox = memo(
         registerPlaygroundPreviewHandlers(
           bridge,
           currentTappInstance,
-          previewStorageRef.current,
-          previewSettingsRef.current,
+          previewStores?.storage ?? previewStorageRef.current,
+          previewStores?.settings ?? previewSettingsRef.current,
+          currentCode.assets || {},
+          previewStores?.shared,
         )
       } else {
         // 注册处理器：始终挂载 Widget 热路径；按 grantedPermissions 惰性挂载重型能力。
@@ -697,7 +727,8 @@ export const TappWidgetSandbox = memo(
           hasExact('ai:generate') ||
           hasExact('ai:analyze') ||
           hasExact('ai:chat') ||
-          hasExact('ai:image')
+          hasExact('ai:image') ||
+          hasExact('ai:search')
         const hasMedia =
           hasExact('media:read') ||
           hasExact('media:control') ||
@@ -746,9 +777,9 @@ export const TappWidgetSandbox = memo(
         closeAgentInteractions = hasAgent
           ? registerAgentInteractionHandlers(bridge, currentTappInstance)
           : () => {}
-        if (hasMedia) {
-          registerMediaHandlers(bridge, currentTappInstance)
-        }
+        closeMedia = hasMedia
+          ? registerMediaHandlers(bridge, currentTappInstance)
+          : () => {}
         if (hasSpeech) {
           registerSpeechHandlers(bridge, currentTappInstance)
         }
@@ -789,6 +820,7 @@ export const TappWidgetSandbox = memo(
       return () => {
         unsubscribeReady()
         closeScheduler()
+        closeMedia()
         closeDataExchange()
         closeAITaskStreams()
         closeEventStream()
@@ -814,6 +846,7 @@ export const TappWidgetSandbox = memo(
       codeFingerprint,
       handleReady,
       stableWidgetProps,
+      previewStores,
       subjectEpoch,
       previewMode,
       t.tapp.widgetNotFound,

@@ -33,6 +33,7 @@ import {
   SettingGroup,
   SETTINGS_DURATION_MS,
   SettingSection,
+  SettingTitleGuideEntry,
   SettingTitleHelp,
   SetupFlow,
   ToggleSwitch,
@@ -44,9 +45,6 @@ import PlatformDataManagement from './PlatformDataManagement'
 import { getPlatformSetupGuide } from './platformSetupGuides'
 import SiteAnalyticsSection from './SiteAnalyticsSection'
 import './PlatformCardSnapshot.css'
-
-/** @deprecated 从 uiBagOwnership 导入；此处 re-export 保持兼容 */
-export { PLATFORMS_UI_RESET_KEYS } from './uiBagOwnership'
 
 export interface PlatformConfigField {
   key: string
@@ -597,9 +595,6 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
           <div className="platforms-grid">
             {platforms.map((platform, index) => {
               const platformConfigured = isPlatformConfigured(platform)
-              const toggleTitle = !platformConfigured
-                ? t.config.notConfigured
-                : undefined
               const platformDesc = getPlatformDescription(platform)
               const isDragging = dragIndex === index
               const isDragOver =
@@ -724,6 +719,15 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
                             <span className="platform-name-text">
                               {platform.name}
                             </span>
+                            <SettingTitleGuideEntry
+                              title={platform.name}
+                              guide={
+                                bindGuide(
+                                  'platforms.platformCard',
+                                  settingGuides.platforms.platformCard,
+                                ).guide
+                              }
+                            />
                             {platformDesc ? (
                               <SettingTitleHelp
                                 ariaLabel={t.config.platformHelpAria.replace(
@@ -825,7 +829,17 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
                           '{name}',
                           platform.name,
                         )}
-                        title={toggleTitle}
+                        preview={{
+                          on: t.config.platformEnablePreviewOn.replace(
+                            '{name}',
+                            platform.name,
+                          ),
+                          off: t.config.platformEnablePreviewOff.replace(
+                            '{name}',
+                            platform.name,
+                          ),
+                          disabled: t.config.platformEnablePreviewNeedConfig,
+                        }}
                       />
                     </div>
                   </div>

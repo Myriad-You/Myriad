@@ -40,12 +40,6 @@ impl IntoResponse for HttpError {
     }
 }
 
-/// Convenience: map any `Display` failure into a redacted internal error.
-#[allow(dead_code)] // used as handlers adopt AppError gradually
-pub fn internal_from_display(e: impl std::fmt::Display) -> AppError {
-    AppError::internal("internal error").with_message(e.to_string())
-}
-
 /// Bridge legacy `(StatusCode, Json<Value>)` handler errors into [`HttpError`].
 ///
 /// Used while routes migrate onto `AppError` one path at a time.

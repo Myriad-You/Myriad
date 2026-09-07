@@ -26,8 +26,9 @@ pub struct DecomposeOptions {
 impl Default for DecomposeOptions {
     fn default() -> Self {
         Self {
-            // The Space itself recommends 768 for ZeroGPU's free tier.
-            resolution: 768,
+            // Request the Space's upper bound so layer edges stay sharp enough
+            // for Anime2.5D. 768 remains valid if a caller asks for it.
+            resolution: 1280,
             seed: 42,
             // Myriad requires separate left/right rigid arm fragments. Lower
             // limb layers may be returned too, but the upper-body compiler
@@ -458,6 +459,7 @@ mod tests {
 
     #[test]
     fn validates_space_options_and_token_shape() {
+        assert_eq!(DecomposeOptions::default().resolution, 1280);
         assert!(DecomposeOptions::default().validate().is_ok());
         assert!(DecomposeOptions {
             resolution: 800,

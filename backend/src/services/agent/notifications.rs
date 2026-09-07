@@ -217,6 +217,28 @@ pub enum NotificationEvent {
     NotificationsCleared { user_id: i32 },
     /// 订阅方落后丢弃了消息：客户端应重新拉取历史列表
     Resync { lagged_by: u64 },
+    /// On-page persona speech. Not history, not a toast.
+    LiveSpeech { user_id: i32, speech: LiveSpeech },
+    /// Ephemeral addressee state. No notification history, toast or speech.
+    MeropeStateChanged {
+        user_id: i32,
+        mood: super::merope::MoodTransition,
+        activity: String,
+    },
+}
+
+/// Face-only proactive line. Never persisted in the notification center.
+#[derive(Debug, Clone, Serialize)]
+pub struct LiveSpeech {
+    pub id: String,
+    pub body: String,
+    pub event_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub performance: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merope_state: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intention_id: Option<String>,
 }
 
 pub fn event_is_for_user(event: &NotificationEvent, user_id: i32) -> bool {
@@ -226,7 +248,9 @@ pub fn event_is_for_user(event: &NotificationEvent, user_id: i32) -> bool {
         }
         NotificationEvent::NotificationRead { user_id: owner, .. }
         | NotificationEvent::NotificationDeleted { user_id: owner, .. }
-        | NotificationEvent::NotificationsCleared { user_id: owner } => *owner == user_id,
+        | NotificationEvent::NotificationsCleared { user_id: owner }
+        | NotificationEvent::LiveSpeech { user_id: owner, .. }
+        | NotificationEvent::MeropeStateChanged { user_id: owner, .. } => *owner == user_id,
         // resync 对所有订阅者广播；由 SSE 转发层无条件下发
         NotificationEvent::Resync { .. } => true,
     }
@@ -401,6 +425,25 @@ impl NotificationManager {
             .send(NotificationEvent::NewNotification { notification });
     }
 
+    pub fn emit_live_speech(&self, user_id: i32, speech: LiveSpeech) {
+        let _ = self
+            .tx
+            .send(NotificationEvent::LiveSpeech { user_id, speech });
+    }
+
+    pub fn emit_merope_state(
+        &self,
+        user_id: i32,
+        mood: super::merope::MoodTransition,
+        activity: String,
+    ) {
+        let _ = self.tx.send(NotificationEvent::MeropeStateChanged {
+            user_id,
+            mood,
+            activity,
+        });
+    }
+
     /// 创建或更新一条通知。
     ///
     /// Agent 的运行进度使用稳定 ID，避免每个步骤都堆积为一条新通知；
@@ -535,9 +578,9 @@ impl NotificationManager {
         if event_key != "agent.task_progress" {
             crate::services::agent::merope::spawn_ingest(user_id, event_key, body);
         }
-        if crate::services::agent::merope::gates::is_valuable_event(event_key)
-            && !crate::services::agent::merope::allow_existing_notify(user_id).await
-        {
+        // Looking at the Agent panel: no Agent notification of any kind, including
+        // in-progress snapshots. Speech still goes through ingest → face.
+        if !crate::services::agent::merope::allow_existing_notify(user_id).await {
             let _ = self
                 .delete_notification(&format!("agent_run_{}", run_id), user_id)
                 .await;
@@ -897,6 +940,22 @@ pub fn get_notification_manager() -> Option<&'static Arc<NotificationManager>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn looking_at_the_panel_skips_every_agent_task_notification() {
+        let src = include_str!("notifications.rs");
+        let notify = src
+            .split("pub async fn notify_task_status")
+            .nth(1)
+            .and_then(|rest| rest.split("/// 清理过期通知").next())
+            .expect("notify_task_status");
+        let skip = notify.find("allow_existing_notify").expect("looking skip");
+        assert!(
+            !notify[..skip].contains("is_valuable_event"),
+            "progress must not notify while looking at the Agent panel"
+        );
+        assert!(notify.contains("delete_notification"));
+    }
+
     fn test_manager() -> NotificationManager {
         let (tx, _) = broadcast::channel(8);
         NotificationManager {
@@ -1009,6 +1068,43 @@ mod tests {
         let resync = NotificationEvent::Resync { lagged_by: 3 };
         assert!(event_is_for_user(&resync, 1));
         assert!(event_is_for_user(&resync, 99));
+
+        let live = NotificationEvent::LiveSpeech {
+            user_id: 2,
+            speech: LiveSpeech {
+                id: "spk_1".into(),
+                body: "见到你了。".into(),
+                event_key: "agent.merope.greeting".into(),
+                performance: None,
+                merope_state: None,
+                intention_id: None,
+            },
+        };
+        assert!(event_is_for_user(&live, 2));
+        assert!(!event_is_for_user(&live, 1));
+    }
+
+    #[tokio::test]
+    async fn mood_updates_are_owner_only_ephemeral_state_not_speech_or_history() {
+        let manager = test_manager();
+        let mut stream = manager.subscribe();
+        let before = super::super::merope::Affect::at_rest(Default::default());
+        let mood = super::super::merope::MoodTransition::from_affect(
+            &before,
+            &before,
+            "user_appraisal",
+            12,
+        );
+        manager.emit_merope_state(2, mood, "idle".into());
+        let event = stream.recv().await.unwrap();
+        assert!(event_is_for_user(&event, 2));
+        assert!(!event_is_for_user(&event, 1));
+        let json = serde_json::to_value(event).unwrap();
+        assert_eq!(json["event"], "merope_state_changed");
+        assert_eq!(json["mood"]["revision"], 12);
+        assert!(json.get("speech").is_none());
+        assert!(json.get("notification").is_none());
+        assert!(manager.get_history_for_user(2, 10).await.is_empty());
     }
 
     #[tokio::test]

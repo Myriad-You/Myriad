@@ -5,3 +5,4 @@ edition = "2021"
 publish = false
 description = "Prompt injection / jailbreak / NSFW heuristics shared by Tapp AI and agent services."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"

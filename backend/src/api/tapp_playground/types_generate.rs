@@ -68,6 +68,11 @@ static PLAYGROUND_AGENT_CONCURRENCY: LazyLock<Semaphore> =
 /// the project design language, independent of documentation retrieval.
 const UI_DESIGN_SPEC: &str = include_str!("../../../../docs/development/tapp/DESIGN_SPEC.md");
 
+/// Injected verbatim into every generation run: preview boundary and calling
+/// contract (including `Tapp.ai.tasks` operations and the result envelope).
+const PLAYGROUND_GENERATION_CONTRACT: &str =
+    include_str!("../../../../docs/development/tapp/PLAYGROUND_GENERATION_CONTEXT.md");
+
 const PLANNER_SYSTEM_PROMPT: &str = r#"
 You are the planning stage of Myriad's Tapp development agent. Decide which
 authoritative repository documents must be retrieved before creating or
@@ -82,10 +87,13 @@ Return ONLY this JSON object:
 }
 
 Queries should name exact contracts such as widget sizes and templates,
-Tapp.storage permissions, declared APIs, AI tasks, event topics, agent
-interactions, data exchange, page modules, background core, sandbox CSP,
-responsive styling, or manifest locales (host catalog name/description i18n,
-distinct from code.i18n). Do not write code in this stage.
+Tapp.storage permissions, declared APIs, AI tasks (Tapp.ai.tasks operations
+generate/analyze/chat/image/search and the {format,value,contextProvenance}
+result envelope), event topics, agent interactions, data exchange, page
+HTML template and #tapp-content, background core, sandbox CSP, sandbox
+styling without Tailwind sm/md/lg breakpoints, or manifest locales
+(host catalog name/description i18n, distinct from code.i18n). Do not write
+code in this stage.
 "#;
 
 const MULTI_TURN_SESSION_RULES: &str = r#"
@@ -115,7 +123,8 @@ You must follow the current Myriad Tapp contract:
 - A Tapp is plain JavaScript, HTML, and CSS. Do not use npm packages, imports,
   bundlers, JSX, TypeScript, eval, Function, document.write, or direct fetch.
 - Runtime code uses the host-provided global `Tapp` SDK. The preview supports
-  lifecycle, UI/theme/locale, confirmation/fullscreen, and isolated storage.
+  lifecycle, UI/theme/locale, isolated storage, and Page-only
+  setTitle/confirm/fullscreen. Widget preview has none of those three UI methods.
 - `manifest.id` uses 1-128 ASCII letters, numbers, dots, underscores, or hyphens.
 - `manifest.version` is valid semver and remains `1.0.0` during modifications.
 - `manifest.category` is exactly one of ai, data, developer, game, media,
@@ -128,7 +137,10 @@ You must follow the current Myriad Tapp contract:
   widget without an app page: omit the whole `page` object and leave
   `code.page` / `code.pageHtml` empty (do NOT invent a stub page); put UI in
   `code.widget` + `code.widgetHtml`; declare non-empty `manifest.widgets` and
-  `widget:register` permission.
+  `widget:register` permission. Widget JavaScript MUST assign
+  `Tapp.widgets[<id>] = { render(container, props) { ... } }`. Do not call
+  `Tapp.widget.register` (Page-only). Widget SDK has no confirm, setTitle,
+  fullscreen, Tapp.game, federation, tappList, or brewList.
   Prefer widget-only when the instruction is clearly widget-only. Never require
   both modes. Projects may still add assets, backgroundRequirements, declared
   APIs, AI tasks, events, agent interactions, or dataExchange when the request
@@ -148,13 +160,25 @@ You must follow the current Myriad Tapp contract:
   `styles`, `pageTemplate`, or `pageModules` field — emitting any of them is
   rejected. `hasPage` is derived from whether the `page` object exists.
 - Request only permissions that the code actually calls. Prefer no permission.
-  `storage:read`, `storage:write`, `ui:theme`, `ui:confirm`, `ui:fullscreen`, and `ui:openUrl` are available in the
-  temporary preview. Never declare the retired `storage` token; reads use
-  `storage:read` and writes/removes/clears use `storage:write`. Other valid
-  permissions can be declared for installation, but cannot be exercised in
-  preview and must be mentioned in `explanation`.
+  `storage:read`, `storage:write`, `ui:theme`, and `ui:openUrl` are available in
+  the temporary preview (Page and Widget). `ui:confirm` and `ui:fullscreen` are
+  Page-preview-only; the Widget SDK has no confirm/setTitle/fullscreen. Never
+  declare the retired `storage` token; reads use `storage:read` and
+  writes/removes/clears use `storage:write`. `Tapp.file.download` is public —
+  do not request `storage:read` just to save generated files. `Tapp.ui.openUrl` also needs
+  non-empty `manifest.openUrls`. `Tapp.api(name, params)` needs `manifest.apis`
+  (HTTP entries also need `network:fetch`). `Tapp.game` needs `manifest.game`
+  plus `game:session` and `federation:read` / `federation:room` /
+  `federation:message`. Other valid permissions can be declared for
+  installation, but cannot be exercised in preview and must be mentioned in
+  `explanation`.
 - Put shared initialization in `code.core`. In Page mode, put Page behavior in
   `code.page`, CSS in `code.styles`, and body markup only in `code.pageHtml`.
+  Playground Page always has `page.html`, so the host wraps it in `#tapp-content`
+  and does **not** call `Tapp.pages[id].render`. Bind from `onReady` against
+  `#tapp-content` or template ids; never replace `#tapp-root` with textContent.
+  Do not emit Tailwind `sm:`/`md:`/`lg:` prefixes (on-demand compile ignores
+  them; use CSS media queries or container width).
   In widget-only mode, put widget logic in `code.widget` / `code.widgetHtml` and
   shared CSS in `code.styles`. `code.core` always runs first in every mode, so
   cross-layer helpers belong there and layer entries reach them with
@@ -178,6 +202,17 @@ You must follow the current Myriad Tapp contract:
   project includes post-install multiplayer, declare `game` plus
   `game:session` and `federation:read` / `federation:room` / `federation:message`,
   and mention that preview cannot exercise those APIs.
+- AI is server-governed `Tapp.ai.tasks` only (`create` / `get` / `cancel` /
+  `usage` / `subscribe`). Preview cannot execute AI (calls fail with a preview
+  error; do not treat that as a bug to delete the AI code). After install,
+  `operation` is generate | analyze | chat | image | search, each paired with
+  the matching `ai:*` permission AND `manifest.ai` (`protocolVersion` 2,
+  `operations`, `outputFormats`; `search` requires json output; `image`
+  requires image output). `create()` returns a queued snapshot with empty
+  `result` — poll `Tapp.ai.tasks.get` (or `subscribe`) until `completed`, then
+  read `task.result.value`. The envelope is `{ format, value, contextProvenance }`
+  (image `value` is `{ url, width, height }`). Do not invent `Tapp.ai.generate`,
+  `Tapp.search`, or provider/model fields.
 - Use `Tapp.lifecycle.onReady(...)` before querying the SDK or binding UI.
 - Use only SDK namespaces and methods present in retrieved documentation. For
   **in-app UI** translations, use synchronous `Tapp.i18n.t(key, variables)` and
@@ -887,9 +922,7 @@ async fn run_playground_generation_inner(
     let retrieved_context = format_knowledge_context(&knowledge_sources);
     let plan_json = serde_json::to_string(&plan)
         .map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, "Invalid agent plan"))?;
-    let system_prompt = format!(
-        "{PLAYGROUND_SYSTEM_PROMPT}\n\n{MULTI_TURN_SESSION_RULES}\n\nUI DESIGN SPEC (ALWAYS IN EFFECT, NOT SUBJECT TO RETRIEVAL):\n{UI_DESIGN_SPEC}\n\nAUTHORITATIVE TAPP CONTRACT EXCERPTS RETRIEVED BY THE AGENT:\n{retrieved_context}"
-    );
+    let system_prompt = assemble_generation_system_prompt(&retrieved_context);
 
     let final_user_content = format!(
         "MODE:\n{mode}\n\nAGENT PLAN:\n<plan>{plan_json}</plan>\n\nUSER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nRUNTIME FEEDBACK:\n<runtime_feedback>{runtime_feedback_json}</runtime_feedback>\n\nCURRENT PROJECT JSON:\n<current_project>{current}</current_project>\n\nReturn ONLY the required full JSON object for this turn (no Markdown fences)."
@@ -999,7 +1032,7 @@ async fn run_playground_generation_inner(
                     }
                     let previous = truncate_utf8(&raw, 96 * 1024);
                     messages.push(ChatMessage::user(format!(
-                        "The candidate failed the authoritative validation tool. Diagnose the root cause, repair the complete project, and return ONLY the required full JSON object. Use exact camelCase field names from the validator; setting definitions use `defaultValue`, never `default`. Do not place Widget templates or HTML/JS entrypoints under `manifest.assets` / `code.assets`; put Widget markup in `code.widgetHtml` and leave `assets` empty unless you need real binary files under `assets/`. Keep top-level `manifest.name`/`description` as fallbacks; optional `manifest.locales` keys must be BCP-47 tags with optional name/description only (host catalog copy — not code.i18n). Do not repeat an alias or field named by the error as unknown.\n\nVALIDATION TOOL RESULT:\n<validation_error>{error}</validation_error>\n\nORIGINAL USER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT PROJECT BEFORE THIS RUN:\n<current_project>{current}</current_project>\n\nFAILED CANDIDATE:\n<previous>{previous}</previous>"
+                        "The candidate failed the authoritative validation tool. Diagnose the root cause, repair the complete project, and return ONLY the required full JSON object. Use exact camelCase field names from the validator; setting definitions use `defaultValue`, never `default`. Do not place Widget templates or HTML/JS entrypoints under `manifest.assets` / `code.assets`; put Widget markup in `code.widgetHtml` and leave `assets` empty unless you need real binary files under `assets/`. Keep top-level `manifest.name`/`description` as fallbacks; optional `manifest.locales` keys must be BCP-47 tags with optional name/description only (host catalog copy — not code.i18n). Code that calls Tapp.ai must include matching ai:* permissions and manifest.ai (protocolVersion 2, operations, outputFormats); create() is queued — wait with get/subscribe. Do not repeat an alias or field named by the error as unknown.\n\nVALIDATION TOOL RESULT:\n<validation_error>{error}</validation_error>\n\nORIGINAL USER INSTRUCTION:\n<instruction>{instruction}</instruction>\n\nCURRENT PROJECT BEFORE THIS RUN:\n<current_project>{current}</current_project>\n\nFAILED CANDIDATE:\n<previous>{previous}</previous>"
                     )));
                     emit_step(
                         &mut agent_trace,
@@ -1108,6 +1141,12 @@ fn fallback_agent_plan(instruction: &str) -> PlaygroundAgentPlan {
     }
 }
 
+fn assemble_generation_system_prompt(retrieved_context: &str) -> String {
+    format!(
+        "{PLAYGROUND_SYSTEM_PROMPT}\n\n{MULTI_TURN_SESSION_RULES}\n\nUI DESIGN SPEC (ALWAYS IN EFFECT, NOT SUBJECT TO RETRIEVAL):\n{UI_DESIGN_SPEC}\n\nTAPP PLAYGROUND GENERATION CONTRACT (ALWAYS IN EFFECT, NOT SUBJECT TO RETRIEVAL):\n{PLAYGROUND_GENERATION_CONTRACT}\n\nAUTHORITATIVE TAPP CONTRACT EXCERPTS RETRIEVED BY THE AGENT:\n{retrieved_context}"
+    )
+}
+
 fn retrieve_agent_knowledge(
     plan: &PlaygroundAgentPlan,
     instruction: &str,
@@ -1126,7 +1165,7 @@ fn retrieve_agent_knowledge(
         if normalized.is_empty() || !seen_queries.insert(normalized) {
             continue;
         }
-        for excerpt in tapp_playground_knowledge::search(&query, 3) {
+        for excerpt in tapp_playground_knowledge::search_for_generation(&query, 3) {
             let section_key = (excerpt.document.clone(), excerpt.section.clone());
             if !seen_sections.insert(section_key) {
                 continue;
@@ -1589,7 +1628,7 @@ mod prompt_contract_tests {
     /// `deny_unknown_fields` 拒掉，而 Playground 生成路径没有任何别的地方会报警。
     #[test]
     fn generate_prompt_teaches_the_current_layer_contract() {
-        let prompt = format!("{PLAYGROUND_SYSTEM_PROMPT}{PLANNER_SYSTEM_PROMPT}");
+        let prompt = assemble_generation_system_prompt("(retrieved excerpts)");
 
         for retired in [
             "\"main\":",
@@ -1618,6 +1657,89 @@ mod prompt_contract_tests {
                 "generate prompt never mentions the fixed Playground path {required}"
             );
         }
+    }
+
+    #[test]
+    fn generate_prompt_always_injects_ai_task_envelope() {
+        let prompt = assemble_generation_system_prompt("(retrieved excerpts)");
+        let planner = PLANNER_SYSTEM_PROMPT;
+
+        assert!(
+            prompt.contains("TAPP PLAYGROUND GENERATION CONTRACT (ALWAYS IN EFFECT"),
+            "generation context must be unconditionally injected"
+        );
+        assert!(
+            prompt.contains("Tapp.ai.tasks.create"),
+            "generate prompt never shows Tapp.ai.tasks.create"
+        );
+        assert!(
+            prompt.contains("ai:search"),
+            "generate prompt never names ai:search"
+        );
+        assert!(
+            prompt.contains("contextProvenance"),
+            "generate prompt never names the result envelope"
+        );
+        assert!(
+            prompt.contains("generate")
+                && prompt.contains("analyze")
+                && prompt.contains("chat")
+                && prompt.contains("image")
+                && prompt.contains("search"),
+            "generate prompt must name all five AI operations"
+        );
+        assert!(
+            !prompt.contains("Tapp.ai.generate("),
+            "generate prompt must not invent Tapp.ai.generate()"
+        );
+        assert!(
+            prompt.contains("queued") && prompt.contains("Tapp.ai.tasks.get"),
+            "generate prompt must teach that create returns queued and callers wait via get"
+        );
+        assert!(
+            prompt.contains("manifest.ai"),
+            "generate prompt must require manifest.ai alongside ai:* permissions"
+        );
+        assert!(
+            planner.contains("Tapp.ai.tasks") && planner.contains("contextProvenance"),
+            "planner must retrieve AI task envelope docs by name"
+        );
+        assert!(
+            prompt.contains("#tapp-content") && prompt.contains("Tapp.pages"),
+            "generate prompt must teach Playground paints into #tapp-content and does not call Tapp.pages.render"
+        );
+        assert!(
+            prompt.contains("Page-preview-only"),
+            "generate prompt must not list confirm/fullscreen as Widget preview APIs"
+        );
+        assert!(
+            !prompt.contains("confirmation/fullscreen, and isolated storage"),
+            "generate prompt must not treat confirm/fullscreen as generic preview support"
+        );
+        assert!(
+            prompt.contains("`Tapp.file.download` is public"),
+            "generate prompt must not hitch file.download on storage:read"
+        );
+    }
+
+    #[test]
+    fn retrieved_knowledge_skips_always_injected_generation_context() {
+        let plan = PlaygroundAgentPlan {
+            queries: vec!["temporary preview sandbox storage page lifecycle".into()],
+            capabilities: vec![],
+            acceptance_criteria: vec![],
+        };
+        let excerpts = retrieve_agent_knowledge(&plan, "preview storage lifecycle");
+        assert!(
+            excerpts.iter().all(|excerpt| {
+                excerpt.document != "PLAYGROUND_GENERATION_CONTEXT" && excerpt.document != "PAGE"
+            }),
+            "generation context is always injected and PAGE is host chrome; retrieval must skip both: {excerpts:?}"
+        );
+        assert!(
+            !excerpts.is_empty(),
+            "other contract docs should still be retrieved"
+        );
     }
 
     #[test]

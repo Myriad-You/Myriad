@@ -25,6 +25,13 @@ pub(super) fn build_authenticated_router(
         // Note: /api/config routes are now registered above with wrappers, not here
         // Note: /api/profile/user-info, metadata now registered above with wrappers
         .route("/api/platforms", get(api::platforms::list_platforms))
+        .route(
+            "/api/github/repo",
+            get(api::github_stars::get_repo).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
         // Prompt generation -  REQUIRE AUTHENTICATION
         .route(
             "/api/prompt/generate",
@@ -32,6 +39,34 @@ pub(super) fn build_authenticated_router(
                 app_state.clone(),
                 middleware::auth::auth_middleware,
             )),
+        )
+        // Home free-layout stickers — admin AI generation + local upload
+        .route(
+            "/api/home/stickers/generate",
+            post(api::home_stickers::generate_home_sticker)
+                .layer(axum::extract::DefaultBodyLimit::max(14 * 1024 * 1024))
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
+        )
+        .route(
+            "/api/home/stickers/upload",
+            post(api::home_stickers::upload_home_sticker)
+                .layer(axum::extract::DefaultBodyLimit::max(14 * 1024 * 1024))
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
+        )
+        .route(
+            "/api/home/widget-fonts",
+            post(api::widget_fonts::upload_widget_font)
+                .layer(axum::extract::DefaultBodyLimit::max(4 * 1024 * 1024))
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
         )
         // SEO / GEO AI copy assist — admin only (site branding)
         .route(

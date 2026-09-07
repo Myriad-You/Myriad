@@ -51,20 +51,12 @@
     border-color 0.18s ease;
 }
 
-/* 默认「选项指南」hover：轻量强调色 */
+/* 默认「选项指南」hover：壁纸色掺白/黑 */
 .setting-title-guide-trigger:hover,
 .setting-title-guide-trigger:focus-visible {
-  color: var(--cfg-accent, #4f6ef7);
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #6c8cff) 10%,
-    var(--cfg-subtle-bg)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #6c8cff) 32%,
-    var(--cfg-subtle-border)
-  );
+  color: var(--cfg-accent-ink);
+  background: var(--cfg-accent-fill);
+  border-color: var(--cfg-accent-line);
   outline: none;
 }
 
@@ -72,96 +64,18 @@
   transform: scale(0.98);
 }
 
-/* 展开中（收起指南）：自适应强调色 */
+/* 展开中（收起指南）：壁纸色掺白/黑 */
 .setting-title-guide-trigger.is-active {
-  color: var(--cfg-accent, #4f6ef7);
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #6c8cff) 42%,
-    var(--cfg-subtle-border)
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #6c8cff) 14%,
-    var(--cfg-subtle-bg)
-  );
+  color: var(--cfg-accent-ink);
+  border-color: var(--cfg-accent-line);
+  background: var(--cfg-accent-fill);
 }
 
 .setting-title-guide-trigger.is-active:hover,
 .setting-title-guide-trigger.is-active:focus-visible {
-  color: var(--cfg-accent, #4f6ef7);
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #6c8cff) 55%,
-    var(--cfg-subtle-border)
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #6c8cff) 20%,
-    var(--cfg-subtle-bg)
-  );
-}
-
-html.dark .setting-title-guide-trigger {
-  border-color: var(--cfg-subtle-border);
-  background: var(--cfg-subtle-bg);
-  color: var(--cfg-text-3);
-}
-
-html.dark .setting-title-guide-trigger:hover,
-html.dark .setting-title-guide-trigger:focus-visible {
-  color: color-mix(
-    in srgb,
-    var(--color-light, var(--cfg-accent, #a5b8ff)) 55%,
-    white
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #8ba3ff) 12%,
-    var(--cfg-subtle-bg)
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #8ba3ff) 36%,
-    var(--cfg-subtle-border)
-  );
-}
-
-html.dark .setting-title-guide-trigger.is-active {
-  color: color-mix(
-    in srgb,
-    var(--color-light, var(--cfg-accent, #a5b8ff)) 55%,
-    white
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #8ba3ff) 45%,
-    var(--cfg-subtle-border)
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #8ba3ff) 16%,
-    var(--cfg-subtle-bg)
-  );
-}
-
-html.dark .setting-title-guide-trigger.is-active:hover,
-html.dark .setting-title-guide-trigger.is-active:focus-visible {
-  color: color-mix(
-    in srgb,
-    var(--color-light, var(--cfg-accent, #a5b8ff)) 65%,
-    white
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--cfg-accent, #8ba3ff) 58%,
-    var(--cfg-subtle-border)
-  );
-  background: color-mix(
-    in srgb,
-    var(--cfg-accent, #8ba3ff) 22%,
-    var(--cfg-subtle-bg)
-  );
+  color: var(--cfg-accent-ink);
+  border-color: var(--cfg-accent-line-hover);
+  background: var(--cfg-accent-fill-hover);
 }
 
 /* —— 浮窗（body Portal + fixed） —— */
@@ -444,7 +358,6 @@ html.dark .setting-title-guide-float.is-ready {
   );
   color: var(--cfg-accent, #4f6ef7);
   box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
-  backdrop-filter: blur(8px);
 }
 
 html[data-perf-mode='exlight'] .setting-title-guide-pin {
@@ -626,7 +539,7 @@ html.dark .setting-title-guide-close:focus-visible {
 }
 
 .setting-title-guide-trigger.is-pinned {
-  color: var(--cfg-accent, #4f6ef7);
+  color: var(--cfg-accent-ink);
 }
 
 .setting-title-guide-body {

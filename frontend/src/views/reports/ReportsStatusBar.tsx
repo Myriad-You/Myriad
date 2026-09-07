@@ -285,9 +285,9 @@ export default function ReportsStatusBar({
           <motion.span
             key={tip.hero}
             className="inline-block"
-            initial={{ opacity: 0, y: 10, filter: 'blur(6px)' }}
-            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            exit={{ opacity: 0, y: -8, filter: 'blur(6px)' }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
           >
             {tip.hero}
@@ -312,6 +312,7 @@ export default function ReportsStatusBar({
         <motion.div
           className="rsb-bar glass"
           layout
+          data-tour="reports-status"
           transition={{ duration: 0.42, ease: SLIDE_EASE }}
         >
           <div
@@ -326,9 +327,9 @@ export default function ReportsStatusBar({
                   key={tip.id}
                   className="rsb-slide"
                   layout="position"
-                  initial={{ opacity: 0, y: 8, filter: 'blur(5px)' }}
-                  animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                  exit={{ opacity: 0, y: -8, filter: 'blur(5px)' }}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.34, ease: SLIDE_EASE }}
                 >
                   <div
@@ -408,6 +409,7 @@ export default function ReportsStatusBar({
                     onClick={onPlayAll}
                     className="rsb-btn is-icon"
                     title={actionTitles.playAll}
+                    data-tour="reports-play"
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.9 }}

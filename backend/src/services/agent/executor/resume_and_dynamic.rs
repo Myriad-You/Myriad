@@ -3,6 +3,7 @@
 use crate::config::ModelTier;
 use crate::services::agent::tier_router::TierRouter;
 use crate::services::agent::types::{self, *};
+use myriad_agent_rules::extract_json_object_from_ai_response;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -1060,16 +1061,9 @@ impl Executor {
         {
             Ok(response) => {
                 let response = response.trim();
-                // 尝试提取 JSON（处理 markdown code block 包裹的情况）
-                let json_str = if let Some(start) = response.find('{') {
-                    if let Some(end) = response.rfind('}') {
-                        &response[start..=end]
-                    } else {
-                        response
-                    }
-                } else {
-                    response
-                };
+                // 提取 JSON（含 markdown 围栏的情况）
+                let extracted = extract_json_object_from_ai_response(response);
+                let json_str = extracted.as_deref().unwrap_or(response);
 
                 match serde_json::from_str::<Value>(json_str) {
                     Ok(parsed) => {

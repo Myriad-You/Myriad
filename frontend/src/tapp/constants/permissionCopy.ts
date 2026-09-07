@@ -46,6 +46,10 @@ export const PERMISSION_COPY: Record<
     labelKey: 'permAiImage',
     descriptionKey: 'permAiImageDesc',
   },
+  'ai:search': {
+    labelKey: 'permAiSearch',
+    descriptionKey: 'permAiSearchDesc',
+  },
   '3d:generate': {
     labelKey: 'perm3dGenerate',
     descriptionKey: 'perm3dGenerateDesc',

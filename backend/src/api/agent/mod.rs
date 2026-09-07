@@ -135,6 +135,17 @@ pub(crate) fn session_metadata_with_run_identity(
 }
 
 fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event, Infallible>> {
+    agent_run_envelopes(run).map(|envelope| {
+        let data = serde_json::to_string(&envelope.event).unwrap_or_else(|_| "{}".to_string());
+        Ok(Event::default()
+            .id(envelope.sequence.to_string())
+            .data(data))
+    })
+}
+
+pub(crate) fn agent_run_envelopes(
+    run: Arc<AgentRun>,
+) -> impl Stream<Item = crate::services::agent::run_hub::AgentRunEnvelope> {
     async_stream::stream! {
         // 先订阅再读取快照；sequence 去重消除两者之间的竞态。
         // mut: Lagged 时会重新 subscribe 同一 run。
@@ -149,13 +160,11 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
                 run_id: run.run_id().to_string(),
                 session_id: run.session_id().map(str::to_string),
             };
-            let data = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
-            yield Ok(Event::default().id("0").data(data));
+            yield crate::services::agent::run_hub::AgentRunEnvelope { sequence: 0, event };
         }
 
         for envelope in history {
-            let data = serde_json::to_string(&envelope.event).unwrap_or_else(|_| "{}".to_string());
-            yield Ok(Event::default().id(envelope.sequence.to_string()).data(data));
+            yield envelope;
         }
         if already_completed {
             return;
@@ -169,9 +178,7 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
                     Ok(envelope) if envelope.sequence > last_sequence => {
                         last_sequence = envelope.sequence;
                         let terminal = agent_run_event_is_terminal(&envelope.event);
-                        let data = serde_json::to_string(&envelope.event)
-                            .unwrap_or_else(|_| "{}".to_string());
-                        yield Ok(Event::default().id(envelope.sequence.to_string()).data(data));
+                        yield envelope;
                         if terminal {
                             return;
                         }
@@ -179,6 +186,7 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                         // 不关流：从内存快照补发遗漏事件，避免前端必须重开连接。
+                        receiver = run.subscribe();
                         let (history, snap_seq, completed) = run.snapshot().await;
                         for envelope in history {
                             if envelope.sequence <= last_sequence {
@@ -186,16 +194,12 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
                             }
                             last_sequence = envelope.sequence;
                             let terminal = agent_run_event_is_terminal(&envelope.event);
-                            let data = serde_json::to_string(&envelope.event)
-                                .unwrap_or_else(|_| "{}".to_string());
-                            yield Ok(Event::default().id(envelope.sequence.to_string()).data(data));
+                            yield envelope;
                             if terminal {
                                 return;
                             }
                         }
                         last_sequence = last_sequence.max(snap_seq);
-                        // 重新订阅，丢弃 lag 的 receiver
-                        receiver = run.subscribe();
                         if completed {
                             return;
                         }
@@ -209,9 +213,7 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
                         }
                         last_sequence = envelope.sequence;
                         let terminal = agent_run_event_is_terminal(&envelope.event);
-                        let data = serde_json::to_string(&envelope.event)
-                            .unwrap_or_else(|_| "{}".to_string());
-                        yield Ok(Event::default().id(envelope.sequence.to_string()).data(data));
+                        yield envelope;
                         if terminal {
                             return;
                         }

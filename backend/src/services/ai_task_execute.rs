@@ -40,7 +40,8 @@ use crate::services::permission_service::UserRole;
 use crate::services::tapp_registry as shared_registry;
 use myriad_tapp_contract::manifest::{TappAiManifest, TappAiOperation, TappAiOutputFormat};
 
-pub const TASK_TIMEOUT: Duration = Duration::from_secs(125);
+/// Must cover image generation (`get_long_running_client` is 15 min). Floor 5 min.
+pub const TASK_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 /// A provider can produce many deltas before the database-backed mailbox is
 /// able to consume them. Keep this queue deliberately generous for legitimate
@@ -101,27 +102,6 @@ fn configured_shutdown_timeout() -> Duration {
     Duration::from_millis(millis as u64).max(MIN_AI_TASK_EVENT_SHUTDOWN_TIMEOUT)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[allow(dead_code)] // 仅测试调用：事件投影与指标快照，生产直接落库。
-pub struct AiTaskEventMetricsSnapshot {
-    /// Number of data events currently retained by all task mailboxes.
-    pub queue_depth: usize,
-    /// Per-task channel capacity selected by the current configuration.
-    pub queue_capacity: usize,
-    /// Number of data events merged into an adjacent event.
-    pub coalesced: u64,
-    /// Number of data events discarded because the bounded budget was full or
-    /// the mailbox had already shut down. Final task state is not counted here.
-    pub dropped: u64,
-    /// Number of data/control events persisted by mailbox consumers.
-    pub persisted: u64,
-    /// Number of mailbox writes that failed and therefore could not be
-    /// delivered to the UI. The durable terminal state is written separately.
-    pub persist_failures: u64,
-    /// Number of bounded shutdown drains that exceeded their deadline.
-    pub shutdown_timeouts: u64,
-}
-
 #[derive(Debug, Default)]
 struct AiTaskEventMetricsInner {
     queue_depth: AtomicUsize,
@@ -165,6 +145,7 @@ pub struct CreateAiTaskRequest {
 pub enum PreparedModel {
     Text(AiConfig),
     Image(AiImageConfig),
+    Search,
 }
 
 #[derive(Debug)]
@@ -226,7 +207,7 @@ impl BufferedTaskBroadcast {
         }
     }
 
-    #[allow(dead_code)] // 仅测试调用：事件投影与指标快照，生产直接落库。
+    #[cfg(test)]
     fn into_event(mut self) -> TaskBroadcast {
         let event = self
             .event
@@ -432,7 +413,7 @@ impl TaskEventSink {
         }
     }
 
-    #[allow(dead_code)] // 仅测试调用：事件投影与指标快照，生产直接落库。
+    #[cfg(test)]
     fn take_pending(&self) -> Vec<BufferedTaskBroadcast> {
         self.pending
             .lock()
@@ -450,14 +431,6 @@ impl TaskEventSink {
 }
 
 enum MailboxControl {
-    /// A bounded, awaited control path for events that must not be dropped.
-    /// The runtime currently uses `finish_task` for terminal state persistence;
-    /// this command is retained for mailbox-local control events and tests.
-    #[allow(dead_code)] // 仅测试调用：事件投影与指标快照，生产直接落库。
-    Persist {
-        event: TaskBroadcast,
-        ack: oneshot::Sender<bool>,
-    },
     /// Drain all data/coalesced events before acknowledging shutdown.
     Shutdown { ack: oneshot::Sender<()> },
 }
@@ -594,25 +567,6 @@ async fn persist_event_batch(
     }
 }
 
-async fn persist_control_event(
-    db: &DatabaseConnection,
-    task_id: &str,
-    retain_until: i64,
-    event: &TaskBroadcast,
-    metrics: &Arc<AiTaskEventMetricsInner>,
-) -> bool {
-    let persisted =
-        shared_registry::enqueue(db, AI_TASK_MAILBOX_CHANNEL, task_id, event, retain_until)
-            .await
-            .is_ok();
-    if persisted {
-        metrics.persisted.fetch_add(1, Ordering::Relaxed);
-    } else {
-        metrics.persist_failures.fetch_add(1, Ordering::Relaxed);
-    }
-    persisted
-}
-
 async fn run_event_dispatcher(
     db: DatabaseConnection,
     task_id: String,
@@ -633,16 +587,6 @@ async fn run_event_dispatcher(
             biased;
             control = control_receiver.recv(), if !control_closed => {
                 match control {
-                    Some(MailboxControl::Persist { event, ack }) => {
-                        let persisted = persist_control_event(
-                            &db,
-                            &task_id,
-                            retain_until,
-                            &event,
-                            &metrics,
-                        ).await;
-                        let _ = ack.send(persisted);
-                    }
                     Some(MailboxControl::Shutdown { ack }) => {
                         // Data queued before shutdown always precedes the
                         // acknowledgement and the caller's terminal state.
@@ -756,7 +700,15 @@ pub fn validate_output(
             "Requested AI output format is not declared by this Tapp",
         ));
     }
-    if (operation == TappAiOperation::Image) != (output.format == TappAiOutputFormat::Image) {
+    if operation == TappAiOperation::Search {
+        if output.format != TappAiOutputFormat::Json {
+            return Err(AiTaskLogicError::new(
+                "INVALID_AI_OUTPUT",
+                "Search operations require json output",
+            ));
+        }
+    } else if (operation == TappAiOperation::Image) != (output.format == TappAiOutputFormat::Image)
+    {
         return Err(AiTaskLogicError::new(
             "INVALID_AI_OUTPUT",
             "Image operations require image output; text operations cannot request it",
@@ -842,6 +794,7 @@ pub async fn execute_task(execution: AiTaskExecution) {
             config.model.clone(),
         ),
         PreparedModel::Image(config) => (config.provider.clone(), config.model.clone()),
+        PreparedModel::Search => ("host-search".to_string(), "search".to_string()),
     };
     let mailbox = TaskEventMailbox::start(
         db.clone(),
@@ -914,6 +867,21 @@ pub async fn execute_task(execution: AiTaskExecution) {
                 })
                 .map_err(|error| error.into_pair())
             }
+            PreparedModel::Search => {
+                let payload =
+                    crate::services::agent::web_search::execute_from_value(&request.input)
+                        .await
+                        .map_err(|error| ("AI_PROVIDER_ERROR".to_string(), error))?;
+                Ok((
+                    json!({
+                        "format": "json",
+                        "value": payload,
+                        "contextProvenance": prepared.provenance,
+                    }),
+                    prepared.prompt.len() / 4,
+                    0usize,
+                ))
+            }
         }
     });
 
@@ -952,7 +920,10 @@ pub async fn execute_task(execution: AiTaskExecution) {
         Ok((result, input_tokens, output_tokens)) => {
             // Image tasks previously settled 0 tokens. Keep that quota contract;
             // the ledger row below still carries the size-based estimate.
-            let settle_tokens = if request.operation == TappAiOperation::Image {
+            let settle_tokens = if matches!(
+                request.operation,
+                TappAiOperation::Image | TappAiOperation::Search
+            ) {
                 0
             } else {
                 input_tokens + output_tokens
@@ -1097,6 +1068,10 @@ mod tests {
         assert_eq!(
             default_output(TappAiOperation::Image).format,
             TappAiOutputFormat::Image
+        );
+        assert_eq!(
+            default_output(TappAiOperation::Search).format,
+            TappAiOutputFormat::Json
         );
     }
 

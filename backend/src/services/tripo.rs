@@ -191,7 +191,7 @@ impl TripoClient {
         let proxy_config = crate::services::http_client::ProxyConfig::from_dynamic_config().await;
         let builder = Client::builder()
             .connect_timeout(Duration::from_secs(15))
-            .timeout(Duration::from_secs(120))
+            .timeout(Duration::from_secs(5 * 60))
             .user_agent("Myriad-Merope/Tripo-v3");
         let client = crate::services::http_client::apply_proxy(builder, &proxy_config)
             .map_err(|error| TripoError::Transport(error.to_string()))?
@@ -543,7 +543,7 @@ async fn persist_model_url(
 ) -> Result<PersistedTripoAsset, TripoError> {
     let (safe_url, client) = crate::services::outbound_security::build_public_http_client(
         model_url,
-        Duration::from_secs(120),
+        Duration::from_secs(5 * 60),
         Some("Myriad-Merope/Model-Download"),
     )
     .await

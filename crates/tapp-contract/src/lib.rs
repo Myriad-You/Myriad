@@ -26,8 +26,8 @@ fn list_map<'a>(values: &'a [(&'a str, &'a [&'a str])]) -> BTreeMap<&'a str, &'a
 
 #[cfg(feature = "tapp-contract-schema")]
 fn ai_operation_permissions() -> BTreeMap<String, &'static str> {
-    use manifest::TappAiOperation::{Analyze, Chat, Generate, Image};
-    [Generate, Analyze, Chat, Image]
+    use manifest::TappAiOperation::{Analyze, Chat, Generate, Image, Search};
+    [Generate, Analyze, Chat, Image, Search]
         .into_iter()
         .map(|operation| {
             let name = serde_json::to_value(operation)

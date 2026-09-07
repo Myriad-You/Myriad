@@ -70,20 +70,22 @@ manifest {
 
 ### 为什么分三层？
 
-1. **避免代码冲突**：Widget 模式和 Page 模式加载不同的代码，互不干扰
+1. **避免代码冲突**：Widget 沙箱和 Page 沙箱加载不同的层，互不干扰
 2. **更小的加载体积**：Widget 只加载 `core + widget`，Page 只加载 `core + page`
 3. **清晰的职责分离**：每个部分专注于单一功能
 
+运行时还有三种沙箱，不是同一套 `window.Tapp`：
+
 ### 代码加载规则
 
-| 模式          | 加载的代码                     | 执行内容                                      |
-| ------------- | ------------------------------ | --------------------------------------------- |
-| Widget 模式   | `core + widget`                | Widget 精简 SDK、生命周期、模板与 `render`    |
-| Page 模式     | core 入口 + page 入口                 | 完整 SDK、生命周期和页面 UI            |
-| Headless 模式 | 仅 `core`                      | 完整 Bridge 与生命周期，无 Page/Widget UI     |
+| 沙箱     | 加载的层                         | 能调用什么 |
+| -------- | -------------------------------- | ---------- |
+| Widget   | `core` + 该 widget               | 精简 SDK：生命周期、模板与 `render`；没有联邦 / 对局 / Tapp·Brew 管理 |
+| Page     | `core` + `page`                  | 完整 SDK、生命周期和页面 UI |
+| headless | 仅 `core`（常驻用这一套）        | 无可见 UI；`Tapp.widget` 只有定向 `invalidate({ widgetId })`；没有 register / `tappList` / 组件 / 快捷键 / 动态内容 / DOM / 文件下载 / `model3d` |
 
-**三个模式都会触发** `Tapp.lifecycle`（含 `onReady` / `onDestroy` / pause/resume），不能把
-“是否有 onReady”当作代码分层边界。共享与后台逻辑放在 `core`；可见界面放在
+三种沙箱都会触发 `Tapp.lifecycle`（`onReady` / `onDestroy` / `onPause` / `onResume`），不能把
+“是否有 onReady”当作分层边界。`onPause` 是**隐藏**，不是销毁。共享与调度逻辑放在 `core`；可见界面放在
 `widget` / `page`（Widget 以 `Tapp.widgets[id].render` 为主，Page 可在 onReady 中挂载根 UI）。
 
 ### 代码结构示例
@@ -111,23 +113,23 @@ Tapp.widgets['my-widget'] = {
   render: async function(container, props) {
     var colors = core.getThemeColors(props.theme === 'dark');
     container.style.background = colors.bg;
-    container.innerHTML = '<div>Widget Content</div>';
+    container.textContent = 'Widget Content';
   }
 };
 ```
 
-`page/index.js` 只挂载 Page：
+`page/index.js` 在已有 `page.html` 时绑定内容层（宿主不会调用 `Tapp.pages.render`）：
 
 ```javascript
 var core = require('../core.js');
 
 Tapp.lifecycle.onReady(async function() {
-  var container = document.getElementById('tapp-root');
+  var container = document.getElementById('tapp-content');
   var colors = core.getThemeColors(
     document.documentElement.classList.contains('dark')
   );
   container.style.color = colors.text;
-  container.innerHTML = '<h1>Page Content</h1>';
+  // 更新模板节点，不要把 #tapp-root 整层 textContent 清掉
 });
 ```
 
@@ -280,37 +282,30 @@ Tapp.widgets["my-widget"] = {
 
 ## 生命周期
 
-### onReady
+不要把 SDK 回调名理解成「暂停=销毁」。沙箱实例和安装是两层：
 
-当 Tapp 完全加载并准备就绪时触发。
+| 动作 | 发生时机 | SDK | 结果 |
+| ---- | -------- | --- | ---- |
+| **隐藏** | 切 Tab、窗口最小化、滚出视野、多窗口最小化 | `onPause` / `onResume`（宿主发 `lifecycle:pause` / `lifecycle:resume`） | iframe、桥、授予权限和会话令牌都还在；只通知停止活动 |
+| **销毁** | 停应用、代码变更、登录态/权限变更、暂存池淘汰、离开运行页（该页 Page iframe） | `onDestroy` | 这个沙箱实例释放，不可恢复；应用仍装着 |
+| **卸载** | 用户从平台移除该 TAPP | 先销毁全部实例，再清存储与注册 | 应用不再装着，需重新安装 |
+| **常驻** | 声明了 `backgroundRequirements` 或运行时 `Tapp.background.require` | headless core 跨页承接 | 没有页面 iframe，只有后台 core |
 
 ```javascript
 Tapp.lifecycle.onReady(async () => {
-  // 初始化代码
+  // 初始化；三种沙箱都会触发
 });
-```
 
-### onDestroy
-
-当 Tapp 即将被销毁时触发（停止或卸载）。
-
-```javascript
-Tapp.lifecycle.onDestroy(async () => {
-  // 清理代码
-});
-```
-
-### onPause / onResume
-
-当 Tapp 被暂停/恢复时触发。
-
-```javascript
 Tapp.lifecycle.onPause(() => {
-  // 暂停定时器等
+  // 隐藏：停 rAF / 音频，不要当作已经销毁
 });
 
 Tapp.lifecycle.onResume(() => {
-  // 恢复执行
+  // 重新可见
+});
+
+Tapp.lifecycle.onDestroy(async () => {
+  // 本实例即将释放
 });
 ```
 
@@ -407,8 +402,8 @@ Widget: render() 里 Tapp.storage.get(key)   （或 onChanged 局部更新）
 
 ```javascript
 // core.js — 三种模式都会先加载共享层
-// ⚠️ 只写 storage 即可；不要在 core/Page/headless 里调用 Tapp.widget.invalidate
-//    （该方法仅存在于 Widget 沙箱，见下表）
+// ⚠️ 只写 storage 即可。无 options 的 invalidate 只存在于 Widget 沙箱；
+//    Page/headless 必须带 { target: { widgetId } }，且已有 storage:write。
 async function pullFeed() {
   const data = await Tapp.api("feed", {});
   await Tapp.storage.set("feed.latest", data);
@@ -434,27 +429,28 @@ Tapp.widgets["feed"] = {
 
 | 触发 | 用法 | 谁能用 | 说明 |
 | ---- | ---- | ------ | ---- |
-| storage 写入 | `await Tapp.storage.set(k, v)` | **Page / Widget / headless** | **默认路径**：同 Tapp 广播，event 模式可见 Widget 自动 re-render |
-| 显式 invalidate | `await Tapp.widget.invalidate("reason")` | **仅 Widget 沙箱** | 当前实例请求 re-render；**core/Page/headless 没有此方法**，调用会抛错并中断同步 |
-| 订阅变更 | `Tapp.storage.onChanged(cb)` | Page / Widget / headless | 局部改 DOM；一般不必再 invalidate |
-| 可见轮询 | `refreshPolicy.mode: "interval"` | 宿主计时器 | 仅页面+Widget 可见时计时；**不要**当后台同步 |
+| storage 写入 | `await Tapp.storage.set(k, v)` | **Page / Widget / headless** | **默认路径**：同 Tapp 广播，刷新全部可见 Widget（与 `mode` 无关） |
+| 显式 invalidate（自己） | `await Tapp.widget.invalidate("reason")` | **仅 Widget 沙箱** | 当前实例 remount |
+| 定向 invalidate | `await Tapp.widget.invalidate("reason", { target: { widgetId } })` | Page / headless / Widget | 需授予的 `storage:write`；每卡 15s、每 Tapp 2 次/分；没有 `all` |
+| 订阅变更 | `Tapp.storage` / `settings` / `shared.onChanged(cb)` | Page / Widget / headless | 局部改 DOM；`settings` **只通知不拆卡**；写者自己不会收到 |
+| 可见轮询 | `refreshPolicy.mode: "interval"` | 宿主计时器 | 额外的可见节拍；**不要**当后台同步 |
 | 后台同步 | `backgroundRequirements` + scheduler / headless | headless core | 离开 UI 后仍要跑的任务 |
 
 要点：
 
 - `render` 保持幂等：优先读 storage，避免每次 re-render 都打外部 API。
 - 平台只读接口（如 `Tapp.platform.*`）≠ 你声明的业务 `apis`。
-- Page 的 `Tapp.widget` 是 **register/unregister/listRegistered/updateConfig**（需要
-  `widget:register`）；与 Widget 沙箱里的实例 API（`getInstanceSettings` /
-  `updateInstanceSettings` / `invalidate`）不是同一套方法。
+- Page 的 `Tapp.widget` 是 **register 系列**（`widget:register`）加上定向
+  `invalidate({ widgetId })`（`storage:write`）。headless 只有后者。Widget 沙箱里
+  无 options 的 `invalidate` 仍只刷自己。
 - 完整示例与注意项见 [WIDGET — 数据加载与更新](WIDGET.md#数据加载与更新)；
   API 细节见 [API 参考](API_REFERENCE.md)；`refreshPolicy` 字段见 [Manifest](MANIFEST.md)。
 
 ---
 
-## 后台运行
+## 常驻（headless core）
 
-Tapp 默认在用户离开运行页面后会被**冻结**（暂停执行）。如果 Tapp 需要在后台持续运行，必须**声明后台运行需求**。
+离开运行页会**销毁**该页的 Page 沙箱，不是把页面 iframe「冻结」起来。跨页仍要跑的逻辑必须**声明常驻**（headless core）；没声明时离开页面后实例就没了。
 
 需要在应用重载后、尚未打开 Page/Widget 时就启动 core 的任务，应在 manifest 中声明需求：
 
@@ -464,7 +460,7 @@ Tapp 默认在用户离开运行页面后会被**冻结**（暂停执行）。�
 }
 ```
 
-运行时的 `Tapp.background.require/release` 适合动态增减需求；manifest 声明则负责首次启动和刷新后的恢复。两类来源独立计数，`release` 不会取消 manifest 的常驻声明。后台实例只加载共享 core，不加载 Page HTML/CSS 或 Widget 视图代码。
+运行时的 `Tapp.background.require/release` 适合动态增减需求；manifest 声明则负责首次启动和刷新后的恢复。两类来源独立计数，`release` 不会取消 manifest 的常驻声明。常驻实例只加载共享层 `core`，不加载 Page HTML/CSS 或 Widget 视图代码。
 
 后台同步结果应写入 `Tapp.storage`，让可见 Widget 通过默认 `refreshPolicy` 自动更新（见上一节），不要依赖 Widget 可见 interval。
 
@@ -509,7 +505,7 @@ Tapp.lifecycle.onReady(async function () {
 - [Tapp 商店](./STORE.md) - 远程目录、安装与发布
 - [API 参考](./API_REFERENCE.md) - 所有可用 API 的详细文档
 - [小组件开发](./WIDGET.md) - Widget 样式与[数据加载与更新](WIDGET.md#数据加载与更新)
-- [页面样式规范](./PAGE.md) - 页面布局和深色模式样式
+- [页面样式规范](./PAGE.md) - 宿主 React chrome 对照（沙箱样式用 STYLING / DESIGN_SPEC）
 - [样式规范](./STYLING.md) - Glass Morphism 设计规范
 - [安全沙箱](./SANDBOX.md) - 沙箱限制和安全机制
 - [故障排除](./TROUBLESHOOTING.md) - 安装与运行时问题

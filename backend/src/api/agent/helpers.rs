@@ -168,7 +168,11 @@ mod agent_entry_gate_tests {
     fn every_work_entry_checks_module_visibility() {
         let cases: [(&str, &str, &str); 6] = [
             ("process.rs", include_str!("process.rs"), "process"),
-            ("process.rs", include_str!("process.rs"), "process_stream"),
+            (
+                "process.rs",
+                include_str!("process.rs"),
+                "start_process_run",
+            ),
             ("process.rs", include_str!("process.rs"), "clarify"),
             ("presets.rs", include_str!("presets.rs"), "execute_preset"),
             (

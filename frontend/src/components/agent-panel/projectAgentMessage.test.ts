@@ -288,6 +288,21 @@ test('等你回答时不是还在说，问句后面不该跟光标', () => {
   assert.equal(projected.question?.text, '发给谁？')
 })
 
+test('chat work offer rides on reply data, not the spoken line', () => {
+  const projected = projectAgentMessage(
+    chat({
+      content: '这首我先听着。',
+      data: {
+        type: 'chat',
+        mode: 'chat',
+        workOffer: { input: '帮我搜一下网易云热歌' },
+      },
+    }),
+  )
+  assert.equal(projected.workOffer?.input, '帮我搜一下网易云热歌')
+  assert.equal(projectAgentMessage(chat()).workOffer, undefined)
+})
+
 test('流式时只投影最后一条，前面的对象沿用', () => {
   syncProjectedMessages([
     chat({ id: 'u', role: 'user', content: '问' }),

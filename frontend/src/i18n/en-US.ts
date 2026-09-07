@@ -38,6 +38,7 @@ export const enUS: TranslationKeys = {
     durationSeconds: '{sec}s',
     durationMinutes: '{min}m',
     durationMinutesSeconds: '{min}m {sec}s',
+    editMode: 'Edit mode',
   },
 
   // Navigation
@@ -134,17 +135,29 @@ export const enUS: TranslationKeys = {
     visualGenerating: 'Generating. You can keep using settings.',
     visualDownload: 'Download portrait',
     visualFailed: 'Could not generate the master portrait',
+    avatarTitle: 'Sticker avatar',
+    avatarHint:
+      'A chibi sticker drawn from the master portrait. Pick it under Avatar source to wear it yourself, and Agent notifications use it too. Replacing the master portrait clears it.',
+    avatarGenerate: 'Make sticker avatar',
+    avatarRegenerate: 'Make it again',
+    avatarGenerating: 'Drawing…',
+    avatarNeedsPortrait: 'Make a master portrait first — the sticker is drawn from it.',
+    avatarConfirm: 'The image model may cost money. Start generating the sticker avatar?',
+    avatarFailed: 'Could not generate the sticker avatar',
     motionPsdUpload: 'Upload layered PSD',
     motionPsdUploading: 'Reading PSD…',
 
     visualConfirm:
       'The image model may incur charges. Generate the master portrait now? Regenerating clears the imported rig.',
+    anime25dSeeThroughCredit:
+      'Splits the portrait into layers: hair, face, clothes.',
     anime25dRuntimeCredit:
-      'After See-through, motion is replicated from Anime2.5DRig (MIT).',
+      'Drives blink, speech, and head-turn on those layers.',
+    anime25dProjectThanks: 'The persona builds on these projects. Thanks to',
     anime25dDebug: 'Motion',
     overviewGroup: 'Overview',
-    overviewGroupDescription:
-      'Name, mood, current state, and whether the portrait and rig are ready.',
+    overviewGroupDescription: 'Each outfit’s portrait and rig, and do-not-disturb.',
+    statusGroup: 'Status',
     overviewName: 'Name',
     overviewMood: 'Mood',
     overviewActivity: 'Current state',
@@ -161,6 +174,17 @@ export const enUS: TranslationKeys = {
     overviewRig: 'Layered rig',
     overviewRigReady: 'Active',
     overviewRigEmpty: 'Not yet',
+    overviewOutfitPortrait: 'Portrait',
+    overviewOutfitRig: 'Rig',
+    overviewWardrobeWearing: 'Wearing {name}',
+    overviewWardrobeCount: 'There are {n} outfits',
+    overviewWardrobeNoneReady: 'No portraits or rigs yet',
+    overviewWardrobeAllPortraits: 'Every outfit has a portrait; no rigs yet',
+    overviewWardrobeAllRigs: 'Every outfit has a rig; no portraits yet',
+    overviewWardrobeMixed:
+      'Portraits are ready on {portrait} of them, rigs on {rig}',
+    overviewWardrobeOnePortrait: 'Has a portrait, no rig yet',
+    overviewWardrobeOneRig: 'Has a rig, no portrait yet',
     overviewSummary: 'Personality summary',
     overviewEmpty: 'No character overview yet.',
     personaGroup: 'Persona',
@@ -168,11 +192,41 @@ export const enUS: TranslationKeys = {
     personaEmpty: 'No persona yet.',
     portraitGroup: 'Portrait',
     portraitGroupDescription:
-      'Generate and preview the master portrait. Light and framing can be tweaked here; hair and clothes stay locked by the visual contract.',
+      'Generate and preview the master portrait. Change outfits in the wardrobe; light and framing can still be tweaked.',
     visualSourceTitle: 'Character visual',
     visualSourceEmpty: 'No confirmed upper-body visual design yet.',
+    wardrobeTitle: 'Wardrobe',
+    wardrobeHint:
+      'Change clothes. Face and hair stay. Regenerate the master portrait to draw the new outfit.',
+    wardrobeGroupDescription:
+      'Open a set to manage its portrait. Wear it from the outfit page. Face and hair stay.',
+    visualOutfitTitle: 'This outfit',
+    visualFixedTitle: 'Face and hair',
+    wardrobeEmpty: 'No saved outfits yet.',
+    wardrobeNeedCharacter:
+      'Confirm a visual design before making a new outfit.',
+    wardrobeReading: 'Reading visual features from the master portrait…',
+    wardrobeFillFromPortrait: 'Fill visual from portrait',
+    wardrobeFillFailed: 'Could not read visual features from the portrait',
+    wardrobeNew: 'Make another outfit',
+    wardrobeGenerate: 'Generate this outfit',
+    wardrobeWearing: 'Wearing',
+    wardrobeWear: 'Wear this',
+    wardrobeDefault: 'Default outfit',
+    wardrobeFull: 'Wardrobe is full',
+    wardrobeName: 'Name',
+    wardrobeNamePlaceholder: 'For example: winter coat',
+    wardrobeRenameFailed: 'Could not rename this outfit',
+    wardrobeRequirements: 'Outfit notes',
+    wardrobeRequirementsHint:
+      'Only colors, layers, or accessories for this outfit.',
+    wardrobeRequirementsPlaceholder:
+      'For example: deep red cropped jacket, gold buttons',
+    wardrobeApplyFailed: 'Could not put on that outfit',
+    wardrobeDeleteFailed: 'Could not remove that outfit',
     assetGroup: 'Portrait and rig',
     assetEmpty: 'No master portrait yet. Generate one first.',
+    widgetFaceSlotTaken: 'The live face only plays in one place at a time.',
     assetNeedsPortrait:
       'Generate the master portrait before splitting or uploading a layered PSD.',
     rigGroup: 'Layered rig',
@@ -216,6 +270,7 @@ export const enUS: TranslationKeys = {
     anime25dBust: 'Bust sway',
     anime25dBustY: 'Bust Y',
     anime25dLean: 'Body lean',
+    anime25dBodyYaw: 'Body follows turn',
     anime25dBrow: 'Brow height',
     anime25dBrowAngSym: 'Brow angle symmetry',
     anime25dBrowL: 'Brow angle L',
@@ -281,10 +336,7 @@ export const enUS: TranslationKeys = {
     anime25dInspectEmpty:
       'No rig data yet. Finish the layered rig to check that layers match the player.',
     rigPathUpload: 'Upload PSD',
-    rigPathUploadHint: 'Build the rig from your own layered PSD.',
     rigPathSeeThrough: 'See-through split',
-    rigPathSeeThroughHint:
-      'Split the current master portrait remotely, then run local preflight.',
     rigTokenReady: 'Token saved',
     rigPreflightTitle: 'Preflight result',
     rigPreflightSummary:
@@ -394,6 +446,234 @@ export const enUS: TranslationKeys = {
     wallpaperSwitch: 'Wallpaper Switch',
     language: 'Language',
     languageSwitch: 'Language Switch',
+  },
+
+  tour: {
+    start: 'Tour',
+    startHint: 'Controls on this page',
+    next: 'Next',
+    back: 'Back',
+    done: 'Done',
+    skip: 'Skip',
+    skipHold: 'Hold to skip',
+    stepOf: 'Step {current} of {total}',
+    hint: 'Page tour',
+    hintBody: 'Explains the main controls on this page.',
+    hintTitle: 'Explains the main controls on {page}.',
+    hintWelcome: 'Welcome to {site}',
+    begin: 'Start',
+    noTourOnThisPage: 'This page has no tour',
+    couldNotStart: 'No tour targets were found on this page',
+    steps: {
+      nav: {
+        title: 'Navigation',
+        body: 'Switch among Home, Library, Brew Reader, Platform Reports, and Tapp Apps.',
+      },
+      'home-grid': {
+        title: 'Widget grid',
+        body: 'The widget board shown first when the site opens.',
+      },
+      'home-edit': {
+        title: 'Edit',
+        body: 'Enter edit mode to change the layout and add or remove widgets.',
+      },
+      'home-edit-grid': {
+        title: 'Tiles',
+        body: 'Drag to move or resize. Long-press opens settings. Delete from the corner.',
+      },
+      'home-widget-library': {
+        title: 'Widget library',
+        body: 'Drag a widget onto the grid to add it.',
+      },
+      'home-free-layout': {
+        title: 'Free layout',
+        body: 'Switch between standard and free layout. Cell size is the same. The free canvas is 16×8; each layout stores its own positions.',
+      },
+      'home-sticker': {
+        title: 'Stickers',
+        body: 'Pick an empty slot, then generate or upload. They do not count toward the widget cell budget.',
+      },
+      'control-island': {
+        title: 'Control island',
+        body: 'Collapsed, it cycles site info. Open it to expand the control panel.',
+      },
+      'control-island-owner': {
+        title: 'Control island',
+        body: 'Collapsed, it cycles site info. Open it to expand the control panel.',
+      },
+      'control-panel': {
+        title: 'Control panel',
+        body: 'Appearance, Animation, and language. Sign in here. Play music on this site. Switch between Controls and Notifications.',
+      },
+      'control-panel-owner': {
+        title: 'Control panel',
+        body: 'Appearance, Animation, and language. Open system config. Play music on this site. Switch between Controls and Notifications.',
+      },
+      'library-filters': {
+        title: 'Filters',
+        body: 'Filter by All, Games, Videos, Music, Anime, TV Series, or Books. If collapsed, open Library again.',
+      },
+      'library-grid': {
+        title: 'Collection',
+        body: 'Synced items. Scroll down to load more.',
+      },
+      'library-grid-canvas': {
+        title: 'Collection',
+        body: 'Synced items spread out from the center. Drag to pan the canvas.',
+      },
+      'library-card': {
+        title: 'Card',
+        body: 'Open a card to go to the source site. NetEase plays on this site. Corners show the source and rating.',
+      },
+      'library-canvas': {
+        title: 'Canvas',
+        body: 'Zoom the infinite canvas, or reset to center.',
+      },
+      'reports-status': {
+        title: 'Status bar',
+        body: 'Cycles through platform and playback status on this page.',
+      },
+      'reports-play': {
+        title: 'Play',
+        body: 'Play existing reports in sequence.',
+      },
+      'reports-cards': {
+        title: 'Platform cards',
+        body: 'One card per platform. Open an existing report.',
+      },
+      'reports-cards-owner': {
+        title: 'Platform cards',
+        body: 'One card per platform. Open an existing report, or generate one here.',
+      },
+      'tapp-store-entry': {
+        title: 'Store',
+        body: 'Open the store to browse and install apps.',
+      },
+      'tapp-scope': {
+        title: 'Scope',
+        body: 'Switch between My apps and Site apps.',
+      },
+      'tapp-open-playground': {
+        title: 'Playground',
+        body: 'Generate an app from natural language. Runs in a temporary sandbox with no granted permissions.',
+      },
+      'tapp-install': {
+        title: 'Install',
+        body: 'Install by uploading a .tapp file.',
+      },
+      'tapp-grid': {
+        title: 'Installed apps',
+        body: 'Open a card to run the app.',
+      },
+      'tapp-grid-owner': {
+        title: 'Installed apps',
+        body: 'Open a card to run it. Start, stop, open settings, or uninstall. Reorder and resize cards here.',
+      },
+      'config-search': {
+        title: 'Search',
+        body: 'Find settings by name or guide text.',
+      },
+      'config-sidebar': {
+        title: 'Groups',
+        body: 'Settings grouped by section.',
+      },
+      'config-content': {
+        title: 'Settings',
+        body: 'Save after changes.',
+      },
+      'config-ai-persona-toggle': {
+        title: 'Persona',
+        body: 'When on, Agent speaks with this persona. Writing it needs Pro.',
+      },
+      'config-ai-persona-card': {
+        title: 'Character',
+        body: 'Start setup if empty. Open character settings or delete when one exists.',
+      },
+      'config-ai-persona-speech': {
+        title: 'Speak',
+        body: 'Read chat replies aloud. Unavailable while the persona is off.',
+      },
+      'config-persona-tabs': {
+        title: 'Tabs',
+        body: 'Switch among Overview, Persona, Wardrobe, and Motion.',
+      },
+      'config-persona-portrait': {
+        title: 'Portrait',
+        body: 'Current face preview. Plays here once a rig exists.',
+      },
+      'config-persona-overview': {
+        title: 'Overview',
+        body: 'Name, mood and activity, sticker avatar, and Do not disturb.',
+      },
+      'config-persona-identity': {
+        title: 'Persona',
+        body: 'Temperament, likes, drives, social style, and speech. Import or edit each field. Owner-only write.',
+      },
+      'config-persona-wardrobe': {
+        title: 'Wardrobe',
+        body: 'Open a set to manage its portrait. Face and hair stay fixed. New outfits can be added.',
+      },
+      'config-persona-motion': {
+        title: 'Motion',
+        body: 'Preview and adjust motion after a rig is imported.',
+      },
+      'tapp-detail-overview': {
+        title: 'Overview',
+        body: 'App info. Export is available. Start, stop, or uninstall when you have permission.',
+      },
+      'tapp-detail-settings': {
+        title: 'App settings',
+        body: 'This installation’s config. Visible when signed in. Visibility is owner-only.',
+      },
+      'tapp-detail-permissions': {
+        title: 'Permissions',
+        body: 'Read-only list of granted permissions for this installation.',
+      },
+      'tapp-playground-toolbar': {
+        title: 'Toolbar',
+        body: 'Return to the app list. This sandbox has no granted permissions.',
+      },
+      'tapp-playground-preview': {
+        title: 'Page preview',
+        body: 'Placeholder until something is generated. After generation it runs in the temporary sandbox.',
+      },
+      'tapp-playground-widget': {
+        title: 'Widget preview',
+        body: 'Rendered at the declared size.',
+      },
+      'tapp-playground-code': {
+        title: 'Code',
+        body: 'Generated source. Switch files and edit them. Compare versions when more than one exists.',
+      },
+      'tapp-playground-prompt': {
+        title: 'Prompt',
+        body: 'Describe what to generate or change in natural language. Empty sessions can fill from examples. Enter sends, Shift+Enter inserts a line break.',
+      },
+      'tapp-playground-generate': {
+        title: 'Generate',
+        body: 'Submit to generate or apply changes, then run in the temporary sandbox.',
+      },
+      'tapp-playground-history': {
+        title: 'History',
+        body: 'Session change history. Switch, create, or delete sessions.',
+      },
+      'tapp-playground-revisions': {
+        title: 'Revisions',
+        body: 'Move between generated versions.',
+      },
+      'tapp-playground-clear': {
+        title: 'Clear session',
+        body: 'Clear the current session.',
+      },
+      'tapp-playground-export': {
+        title: 'Export',
+        body: 'Download a .tapp package.',
+      },
+      'tapp-playground-install': {
+        title: 'Install',
+        body: 'Install on this site. Granted permissions exist only after install.',
+      },
+    },
   },
 
   // Authentication
@@ -627,8 +907,17 @@ export const enUS: TranslationKeys = {
       visitorDesc:
         'First-party, batched, idle beacons. Admin and site-owner sessions are excluded. Visitor id stays in the browser; the server stores hashes and uses proxy-trusted client IPs.',
       enableAria: 'Enable visitor stats',
+      enablePreviewOn:
+        'New visits will be recorded. Signed-in admins and the site owner are not counted.',
+      enablePreviewOff:
+        'New visits will not be recorded. Existing history stays.',
       disabledBanner:
         'Collection is off: new visits are not recorded; historical data remains available',
+      optOutLabel: 'Opt out on this device',
+      optOutDesc:
+        'Applies only to this browser. It does not change the site-wide switch above. While opted out, this browser will not send beacons or mint a visitor id.',
+      optOutPreviewOn: 'This browser will not be counted',
+      optOutPreviewOff: 'This browser follows the site-wide collection switch',
       pagesTitle: 'Page analytics',
       pagesDesc:
         'Views, true distinct visitors, and average engagement per page in the selected range',
@@ -1507,6 +1796,15 @@ export const enUS: TranslationKeys = {
     musicPlatform: 'Music Platform',
     playlistId: 'Playlist ID',
     clearMusicCache: 'Clear Music Cache',
+    islandContentTitle: 'Control island',
+    islandContentDesc:
+      'Choose what the top-right control island cycles through. Notifications stay under Notification settings.',
+    islandContentLocations: 'Shown content',
+    islandGreeting: 'Greeting',
+    islandWeather: 'Weather',
+    islandQuote: 'Quote',
+    islandMusic: 'Music',
+    islandTapp: 'Tapp',
     siteMetadata: 'Site Metadata',
     siteMetadataDesc: 'Site title, description, and favicon',
     siteIdentity: 'Site identity & app',
@@ -1557,6 +1855,9 @@ export const enUS: TranslationKeys = {
     fieldSiteOgImage: 'Share Preview Image',
     fieldSiteOgImageHint:
       'Public https URL for Open Graph / crawlers (data: and local uploads are not used). Prefer ≥1200×630, PNG/JPEG/WebP',
+    fieldGoogleSiteVerification: 'Google Search Console verification',
+    fieldGoogleSiteVerificationHint:
+      'When verifying with an HTML tag in Search Console, paste the content value or the whole meta tag. Saved as google-site-verification on the page. After the site URL is set, submit /sitemap.xml.',
     fieldSiteNoindex: 'Search engine indexing',
     fieldSiteNoindexHint:
       'On: allow search engines to index. Off: pages emit noindex, nofollow — useful for private or not-yet-public instances',
@@ -1564,6 +1865,8 @@ export const enUS: TranslationKeys = {
     fieldSiteVisibilityPolicy: 'Search & AI visibility',
     fieldSiteVisibilityPolicyHint:
       'Controls whether search engines and AI (ChatGPT, Perplexity, etc.) can discover and cite this site. Recommended: Allow AI citations for public sites.',
+    seoOriginMissingHint:
+      'Site URL is not set. sitemap.xml will be empty and share links will not be absolute. Set the site URL above first.',
     visibilityPrivate: 'Private',
     visibilityPrivateHint: 'Sets noindex, empty sitemap, no /llms.txt',
     visibilityPrivateHintBefore: 'Sets ',
@@ -1648,7 +1951,7 @@ export const enUS: TranslationKeys = {
     memorySaverHint:
       'A second notch below the bounded default: smaller chunk inflight, process caches, DB pool, password-hash concurrency, and video/audio peaks. Everyday messages still fit; large media should use chunked transfer, and lossless audio may reject sooner. Env MYRIAD_MEMORY_PROFILE can override. DB pool fully applies after backend restart.',
     agentOptions: 'Agent',
-    agentOptionsDesc: 'Persona, scheduled tasks, skills, and memories.',
+    agentOptionsDesc: 'Persona, speaking, scheduled tasks, skills, and memories.',
     agentHeartbeatTitle: 'Scheduled tasks',
     agentHeartbeatDesc: 'Have it do something on its own when the time comes.',
     agentSkillsTitle: 'Skills',
@@ -1661,7 +1964,7 @@ export const enUS: TranslationKeys = {
     agentPersonaHint:
       'When on, Agent speaks with the site persona, keeps per-person mood and diary, and may speak after named events. When off, it only chats and does tasks.',
     agentPersonaNeedsLite:
-      'Lite is off: chat replies fall back to Standard. Proactive lines stay short and mood hints stay off.',
+      'Lite is off: chat and name shuffle will not run. Proactive lines stay short and mood hints stay off.',
     agentPersonaNeedsPro:
       'Enable the Pro tier above first — persona setup requires Pro.',
     agentPersonaEmpty: 'No persona yet',
@@ -1674,8 +1977,7 @@ export const enUS: TranslationKeys = {
       'Delete the current persona? Mood and diary will be cleared too.',
     agentPersonaDeleteFailed: 'Could not delete the persona',
     agentPersonaSpeech: 'Speak',
-    agentPersonaSpeechHint:
-      'When on, chat replies are spoken aloud. Off: the face still mouths the line, with no voice. Off by default.',
+    agentPersonaSpeechHint: 'Speak chat replies aloud. Off: mouth movement only.',
     enableProxy: 'Enable Network Proxy',
     enableProxyHint:
       'External API requests will be sent through the proxy when enabled',
@@ -1838,6 +2140,7 @@ export const enUS: TranslationKeys = {
     placeholderSiteTitle: 'Myriad - A myriad of lights, in one place.',
     placeholderSiteDescription: 'A myriad of lights, in one place.',
     placeholderSiteKeywords: 'personal site, blog, digital life',
+    placeholderGoogleSiteVerification: 'Paste the token or the full meta tag',
     placeholderSiteOgImage: 'https://example.com/og.png',
     placeholderGaMeasurementId: 'G-XXXXXXXXXX',
     placeholderUmamiWebsiteId: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
@@ -1890,6 +2193,13 @@ export const enUS: TranslationKeys = {
     aiVendorsTitle: 'Providers',
     aiVendorsDesc:
       'Add sources like login methods. The same vendor can have more than one. Models and speech pick from this list.',
+    webSearchTitle: 'Web search',
+    webSearchDesc:
+      'Used by Work-mode web search. TinyFish is preferred when this key is set; otherwise Gemini grounding is used. Visitors never fill this in.',
+    tinyfishApiKey: 'TinyFish API Key',
+    tinyfishApiKeyHint:
+      'Search is free, but a key is still required. Sign up at agent.tinyfish.ai; no credit card. Clear the field and save to delete; a mask left as-is keeps the stored key.',
+    tinyfishApiKeyPlaceholder: 'Create a key at agent.tinyfish.ai/api-keys',
     aiVendorAdd: 'Add provider',
     aiVendorAddDesc: 'Pick a preset',
     aiVendorEmpty: 'No providers yet',
@@ -2290,6 +2600,9 @@ export const enUS: TranslationKeys = {
     permEventPublishHint: 'Allow Tapp to publish events to other Tapps',
     permAiImage: 'AI Image Generation',
     permAiImageHint: 'Allow Tapp to generate images with AI',
+    permAiSearch: 'AI Web Search',
+    permAiSearchHint:
+      'Allow Tapp to search the web (TinyFish, Gemini grounding fallback)',
     perm3dGenerate: '3D Model Generation',
     perm3dGenerateHint:
       'Allow Tapp to generate, rig, or retarget 3D models with Tripo',
@@ -2393,8 +2706,16 @@ export const enUS: TranslationKeys = {
     aiCooldownSeconds: 'Cooldown Time',
     aiCooldownSecondsHint: 'Minimum interval between AI calls (seconds)',
     unitSeconds: 's',
+    switchPreviewOnKicker: 'Turning on',
+    switchPreviewOffKicker: 'Turning off',
     platformHelpAria: '{name} details',
     platformEnableAria: 'Show {name} card on reports page',
+    platformEnablePreviewOn:
+      'The {name} card will appear on the reports page, in the current drag order',
+    platformEnablePreviewOff:
+      'The reports page will hide this card. Already synced data stays.',
+    platformEnablePreviewNeedConfig:
+      'Open the card and add credentials before you can turn this on',
     platformOpenDetailAria: 'Open {name} settings',
     // Site footer and cloud sponsors
     siteFooterTitle: 'Site Footer',
@@ -2457,6 +2778,9 @@ export const enUS: TranslationKeys = {
     brewSource: 'Feed Tile',
     brewTopic: 'Topic Digest',
     brewFeatured: 'Brew Picks',
+    githubRepos: 'GitHub Repos',
+    githubReposField: 'Repository',
+    githubReposFieldHint: 'GitHub URL or owner/repo',
     library: 'Library',
     dataReport: 'Platform Reports',
     multiPlatformAggregation: 'Multi-platform Content Aggregation',
@@ -2529,6 +2853,56 @@ export const enUS: TranslationKeys = {
   // Home
   home: {
     defaultBio: 'Welcome to my personal dashboard',
+    switchToFreeLayout: 'Switch to free layout',
+    switchToStandardLayout: 'Switch to standard layout',
+    freeLayout: 'Free layout',
+    standardLayout: 'Standard layout',
+    createSticker: 'Create sticker',
+    stickerPromptPlaceholder: 'Describe the sticker, e.g. a cat with sunglasses',
+    stickerSizeHint: 'Size {size}',
+    stickerGenerating: 'Generating…',
+    stickerFailed: 'Could not generate sticker',
+    stickerNoSpace: 'No empty space for a sticker',
+    stickerPickHint: 'Drag any cells; generate uses the closest ratio and crops the rest',
+    stickerGenerateCropHint:
+      'Composed for {aspect}, subject centered so a crop keeps it in frame',
+    stickerAddReference: 'Add reference image',
+    stickerReferenceLimit: 'Up to 4 images',
+    stickerModeGenerate: 'Generate',
+    stickerModeUpload: 'Upload',
+    stickerUploadImage: 'Choose image',
+    stickerUploading: 'Uploading…',
+    stickerUploadFailed: 'Could not upload sticker',
+    stickerCropHint: 'Drag or scroll to crop the visible area',
+    stickerLongPressEdit: 'Long-press to adjust the visible area',
+    stickerSettings: 'Sticker',
+    stickerFloat: 'Float',
+    stickerFloatLoop: 'Always float',
+    stickerFloatHover: 'Float on hover',
+    stickerFloatOff: 'Stay still',
+    stickerFloatLoopHint: 'Keeps drifting gently',
+    stickerFloatHoverHint: 'Only when the pointer is over it',
+    stickerFloatOffHint: 'No motion',
+    stickerDownload: 'Download image',
+    stickerDownloadHint: 'Save the original generated or uploaded file',
+    stickerFile: 'Image',
+    exportLayout: 'Export',
+    importLayout: 'Import',
+    exportLayoutSuccess: 'Home layout exported',
+    exportLayoutFailed: 'Could not export the home layout',
+    exportLayoutPartial:
+      'Home layout exported, but {count} sticker original(s) could not be included',
+    importLayoutSuccess: 'Home layout imported',
+    importLayoutFailed: 'Could not import the home layout',
+    importLayoutPartial:
+      'Home layout imported, but {count} sticker original(s) could not be stored',
+    importLayoutConfirm:
+      'This replaces the current standard and free layouts. Sticker originals in the file will be stored on this site. Import?',
+    importLayoutInvalid: 'That file is not a home layout',
+    importLayoutSettingsBackup:
+      'That is a site settings backup. Import it from system configuration.',
+    importLayoutTooLarge: 'That layout file is too large',
+    importLayoutTooMany: 'That layout file has too many tiles',
   },
 
   // Library
@@ -2638,6 +3012,12 @@ export const enUS: TranslationKeys = {
       dismiss: 'Not now',
       failed: 'That did not go through. Please try again.',
     },
+    workOffer: {
+      kicker: 'Help',
+      hint: 'This needs tools',
+      accept: 'Do this',
+      sent: 'On it',
+    },
     mood: {
       kicker: 'Mood',
     },
@@ -2713,7 +3093,8 @@ export const enUS: TranslationKeys = {
       turnTraceTitle: 'This turn',
       turnTraceIdle: 'Nothing spoken yet',
       turnTraceExport: 'Save this turn',
-      turnTraceTiming: 'heard {asr} · first word {llm} · synth {tts} · first sound {audio} · end-to-end {e2e}',
+      turnTraceTiming:
+        'heard {asr} · first word {llm} · synth {tts} · first sound {audio} · end-to-end {e2e}',
       lastRun: 'Last run: {time}',
       neverRun: 'Not run yet',
       remove: 'Delete',
@@ -2843,7 +3224,9 @@ export const enUS: TranslationKeys = {
       saveFirst: 'Save settings first.',
       nameLabel: 'Name',
       nameHint:
-        'Leave blank to stay Arael. Pick a name style, then shuffle. Uses the Standard model.',
+        'Leave blank to stay Arael. Pick a style, then shuffle. Lite only — it does not fall back to Standard.',
+      importNameHint:
+        'Leave blank to stay Arael. On import, type the name yourself.',
       namePlaceholder: 'Enter a name',
       randomName: 'Shuffle',
       randomNameBusy: 'Generating',
@@ -2922,7 +3305,9 @@ export const enUS: TranslationKeys = {
         'Bring your own persona and portrait. Give it a name and you are done.',
       importPersonaReady: 'Persona is in place.',
       importPortraitHint:
-        'Upload a finished portrait. Nothing is generated, so no visual design is needed first.',
+        'Upload a finished portrait. Visual features will be read from this image.',
+      importVisualFailed:
+        'Could not read visual features from the portrait. Try again.',
       importFinish: 'Next: make her move',
       personaFieldGenerating: 'Generating',
       editPersona: 'Edit',
@@ -2944,6 +3329,8 @@ export const enUS: TranslationKeys = {
         'The Pro model is unavailable. Enable it in settings first.',
       standardUnavailable:
         'The Standard model is unavailable. Check it in settings first.',
+      liteUnavailable:
+        'Lite is unavailable. Name shuffle uses Lite only — enable it and fill in the Lite model name; leaving that field blank will not fall back to Standard.',
       visualRequirements: 'Visual requirements',
       visualRequirementsHint:
         'Colors, garments, accessories, and motifs written here take priority. Art school, gender, an uncovered neck, and the clothing family stay locked.',
@@ -2973,6 +3360,10 @@ export const enUS: TranslationKeys = {
         'The design came back in the wrong language. Generate again.',
       visualDesignRequired:
         'Confirm the upper-body visual design before generating the portrait.',
+      visualGenderMismatch:
+        'The upper-body visual design does not match the chosen gender presentation, so the portrait cannot be generated.',
+      visualIdentityUnusableForPortrait:
+        'The upper-body visual design cannot be used for portrait generation because a field was stripped by the style lock.',
       visualDesignSaveFailed: 'Could not save the character visual design',
       portraitTalkLead: 'Say what to change',
       portraitLoading: 'Loading the existing portrait',
@@ -3501,6 +3892,7 @@ export const enUS: TranslationKeys = {
     profileSourceAutoDesc:
       'Prefer a platform profile, fall back to the account avatar',
     profileSourceAccount: 'Account avatar',
+    profileSourcePersona: 'Persona sticker avatar',
     profileTextSourceTitle: 'Name & bio source',
     profileTextSourceHint:
       'Affects the name and bio only, independent of the avatar source.',
@@ -3515,8 +3907,12 @@ export const enUS: TranslationKeys = {
   // Widget Grid
   widgetGrid: {
     widgetLibrary: 'Widget Library',
+    restoreWidgetLibrary: 'Back to widget library',
     searchWidgets: 'Search widgets…',
     clearSearch: 'Clear search',
+    filterWidgets: 'Filter widgets',
+    filterAll: 'All',
+    filterReports: 'Reports',
     noSearchResults: 'No matching widgets',
     deleteWidget: 'Delete widget',
     positionConflict: '✖ Position conflict',
@@ -3524,6 +3920,8 @@ export const enUS: TranslationKeys = {
     prevPage: 'Previous page',
     nextPage: 'Next page',
     widgetSettings: 'Widget settings',
+    longPressToEdit: 'Long press widget to configure',
+    createSticker: 'Create sticker',
   },
 
   // Social Network Widget
@@ -3805,6 +4203,16 @@ export const enUS: TranslationKeys = {
     unavailable: 'Quote unavailable',
   },
 
+  githubReposWidget: {
+    empty: 'No repositories yet',
+    emptyHint: 'Edit the widget and enter owner/repo',
+    loadFailed: 'Could not load repositories',
+    sampleRepo: 'hello-world',
+    sampleRepoAlt: 'toolkit',
+    sampleDesc: 'Sample repository summary',
+    sampleDescAlt: 'Another sample summary',
+  },
+
   // Music Player Widget
   musicPlayer: {
     sampleSong: 'Sample Song',
@@ -3941,6 +4349,13 @@ export const enUS: TranslationKeys = {
     notConfigured: 'Not configured',
     fetchFailed: 'Failed to load',
     showcaseEmpty: 'Showcase empty or private',
+    customFont: 'Custom font',
+    customFontHint: 'Use a font you have the right to embed on the web. Optional.',
+    customFontChoose: 'Choose font',
+    customFontClear: 'Use system font',
+    customFontUploading: 'Uploading…',
+    customFontFailed: 'Could not upload font',
+    customFontInUse: 'Custom font in use',
   },
 
   // Tapp shortcut widget
@@ -4052,6 +4467,7 @@ export const enUS: TranslationKeys = {
     permPublishEvent: 'Publish Event',
     permSubscribeEvent: 'Subscribe Event',
     permAiImage: 'AI Image Generation',
+    permAiSearch: 'AI Web Search',
     perm3dGenerate: '3D Model Generation',
     permSchedulerRegister: 'Register Scheduler',
     permSpeechTts: 'Text-to-Speech',
@@ -4108,6 +4524,8 @@ export const enUS: TranslationKeys = {
     permPublishEventDesc: 'Allow publishing system events',
     permSubscribeEventDesc: 'Allow subscribing to system events',
     permAiImageDesc: 'Allow calling AI to generate images',
+    permAiSearchDesc:
+      'Allow web search via TinyFish (Gemini grounding fallback)',
     perm3dGenerateDesc:
       'Allow calling Tripo to generate, rig, or retarget 3D models',
     permSchedulerRegisterDesc: 'Allow registering and managing scheduled tasks',
@@ -5239,7 +5657,7 @@ export const enUS: TranslationKeys = {
     empty: 'No notifications',
     loadFailed: 'Could not load notifications.',
     clearAll: 'Clear all',
-    clearConfirm: 'Confirm clear?',
+    clearConfirm: 'Confirm clear',
     enableSystemNotif: 'Enable system notifications',
     justNow: 'just now',
     minutesAgo: '{n}m ago',

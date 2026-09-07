@@ -4,6 +4,7 @@ import type { SpeechSegment } from './speechSegmenter'
 import type { VisemeSpan } from './visemeTimeline'
 import { compileTextVisemes } from '../anime25drig/textVisemes'
 import { speechProsodyTimeline } from './prosody'
+import { alignTextProsody } from './textProsody'
 import {
   alignVisemeTimeline,
   VISEME_SILENCE_ENERGY,
@@ -58,15 +59,23 @@ export function playTtsBuffer(
   context?: AudioContext,
   dependencies: TtsPlaybackDependencies = {},
 ): TtsPlayHandle {
+  let stopped = false
   if (!context && typeof AudioContext === 'undefined') {
-    queueMicrotask(hooks.onEnded)
-    return { stop() {} }
+    queueMicrotask(() => {
+      if (stopped) return
+      stopped = true
+      hooks.onEnded()
+    })
+    return {
+      stop: () => {
+        stopped = true
+      },
+    }
   }
   const ctx = context ?? speechAudioContext()
   let source: AudioBufferSourceNode | null = null
   let analyser: AnalyserNode | null = null
   let raf = 0
-  let stopped = false
 
   const stop = (): void => {
     if (stopped) return
@@ -92,7 +101,12 @@ export function playTtsBuffer(
   let spans: VisemeSpan[] = []
   void ctx
     .decodeAudioData(audio.slice(0))
-    .then((decoded) => {
+    .then(async (decoded) => {
+      if (stopped) return
+      // A suspended context has not entered the audible timeline. Do not
+      // spend its phrase preparation or hold a predicted mouth pose while
+      // resume is pending; running contexts keep the immediate path.
+      if (ctx.state === 'suspended') await ctx.resume()
       if (stopped) return
       analyser = ctx.createAnalyser()
       analyser.fftSize = FFT
@@ -105,13 +119,37 @@ export function playTtsBuffer(
       )
       const startedAt = ctx.currentTime
       const startedAtMs = wallNow()
+      const prosodyInput = {
+        utteranceId: `tts-${segment.segmentId}`,
+        text: segment.text,
+        locale: segment.locale,
+        startedAtMs,
+      }
+      // Phrase preparation does not wait for a cold phoneme module either.
+      hooks.onProsody?.(
+        alignTextProsody(prosodyInput, {
+          durationMs: Math.round(decoded.duration * 1_000),
+          accents: [],
+        }),
+        { startedAtMs },
+      )
       // Viseme compilation is useful but not on the audible critical path.
       // If a language module is cold, energy-only articulation starts now and
       // the aligned shapes/prosody join as soon as compilation finishes.
       void compiled.then((cues) => {
         if (stopped) return
         spans = alignVisemeTimeline(cues, decoded.duration)
-        hooks.onProsody?.(speechProsodyTimeline(spans, decoded.duration), {
+        const audioProsody = speechProsodyTimeline(spans, decoded.duration)
+        const elapsedMs = Math.max(0, wallNow() - startedAtMs)
+        const timeline = alignTextProsody(prosodyInput, {
+          ...audioProsody,
+          // Late evidence can add future preparation, not insert a stroke
+          // at full strength after its preparation has already passed.
+          accents: audioProsody.accents.filter(
+            (accent) => accent.offsetMs >= elapsedMs + 140,
+          ),
+        })
+        hooks.onProsody?.(timeline, {
           startedAtMs,
         })
       })
@@ -133,7 +171,6 @@ export function playTtsBuffer(
         stop()
         hooks.onEnded()
       }
-      if (ctx.state === 'suspended') void ctx.resume()
       // Publish the first predicted mouth target in this task, before either
       // audio output or the next character render frame has to wait for RAF.
       tick()

@@ -1,5 +1,8 @@
-import type { WidgetConfig, WidgetType } from '../WidgetGrid'
-
+import type {
+  WidgetConfig,
+  WidgetGridHandle,
+  WidgetType,
+} from '../widgetGridTypes'
 import { FaChevronLeft, FaChevronRight } from '@lib/icons'
 import React, {
   memo,
@@ -10,20 +13,20 @@ import React, {
   useRef,
   useState,
 } from 'react'
-import { createPortal } from 'react-dom'
 import { API_URL as CONFIG_API_URL } from '../../config'
-
 import { useI18n } from '../../contexts/I18nContext'
 import {
   useHomeResizeObserver,
   useHomeVisibilityInterval,
 } from '../../hooks/animation'
+import { useEditModeEscape } from '../../hooks/useEditModeEscape'
 import { useTappWidgets } from '../../hooks/useTappWidgets'
 import { getCSRFToken } from '../../utils/csrf'
 import { getUIConfigDeduped } from '../../utils/requestDedup'
 import { showError } from '../../utils/toastManager'
 import { userFacingError } from '../../utils/userFacingError'
-import WidgetGrid from '../WidgetGrid'
+import WidgetGrid, { startGridLibraryDrag } from '../WidgetGrid'
+import WidgetLibraryIsland from '../WidgetLibraryIsland'
 import { getBuiltinWidgets } from '../widgets/builtinWidgets'
 import {
   PANEL_MORPH_BASE_MS,
@@ -96,6 +99,17 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       null,
     )
     const [isEditMode, setIsEditMode] = useState(false)
+    const gridRef = useRef<WidgetGridHandle>(null)
+    useEditModeEscape(isEditMode, () => setIsEditMode(false))
+    const onLibraryDragStart = useCallback(
+      (
+        event: Parameters<typeof startGridLibraryDrag>[1],
+        widgetTypeId: string,
+      ) => {
+        startGridLibraryDrag(gridRef.current, event, widgetTypeId)
+      },
+      [],
+    )
     const [currentPage, setCurrentPage] = useState(0)
     const [gridRows, setGridRows] = useState(2)
     const [_isLoading, setIsLoading] = useState(true)
@@ -437,19 +451,15 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
 
     useEffect(() => {
       if (!isEditMode) return
-
-      const handleClickOutside = (e: MouseEvent) => {
-        if (
-          containerRef.current &&
-          !containerRef.current.contains(e.target as Node)
-        ) {
-          setIsEditMode(false)
-        }
-      }
-
-      window.addEventListener('mousedown', handleClickOutside)
-      return () => window.removeEventListener('mousedown', handleClickOutside)
+      const root = document.documentElement
+      root.classList.add('gcp-widget-edit')
+      return () => root.classList.remove('gcp-widget-edit')
     }, [isEditMode])
+
+    useEffect(() => {
+      if (panelVisible) return
+      setIsEditMode(false)
+    }, [panelVisible])
 
     // 计算最大页数 (基于内容)
     /**
@@ -558,22 +568,16 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
 
     return (
       <>
-        {/* 遮罩层 - 点击退出编辑模式 (Portal 到 body 以避免被裁剪) */}
-        {isEditMode &&
-          createPortal(
-            <div
-              className="fixed inset-0 z-9998 bg-black/20 backdrop-blur-sm cursor-default"
-              onClick={(e) => {
-                e.stopPropagation()
-                setIsEditMode(false)
-              }}
-            />,
-            document.body,
-          )}
+        <WidgetLibraryIsland
+          visible={isEditMode}
+          parkable={false}
+          availableWidgets={filteredWidgets}
+          onNewWidgetDragStart={onLibraryDragStart}
+        />
 
         <div
           ref={containerRef}
-          className={`control-panel-widgets-container relative w-full transition-all rounded-xl ${isEditMode ? 'z-9999' : ''}`}
+          className="control-panel-widgets-container relative w-full transition-all rounded-xl"
           onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp}
           onPointerEnter={(e) => {
@@ -595,22 +599,14 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
               >
                 <div className="w-full transition-all duration-300 ease-in-out">
                   <WidgetGrid
+                    ref={gridRef}
                     widgets={displayWidgets}
                     availableWidgets={filteredWidgets}
                     onWidgetsChange={handleWidgetsChange}
                     isEditMode={isEditMode}
-                    onToggleEditMode={setIsEditMode}
                     customGridColumns={12} // 3页宽度 (4 * 3)
                     customGridRows={gridRows}
                     autoHeight={true}
-                    libraryContainerClassName="fixed top-20 right-112.5 w-80 rounded-xl border border-gray-200/50 dark:border-white/5 z-10000 glass-surface glass-80 shadow-2xl overflow-hidden"
-                    // 优化：改为 flex-col 避免重叠
-                    libraryContentClassName="flex flex-col items-center gap-6 p-6 overflow-y-auto max-h-[60vh] scrollbar-hide w-full"
-                    libraryAnimation={{
-                      initial: { opacity: 0, x: -20 },
-                      animate: { opacity: 1, x: 0 },
-                      exit: { opacity: 0, x: -20 },
-                    }}
                   />
                 </div>
               </div>

@@ -38,12 +38,12 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "API_REFERENCE",
-        description: "complete Tapp JavaScript SDK reference: storage, assets getUrlMap rewriteUrl, federation notes/media, permissions",
+        description: "complete Tapp JavaScript SDK reference: storage, assets getUrlMap rewriteUrl, federation notes/media, permissions, Tapp.ai.tasks generate analyze chat image search envelope",
         content: include_str!("../../../docs/development/tapp/API_REFERENCE.md"),
     },
     KnowledgeDocument {
         id: "PAGE",
-        description: "page templates, modules, lifecycle, layout, and page runtime",
+        description: "host React chrome (AnimatedView, sm/md breakpoints) — not Tapp sandbox; sandbox styling is STYLING and DESIGN_SPEC",
         content: include_str!("../../../docs/development/tapp/PAGE.md"),
     },
     KnowledgeDocument {
@@ -93,7 +93,7 @@ const DOCUMENTS: &[KnowledgeDocument] = &[
     },
     KnowledgeDocument {
         id: "PLAYGROUND_GENERATION_CONTEXT",
-        description: "safe temporary-preview contract; runtimeModules three preview; Tapp.game install-only; manifest.locales vs code.i18n; credentials not in source",
+        description: "always-injected preview contract; Tapp.ai.tasks generate analyze chat image search envelope; runtimeModules three preview; Tapp.game install-only; manifest.locales vs code.i18n; credentials not in source",
         content: include_str!("../../../docs/development/tapp/PLAYGROUND_GENERATION_CONTEXT.md"),
     },
 ];
@@ -122,7 +122,25 @@ pub fn catalog_for_prompt() -> String {
         .join("\n")
 }
 
-pub fn search(query: &str, limit: usize) -> Vec<KnowledgeExcerpt> {
+/// Documents that must not occupy generation retrieval slots.
+///
+/// `PLAYGROUND_GENERATION_CONTEXT` is already injected verbatim.
+/// `PAGE` is host React chrome (`AnimatedView`, `sm:`/`md:`) and would teach
+/// classes the sandbox on-demand Tailwind compile ignores.
+const GENERATION_SEARCH_SKIP: &[&str] = &["PLAYGROUND_GENERATION_CONTEXT", "PAGE"];
+
+#[cfg(test)]
+fn search(query: &str, limit: usize) -> Vec<KnowledgeExcerpt> {
+    search_filtered(query, limit, &[])
+}
+
+/// Playground generation retrieval: same scoring as the unfiltered test search,
+/// minus docs that are always injected or that contradict the sandbox styling contract.
+pub fn search_for_generation(query: &str, limit: usize) -> Vec<KnowledgeExcerpt> {
+    search_filtered(query, limit, GENERATION_SEARCH_SKIP)
+}
+
+fn search_filtered(query: &str, limit: usize, skip: &[&str]) -> Vec<KnowledgeExcerpt> {
     let query = expand_query_aliases(query);
     let terms = query_terms(&query);
     if terms.is_empty() || limit == 0 {
@@ -131,6 +149,9 @@ pub fn search(query: &str, limit: usize) -> Vec<KnowledgeExcerpt> {
 
     let mut scored = Vec::new();
     for document in DOCUMENTS {
+        if skip.contains(&document.id) {
+            continue;
+        }
         for (section, body) in split_sections(document.content) {
             let heading_lower = section.to_lowercase();
             let body_lower = body.to_lowercase();
@@ -292,6 +313,22 @@ fn expand_query_aliases(query: &str) -> String {
         ("长介绍", " long_description locales store catalog preview "),
         ("标题", " locales name description manifest "),
         ("商店", " store install locales catalog preview package manifest "),
+        (
+            "联网搜索",
+            " ai:search Tapp.ai.tasks search json envelope contextProvenance ",
+        ),
+        (
+            "ai:search",
+            " ai:search Tapp.ai.tasks search json envelope contextProvenance ",
+        ),
+        (
+            "Tapp.ai",
+            " Tapp.ai.tasks generate analyze chat image search envelope contextProvenance ",
+        ),
+        (
+            "AI任务",
+            " Tapp.ai.tasks generate analyze chat image search envelope contextProvenance ",
+        ),
     ];
     aliases
         .iter()
@@ -313,6 +350,20 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{catalog_for_prompt, search};
+
+    #[test]
+    fn generation_search_skips_host_page_chrome_and_always_injected_context() {
+        let results = super::search_for_generation(
+            "page layout AnimatedView sm:px-6 md:pb-12 playground generation context",
+            8,
+        );
+        assert!(
+            results
+                .iter()
+                .all(|result| result.document != "PAGE" && result.document != "PLAYGROUND_GENERATION_CONTEXT"),
+            "generation retrieval must not return PAGE or PLAYGROUND_GENERATION_CONTEXT: {results:?}"
+        );
+    }
 
     #[test]
     fn catalog_covers_the_full_tapp_contract() {
@@ -442,6 +493,35 @@ mod tests {
                         || result.document == "PLAYGROUND_GENERATION_CONTEXT"
                 }),
                 "inbound route docs missing for query {query:?}: {:?}",
+                results
+                    .iter()
+                    .map(|r| r.document.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn ai_search_queries_hit_ai_contract_docs() {
+        for query in [
+            "ai:search",
+            "Tapp.ai.tasks search",
+            "联网搜索",
+            "AI任务 envelope",
+        ] {
+            let results = search(query, 5);
+            assert!(
+                !results.is_empty(),
+                "expected knowledge hits for query {query:?}"
+            );
+            assert!(
+                results.iter().any(|result| {
+                    result.document == "API_REFERENCE"
+                        || result.document == "PLAYGROUND_GENERATION_CONTEXT"
+                        || result.document == "MANIFEST"
+                        || result.document == "RUNTIME_CONTRACT_DESIGN"
+                }),
+                "AI task docs missing for query {query:?}: {:?}",
                 results
                     .iter()
                     .map(|r| r.document.as_str())

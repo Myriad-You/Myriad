@@ -5,10 +5,13 @@ import type {
 import type { BehaviorPlan } from '../motion/behavior'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { BehaviorScheduler } from '../motion/behaviorScheduler'
+import { mergeBehaviorPlans } from '../motion/humanPerformanceRuntime'
 import { compilePerformanceBehaviorPlan } from '../motion/performanceBehaviorPlan'
 import { compileSpeechBehaviorPlan } from '../motion/speechBehaviorPlan'
 import { realizeAnime25DBehaviorPlan } from './behaviorRealizer'
 import { cueVisualEnvelope } from './performanceMotion'
+import { poseResponseScale } from './poseResponse'
 
 const directive: PerformanceDirective = {
   phase: 'delivery',
@@ -146,4 +149,64 @@ test('a scheduled cue carries the resolved hold span instead of a tempo guess', 
     Math.round(cueVisualEnvelope(unscheduled).hold * 100) / 100,
     0.45,
   )
+})
+
+test('a behavior interrupted mid-stroke still realizes as a retreating unit', () => {
+  const plan = compilePerformanceBehaviorPlan(directive, 1_000, 'plan-a')
+  const scheduler = new BehaviorScheduler()
+  scheduler.replace(plan, 1_000)
+  const behaviorId = plan.behaviors[0]!.id
+  const peakAt = plan.pegs.find(
+    (peg) => peg.id === `${behaviorId}:stroke-peak`,
+  )!.atMs
+  const strokeEndAt = plan.pegs.find(
+    (peg) => peg.id === `${behaviorId}:stroke-end`,
+  )!.atMs
+  const midStroke = Math.floor((peakAt + strokeEndAt) / 2)
+  assert.ok(midStroke > peakAt && midStroke < strokeEndAt)
+  scheduler.tick(midStroke)
+  assert.equal(scheduler.snapshots(midStroke)[0]?.phase, 'committed')
+  scheduler.interrupt(behaviorId, midStroke)
+
+  // The retreat only exists if the adapter can still read the timing. A
+  // `strokeEnd` stranded past its own `relax` is refused as invalid, and the
+  // behavior vanishes on the interrupting frame rather than putting itself
+  // away over the recovery the scheduler just granted.
+  const snapshot = scheduler.snapshots(midStroke)[0]!
+  const retreating: BehaviorPlan = {
+    ...plan,
+    pegs: [
+      ...plan.pegs,
+      { id: 'retreat:relax', atMs: snapshot.relaxAtMs!, revision: 0 },
+      { id: 'retreat:end', atMs: snapshot.endsAtMs!, revision: 0 },
+    ],
+    behaviors: [
+      {
+        ...plan.behaviors[0]!,
+        timing: {
+          ...plan.behaviors[0]!.timing,
+          strokeEnd: 'retreat:relax',
+          relax: 'retreat:relax',
+          end: 'retreat:end',
+        },
+      },
+    ],
+  }
+  const realized = realizeAnime25DBehaviorPlan(retreating, midStroke)
+  assert.equal(realized.reports[0]?.result, 'accepted')
+  assert.equal(realized.units.length, 1)
+})
+
+test('motion style survives all the way to the pose response, not just to size', () => {
+  const scaleFor = (style: 'restrained' | 'even' | 'open'): number => {
+    const compiled = compilePerformanceBehaviorPlan(directive, 1_000, 'plan-a')
+    const merged = mergeBehaviorPlans([compiled], 1_000, style)!
+    const realized = realizeAnime25DBehaviorPlan(merged, 1_000)
+    return poseResponseScale(realized.units[0]!.quality)
+  }
+  // `restrained` and `open` used to reach the same pose at the same speed:
+  // the merge boundary scaled eight quality dimensions and the last filter,
+  // the one that decides how one pose becomes the next, ignored all of them.
+  assert.ok(scaleFor('open') > scaleFor('even'))
+  assert.ok(scaleFor('even') > scaleFor('restrained'))
 })

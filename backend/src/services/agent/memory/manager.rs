@@ -1,5 +1,6 @@
 // AgentMemory manager: persist, recall, extract, and process-global handle.
 
+use myriad_agent_rules::extract_json_object_from_ai_response;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1535,21 +1536,13 @@ impl AgentMemory {
 /// 解析 AI 返回的记忆提取结果
 fn parse_extraction_result(response: &str) -> Option<MemoryExtractionResult> {
     let text = response.trim();
-    // 尝试找到 JSON 块
-    let json_str = if let Some(start) = text.find('{') {
-        if let Some(end) = text.rfind('}') {
-            &text[start..=end]
-        } else {
-            text
-        }
-    } else {
-        text
-    };
-    serde_json::from_str(json_str).ok()
+    let json_str = extract_json_object_from_ai_response(text);
+    serde_json::from_str(json_str.as_deref().unwrap_or(text)).ok()
 }
 
 /// 将 Value 摘要为紧凑字符串（用于记忆提取 prompt）
 pub fn summarize_value_for_memory(value: &Value) -> String {
+    let value = crate::services::agent::ai_process_pure::task_inner_value(value);
     match value {
         Value::String(s) => {
             if s.len() > 100 {
@@ -1566,6 +1559,21 @@ pub fn summarize_value_for_memory(value: &Value) -> String {
                 format!(
                     "{{message: \"{}\"}}",
                     msg.chars().take(80).collect::<String>()
+                )
+            } else if let Some(analysis) = obj.get("analysis").and_then(|m| m.as_str()) {
+                format!(
+                    "{{analysis: \"{}\"}}",
+                    analysis.chars().take(80).collect::<String>()
+                )
+            } else if let Some(summary) = obj.get("summary").and_then(|m| m.as_str()) {
+                format!(
+                    "{{summary: \"{}\"}}",
+                    summary.chars().take(80).collect::<String>()
+                )
+            } else if let Some(reply) = obj.get("reply").and_then(|m| m.as_str()) {
+                format!(
+                    "{{reply: \"{}\"}}",
+                    reply.chars().take(80).collect::<String>()
                 )
             } else {
                 format!("{{{} fields}}", obj.len())
@@ -1615,6 +1623,26 @@ mod tests {
     use super::*;
 
     // TF-IDF 分词测试
+
+    #[test]
+    fn summarize_value_for_memory_unwraps_envelope() {
+        let envelope = json!({
+            "format": "json",
+            "value": { "analysis": "分析正文", "type": "custom" },
+            "contextProvenance": []
+        });
+        let summary = summarize_value_for_memory(&envelope);
+        assert!(summary.contains("分析正文"), "{summary}");
+        assert!(!summary.contains("3 fields"), "{summary}");
+        assert_eq!(
+            summarize_value_for_memory(&json!({
+                "format": "text",
+                "value": "回复正文",
+                "contextProvenance": []
+            })),
+            "\"回复正文\""
+        );
+    }
 
     #[test]
     fn test_tokenize_english() {

@@ -1,8 +1,8 @@
 //! POST /api/agent/presence — write live presence without a chat turn.
 //!
 //! Inbound only remembers observation. It must not call `consider_event`.
-//! Wake still comes from the named-event list (`is_valuable_event`). This is
-//! not a heartbeat and not a second grant source.
+//! A revival onto the page may spawn the greeting named event. This is not a
+//! heartbeat and not a second grant source.
 
 use super::*;
 use crate::error::HttpError;
@@ -38,7 +38,11 @@ pub async fn post_live_presence(
     }
     let data = parse_presence_body(&body)?;
     let live = live_presence_from_custom_data(&data);
-    remember_live_presence(user_id, live);
+    let revived = remember_live_presence(user_id, live);
+    // Revival is a named greeting event, not a decision on this payload.
+    if revived {
+        crate::services::agent::merope::spawn_presence(user_id);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -83,5 +87,10 @@ mod tests {
             enabled_at < remember_at,
             "disabled inbound must not remember live presence"
         );
+        assert!(!handler.contains("consider_event"));
+        let spawn_at = handler
+            .find("spawn_presence")
+            .expect("revival becomes a named greeting");
+        assert!(remember_at < spawn_at);
     }
 }

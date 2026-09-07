@@ -342,11 +342,6 @@ pub fn require_download_page_template_if_declared<'a>(
 }
 
 /// Bound the declared assets list before download (store-side contract).
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-pub fn validate_store_declared_assets_count(declared_len: usize) -> Result<(), String> {
-    validate_store_declared_assets_count_max(declared_len, MAX_TAPP_ASSETS)
-}
-
 pub fn validate_store_declared_assets_count_max(
     declared_len: usize,
     max_assets: usize,
@@ -357,12 +352,6 @@ pub fn validate_store_declared_assets_count_max(
         ));
     }
     Ok(())
-}
-
-/// Whether two catalog URLs refer to the same store source (normalized).
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-pub fn store_catalog_urls_match(a: &str, b: &str) -> bool {
-    normalize_store_catalog_url(a) == normalize_store_catalog_url(b)
 }
 
 // ── Download orchestration path plans ───────────────────────────────────────
@@ -643,10 +632,10 @@ mod tests {
             normalize_store_catalog_url("https://ex.com/store/"),
             "https://ex.com/store"
         );
-        assert!(store_catalog_urls_match(
-            "https://ex.com/store/index.json",
-            "https://ex.com/store/"
-        ));
+        assert_eq!(
+            normalize_store_catalog_url("https://ex.com/store/index.json"),
+            normalize_store_catalog_url("https://ex.com/store/")
+        );
         assert_eq!(
             store_catalog_base_url("https://ex.com/store/index.json"),
             "https://ex.com/store"
@@ -803,9 +792,11 @@ mod tests {
 
     #[test]
     fn declared_assets_count_is_bounded() {
-        assert!(validate_store_declared_assets_count(0).is_ok());
-        assert!(validate_store_declared_assets_count(MAX_TAPP_ASSETS).is_ok());
-        assert!(validate_store_declared_assets_count(MAX_TAPP_ASSETS + 1).is_err());
+        assert!(validate_store_declared_assets_count_max(0, MAX_TAPP_ASSETS).is_ok());
+        assert!(validate_store_declared_assets_count_max(MAX_TAPP_ASSETS, MAX_TAPP_ASSETS).is_ok());
+        assert!(
+            validate_store_declared_assets_count_max(MAX_TAPP_ASSETS + 1, MAX_TAPP_ASSETS).is_err()
+        );
     }
 
     #[test]

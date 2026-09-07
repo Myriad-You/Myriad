@@ -7,11 +7,11 @@
 use std::time::{Duration, Instant};
 
 use myriad_merope::{
-    cue_is_playable, cue_survives_state, parse_performance_plan, plan_is_empty,
-    refine_performance_plan, round_motion_style, ChatPerformanceBaseline, ChatPerformanceCue,
-    ChatPerformancePlan, RigStateSummary, PERFORMANCE_BASELINE_EXPRESSIONS,
-    PERFORMANCE_CUE_INTENTS, PERFORMANCE_INTERRUPT_MODES, PERFORMANCE_POSTURES,
-    RIG_STATE_MOTION_STYLES,
+    cue_is_playable, cue_survives_state, grounded_speech_phrases, parse_performance_plan,
+    plan_is_empty, refine_performance_plan, round_motion_style, ChatPerformanceBaseline,
+    ChatPerformanceCue, ChatPerformancePlan, RigStateSummary, SpeechPhrase,
+    PERFORMANCE_BASELINE_EXPRESSIONS, PERFORMANCE_CUE_INTENTS, PERFORMANCE_INTERRUPT_MODES,
+    PERFORMANCE_PHRASE_INTENTS, PERFORMANCE_POSTURES, RIG_STATE_MOTION_STYLES,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -89,6 +89,8 @@ pub struct PerformanceDirective {
     pub mood_revision: i64,
     pub motion_style: String,
     pub plan: ChatPerformancePlan,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub phrases: Vec<SpeechPhrase>,
 }
 
 /// Runs exactly one Lite-tier call, falling back to the deterministic plan for
@@ -171,6 +173,7 @@ async fn direct_motion_inner(
     };
 
     let elapsed_ms = started.elapsed().as_millis() as u64;
+    let mut phrases = Vec::new();
     let lite_plan = match result {
         None => None,
         Some(Ok(Ok(raw))) => match parse_motion_decision(&raw) {
@@ -182,7 +185,15 @@ async fn direct_motion_inner(
                 );
                 None
             }
-            Some(MotionDecision::Perform(parsed)) => Some(parsed),
+            Some(MotionDecision::Perform(parsed)) => {
+                if let Ok(value) = serde_json::from_str::<Value>(strip_motion_json(&raw)) {
+                    phrases = grounded_speech_phrases(
+                        &value["phrases"],
+                        context.response_text.as_deref(),
+                    );
+                }
+                Some(parsed)
+            }
             None => {
                 tracing::warn!(
                     phase,
@@ -231,7 +242,7 @@ async fn direct_motion_inner(
         context.response_text.as_deref(),
         rig_state.as_ref(),
     );
-    if plan_is_empty(&plan) {
+    if plan_is_empty(&plan) && phrases.is_empty() {
         tracing::debug!(
             phase,
             elapsed_ms,
@@ -256,6 +267,7 @@ async fn direct_motion_inner(
         mood_revision: context.mood.revision,
         motion_style: context.motion_style,
         plan,
+        phrases,
     })
 }
 
@@ -296,6 +308,7 @@ pub fn local_directive(context: &MotionContext) -> Option<PerformanceDirective> 
         mood_revision: context.mood.revision,
         motion_style: context.motion_style.clone(),
         plan,
+        phrases: Vec::new(),
     })
 }
 
@@ -352,7 +365,28 @@ fn parse_motion_decision(raw: &str) -> Option<MotionDecision> {
         }
         _ => {}
     }
-    parse_performance_plan(stripped).map(MotionDecision::Perform)
+    if let Some(plan) = parse_performance_plan(stripped) {
+        return Some(MotionDecision::Perform(plan));
+    }
+    // A grounded phrase refinement does not need to replace the standing face.
+    // Do not turn an invalid baseline/cue payload into a phrase-only success.
+    let empty_plan = object.get("baseline").is_none_or(Value::is_null)
+        && object
+            .get("cues")
+            .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty));
+    let valid_phrase = object
+        .get("phrases")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().take(6).any(|item| {
+                !grounded_speech_phrases(
+                    &serde_json::json!([item]),
+                    item.get("text").and_then(Value::as_str),
+                )
+                .is_empty()
+            })
+        });
+    (empty_plan && valid_phrase).then(|| MotionDecision::Perform(ChatPerformancePlan::default()))
 }
 
 fn motion_payload_present(object: &serde_json::Map<String, serde_json::Value>) -> bool {
@@ -361,7 +395,12 @@ fn motion_payload_present(object: &serde_json::Map<String, serde_json::Value>) -
         .get("cues")
         .and_then(serde_json::Value::as_array)
         .is_some_and(|cues| !cues.is_empty());
-    has_baseline || has_cues
+    has_baseline
+        || has_cues
+        || object
+            .get("phrases")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
 }
 
 fn strip_motion_json(raw: &str) -> &str {
@@ -695,6 +734,7 @@ fn motion_system_prompt(offered: &[&str]) -> String {
 {}
 
 枚举：{}；姿态 {}；cue {}。每回合必须有 baseline，cue 只在确有表达功能时选 0–2 个；同一功能不要为了热闹重复。不要输出 continue，空对象无效。
+phrases 是配合 responseText 的句段表达意图，0–6 个，按原文顺序。每项 text 必须逐字摘取 responseText 中唯一出现的短句（含结尾标点，2–120 字符），不要引用 userText、代码、他人的引语或编造还没生成的后文。intent 可用 ask（真正询问）、hesitate（犹豫斟酌）、tease（亲近调侃/玩笑式反问）、explain（转念解释/认真说明）、check-in（说完后确认对方反应）、laugh（本人确实在笑）、none（克制、不应按问号/笑字自动表演）。区分本人表达与提到他人情绪；描述难过不是本人难过，描述笑声不是本人发笑。让相邻句段延续表达动机，例如 hesitate→explain→check-in，别把每句都做成独立高潮。已分配给 phrases 的同一表达不要再放入 cues；cue 留给不依赖具体台词的整轮反应。现场只修改尚未发力的句段，已说过的短句会跳过，不用补演。
 只丢掉物理上做不到的：缺能力层不要选；说话时 maniac 抢嘴所以不要选，silly/cry 用眼睛照演。唱歌占身不要抢头身。
 按性格取表情：慢热用 withdrawn/subdued，确实在持续听时才用 listen；外向可用 warm + greet/delight，玩笑和自嘲用 silly、兴奋 maniac；嘴硬多用 speechless/angry；认真多用 question/think；软可用 lovestruck。没有人设时按 even；baseline 必须有，cue 可以没有。
 restrained 的 motionEnergy 0.55–0.9、cue 0.75–1.05；even 0.75–1.15 / 0.9–1.25；open 1.0–1.4 / 1.05–1.4。
@@ -767,6 +807,17 @@ fn motion_schema(offered: &[&str]) -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
+            "phrases": {
+                "type": "array", "maxItems": 6,
+                "items": {
+                    "type": "object", "additionalProperties": false,
+                    "properties": {
+                        "text": { "type": "string", "minLength": 2, "maxLength": 120 },
+                        "intent": { "type": "string", "enum": PERFORMANCE_PHRASE_INTENTS }
+                    },
+                    "required": ["text", "intent"]
+                }
+            },
             "baseline": {
                 "type": "object",
                 "properties": {
@@ -800,6 +851,51 @@ fn motion_schema(offered: &[&str]) -> serde_json::Value {
 }
 
 #[cfg(test)]
+pub(super) mod live_probe {
+    use super::*;
+
+    pub fn contract(
+        persona: &agent_persona::Model,
+        rig: &RigStateSummary,
+    ) -> (String, Value, Value) {
+        let offered = offered_cue_intents(Some(rig));
+        (
+            motion_system_prompt(&offered),
+            motion_schema(&offered),
+            motion_persona_payload(Some(persona), "even"),
+        )
+    }
+
+    pub fn valid(raw: &str, rig: &RigStateSummary) -> bool {
+        let Ok(unfiltered) = serde_json::from_str::<ChatPerformancePlan>(raw) else {
+            return false;
+        };
+        let Some(MotionDecision::Perform(plan)) = parse_motion_decision(raw) else {
+            return false;
+        };
+        // A smoke test must not pass merely because production's safe parser
+        // removed an invalid cue or clamped an out-of-range value.
+        plan == unfiltered
+            && plan.cues.len() <= 2
+            && plan.baseline.is_some()
+            && plan
+                .cues
+                .iter()
+                .all(|cue| cue_survives_state(rig, &cue.intent))
+    }
+
+    #[test]
+    fn smoke_rejects_cues_discarded_by_the_production_sanitizer() {
+        let rig = myriad_merope::sanitize_rig_state(&serde_json::json!({})).unwrap();
+        let valid = serde_json::json!({"baseline":{"expression":"steady","posture":"neutral","motionEnergy":1.0,"attention":0.5},"cues":[]});
+        assert!(self::valid(&valid.to_string(), &rig));
+        let mut invalid = valid;
+        invalid["cues"] = serde_json::json!([{"intent":"not_a_cue","atMs":0,"intensity":1.0,"tempo":1.0,"fadeInMs":100,"fadeOutMs":200,"interrupt":"blend"}]);
+        assert!(!self::valid(&invalid.to_string(), &rig));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -826,6 +922,10 @@ mod tests {
             phase: MotionPhase::Reaction,
             mood_revision: 42,
             motion_style: "open".to_string(),
+            phrases: vec![SpeechPhrase {
+                text: "你觉得呢？".to_string(),
+                intent: "check-in".to_string(),
+            }],
             plan: ChatPerformancePlan {
                 baseline: None,
                 cues: vec![myriad_merope::ChatPerformanceCue {
@@ -845,11 +945,21 @@ mod tests {
         assert_eq!(value["motionStyle"], "open");
         assert!(value.pointer("/plan/cues/0/atMs").is_some());
         assert!(value.get("driver").is_none());
+        assert_eq!(value["phrases"][0]["intent"], "check-in");
+        assert_eq!(value["phrases"][0]["text"], "你觉得呢？");
     }
 
     #[test]
     fn motion_schema_exposes_new_expressions_only_as_semantic_cues() {
         let schema = motion_schema(PERFORMANCE_CUE_INTENTS);
+        assert_eq!(
+            schema.pointer("/properties/phrases/maxItems"),
+            Some(&serde_json::json!(6))
+        );
+        assert_eq!(
+            schema.pointer("/properties/phrases/items/properties/intent/enum"),
+            Some(&serde_json::json!(PERFORMANCE_PHRASE_INTENTS))
+        );
         let intents = schema
             .pointer("/properties/cues/items/properties/intent/enum")
             .and_then(serde_json::Value::as_array)
@@ -1014,6 +1124,8 @@ mod tests {
             visual_profile: None,
             portrait_asset_id: None,
             portrait_generation: None,
+            avatar_asset_id: None,
+            avatar_generation: None,
             updated_by: None,
             updated_at: chrono::Utc::now().into(),
         };
@@ -1090,47 +1202,65 @@ mod tests {
         );
     }
 
-    /// Chat reacts from the floor before streaming. Refinement is allowed only
-    /// after the reply model has emitted visible text, so it cannot hurt TTFT.
+    /// Chat speaks plain prose; the director observes it on a separate task.
     #[test]
-    fn streaming_chat_arms_refinement_without_competing_for_first_token() {
-        let src = include_str!("../process_and_recipe.rs");
+    fn streaming_chat_refines_actual_delivery_without_delaying_text() {
+        let src = include_str!("../process_chat.rs");
         assert!(src.contains("let performance = None;"));
         let chat = src
             .find("stream_strict_lite_chat_response")
             .expect("chat lite call");
-        let local_reaction = src.find("publish_local_motion").expect("local reaction");
+        let local_reaction = src
+            .find("local_directive(&reaction_context)")
+            .expect("local reaction");
         assert!(
             local_reaction < chat,
             "Chat must react before the reply stream starts"
         );
-        let streaming = include_str!("../confirmation_and_tasks.rs");
-        assert!(streaming.contains("StreamDelta::Text(_)"));
-        let signalled = streaming
-            .find("stream_started.try_send(())")
-            .expect("first-delta signal");
-        let emitted = streaming[signalled..]
-            .find("emit_stream_delta")
-            .expect("delta emission");
-        assert!(
-            emitted > 0,
-            "the signal must be sent as the first model delta is observed"
-        );
+        assert!(src.contains("spawn_chat_motion_refinement(reaction_context"));
+        let streaming = include_str!("../confirmation_and_tasks/chat_stream.rs");
+        assert!(streaming.contains("emit_chat_delta(&tx, delta, speech_delivery.as_ref()).await"));
+        assert!(!streaming.contains("SpeechDeliveryStream"));
+        assert!(!include_str!("../chat_prompt.rs").contains("[[delivery:"));
     }
 
     #[test]
-    fn floor_precedes_refinement_and_delivery_precedes_stream_close() {
-        let src = include_str!("../process_and_recipe.rs");
-        let floor = src.find("publish_local_motion(&reaction_context").unwrap();
-        let refinement = src.find("spawn_motion_refinement(").unwrap();
-        assert!(floor < refinement);
-        let delivery = src.find("publish_local_motion(&delivery_context").unwrap();
+    fn immediate_reaction_precedes_text_and_landing_cannot_delay_stream_close() {
+        let src = include_str!("../process_chat.rs");
+        let floor = src.find("local_directive(&reaction_context)").unwrap();
+        let delivery = src.find("local_directive(&delivery_context)").unwrap();
+        assert!(floor < delivery);
+        let diary = src[floor..].find("note_chat_diary").unwrap() + floor;
+        let chat = src[floor..]
+            .find("stream_strict_lite_chat_response")
+            .unwrap()
+            + floor;
+        assert!(floor < diary && diary < chat);
+        assert!(chat < delivery);
         let finish = src
             .find("response_agent::finish_stream(&progress_tx)")
             .unwrap();
-        assert!(delivery < finish);
-        assert!(src.contains("motion_refinements.clear();"));
-        assert!(src.contains("self.0.abort();"));
+        assert!(finish < delivery);
+        let stop = src.find("guard.stop().await").unwrap();
+        assert!(finish < stop && stop < delivery);
+        let overlay = include_str!("../motion_overlay.rs");
+        assert!(overlay.contains("self.task.abort();"));
+        assert!(src[delivery..].contains("performance.plan.cues.clear()"));
+    }
+
+    #[test]
+    fn chat_director_phrase_only_decision_needs_no_replacement_pose() {
+        assert_eq!(
+            parse_motion_decision(r#"{"phrases":[{"text":"你觉得呢？","intent":"check-in"}]}"#),
+            Some(MotionDecision::Perform(ChatPerformancePlan::default()))
+        );
+        for invalid in [
+            r#"{"phrases":[{"text":"你觉得呢？","intent":"driver"}]}"#,
+            r#"{"baseline":{},"phrases":[{"text":"你觉得呢？","intent":"ask"}]}"#,
+            r#"{"continue":true,"phrases":[{"text":"你觉得呢？","intent":"ask"}]}"#,
+        ] {
+            assert_eq!(parse_motion_decision(invalid), None);
+        }
     }
 
     /// Production dropped 196 of 217 calls sitting exactly on the old 4s wall;
@@ -1140,7 +1270,11 @@ mod tests {
     fn motion_lite_budget_clears_the_observed_success_latency() {
         assert!(MOTION_TIMEOUT >= Duration::from_secs(8));
         assert!(MOTION_TOTAL_TIMEOUT > MOTION_TIMEOUT);
-        let src = include_str!("../process_and_recipe.rs");
+        let src = concat!(
+            include_str!("../process_and_recipe.rs"),
+            include_str!("../process_chat.rs"),
+            include_str!("../process_work.rs")
+        );
         assert!(
             !src.contains("handle.await.ok().flatten()"),
             "no request path may block on the director's budget"

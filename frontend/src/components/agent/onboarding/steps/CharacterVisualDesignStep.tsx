@@ -13,6 +13,7 @@ import {
   CLOTHING_STYLE_OPTIONS,
   clothingStylePreview,
   parseUpperBodyVisualIdentity,
+  VISUAL_NOTES_LIMIT,
 } from '../onboardingTypes'
 import { ActionBar, PrimaryButton, StepBody } from '../ui/Chrome'
 import { ErrorNote } from '../ui/Feedback'
@@ -245,11 +246,13 @@ export default function CharacterVisualDesignStep({
               optional
               optionalLabel={o.optional}
               hint={o.visualRequirementsHint}
+              value={requirements}
+              max={VISUAL_NOTES_LIMIT}
             >
               <TextArea
                 value={requirements}
                 rows={2}
-                maxLength={500}
+                maxLength={VISUAL_NOTES_LIMIT}
                 disabled={blocked}
                 placeholder={o.visualRequirementsPlaceholder}
                 onChange={(event) => {

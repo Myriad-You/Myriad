@@ -19,6 +19,7 @@ use crate::services::agent::system_op_pure::{
 };
 use crate::services::background_processor::BACKGROUND_PROCESSOR;
 use crate::services::brew_scheduler::get_brew_scheduler;
+use crate::services::data_paths::platform_filtered_file;
 use crate::services::image_cache::ImageCacheService;
 use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
 use crate::services::tapp_data_transform::{
@@ -516,7 +517,7 @@ async fn execute_cache_status(params: &HashMap<String, Value>) -> Result<Value, 
     let mut total_size: u64 = 0;
 
     for p in platforms {
-        let cache_path = format!("cache/platforms/{}_filtered.json", p);
+        let cache_path = platform_filtered_file(&p);
         let metadata = tokio::fs::metadata(&cache_path).await;
 
         let (exists, size, modified) = match metadata {
@@ -564,7 +565,7 @@ async fn execute_cache_clear(params: &HashMap<String, Value>) -> Result<Value, S
         return Err(crate::services::agent::response_agent::unsupported_platform(platform));
     }
 
-    let cache_path = format!("cache/platforms/{}_filtered.json", platform);
+    let cache_path = platform_filtered_file(platform);
 
     let size = tokio::fs::metadata(&cache_path)
         .await
@@ -775,7 +776,7 @@ async fn execute_export_data(params: &HashMap<String, Value>) -> Result<Value, S
         let mut platform_data = json!({});
 
         for platform in &platforms {
-            let path = format!("cache/platforms/{}_filtered.json", platform);
+            let path = platform_filtered_file(platform);
             if let Ok(content) = tokio::fs::read_to_string(&path).await {
                 if let Ok(data) = serde_json::from_str::<Value>(&content) {
                     platform_data[*platform] = data;

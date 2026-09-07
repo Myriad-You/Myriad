@@ -70,7 +70,11 @@ export class MotionRuntime {
   ) {
     this.coordinator = coordinator
     this.musicSource = musicSource
-    this.speech = new SpeechMotionSource(coordinator, () => this.emit())
+    this.speech = new SpeechMotionSource(
+      coordinator,
+      () => this.emit(),
+      () => this.humanPerformance.snapshots(currentNow()),
+    )
     this.performance = new PerformanceMotionSource(
       coordinator,
       (intent) => {
@@ -85,6 +89,8 @@ export class MotionRuntime {
         this.emit()
       },
       () => this.humanPerformance.snapshots(currentNow()),
+      (directive, event, plan) =>
+        this.speech.applyDirector(directive, event, plan),
     )
     this.mood = new MoodMotionSource(coordinator, (intent, bandChanged) => {
       this.moodIntent = intent

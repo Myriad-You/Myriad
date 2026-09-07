@@ -1,5 +1,4 @@
-const MAX_TEXT_UNITS = 2_000
-const MAX_VISUAL_SPEECH_MS = 12_000
+export const MAX_VISUAL_SPEECH_TEXT_UNITS = 2_000
 const MIN_VISUAL_SPEECH_MS = 650
 
 export const VISUAL_SPEECH_WORD_GAP_SECONDS = 0.05
@@ -57,33 +56,81 @@ export function estimateVisualSpeechDurationMs(
   text: string,
   locale?: string,
 ): number {
-  const bounded = text.normalize('NFKC').slice(0, MAX_TEXT_UNITS)
+  return estimateSpeechMs(text, locale, 1)
+}
+
+/** The mouth may realize a slower pace; lifecycle safety is not a beat clock. */
+export function estimateVisualSpeechTailMs(
+  text: string,
+  locale?: string,
+): number {
+  return estimateSpeechMs(text, locale, 1.32)
+}
+
+function estimateSpeechMs(
+  text: string,
+  locale: string | undefined,
+  pace: number,
+): number {
+  const clock = visualSpeechPrefixSeconds(text, locale)
+  // The text budget bounds this clock. Transport timeouts must not clamp it.
+  return Math.round(
+    Math.max(clock.at(-1)! * 1_000 * pace, MIN_VISUAL_SPEECH_MS),
+  )
+}
+
+/** Build once per text update, then address any normalized UTF-16 boundary. */
+export function visualSpeechPrefixMs(
+  text: string,
+  locale?: string,
+): readonly number[] {
+  return visualSpeechPrefixSeconds(text, locale).map((seconds) =>
+    Math.round(Math.max(seconds * 1_000, MIN_VISUAL_SPEECH_MS)),
+  )
+}
+
+function visualSpeechPrefixSeconds(text: string, locale?: string): number[] {
+  const bounded = text.normalize('NFKC').slice(0, MAX_VISUAL_SPEECH_TEXT_UNITS)
   const language = locale?.toLowerCase() || ''
   let seconds = 0.22
   let cursor = 0
+  const clock = [seconds]
+  const appendSymbols = (symbols: string) => {
+    for (const symbol of symbols) {
+      // An incomplete surrogate has no spoken duration of its own.
+      for (let unit = 1; unit < symbol.length; unit++) clock.push(seconds)
+      seconds += estimateSymbols(symbol, language)
+      clock.push(seconds)
+    }
+  }
 
   for (const match of bounded.matchAll(LATIN_OR_NUMBER_RUN)) {
     const index = match.index ?? 0
-    seconds += estimateSymbols(bounded.slice(cursor, index), language)
+    appendSymbols(bounded.slice(cursor, index))
     const token = match[0]
-    if (/^\p{Number}+$/u.test(token)) {
-      seconds +=
-        Math.min(0.9, Math.max(0.16, token.length * 0.15)) *
-        VISUAL_SPEECH_ARTICULATION_SCALE
-    } else {
-      seconds +=
-        Math.min(0.78, Math.max(0.23, 0.17 + token.length * 0.052)) *
-        VISUAL_SPEECH_ARTICULATION_SCALE
+    let numeric = true
+    let length = 0
+    for (const symbol of token) {
+      for (let unit = 1; unit < symbol.length; unit++) {
+        clock.push(seconds + tokenSeconds(length + unit, false))
+      }
+      length += symbol.length
+      numeric &&= /^\p{Number}$/u.test(symbol)
+      clock.push(seconds + tokenSeconds(length, numeric))
     }
+    seconds = clock.at(-1)!
     cursor = index + token.length
   }
-  seconds += estimateSymbols(bounded.slice(cursor), language)
-  return Math.round(
-    // Runtime text-only rhythm is intentionally non-deterministic, and the
-    // realized pace is clamped to at most 1.32x. Waiting for that ceiling costs
-    // a closed mouth for a moment; falling short of it cuts the sentence in
-    // half, which is what a hard switch at the end of speech actually is.
-    clamp(seconds * 1_320, MIN_VISUAL_SPEECH_MS, MAX_VISUAL_SPEECH_MS),
+  appendSymbols(bounded.slice(cursor))
+  return clock
+}
+
+function tokenSeconds(length: number, numeric: boolean): number {
+  return (
+    (numeric
+      ? Math.min(0.9, Math.max(0.16, length * 0.15))
+      : Math.min(0.78, Math.max(0.23, 0.17 + length * 0.052))) *
+    VISUAL_SPEECH_ARTICULATION_SCALE
   )
 }
 
@@ -105,13 +152,10 @@ function estimateSymbols(text: string, language: string): number {
       ) {
         seconds += 0.165 * VISUAL_SPEECH_ARTICULATION_SCALE
       } else {
-        seconds += 0.195 * VISUAL_SPEECH_ARTICULATION_SCALE
+        // A rounded initial (w) uses 0.06s + a 0.145s final in the compiler.
+        seconds += 0.205 * VISUAL_SPEECH_ARTICULATION_SCALE
       }
     }
   }
   return seconds
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
 }

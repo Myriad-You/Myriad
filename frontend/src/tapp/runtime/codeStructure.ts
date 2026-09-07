@@ -113,6 +113,7 @@ export function getCodeStructureFingerprint(
       ...sortedRecordParts(code.widgetStyles),
       code.widgetCSS || '',
       JSON.stringify(code.i18n || {}),
+      ...sortedRecordParts(code.assets),
     ])
   }
   return hashParts([
@@ -122,6 +123,7 @@ export function getCodeStructureFingerprint(
     code.pageStyles || '',
     code.pageCSS || '',
     JSON.stringify(code.i18n || {}),
+    ...sortedRecordParts(code.assets),
   ])
 }
 

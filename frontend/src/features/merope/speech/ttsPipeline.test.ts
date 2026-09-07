@@ -35,7 +35,10 @@ function deferred<T>(): {
 
 test('synthesizes at most two segments and plays in sequence order', async () => {
   const played: string[] = []
-  const synth = new Map<string, ReturnType<typeof deferred<ArrayBuffer | null>>>()
+  const synth = new Map<
+    string,
+    ReturnType<typeof deferred<ArrayBuffer | null>>
+  >()
   const ends: Array<() => void> = []
   let inflight = 0
   let maxInflight = 0
@@ -55,11 +58,7 @@ test('synthesizes at most two segments and plays in sequence order', async () =>
       return { stop: () => undefined }
     },
   })
-  pipeline.enqueue([
-    segment(1, 'one'),
-    segment(2, 'two'),
-    segment(3, 'three'),
-  ])
+  pipeline.enqueue([segment(1, 'one'), segment(2, 'two'), segment(3, 'three')])
   assert.equal(synth.size, 2)
   assert.ok(maxInflight <= 2)
   synth.get('one')?.resolve(buffer('one'))
@@ -111,10 +110,7 @@ test('a later utterance plays after the previous one even when sequences restart
       return { stop: () => undefined }
     },
   })
-  pipeline.enqueue([
-    segment(1, 'A1', 'msg-a'),
-    segment(2, 'A2', 'msg-a'),
-  ])
+  pipeline.enqueue([segment(1, 'A1', 'msg-a'), segment(2, 'A2', 'msg-a')])
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.deepEqual(played, ['A1'])
   ends[0]!()
@@ -122,10 +118,7 @@ test('a later utterance plays after the previous one even when sequences restart
   assert.deepEqual(played, ['A1', 'A2'])
   ends[1]!()
   await new Promise((resolve) => setTimeout(resolve, 0))
-  pipeline.enqueue([
-    segment(1, 'B1', 'msg-b'),
-    segment(2, 'B2', 'msg-b'),
-  ])
+  pipeline.enqueue([segment(1, 'B1', 'msg-b'), segment(2, 'B2', 'msg-b')])
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.deepEqual(played, ['A1', 'A2', 'B1'])
   ends[2]!()
@@ -181,8 +174,7 @@ test('cancelling a message that is not playing does not drop a later one', async
   const second = deferred<ArrayBuffer | null>()
   const played: string[] = []
   const pipeline = new TtsPipeline({
-    synthesize: (item) =>
-      item.text === 'A' ? first.promise : second.promise,
+    synthesize: (item) => (item.text === 'A' ? first.promise : second.promise),
     play: (_audio, item) => {
       played.push(item.text)
       return { stop: () => undefined }
@@ -229,4 +221,97 @@ test('failed synthesis skips the segment and keeps later audio', async () => {
   await Promise.resolve()
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.deepEqual(played, ['好'])
+})
+
+for (const oldFirst of [true, false]) {
+  test(`cancelled synthesis cannot mutate the new queue (old resolves first: ${oldFirst})`, async () => {
+    const old = deferred<ArrayBuffer | null>()
+    const fresh = deferred<ArrayBuffer | null>()
+    const played: string[] = []
+    const signals: AbortSignal[] = []
+    const pipeline = new TtsPipeline({
+      synthesize: (item, signal) => {
+        signals.push(signal)
+        return item.messageId === 'old' ? old.promise : fresh.promise
+      },
+      play: (_audio, item, ended) => {
+        played.push(item.messageId)
+        queueMicrotask(ended)
+        return { stop() {} }
+      },
+    })
+    pipeline.enqueue([segment(1, 'old', 'old')])
+    pipeline.cancel()
+    pipeline.enqueue([segment(1, 'new', 'new')])
+    assert.equal(signals[0]!.aborted, true)
+    assert.equal(signals[1]!.aborted, false)
+    const ordered = oldFirst ? [old, fresh] : [fresh, old]
+    ordered[0]!.resolve(buffer('audio'))
+    await new Promise((resolve) => setImmediate(resolve))
+    ordered[1]!.resolve(buffer('audio'))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(played, ['new'])
+    assert.equal(pipeline.queueLength, 0)
+    assert.equal(pipeline.isBusyWith('new'), false)
+  })
+}
+
+test('message cancellation frees synth capacity even if the provider ignores abort', async () => {
+  const signals = new Map<string, AbortSignal>()
+  const played: string[] = []
+  const pipeline = new TtsPipeline({
+    synthesize: (item, signal) => {
+      signals.set(item.text, signal)
+      return item.messageId === 'old'
+        ? new Promise(() => {})
+        : Promise.resolve(buffer(item.text))
+    },
+    play: (_audio, item) => {
+      played.push(item.text)
+      return { stop() {} }
+    },
+  })
+  pipeline.enqueue([segment(1, 'old1', 'old'), segment(2, 'old2', 'old')])
+  pipeline.enqueue([segment(1, 'new', 'new')])
+  assert.equal(signals.has('new'), false)
+  pipeline.cancel('old')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(signals.get('old1')!.aborted, true)
+  assert.equal(signals.get('old2')!.aborted, true)
+  assert.equal(signals.get('new')!.aborted, false)
+  assert.deepEqual(played, ['new'])
+})
+
+test('a synchronous playback completion does not resurrect its handle', async () => {
+  const played: string[] = []
+  const pipeline = new TtsPipeline({
+    synthesize: async (item) => buffer(item.text),
+    play: (_audio, item, ended) => {
+      played.push(item.text)
+      ended()
+      return { stop() {} }
+    },
+  })
+  pipeline.enqueue([segment(1, 'one'), segment(2, 'two')])
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(played, ['one', 'two'])
+  assert.equal(pipeline.queueLength, 0)
+  assert.equal(pipeline.playing, false)
+})
+
+test('a throwing synthesis adapter does not strand the next segment', async () => {
+  const played: string[] = []
+  const pipeline = new TtsPipeline({
+    synthesize: (item) => {
+      if (item.text === 'bad') throw new Error('adapter failed')
+      return Promise.resolve(buffer(item.text))
+    },
+    play: (_audio, item) => {
+      played.push(item.text)
+      return { stop() {} }
+    },
+  })
+  pipeline.enqueue([segment(1, 'bad'), segment(2, 'good')])
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(played, ['good'])
 })

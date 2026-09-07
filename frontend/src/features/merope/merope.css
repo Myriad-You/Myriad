@@ -43,12 +43,147 @@
     filter 180ms ease;
 }
 
-.merope-rig.is-ready img {
+.merope-rig.is-ready:has(canvas) img {
   opacity: 0;
 }
 
 .merope-rig.is-ready canvas {
   opacity: 1;
+}
+
+.face-presence {
+  --face-presence-enter-ms: 540ms;
+  --face-presence-exit-ms: 360ms;
+  --face-presence-rest-ms: 100ms;
+  --face-presence-vacant-ms: 280ms;
+  --face-presence-ease-enter: cubic-bezier(0.16, 0.84, 0.32, 1);
+  --face-presence-ease-exit: cubic-bezier(0.4, 0, 0.72, 0.2);
+
+  position: absolute;
+  inset: 0;
+}
+
+.face-presence__live,
+.face-presence__hold {
+  position: absolute;
+  inset: 0;
+}
+
+.face-presence__live {
+  display: flex;
+  align-items: inherit;
+  justify-content: inherit;
+  opacity: 0;
+  translate: 0 20px;
+}
+
+.face-presence[data-phase='enter'] .face-presence__live {
+  animation: face-presence-enter var(--face-presence-enter-ms)
+    var(--face-presence-ease-enter) both;
+}
+
+.face-presence[data-phase='shown'] .face-presence__live {
+  opacity: 1;
+  translate: 0;
+  filter: none;
+}
+
+.face-presence[data-phase='enter'] .face-presence__live,
+.face-presence[data-phase='exit'] .face-presence__hold {
+  will-change: opacity, translate, filter;
+}
+
+.face-presence__hold {
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  object-fit: fill;
+}
+
+.face-presence[data-phase='exit'] .face-presence__hold {
+  animation: face-presence-exit var(--face-presence-exit-ms)
+    var(--face-presence-ease-exit) both;
+}
+
+.face-presence__live .merope-rig canvas {
+  opacity: 1;
+  transition: none;
+}
+
+.face-presence__vacant {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: face-presence-vacant var(--face-presence-vacant-ms)
+    var(--face-presence-ease-enter) both;
+}
+
+.face-presence[data-reduced='true'] .face-presence__live,
+.face-presence[data-reduced='true'] .face-presence__hold,
+.face-presence[data-reduced='true'] .face-presence__vacant {
+  animation: none;
+  filter: none;
+  translate: 0;
+}
+
+.face-presence[data-reduced='true'][data-phase='enter'] .face-presence__live,
+.face-presence[data-reduced='true'][data-phase='shown'] .face-presence__live {
+  opacity: 1;
+}
+
+@keyframes face-presence-enter {
+  0% {
+    opacity: 0;
+    translate: 0 22px;
+    filter: blur(5px) saturate(0.9);
+  }
+
+  38% {
+    opacity: 1;
+    filter: blur(0) saturate(1);
+  }
+
+  78% {
+    translate: 0 -1px;
+  }
+
+  100% {
+    opacity: 1;
+    translate: 0;
+    filter: none;
+  }
+}
+
+@keyframes face-presence-exit {
+  0% {
+    opacity: 1;
+    translate: 0;
+    filter: none;
+  }
+
+  24% {
+    opacity: 0.72;
+  }
+
+  100% {
+    opacity: 0;
+    translate: 0 16px;
+    filter: blur(3px) saturate(0.86);
+  }
+}
+
+@keyframes face-presence-vacant {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .merope-error {
@@ -62,7 +197,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .merope-rig img,
-  .merope-rig canvas {
+  .merope-rig canvas,
+  .face-presence__live,
+  .face-presence__hold,
+  .face-presence__vacant {
     transition: none;
+    animation: none;
   }
 }

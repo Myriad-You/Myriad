@@ -93,12 +93,14 @@ export function messageHasAnswer(message: {
   imageUrls?: readonly string[]
   question?: unknown
   suggestions?: readonly string[]
+  workOffer?: unknown
 }): boolean {
   return !!(
     nonemptyContent(message.content) ||
     message.imageUrls?.length ||
     message.question ||
-    message.suggestions?.length
+    message.suggestions?.length ||
+    message.workOffer
   )
 }
 

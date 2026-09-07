@@ -462,7 +462,7 @@ export const MobileReaderBar = memo(
             >
               {/* 背景遮罩 */}
               <div
-                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                className="absolute inset-0 bg-black/50"
                 onClick={closePanel}
               />
 

@@ -14,12 +14,13 @@ import type { TappBridge } from '../../TappBridge'
 import type { TaskRegistrationOptions } from '../../TappScheduler'
 import { API_URL } from '../../../../config'
 import { userFacingError } from '../../../../utils/userFacingError'
-import { getTappScheduler } from '../../TappScheduler'
+import { getTappScheduler, TappScheduler } from '../../TappScheduler'
 
 let schedulerInitialized = false
+let schedulerUsers = 0
 
 /** 懒初始化调度器（设置 apiBaseUrl 并建立 WS，仅一次） */
-function ensureScheduler() {
+function getOrInitScheduler() {
   const scheduler = getTappScheduler()
   if (!schedulerInitialized) {
     // cookie 会话鉴权：authToken 传空，依赖同源 cookie（见 TappScheduler.apiRequest/connect）
@@ -50,9 +51,19 @@ export function registerSchedulerHandlers(
     }
   >()
 
+  let acquired = false
+  const takeScheduler = () => {
+    const scheduler = getOrInitScheduler()
+    if (!acquired) {
+      acquired = true
+      schedulerUsers += 1
+    }
+    return scheduler
+  }
+
   const bindTask = (taskId: string) => {
     if (taskSubscriptions.has(taskId)) return
-    const scheduler = ensureScheduler()
+    const scheduler = takeScheduler()
     const unsubscribe = scheduler.onTask(
       tappInstance.id,
       taskId,
@@ -67,7 +78,7 @@ export function registerSchedulerHandlers(
               pendingExecutions.delete(event.executionId)
               reject(new Error('Sandbox scheduler callback timed out'))
             },
-            4 * 60 * 1000,
+            5 * 60 * 1000,
           )
           pendingExecutions.set(event.executionId, { resolve, reject, timeout })
           bridge.emit('schedulerTask', { taskId, payload, event })
@@ -89,7 +100,7 @@ export function registerSchedulerHandlers(
       return { success: false, error: 'taskId/scheduleType/schedule required' }
     }
     try {
-      const scheduler = ensureScheduler()
+      const scheduler = takeScheduler()
       let task
       try {
         task = await scheduler.registerTask(
@@ -118,7 +129,7 @@ export function registerSchedulerHandlers(
     const [taskId] = (message.payload as { args: unknown[] }).args || []
     if (!taskId) return { success: false, error: 'taskId required' }
     try {
-      const scheduler = ensureScheduler()
+      const scheduler = takeScheduler()
       await scheduler.unregisterTask(
         tappInstance.id,
         taskId as string,
@@ -133,7 +144,7 @@ export function registerSchedulerHandlers(
 
   bridge.registerHandler('scheduler.list', async () => {
     try {
-      const scheduler = ensureScheduler()
+      const scheduler = takeScheduler()
       const tasks = await scheduler.listTasks(
         tappInstance.id,
         await bridge.getRuntimeGrant(),
@@ -148,7 +159,7 @@ export function registerSchedulerHandlers(
     const [taskId] = (message.payload as { args: unknown[] }).args || []
     if (!taskId) return { success: false, error: 'taskId required' }
     try {
-      const task = await ensureScheduler().getTask(
+      const task = await takeScheduler().getTask(
         tappInstance.id,
         taskId as string,
         await bridge.getRuntimeGrant(),
@@ -163,17 +174,17 @@ export function registerSchedulerHandlers(
     [
       'enable',
       (taskId: string, runtimeGrant: string) =>
-        ensureScheduler().enableTask(tappInstance.id, taskId, runtimeGrant),
+        takeScheduler().enableTask(tappInstance.id, taskId, runtimeGrant),
     ],
     [
       'disable',
       (taskId: string, runtimeGrant: string) =>
-        ensureScheduler().disableTask(tappInstance.id, taskId, runtimeGrant),
+        takeScheduler().disableTask(tappInstance.id, taskId, runtimeGrant),
     ],
     [
       'trigger',
       (taskId: string, runtimeGrant: string) =>
-        ensureScheduler().triggerTask(tappInstance.id, taskId, runtimeGrant),
+        takeScheduler().triggerTask(tappInstance.id, taskId, runtimeGrant),
     ],
   ] as const) {
     bridge.registerHandler(`scheduler.${action}`, async (message) => {
@@ -234,5 +245,14 @@ export function registerSchedulerHandlers(
       pending.reject(new Error('Scheduler sandbox destroyed'))
     }
     pendingExecutions.clear()
+    if (acquired) {
+      acquired = false
+      schedulerUsers -= 1
+      if (schedulerUsers <= 0) {
+        schedulerUsers = 0
+        TappScheduler.reset()
+        schedulerInitialized = false
+      }
+    }
   }
 }

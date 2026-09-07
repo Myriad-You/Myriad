@@ -6,7 +6,7 @@ import { it } from 'node:test'
 import ts from 'typescript'
 import { generateTappSdkDts } from '../scripts/sdk-dts.mjs'
 
-it('generates typed reference-image requests and rejects malformed inputs', async () => {
+it('types AI task inputs and snapshots and rejects malformed inputs', async () => {
   const contract = JSON.parse(await readFile(new URL('../src/generated/contract.json', import.meta.url), 'utf8'))
   const generated = generateTappSdkDts({
     actions: contract.permissions.actions,
@@ -18,7 +18,7 @@ it('generates typed reference-image requests and rejects malformed inputs', asyn
   try {
     await writeFile(join(directory, 'sdk.d.ts'), shipped)
     await writeFile(join(directory, 'example.ts'), `
-      import type { TappSdk } from './sdk';
+      import type { TappAITaskSnapshot, TappAIUsageSnapshot, TappSdk } from './sdk';
       declare const sdk: TappSdk;
       sdk.ai.tasks.create({ version: 2, operation: 'image', input: {
         prompt: 'draw', width: '768px', height: 1024,
@@ -26,6 +26,32 @@ it('generates typed reference-image requests and rejects malformed inputs', asyn
       }, output: { format: 'image' } });
       sdk.ai.tasks.create({ version: 2, operation: 'image', input: 'draw' });
       sdk.ai.tasks.create({ version: 2, operation: 'generate', input: { prompt: 'hello' } });
+      sdk.ai.tasks.create({ version: 2, operation: 'generate', input: 'hello' });
+      sdk.ai.tasks.create({ version: 2, operation: 'analyze', input: { data: { n: 1 }, instruction: 'trend' } });
+      sdk.ai.tasks.create({ version: 2, operation: 'chat', input: { messages: [{ role: 'user', content: 'hi' }] } });
+      sdk.ai.tasks.create({ version: 2, operation: 'search', input: { query: 'rss rust', searchType: 'general' }, output: { format: 'json' } });
+      sdk.ai.tasks.create({ version: 2, operation: 'search', input: 'rss rust' });
+      declare function expectSnapshot(value: TappAITaskSnapshot): void;
+      declare function expectUsage(value: TappAIUsageSnapshot): void;
+      sdk.ai.tasks.create({ version: 2, operation: 'generate', input: 'hello' }).then(expectSnapshot);
+      sdk.ai.tasks.get('task-id').then(expectSnapshot);
+      sdk.ai.tasks.usage().then(expectUsage);
+      sdk.ai.tasks.cancel('task-id').then((cancelled) => {
+        cancelled.success;
+        cancelled.taskId;
+      });
+      // @ts-expect-error Generate object input requires prompt.
+      sdk.ai.tasks.create({ version: 2, operation: 'generate', input: {} });
+      // @ts-expect-error Analyze input requires data.
+      sdk.ai.tasks.create({ version: 2, operation: 'analyze', input: { instruction: 'trend' } });
+      // @ts-expect-error Analyze input must be an object with data.
+      sdk.ai.tasks.create({ version: 2, operation: 'analyze', input: 'raw' });
+      // @ts-expect-error Chat input requires messages.
+      sdk.ai.tasks.create({ version: 2, operation: 'chat', input: { prompt: 'hi' } });
+      // @ts-expect-error Chat role must be system, user, or assistant.
+      sdk.ai.tasks.create({ version: 2, operation: 'chat', input: { messages: [{ role: 'tool', content: 'x' }] } });
+      // @ts-expect-error Search input requires query.
+      sdk.ai.tasks.create({ version: 2, operation: 'search', input: { searchType: 'general' } });
       // @ts-expect-error Reference images must be strings.
       sdk.ai.tasks.create({ version: 2, operation: 'image', input: { prompt: 'draw', referenceImages: [42] } });
       // @ts-expect-error Image input requires a prompt.

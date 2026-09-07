@@ -47,6 +47,7 @@ export function defaultUiFieldValue(key: string): string {
   // Clearable SEO / third-party analytics: empty = disabled (not env-injected)
   if (key === 'site_keywords') return ''
   if (key === 'site_og_image') return ''
+  if (key === 'google_site_verification') return ''
   if (key === 'site_ai_intro') return ''
   if (key === 'ga_measurement_id') return ''
   if (key === 'umami_website_id') return ''

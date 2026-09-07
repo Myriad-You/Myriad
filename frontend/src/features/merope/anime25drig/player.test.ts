@@ -7,6 +7,7 @@ import {
   DEFAULT_REAR_HAIR_SWAY,
   IDENTITY_DRIVER,
   sanitizeDriverPatch,
+  WORKBENCH_DRIVER,
 } from './driver'
 import {
   compileAnime25DMouthMorphSources,
@@ -29,6 +30,14 @@ test('skips invisible expression uploads while preserving authored eye-white sta
   assert.equal(shouldDeformLayer({ name: 'mouth-maniac' }, 0.003), false)
   assert.equal(shouldDeformLayer({ name: 'eye-dizzy-left' }, 0.004), true)
   assert.equal(shouldDeformLayer({ name: 'eyewhite-left' }, 0), true)
+})
+
+test('a portrait comes around with its head fully until told otherwise', () => {
+  assert.equal(IDENTITY_DRIVER.bodyYaw, 1)
+  assert.equal(WORKBENCH_DRIVER.bodyYaw, 1)
+  assert.equal(sanitizeDriverPatch({ bodyYaw: 4 }).bodyYaw, 1)
+  assert.equal(sanitizeDriverPatch({ bodyYaw: -1 }).bodyYaw, 0)
+  assert.equal(sanitizeDriverPatch({ bodyYaw: 0.4 }).bodyYaw, 0.4)
 })
 
 test('clamps all external driver writes at the runtime boundary', () => {

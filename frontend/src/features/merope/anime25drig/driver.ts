@@ -24,6 +24,11 @@ export interface Anime25DDriver {
   mouthForm: number
   mouthCY: number
   body: number
+  /**
+   * How far the body comes around with a head turn, as a share of this
+   * portrait's own authored follow. The fork carries the same control.
+   */
+  bodyYaw: number
   physAmp: number
   soft: number
   browAngL: number
@@ -85,6 +90,7 @@ export const IDENTITY_DRIVER: Anime25DDriver = {
   mouthForm: 0,
   mouthCY: 0,
   body: 0,
+  bodyYaw: 1,
   physAmp: DEFAULT_REAR_HAIR_SWAY,
   soft: 2,
   browAngL: 0,
@@ -156,6 +162,7 @@ const DRIVER_LIMITS: Partial<
   mouthForm: [-1, 1],
   mouthCY: [-1, 1],
   body: [-1, 1],
+  bodyYaw: [0, 1],
   physAmp: [0, 3],
   soft: [0, 3],
   browAngL: [-1, 1],

@@ -1,6 +1,6 @@
 /**
  * 服务商选择器设置项组件
- * 显示为带图标的按钮组
+ * 显示为带图标的按钮组。默认再点一次已选项即取消，不强制必须选中。
  */
 
 import type { ProviderSettingConfig, SettingOption } from '../types'
@@ -25,17 +25,21 @@ function ProviderItemComponent<T extends string = string>({
   options,
   disabled = false,
   loading = false,
+  allowDeselect = true,
   size = 'md',
   layout = 'horizontal',
   className = '',
 }: ProviderItemProps<T>) {
   const handleSelect = useCallback(
     (optionValue: T) => {
-      if (!disabled && !loading) {
-        onChange(optionValue)
+      if (disabled || loading) return
+      if (allowDeselect && value === optionValue) {
+        onChange('' as T)
+        return
       }
+      onChange(optionValue)
     },
-    [onChange, disabled, loading],
+    [allowDeselect, onChange, disabled, loading, value],
   )
 
   const renderIcon = (icon: SettingOption['icon']) => {
@@ -65,22 +69,26 @@ function ProviderItemComponent<T extends string = string>({
         </div>
 
         <div className="setting-control">
-          <div className="provider-selector">
-            {options.map((option) => (
-              <button
-                key={String(option.value)}
-                type="button"
-                onClick={() => handleSelect(option.value as T)}
-                disabled={disabled || loading || option.disabled}
-                className={`provider-option ${value === option.value ? 'active' : ''}`}
-              >
-                {renderIcon(option.icon)}
-                <span className="provider-name">{option.label}</span>
-                {option.badge && (
-                  <span className="provider-badge">{option.badge}</span>
-                )}
-              </button>
-            ))}
+          <div className="provider-selector" role="group">
+            {options.map((option) => {
+              const selected = value === option.value
+              return (
+                <button
+                  key={String(option.value)}
+                  type="button"
+                  onClick={() => handleSelect(option.value as T)}
+                  disabled={disabled || loading || option.disabled}
+                  aria-pressed={selected}
+                  className={`provider-option ${selected ? 'active' : ''}`}
+                >
+                  {renderIcon(option.icon)}
+                  <span className="provider-name">{option.label}</span>
+                  {option.badge && (
+                    <span className="provider-badge">{option.badge}</span>
+                  )}
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>

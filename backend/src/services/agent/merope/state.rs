@@ -187,23 +187,33 @@ pub fn repeat_scale(utterance_index: u32) -> f64 {
     1.0 / (1.0 + 0.25 * f64::from(utterance_index))
 }
 
+fn appraisal_pull(value: f64, emotion: f64) -> f64 {
+    let delta = PULL * (emotion - value);
+    // Appraisal is a signed influence around ORIGIN, not a replacement mood.
+    // A mild compliment must not punish an already happy character; calming
+    // someone already calmer than the target must not excite them either.
+    let directional = if emotion > ORIGIN {
+        delta.max(0.0)
+    } else {
+        delta.min(0.0)
+    };
+    diminish(value, directional.clamp(-MAX_STEP, MAX_STEP))
+}
+
 pub fn pull_push(affect: &mut Affect) {
-    if (affect.emotion - ORIGIN).abs() < EMOTION_PULL_SKIP {
-        return;
+    // Each axis can be neutral independently: calming down does not imply a
+    // change of affection, and affection need not imply excitement.
+    if (affect.emotion - ORIGIN).abs() >= EMOTION_PULL_SKIP {
+        let dm = appraisal_pull(affect.mood, affect.emotion);
+        affect.mood = clamp(affect.mood + dm);
+        affect.emotion = clamp(affect.emotion + PUSH * (affect.mood - affect.emotion));
     }
-    let dm = diminish(
-        affect.mood,
-        (PULL * (affect.emotion - affect.mood)).clamp(-MAX_STEP, MAX_STEP),
-    );
-    let da = diminish(
-        affect.arousal,
-        (PULL * (affect.emotion_arousal - affect.arousal)).clamp(-MAX_STEP, MAX_STEP),
-    );
-    affect.mood = clamp(affect.mood + dm);
-    affect.arousal = clamp(affect.arousal + da);
-    affect.emotion = clamp(affect.emotion + PUSH * (affect.mood - affect.emotion));
-    affect.emotion_arousal =
-        clamp(affect.emotion_arousal + PUSH * (affect.arousal - affect.emotion_arousal));
+    if (affect.emotion_arousal - ORIGIN).abs() >= EMOTION_PULL_SKIP {
+        let da = appraisal_pull(affect.arousal, affect.emotion_arousal);
+        affect.arousal = clamp(affect.arousal + da);
+        affect.emotion_arousal =
+            clamp(affect.emotion_arousal + PUSH * (affect.arousal - affect.emotion_arousal));
+    }
 }
 
 pub fn apply_appraisal(affect: &mut Affect, appraisal: Appraisal, scale: f64) {
@@ -264,47 +274,11 @@ pub fn apply_music_listening(affect: &mut Affect, listened_seconds: u32) {
     affect.mood = clamp(affect.mood + boost);
 }
 
-pub fn parse_appraisal_hint(raw: &str) -> Option<(i32, i32)> {
-    let mut nums = Vec::new();
-    let mut current = String::new();
-    for ch in raw.chars() {
-        if ch.is_ascii_digit() || ((ch == '-' || ch == '+') && current.is_empty()) {
-            current.push(ch);
-            continue;
-        }
-        if !current.is_empty() {
-            if let Ok(value) = current.parse::<i32>() {
-                nums.push(value);
-            }
-            current.clear();
-            if nums.len() == 2 {
-                break;
-            }
-        }
-    }
-    if nums.len() < 2 {
-        if let Ok(value) = current.parse::<i32>() {
-            nums.push(value);
-        }
-    }
-    if nums.len() < 2 {
-        return None;
-    }
-    Some((nums[0].clamp(-2, 2), nums[1].clamp(-2, 2)))
-}
-
 pub fn lite_appraisal(valence: i32, arousal: i32) -> Appraisal {
     Appraisal {
         emotion: ORIGIN + LITE_HINT_SCALE * f64::from(valence.clamp(-2, 2)),
         arousal: ORIGIN + LITE_HINT_SCALE * f64::from(arousal.clamp(-2, 2)),
     }
-}
-
-pub fn apply_mood_hint(affect: &mut Affect, valence: i32, arousal: i32) {
-    if valence == 0 && arousal == 0 {
-        return;
-    }
-    apply_appraisal(affect, lite_appraisal(valence, arousal), 1.0);
 }
 
 /// Reads through a stale activity. `age_secs` comes from `updated_at`, which
@@ -364,73 +338,36 @@ fn contains_any(blob: &str, needles: &[&str]) -> bool {
 }
 
 pub fn detect_mood_cue(text: &str) -> (bool, bool) {
-    let lower = text.to_lowercase();
-    if cue_hit(
-        &lower,
-        &[
-            "滚",
-            "闭嘴",
-            "滚开",
-            "烦死",
-            "讨厌你",
-            "stupid",
-            "shut up",
-            "fuck you",
-            "去死",
-        ],
-    ) {
-        return (false, true);
-    }
-    let praised = cue_hit(
-        &lower,
-        &[
-            "谢谢",
-            "感谢",
-            "辛苦了",
-            "真棒",
-            "太好了",
-            "喜欢你",
-            "thank you",
-            "thanks",
-            "good job",
-            "love you",
-        ],
+    // Only unambiguous standalone address gets a synchronous mood change.
+    // Mixed sentiment, quoted/code text, reported speech and negation need
+    // context; substring matching here would bypass the appraiser entirely.
+    let normalized = text
+        .trim()
+        .trim_end_matches(['!', '！', '.', '。', '~', '～'])
+        .trim();
+    let lower = normalized.to_lowercase();
+    let praised = matches!(
+        lower.as_str(),
+        "谢谢"
+            | "谢谢你"
+            | "感谢你"
+            | "辛苦了"
+            | "你真棒"
+            | "喜欢你"
+            | "我喜欢你"
+            | "thank you"
+            | "thanks"
+            | "good job"
+            | "love you"
+            | "i love you"
+            | "ありがとう"
+            | "ありがとうございます"
     );
-    (praised, false)
-}
-
-fn cue_hit(haystack: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| {
-        let mut offset = 0;
-        while offset < haystack.len() {
-            let rest = &haystack[offset..];
-            let Some(pos) = rest.find(needle) else {
-                return false;
-            };
-            let abs = offset + pos;
-            if !negated_before(haystack, abs) {
-                return true;
-            }
-            offset = abs + needle.len();
-            while offset < haystack.len() && !haystack.is_char_boundary(offset) {
-                offset += 1;
-            }
-        }
-        false
-    })
-}
-
-fn negated_before(haystack: &str, index: usize) -> bool {
-    let mut start = index.saturating_sub(12);
-    while start > 0 && !haystack.is_char_boundary(start) {
-        start -= 1;
-    }
-    let window = haystack[start..index].to_lowercase();
-    [
-        "不是", "并非", "不要", "don't", "dont", "never", "不", "没", "别", "not",
-    ]
-    .iter()
-    .any(|needle| window.contains(needle))
+    let scolded = matches!(
+        lower.as_str(),
+        "滚" | "闭嘴" | "滚开" | "讨厌你" | "我讨厌你" | "你真笨" | "shut up" | "fuck you" | "去死"
+    );
+    (praised, scolded)
 }
 
 #[cfg(test)]
@@ -557,12 +494,27 @@ mod tests {
     }
 
     #[test]
-    fn mood_cue_prefers_scold_over_praise() {
-        assert_eq!(detect_mood_cue("谢谢你还是滚吧"), (false, true));
-        assert_eq!(detect_mood_cue("谢谢你今天帮我"), (true, false));
-        assert_eq!(detect_mood_cue("今天天气不错"), (false, false));
-        assert_eq!(detect_mood_cue("不是讨厌你"), (false, false));
-        assert_eq!(detect_mood_cue("不喜欢你"), (false, false));
+    fn instant_mood_cues_require_direct_standalone_address() {
+        assert_eq!(detect_mood_cue(" 谢谢你！！ "), (true, false));
+        assert_eq!(detect_mood_cue("闭嘴！"), (false, true));
+        assert_eq!(detect_mood_cue("Thank You!"), (true, false));
+        for text in [
+            "谢谢你还是滚吧",
+            "谢谢你今天帮我",
+            "不是讨厌你",
+            "不喜欢你",
+            "不要说谢谢",
+            "他说闭嘴",
+            "他说：喜欢你",
+            "“闭嘴”",
+            "`thanks`",
+            "代码滚动有点慢",
+            "this stupid bug",
+            "I don't love you",
+            "谢谢你？",
+        ] {
+            assert_eq!(detect_mood_cue(text), (false, false), "{text}");
+        }
     }
 
     #[test]
@@ -578,16 +530,60 @@ mod tests {
     }
 
     #[test]
-    fn appraisal_hint_parses_two_ints() {
-        assert_eq!(parse_appraisal_hint(" 1 -1 "), Some((1, -1)));
-        assert_eq!(parse_appraisal_hint("\"2 2\""), Some((2, 2)));
-        assert_eq!(parse_appraisal_hint("9 0"), Some((2, 0)));
-        assert_eq!(parse_appraisal_hint("1"), None);
-        assert_eq!(parse_appraisal_hint("nope"), None);
+    fn appraisal_axes_can_change_independently() {
         let mut affect = rest();
-        apply_mood_hint(&mut affect, 2, 1);
+        apply_appraisal(&mut affect, lite_appraisal(0, -2), 1.0);
+        assert_eq!(affect.mood, DEFAULT_MOOD);
+        assert!(affect.arousal < DEFAULT_AROUSAL);
+        let mut affect = rest();
+        apply_appraisal(&mut affect, lite_appraisal(2, 0), 1.0);
         assert!(affect.mood > DEFAULT_MOOD);
-        assert!(affect.arousal > DEFAULT_AROUSAL);
+        assert_eq!(affect.arousal, DEFAULT_AROUSAL);
+    }
+
+    #[test]
+    fn signed_appraisal_never_moves_either_axis_in_the_opposite_direction() {
+        for initial in 0..=100 {
+            for valence in -2..=2 {
+                for arousal in -2..=2 {
+                    let mut affect = Affect::at_rest(AffectBaseline {
+                        mood: f64::from(initial),
+                        arousal: f64::from(initial),
+                    });
+                    apply_appraisal(&mut affect, lite_appraisal(valence, arousal), 1.0);
+                    for (next, sign) in [(affect.mood, valence), (affect.arousal, arousal)] {
+                        let delta = next - f64::from(initial);
+                        assert!(
+                            match sign.cmp(&0) {
+                                std::cmp::Ordering::Greater => delta >= 0.0,
+                                std::cmp::Ordering::Less => delta <= 0.0,
+                                std::cmp::Ordering::Equal => delta == 0.0,
+                            },
+                            "initial={initial}, valence={valence}, arousal={arousal}, delta={delta}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn habituated_local_praise_does_not_lower_an_already_happy_mood() {
+        for utterance in [0, 1, 10, 100] {
+            let mut affect = Affect::at_rest(AffectBaseline {
+                mood: 85.0,
+                arousal: 15.0,
+            });
+            apply_user_utterance(&mut affect, utterance, true, false);
+            assert!(affect.mood >= 85.0);
+            let mut affect = Affect::at_rest(AffectBaseline {
+                mood: 5.0,
+                arousal: 95.0,
+            });
+            apply_user_utterance(&mut affect, utterance, false, true);
+            assert!(affect.mood <= 5.0);
+            assert!(affect.arousal >= 95.0);
+        }
     }
 
     #[test]

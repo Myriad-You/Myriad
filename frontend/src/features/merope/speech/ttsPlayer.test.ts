@@ -1,6 +1,8 @@
 import type { TextVisemeCue } from '../anime25drig/textVisemes'
+import type { SpeechProsodyTimeline } from './prosody'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { TtsPipeline } from './ttsPipeline'
 import { playTtsBuffer, sampleDecodedMouth, sampleMouth } from './ttsPlayer'
 
 test('audio energy maps to a rest viseme when the buffer is silence', () => {
@@ -90,16 +92,19 @@ class FakeSource {
   }
 }
 
-function fakeContext(decoded: Promise<unknown>): {
+function fakeContext(
+  decoded: Promise<unknown>,
+  options: { state?: AudioContextState; resume?: () => Promise<void> } = {},
+): {
   context: AudioContext
   sources: FakeSource[]
 } {
   const sources: FakeSource[] = []
   const context = {
-    state: 'running',
+    state: options.state ?? 'running',
     currentTime: 0,
     destination: {},
-    resume: () => {},
+    resume: options.resume ?? (() => Promise.resolve()),
     decodeAudioData: () => decoded,
     createAnalyser: () => ({
       fftSize: 256,
@@ -193,6 +198,150 @@ test('a decode failure reports the segment finished so the queue moves on', asyn
   assert.equal(state.ended, 1)
 })
 
+test('cancelling without an audio device suppresses the deferred completion', async () => {
+  const savedContext = globalThis.AudioContext
+  // This branch is also used during rendering outside an audio-capable browser.
+  Reflect.deleteProperty(globalThis, 'AudioContext')
+  try {
+    const state = hooks()
+    const handle = playTtsBuffer(new ArrayBuffer(8), segment, state)
+    handle.stop()
+    await settle()
+    assert.equal(state.ended, 0)
+  } finally {
+    if (savedContext) globalThis.AudioContext = savedContext
+  }
+})
+
+test('suspended audio waits for resume before publishing mouth or phrase timing', async () => {
+  let resume!: () => void
+  const resumed = new Promise<void>((resolve) => {
+    resume = resolve
+  })
+  const { context, sources } = fakeContext(Promise.resolve({ duration: 1 }), {
+    state: 'suspended',
+    resume: () => resumed,
+  })
+  let now = 100
+  const timings: number[] = []
+  let mouthFrames = 0
+  const handle = playTtsBuffer(
+    new ArrayBuffer(8),
+    segment,
+    {
+      onEnergy: () => {
+        mouthFrames += 1
+      },
+      onProsody: (_timeline, timing) => timings.push(timing.startedAtMs),
+      onEnded: () => {},
+    },
+    context,
+    { compileVisemes: async () => [], now: () => now },
+  )
+  try {
+    await settle()
+    assert.equal(
+      sources.reduce((sum, source) => sum + source.started, 0),
+      0,
+    )
+    assert.equal(mouthFrames, 0)
+    assert.deepEqual(timings, [])
+    now = 900
+    resume()
+    await settle()
+    assert.equal(sources[0]?.started, 1)
+    assert.equal(mouthFrames, 1)
+    assert.ok(timings.length > 0)
+    assert.ok(timings.every((timing) => timing === 900))
+  } finally {
+    handle.stop()
+    resume()
+  }
+})
+
+test('cancelling during resume prevents late playback and completion', async () => {
+  let resume!: () => void
+  const resumed = new Promise<void>((resolve) => {
+    resume = resolve
+  })
+  const state = hooks()
+  const { context, sources } = fakeContext(Promise.resolve({ duration: 1 }), {
+    state: 'suspended',
+    resume: () => resumed,
+  })
+  const handle = playTtsBuffer(new ArrayBuffer(8), segment, state, context)
+  await settle()
+  handle.stop()
+  resume()
+  await settle()
+  assert.equal(
+    sources.reduce((sum, source) => sum + source.started, 0),
+    0,
+  )
+  assert.equal(state.ended, 0)
+})
+
+test('resume rejection ends the segment without starting its mouth or audio', async () => {
+  const state = hooks()
+  const { context, sources } = fakeContext(Promise.resolve({ duration: 1 }), {
+    state: 'suspended',
+    resume: async () => {
+      throw new Error('audio unavailable')
+    },
+  })
+  playTtsBuffer(new ArrayBuffer(8), segment, state, context)
+  await settle()
+  assert.equal(state.ended, 1)
+  assert.equal(
+    sources.reduce((sum, source) => sum + source.started, 0),
+    0,
+  )
+})
+
+test('a resume failure releases the real queue so the next segment can play', async () => {
+  let attempts = 0
+  const { context, sources } = fakeContext(Promise.resolve({ duration: 1 }), {
+    state: 'suspended',
+    resume: async () => {
+      attempts += 1
+      if (attempts === 1) throw new Error('audio unavailable')
+    },
+  })
+  const played: string[] = []
+  const pipeline = new TtsPipeline({
+    synthesize: async () => new ArrayBuffer(8),
+    play: (audio, item, onEnded) =>
+      playTtsBuffer(
+        audio,
+        item,
+        {
+          onEnergy: () => {},
+          onStarted: () => {
+            played.push(item.messageId)
+          },
+          onEnded,
+        },
+        context,
+        { compileVisemes: async () => [] },
+      ),
+  })
+  try {
+    pipeline.enqueue([
+      segment,
+      { ...segment, messageId: 'next', segmentId: 'next:1' },
+    ])
+    await settle()
+    assert.deepEqual(played, ['next'])
+    assert.equal(pipeline.isBusyWith(segment.messageId), false)
+    assert.equal(pipeline.isBusyWith('next'), true)
+    sources[0]!.onended?.()
+    assert.equal(pipeline.playing, false)
+    assert.equal(pipeline.queueLength, 0)
+  } finally {
+    pipeline.cancel()
+  }
+})
+
 test('cold viseme compilation never delays decoded audio playback', async () => {
   let finishCompilation: (cues: TextVisemeCue[]) => void = () => {}
   const compilation = new Promise<TextVisemeCue[]>((resolve) => {
@@ -260,5 +409,33 @@ test('late prosody retains the actual audio origin for predictive scheduling', a
   await settle()
   finishCompilation([])
   await settle()
-  assert.deepEqual(timings, [1_234])
+  assert.deepEqual(timings, [1_234, 1_234])
+})
+
+test('text beats reach playback before cold visemes and survive their later refinement', async () => {
+  let resolve: (cues: TextVisemeCue[]) => void = () => {}
+  const compilation = new Promise<TextVisemeCue[]>((done) => {
+    resolve = done
+  })
+  const timelines: SpeechProsodyTimeline[] = []
+  const { context, sources } = fakeContext(Promise.resolve({ duration: 4 }))
+  const handle = playTtsBuffer(
+    new ArrayBuffer(8),
+    { ...segment, text: '不过我们可以试试。你觉得呢？' },
+    {
+      onEnergy: () => {},
+      onEnded: () => {},
+      onProsody: (timeline) => timelines.push(timeline),
+    },
+    context,
+    { compileVisemes: () => compilation, now: () => 1_000 },
+  )
+  await settle()
+  assert.equal(sources[0]?.started, 1)
+  assert.equal(timelines.length, 1)
+  assert.ok(timelines[0]!.accents.length >= 2)
+  resolve([])
+  await settle()
+  assert.deepEqual(timelines[1], timelines[0])
+  handle.stop()
 })

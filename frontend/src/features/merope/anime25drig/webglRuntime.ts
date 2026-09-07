@@ -1,5 +1,6 @@
 import type { Anime25DPlaybackLayer } from './types'
 import { currentCopy } from '../../../i18n/localeCopy'
+import { NECK_SURFACE_COLUMNS } from './neckSurfaceContour'
 
 const VERTEX_SHADER = `#version 300 es
 in vec2 a_pos;
@@ -29,6 +30,9 @@ uniform float u_opacity;
 uniform float u_cry_time;
 uniform float u_cry;
 uniform vec4 u_atlas_rect;
+uniform vec2 u_neck_surface_fade;
+uniform vec2 u_neck_surface_bounds;
+uniform vec2 u_neck_surface_contour[${NECK_SURFACE_COLUMNS}];
 out vec4 out_color;
 
 vec2 atlas_uv(vec2 local_uv) {
@@ -123,7 +127,19 @@ void main() {
     color = dry_eye + moving_water * (1.0 - dry_eye.a);
   }
   if (color.a < u_cut) discard;
-  out_color = color * u_opacity;
+  float neck_opacity = 1.0;
+  if (u_neck_surface_fade.y > u_neck_surface_fade.x) {
+    vec2 band = u_neck_surface_fade;
+    if (u_neck_surface_bounds.y > u_neck_surface_bounds.x) {
+      float column = clamp((local_uv.x - u_neck_surface_bounds.x)
+        / (u_neck_surface_bounds.y - u_neck_surface_bounds.x), 0.0, 1.0)
+        * ${NECK_SURFACE_COLUMNS - 1}.0;
+      int left = min(int(floor(column)), ${NECK_SURFACE_COLUMNS - 2});
+      band = mix(u_neck_surface_contour[left], u_neck_surface_contour[left + 1], column - float(left));
+    }
+    neck_opacity -= smoothstep(band.x, band.y, local_uv.y);
+  }
+  out_color = color * (u_opacity * neck_opacity);
 }`
 
 export interface CroppedLayerPixels {
@@ -221,6 +237,9 @@ export function readLayerPixels(
     }
   } catch {
     return null
+  } finally {
+    crop.width = 0
+    crop.height = 0
   }
 }
 
@@ -303,10 +322,59 @@ export function requiredUniform(
   return location
 }
 
+/**
+ * `crossOrigin=anonymous` turns the fetch into a CORS request. Same-origin
+ * atlas URLs (`/api/merope/rig/assets/…`) must not use it: if the visitor's
+ * Origin is missing from CORS_ORIGINS the image errors and the live face
+ * falls back to the master portrait. Display `<img>` tags do not set this,
+ * which is why guests still saw the portrait.
+ */
+export function atlasUrlNeedsCors(
+  url: string,
+  pageHref = typeof window !== 'undefined' && window.location?.href
+    ? window.location.href
+    : '',
+): boolean {
+  if (!pageHref) return false
+  try {
+    return new URL(url, pageHref).origin !== new URL(pageHref).origin
+  } catch {
+    return false
+  }
+}
+
+const MAX_CACHED_ATLAS_IMAGES = 1
+const cachedAtlasImages = new Map<string, HTMLImageElement>()
+
+function cachedAtlasImage(url: string): HTMLImageElement | undefined {
+  const image = cachedAtlasImages.get(url)
+  if (image?.complete && image.naturalWidth > 0) return image
+  if (image) cachedAtlasImages.delete(url)
+  return undefined
+}
+
+function storeAtlasImage(url: string, image: HTMLImageElement): void {
+  cachedAtlasImages.delete(url)
+  cachedAtlasImages.set(url, image)
+  while (cachedAtlasImages.size > MAX_CACHED_ATLAS_IMAGES) {
+    const oldest = cachedAtlasImages.keys().next().value
+    if (!oldest) break
+    const evicted = cachedAtlasImages.get(oldest)
+    cachedAtlasImages.delete(oldest)
+    if (evicted && evicted !== image) evicted.src = ''
+  }
+}
+
+export function resetCachedAtlasImagesForTests(): void {
+  cachedAtlasImages.clear()
+}
+
 export function loadImage(
   url: string,
   signal?: AbortSignal,
 ): Promise<HTMLImageElement> {
+  const cached = cachedAtlasImage(url)
+  if (cached) return Promise.resolve(cached)
   return new Promise((resolve, reject) => {
     const image = new Image()
     let settled = false
@@ -327,8 +395,12 @@ export function loadImage(
         reject(error)
       })
     }
-    image.crossOrigin = 'anonymous'
-    image.onload = () => finish(() => resolve(image))
+    if (atlasUrlNeedsCors(url)) image.crossOrigin = 'anonymous'
+    image.onload = () =>
+      finish(() => {
+        storeAtlasImage(url, image)
+        resolve(image)
+      })
     image.onerror = () =>
       finish(() => reject(new Error('Anime2.5DRig atlas failed to load')))
     if (signal?.aborted) {

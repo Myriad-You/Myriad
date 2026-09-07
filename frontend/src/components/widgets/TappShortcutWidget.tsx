@@ -15,8 +15,8 @@ import type {
   TappListItem,
 } from '../../tapp/services/TappLifecycleApi'
 import type { TappManifestLocales } from '../../tapp/types'
-import type { WidgetComponentProps } from '../WidgetGrid'
-import { FaTh, FaTimes } from '@lib/icons'
+import type { WidgetComponentProps } from '../widgetGridTypes'
+import { FaTh } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
 import {
   memo,
@@ -26,7 +26,6 @@ import {
   useRef,
   useState,
 } from 'react'
-import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
@@ -45,6 +44,7 @@ import { userFacingError } from '../../utils/userFacingError'
 import { Spinner } from '../Spinner'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
+import { WidgetSettingsSection, WidgetSettingsTip } from './shared/WidgetSettingsTip'
 import { WidgetShell } from './shared/WidgetShell'
 
 // Types
@@ -269,7 +269,6 @@ const GlobalSettingsModal = memo(() => {
   const { t } = useI18n()
   const tw = t.tappShortcut
   const [, forceUpdate] = useState({})
-  const modalRef = useRef<HTMLDivElement>(null)
   const [tapps, setTapps] = useState<TappListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -306,46 +305,6 @@ const GlobalSettingsModal = memo(() => {
     }
   }, [isOpen, tw.loadFailed])
 
-  const position = useMemo(() => {
-    if (!anchorRect) return { top: 0, left: 0 }
-    const modalWidth = 300
-    const modalHeight = 360
-    const padding = 16
-    let top = anchorRect.bottom + 8
-    let left = anchorRect.left + (anchorRect.width - modalWidth) / 2
-    if (left + modalWidth > window.innerWidth - padding) {
-      left = window.innerWidth - modalWidth - padding
-    }
-    if (left < padding) left = padding
-    if (top + modalHeight > window.innerHeight - padding) {
-      top = anchorRect.top - modalHeight - 8
-    }
-    if (top < padding) top = padding
-    return { top, left }
-  }, [anchorRect])
-
-  useEffect(() => {
-    if (!isOpen) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        closeSettingsModal()
-      }
-    }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeSettingsModal()
-    }
-    const timer = setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside, {
-        passive: true,
-      })
-      document.addEventListener('keydown', handleKeyDown)
-    }, 100)
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen])
 
   const handleSelect = useCallback(
     (tappId: string) => {
@@ -355,45 +314,17 @@ const GlobalSettingsModal = memo(() => {
     [onSelect],
   )
 
-  if (!isOpen) return null
-
-  return createPortal(
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-10000"
-      style={{ pointerEvents: 'none' }}
+  return (
+    <WidgetSettingsTip
+      open={isOpen}
+      anchor={anchorRect ?? null}
+      title={t.widgets.tappShortcut}
+      width={300}
+      height={420}
+      onClose={closeSettingsModal}
     >
-      <motion.div
-        ref={modalRef}
-        initial={{ opacity: 0, scale: 0.95, y: -5 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.15 }}
-        className="absolute glass rounded-2xl shadow-2xl overflow-hidden border border-white/20 dark:border-white/10"
-        style={{
-          top: position.top,
-          left: position.left,
-          width: 300,
-          pointerEvents: 'auto',
-        }}
-      >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/50 dark:border-white/10">
-          <span className="font-bold text-sm text-gray-800 dark:text-gray-200">
-            {tw.selectTapp}
-          </span>
-          <button
-            type="button"
-            onClick={closeSettingsModal}
-            className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-            title={tw.close}
-            aria-label={tw.close}
-          >
-            <FaTimes size={12} className="text-gray-500 dark:text-gray-400" />
-          </button>
-        </div>
-
-        <div className="p-3 space-y-1.5 max-h-80 overflow-y-auto">
+      <WidgetSettingsSection label={tw.selectTapp}>
+        <div className="widget-settings-tip__body space-y-1.5">
           {loading ? (
             <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
               {tw.loading}
@@ -417,9 +348,8 @@ const GlobalSettingsModal = memo(() => {
             ))
           )}
         </div>
-      </motion.div>
-    </motion.div>,
-    document.body,
+      </WidgetSettingsSection>
+    </WidgetSettingsTip>
   )
 })
 
@@ -864,6 +794,7 @@ export const TappShortcutWidget = memo(
         <WidgetLongPressHint
           visible={isEditMode}
           title={tw.longPressToEdit}
+          onClick={openSettings}
         />
       </WidgetShell>
     )

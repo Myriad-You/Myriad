@@ -6,6 +6,7 @@ import { useI18n } from '../../../../contexts/I18nContext'
 import {
   CLOTHING_STYLE_OPTIONS,
   clothingStylePreview,
+  GUIDED_MIN_REPORTS,
 } from '../onboardingTypes'
 
 type Glyph = ComponentType<SVGProps<SVGSVGElement>>
@@ -17,10 +18,12 @@ interface Lane {
   meta: string
   /** 这条路会产出什么。用各步骤自己的短名，改了步骤这里不会漂。 */
   flow: string[]
+  locked?: string
   onPick: () => void
 }
 
 interface Props {
+  reportCount: number
   onGuided: () => void
   onImport: () => void
   onHeaderChange: (chrome: OnboardingHeaderChrome) => void
@@ -36,12 +39,19 @@ interface Props {
  * 左边上下两条选项；右边单独做角色预览（循环滚过视觉设计的全部服装风格）。
  */
 export default function ChoiceStep({
+  reportCount,
   onGuided,
   onImport,
   onHeaderChange,
 }: Props) {
   const { t } = useI18n()
   const o = t.agentPersona.onboarding
+  const canGuide = reportCount >= GUIDED_MIN_REPORTS
+  const guidedLock = canGuide
+    ? undefined
+    : t.config.agentPersonaNeedsReports
+        .replace('{count}', String(reportCount))
+        .replace('{need}', String(GUIDED_MIN_REPORTS))
 
   useLayoutEffect(() => {
     onHeaderChange({ description: o.choiceLead })
@@ -60,6 +70,7 @@ export default function ChoiceStep({
         o.step4Short,
         o.step5Short,
       ],
+      locked: guidedLock,
       onPick: onGuided,
     },
     {
@@ -90,7 +101,12 @@ export default function ChoiceStep({
                   type="button"
                   className="merope-ob-choice__lane"
                   data-lane={lane.id}
-                  aria-label={`${lane.title} · ${lane.meta}`}
+                  disabled={Boolean(lane.locked)}
+                  aria-label={
+                    lane.locked
+                      ? `${lane.title} · ${lane.locked}`
+                      : `${lane.title} · ${lane.meta}`
+                  }
                   onClick={lane.onPick}
                 >
                   <span className="merope-ob-choice__badge">
@@ -100,14 +116,20 @@ export default function ChoiceStep({
                   <span className="merope-ob-choice__go">
                     <LuArrowRight aria-hidden />
                   </span>
-                  <span className="merope-ob-choice__flow" aria-hidden>
-                    {lane.flow.map((label, index) => (
-                      <span key={label} className="merope-ob-choice__chip">
-                        <span className="merope-ob-choice__n">{index + 1}</span>
-                        {label}
-                      </span>
-                    ))}
-                  </span>
+                  {lane.locked ? (
+                    <span className="merope-ob-choice__lock">{lane.locked}</span>
+                  ) : (
+                    <span className="merope-ob-choice__flow" aria-hidden>
+                      {lane.flow.map((label, index) => (
+                        <span key={label} className="merope-ob-choice__chip">
+                          <span className="merope-ob-choice__n">
+                            {index + 1}
+                          </span>
+                          {label}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </button>
               )
             })}

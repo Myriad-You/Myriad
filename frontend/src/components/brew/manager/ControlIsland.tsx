@@ -14,13 +14,7 @@
  * - starred-edit: 收藏编辑模式
  */
 
-import type {
-  AddSourceInput,
-  BrewSource,
-  CardSize,
-  FeedType,
-  SourceType,
-} from '../../../types/brew'
+import type { AddSourceInput, BrewSource } from '../../../types/brew'
 
 import type {
   ControlMode,
@@ -45,6 +39,19 @@ import { BREW_SHORTCUTS } from '../../../hooks/useBrewKeyboard'
 import * as brewApi from '../../../services/brewApi'
 import { userFacingError } from '../../../utils/userFacingError'
 import { getIconUrl, IslandLayout } from '../../shared/control-island'
+import {
+  buildBrewpackManifest,
+  categoryToPackEntry,
+  dataImageInfo,
+  isDataImageUrl,
+  normalizeBrewpackUrl,
+  parseBrewpackManifest,
+  resolvePackIcon,
+  rsshubInstanceToPackEntry,
+  sourceAddPayload,
+  sourceToPackEntry,
+  sourceUpdatePayload,
+} from './brewpack'
 import {
   AddMode,
   CategoryFeedMode,
@@ -222,47 +229,9 @@ function useDynamicTips(
   return { tip: tips[currentIndex] || tips[0], key: currentIndex }
 }
 
-// Brew 导出清单类型
-interface BrewExportManifest {
-  version: string
-  exported_at: string
-  sources: Array<{
-    url: string
-    name: string
-    category: string | null
-    icon_file: string | null
-    icon_url: string | null
-    source_type: SourceType
-    feed_type: FeedType
-    theme_color: string | null
-    update_interval: number
-    card_size: string | null
-    rsshub_route: string | null
-    ai_style_tags: string[] | null
-    admin_only: boolean
-  }>
-}
-
 async function loadJSZip() {
   const module = await import('jszip')
   return module.default
-}
-
-// 判断是否为 base64 图片数据
-function isBase64Image(str: string | null): boolean {
-  if (!str) return false
-  return str.startsWith('data:image/')
-}
-
-// 从 base64 提取 MIME 类型和扩展名
-function getBase64Info(base64: string): { mime: string; ext: string } {
-  const match = base64.match(/^data:(image\/\w+);base64,/)
-  if (match) {
-    const mime = match[1]
-    const ext = mime.split('/')[1] || 'png'
-    return { mime, ext }
-  }
-  return { mime: 'image/png', ext: 'png' }
 }
 
 interface ControlIslandProps {
@@ -551,11 +520,15 @@ export default function ControlIsland({
     setImportExportLoading(true)
     setImportExportError(null)
     try {
-      const JSZip = await loadJSZip()
+      const [packCategories, packInstances, JSZip] = await Promise.all([
+        brewApi.getCategories(),
+        brewApi.listRsshubInstances(),
+        loadJSZip(),
+      ])
       const zip = new JSZip()
       const iconsFolder = zip.folder('icons')
 
-      const manifestSources: BrewExportManifest['sources'] = []
+      const manifestSources = []
 
       for (let i = 0; i < sources.length; i++) {
         const s = sources[i]
@@ -563,8 +536,8 @@ export default function ControlIsland({
         let iconUrl: string | null = null
 
         if (s.icon) {
-          if (isBase64Image(s.icon)) {
-            const { ext } = getBase64Info(s.icon)
+          if (isDataImageUrl(s.icon)) {
+            const { ext } = dataImageInfo(s.icon)
             iconFile = `icon_${i}.${ext}`
             const base64Data = s.icon.split(',')[1]
             iconsFolder?.file(iconFile, base64Data, { base64: true })
@@ -573,28 +546,14 @@ export default function ControlIsland({
           }
         }
 
-        manifestSources.push({
-          url: s.url,
-          name: s.name,
-          category: s.category,
-          icon_file: iconFile,
-          icon_url: iconUrl,
-          source_type: s.source_type,
-          feed_type: s.feed_type,
-          theme_color: s.theme_color,
-          update_interval: s.update_interval,
-          card_size: s.card_size,
-          rsshub_route: s.rsshub_route,
-          ai_style_tags: s.ai_style_tags,
-          admin_only: s.admin_only,
-        })
+        manifestSources.push(sourceToPackEntry(s, iconFile, iconUrl))
       }
 
-      const manifest: BrewExportManifest = {
-        version: '1.0',
-        exported_at: new Date().toISOString(),
+      const manifest = buildBrewpackManifest({
         sources: manifestSources,
-      }
+        categories: packCategories.map(categoryToPackEntry),
+        rsshubInstances: packInstances.map(rsshubInstanceToPackEntry),
+      })
 
       zip.file('manifest.json', JSON.stringify(manifest, null, 2))
 
@@ -657,14 +616,80 @@ export default function ControlIsland({
       }
 
       const manifestContent = await manifestFile.async('string')
-      const manifest = JSON.parse(manifestContent) as BrewExportManifest
-
-      if (
-        !manifest.version ||
-        !manifest.sources ||
-        !Array.isArray(manifest.sources)
-      ) {
+      let parsedManifest: unknown
+      try {
+        parsedManifest = JSON.parse(manifestContent)
+      } catch {
         throw new Error(t.brew.errorInvalidFormat)
+      }
+      const manifest = (() => {
+        try {
+          return parseBrewpackManifest(parsedManifest)
+        } catch {
+          throw new Error(t.brew.errorInvalidFormat)
+        }
+      })()
+
+      const existingCategories = await brewApi.getCategories().catch(() => [])
+      for (const category of manifest.categories ?? []) {
+        const found = existingCategories.find(
+          (item) => item.name === category.name,
+        )
+        try {
+          if (found) {
+            await brewApi.updateCategory(found.id, {
+              icon: category.icon ?? undefined,
+              color: category.color ?? undefined,
+              sort_order: category.sort_order,
+            })
+          } else {
+            const created = await brewApi.createCategory({
+              name: category.name,
+              icon: category.icon ?? undefined,
+              color: category.color ?? undefined,
+            })
+            if (created?.id && category.sort_order !== 0) {
+              await brewApi.updateCategory(created.id, {
+                sort_order: category.sort_order,
+              })
+            }
+          }
+        } catch {
+          // 分类失败不阻断源导入
+        }
+      }
+
+      const existingInstances = await brewApi
+        .listRsshubInstances()
+        .catch(() => [])
+      for (const instance of manifest.rsshub_instances ?? []) {
+        const found = existingInstances.find(
+          (item) =>
+            normalizeBrewpackUrl(item.url) ===
+            normalizeBrewpackUrl(instance.url),
+        )
+        try {
+          if (found) {
+            await brewApi.updateRsshubInstance(found.id, {
+              name: instance.name,
+              priority: instance.priority,
+              enabled: instance.enabled,
+            })
+          } else {
+            const created = await brewApi.addRsshubInstance({
+              name: instance.name,
+              url: instance.url,
+              priority: instance.priority,
+            })
+            if (!instance.enabled) {
+              await brewApi.updateRsshubInstance(created.id, {
+                enabled: false,
+              })
+            }
+          }
+        } catch {
+          // 实例失败不阻断源导入
+        }
       }
 
       const total = manifest.sources.length
@@ -687,40 +712,26 @@ export default function ControlIsland({
             continue
           }
 
-          let icon: string | undefined
+          let zipIcon: string | undefined
           if (source.icon_file) {
             const iconFile = zip.file(`icons/${source.icon_file}`)
             if (iconFile) {
               const iconData = await iconFile.async('base64')
               const ext = source.icon_file.split('.').pop() || 'png'
               const mimeType = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`
-              icon = `data:${mimeType};base64,${iconData}`
+              zipIcon = `data:${mimeType};base64,${iconData}`
             }
-          } else if (source.icon_url) {
-            icon = source.icon_url
           }
+          const icon = resolvePackIcon(source, zipIcon)
 
-          const newSource = await brewApi.addSource({
-            url: source.url,
-            name: source.name,
-            category: source.category || undefined,
-            icon,
-            source_type: source.source_type,
-            feed_type: source.feed_type,
-            update_interval: source.update_interval,
-            rsshub_route: source.rsshub_route || undefined,
-            admin_only: source.admin_only,
-          })
-
-          // 更新额外字段（theme_color, card_size, ai_style_tags）
-          const hasExtraFields =
-            source.theme_color || source.card_size || source.ai_style_tags
-          if (hasExtraFields && newSource?.id) {
-            await brewApi.updateSource(newSource.id, {
-              theme_color: source.theme_color || undefined,
-              card_size: (source.card_size as CardSize) || undefined,
-              ai_style_tags: source.ai_style_tags || undefined,
-            })
+          const newSource = await brewApi.addSource(
+            sourceAddPayload(source, icon),
+          )
+          if (newSource?.id) {
+            await brewApi.updateSource(
+              newSource.id,
+              sourceUpdatePayload(source, icon),
+            )
           }
 
           imported++

@@ -210,9 +210,20 @@ function noteTransfer(
   result.transferredEnergy += amount
 }
 
-function preferredSide(target: Readonly<Anime25DDriver>): -1 | 1 {
+/**
+ * Width over which the lateral side of a transfer resolves.
+ *
+ * A hard sign flipped the whole lateral redistribution the instant the pose
+ * crossed upright: sweeping roll through zero in steps of 0.002 moved yaw by
+ * 0.105 in one of them, which reads as the head being yanked the other way.
+ * Fading the side out across the boundary gives up redistribution only where
+ * there is no side to prefer, and the energy stays clipped there instead.
+ */
+const SIDE_BLEND = 0.08
+
+function preferredSide(target: Readonly<Anime25DDriver>): number {
   const hint = target.angleZ * 0.7 + target.angleX * 0.3
-  return hint < 0 ? -1 : 1
+  return clamp(finite(hint) / SIDE_BLEND, -1, 1)
 }
 
 function softLimitSigned(

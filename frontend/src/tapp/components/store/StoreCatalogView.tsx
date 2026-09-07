@@ -9,9 +9,10 @@ import type {
   UnifiedAppItem,
 } from './types'
 import { FaExclamationTriangle, FaFilter } from '@lib/icons'
-import { Spinner } from '../../../components/Spinner'
 import { useI18n } from '../../../contexts/I18nContext'
+import { isStoreCatalogPending } from '../../utils/storeCatalogState'
 import { getAppIconStyle } from './storeAppMeta'
+import { StoreCatalogSkeleton } from './StoreCatalogSkeleton'
 import { FeaturedTappPreview } from './StorePreviews'
 import { DISCOVER_ALL_PREVIEW_LIMIT } from './types'
 
@@ -75,11 +76,9 @@ export function StoreCatalogView({
   const showSeeAll =
     isDiscoverView && !selectedCategory && Boolean(onSeeAllApps)
 
-  if (loading && remoteEmpty && filteredApps.length === 0) {
+  if (isStoreCatalogPending(loading, remoteEmpty, selectedCategory)) {
     return (
-      <div className="as-store__state" role="status">
-        <Spinner size="xl" color="primary" />
-      </div>
+      <StoreCatalogSkeleton variant={isDiscoverView ? 'discover' : 'list'} />
     )
   }
 

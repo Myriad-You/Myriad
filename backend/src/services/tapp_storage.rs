@@ -84,7 +84,6 @@ impl TappStorageAccessError {
         }
     }
 
-    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
     pub fn status_hint(&self) -> u16 {
         match self {
             Self::Unauthenticated => 401,

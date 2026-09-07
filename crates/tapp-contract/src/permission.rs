@@ -198,6 +198,8 @@ pub enum TappPermission {
     AiChat,
     #[serde(rename = "ai:image")]
     AiImage,
+    #[serde(rename = "ai:search")]
+    AiSearch,
     #[serde(rename = "3d:generate")]
     ThreeDGenerate,
     #[serde(rename = "report:write")]
@@ -271,6 +273,7 @@ impl TappPermission {
         TappPermission::AiAnalyze,
         TappPermission::AiChat,
         TappPermission::AiImage,
+        TappPermission::AiSearch,
         TappPermission::ThreeDGenerate,
         TappPermission::ReportWrite,
         TappPermission::NetworkFetch,
@@ -347,6 +350,7 @@ impl TappPermission {
             | TappPermission::AiAnalyze
             | TappPermission::AiChat
             | TappPermission::AiImage
+            | TappPermission::AiSearch
             | TappPermission::ThreeDGenerate
             | TappPermission::NetworkFetch
             | TappPermission::ComponentTheme
@@ -380,6 +384,7 @@ impl TappPermission {
             TappPermission::AiAnalyze,
             TappPermission::AiChat,
             TappPermission::AiImage,
+            TappPermission::AiSearch,
             TappPermission::ThreeDGenerate,
             TappPermission::NetworkFetch,
             TappPermission::ComponentTheme,
@@ -419,6 +424,7 @@ impl TappPermission {
             "ai:analyze" => Some(TappPermission::AiAnalyze),
             "ai:chat" => Some(TappPermission::AiChat),
             "ai:image" => Some(TappPermission::AiImage),
+            "ai:search" => Some(TappPermission::AiSearch),
             "3d:generate" => Some(TappPermission::ThreeDGenerate),
             "network:fetch" => Some(TappPermission::NetworkFetch),
             "media:control" => Some(TappPermission::MediaControl),
@@ -475,6 +481,7 @@ impl TappPermission {
             TappPermission::AiAnalyze => "ai:analyze",
             TappPermission::AiChat => "ai:chat",
             TappPermission::AiImage => "ai:image",
+            TappPermission::AiSearch => "ai:search",
             TappPermission::ThreeDGenerate => "3d:generate",
             TappPermission::NetworkFetch => "network:fetch",
             TappPermission::MediaControl => "media:control",
@@ -560,6 +567,7 @@ mod tests {
             | TappPermission::AiAnalyze
             | TappPermission::AiChat
             | TappPermission::AiImage
+            | TappPermission::AiSearch
             | TappPermission::ThreeDGenerate
             | TappPermission::ReportWrite
             | TappPermission::NetworkFetch
@@ -687,6 +695,7 @@ mod tests {
     #[test]
     fn all_elevated_excludes_privileged_and_basic() {
         let elevated = TappPermission::all_elevated();
+        assert!(elevated.contains(&TappPermission::AiSearch));
         assert!(!elevated.contains(&TappPermission::ReportWrite));
         assert!(!elevated.contains(&TappPermission::MediaControl));
         assert!(!elevated.contains(&TappPermission::FederationInteract));

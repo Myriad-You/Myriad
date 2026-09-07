@@ -76,14 +76,30 @@ export function shouldDeliverNotification(
 }
 
 /**
+ * Looking at the Agent panel: Agent notifications stay in the conversation.
+ * No list, island, toast, or browser push.
+ */
+export function shouldSurfaceNotification(
+  preferences: NotificationPreferences,
+  notification: AppNotification,
+  location: NotificationLocation,
+  lookingAtAgentPanel: boolean,
+): boolean {
+  if (lookingAtAgentPanel && notificationSourceFor(notification) === 'agent') {
+    return false
+  }
+  return shouldDeliverNotification(preferences, notification, location)
+}
+
+/**
  * Toast 只在人看不见 Agent 面板时弹。面板开着，通知已经在对话里，不必再盖一层。
  */
 export function shouldEmitNotificationToast(
   preferences: NotificationPreferences,
   notification: AppNotification,
-  agentPanelVisible: boolean,
+  lookingAtAgentPanel: boolean,
 ): boolean {
-  if (agentPanelVisible) return false
+  if (lookingAtAgentPanel) return false
   return shouldDeliverNotification(preferences, notification, 'toast')
 }
 

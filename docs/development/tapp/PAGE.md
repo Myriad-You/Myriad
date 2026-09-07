@@ -1,6 +1,13 @@
 # 页面样式规范
 
-本文档基于 Myriad 真实系统页面（首页、报告页、资料库页等）提取的样式规范，确保 Tapp 页面与主应用风格一致。
+> **不是 Tapp 沙箱契约。** 本文档提取的是 **Myriad 宿主 React 页面**（首页、报告页、
+> 资料库）的 chrome：`AnimatedView`、`className`、`sm:`/`md:`/`lg:`。
+> Tapp 沙箱没有这些 React 组件，按需 Tailwind **不编译**断点前缀。
+> 写 Tapp 页面请用 [STYLING.md](./STYLING.md) 与 [DESIGN_SPEC.md](./DESIGN_SPEC.md)：
+> 结构进 `page.html`（宿主包进 `#tapp-content`），样式用 `dark:` / 媒体查询 /
+> `var(--tapp-primary)`，不要抄下面的 `sm:px-6`。
+
+本文档基于 Myriad 真实系统页面（首页、报告页、资料库页等）提取的样式规范，给宿主页面和视觉对照用，不作为 Playground 生成依据。
 
 ---
 

@@ -85,9 +85,10 @@ mod tests {
     #[test]
     fn argon2_permits_match_default_profile() {
         let src = include_str!("api/auth_local.rs");
-        assert!(src.contains("PASSWORD_HASH_PERMITS: usize = 4"));
         assert!(src.contains("spawn_blocking"));
-        assert!(src.contains("memory_profile::argon2"));
+        assert!(src.contains("memory_profile::argon2_permits()"));
+        assert!(!src.contains("PASSWORD_HASH_PERMITS"));
+        assert_eq!(crate::services::memory_profile::DEFAULT_ARGON2_PERMITS, 4);
     }
 
     #[tokio::test]

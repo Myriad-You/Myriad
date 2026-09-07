@@ -11,7 +11,7 @@ use super::{cache_tokens, filter_impl, process};
 #[test]
 fn test_smart_filter_integration() {
     // Read from the new split raw data files
-    let raw_dir = Path::new("cache/raw");
+    let raw_dir = crate::services::data_paths::raw_cache_dir();
     if !raw_dir.exists() {
         println!(
             "Skipping test: cache/raw directory not found at {:?}",
@@ -52,7 +52,7 @@ fn test_smart_filter_integration() {
     }
 
     // 验证分平台文件是否已创建
-    let platforms_dir = Path::new("cache/platforms");
+    let platforms_dir = crate::services::data_paths::platforms_cache_dir();
     if platforms_dir.exists() {
         println!("Platform filtered files:");
         if let Ok(entries) = fs::read_dir(platforms_dir) {
@@ -453,7 +453,7 @@ fn test_discord_permissions_highlight() {
 fn load_youtube_filtered_cache_from_disk_if_present() {
     // Drives SmartFilter::load_platform_cache against real on-disk shape
     // (backend/cache/platforms/youtube_filtered.json). Skip if missing.
-    let path = std::path::Path::new("cache/platforms/youtube_filtered.json");
+    let path = crate::services::data_paths::platform_filtered_file("youtube");
     if !path.exists() {
         eprintln!("skip: no on-disk youtube_filtered.json");
         return;

@@ -22,7 +22,7 @@ interface PlatformFaceProps {
   onContentChange: (content: any) => void
   allowLoop: boolean
   /**
-   * 库条带预览态。face 必须据此关掉在线状态轮询：预览数据里的
+   * 小组件库预览。face 必须据此关掉在线状态轮询：预览数据里的
    * gamertag / online_id 是 'PreviewGamer' / 'PreviewPSN' 这类假身份，
    * 不 gate 的话一开编辑模式就会拿它们去打后端，并每 120s 重复一次。
    */

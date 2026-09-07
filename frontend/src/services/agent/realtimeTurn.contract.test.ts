@@ -104,13 +104,22 @@ test('hidden face and motion timeout leave a local floor without blocking text',
   assert.match(motion, /fn face_is_hidden/)
   assert.match(motion, /MOTION_TOTAL_TIMEOUT/)
   assert.match(motion, /pub async fn refine_motion/)
-  const process = source(
-    '../../../../backend/src/services/agent/process_and_recipe.rs',
+  const overlay = source(
+    '../../../../backend/src/services/agent/motion_overlay.rs',
   )
-  assert.match(process, /struct MotionRefinementGuard/)
-  assert.match(process, /self\.0\.abort\(\)/)
+  const dropGuard = overlay
+    .split('impl Drop for MotionRefinementGuard {')[1]
+    ?.split('\n}')[0]
+  assert.ok(dropGuard, 'turn-scoped refinement keeps a cancellation guard')
+  assert.match(dropGuard, /self\.task\.abort\(\)/)
   const stream = source(
-    '../../../../backend/src/services/agent/confirmation_and_tasks.rs',
+    '../../../../backend/src/services/agent/confirmation_and_tasks/chat_stream.rs',
   )
-  assert.match(stream, /StreamDelta::Text\(_\)/)
+  // Preview now consumes spoken text instead of discarding it. The text
+  // outlet must precede the non-blocking offer to the motion director.
+  const textOutlet = stream.indexOf(
+    'response_agent::emit_stream_delta(&tx, delta).await',
+  )
+  const previewOffer = stream.indexOf('tx.try_send(preview)')
+  assert.ok(textOutlet >= 0 && previewOffer > textOutlet)
 })

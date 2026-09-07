@@ -211,6 +211,21 @@ export function isLiveMeropeManifest(
   )
 }
 
+/** Same atlas + contract → keep the mounted player instead of tearing WebGL down. */
+export function sameLiveFaceRuntime(
+  current: MeropeRigManifest | null | undefined,
+  next: MeropeRigManifest | null | undefined,
+): boolean {
+  if (current === next) return true
+  if (!current || !next) return false
+  return (
+    current.textures[0]?.url === next.textures[0]?.url &&
+    current.sourceMasterAssetId === next.sourceMasterAssetId &&
+    current.characterAssetContractVersion ===
+      next.characterAssetContractVersion
+  )
+}
+
 export function isRigManifest(value: unknown): value is MeropeRigManifest {
   if (!isRecord(value)) return false
   if (

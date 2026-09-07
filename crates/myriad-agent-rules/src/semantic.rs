@@ -2,8 +2,25 @@
 
 use serde_json::Value;
 
+/// Inner payload of a Tapp AI Task envelope, or the value itself if unwrapped.
+///
+/// Envelope shape: `{ format, value, contextProvenance }`. Agent AI handlers
+/// that share the Tapp contract wrap their payload this way; consumers that
+/// want `summary` / `analysis` / `url` must look inside `value`.
+pub fn task_inner_value(output: &Value) -> &Value {
+    match output {
+        Value::Object(map)
+            if map.get("format").and_then(Value::as_str).is_some() && map.contains_key("value") =>
+        {
+            &map["value"]
+        }
+        other => other,
+    }
+}
+
 /// Extract semantic text from step output JSON (avoid dumping raw arrays to the model).
 pub fn extract_semantic_text(value: &Value) -> String {
+    let value = task_inner_value(value);
     if let Some(s) = value.as_str() {
         return s.to_string();
     }
@@ -130,6 +147,30 @@ mod tests {
         assert!(text.contains("A"));
         assert!(text.contains("B"));
         assert_eq!(extract_semantic_text(&json!("plain")), "plain");
+    }
+
+    #[test]
+    fn semantic_text_unwraps_task_envelope() {
+        let envelope = json!({
+            "format": "json",
+            "value": { "analysis": "分析正文", "type": "custom" },
+            "contextProvenance": []
+        });
+        assert_eq!(extract_semantic_text(&envelope), "分析正文");
+        assert_eq!(
+            extract_semantic_text(&json!({
+                "format": "text",
+                "value": "回复正文",
+                "contextProvenance": []
+            })),
+            "回复正文"
+        );
+        assert_eq!(
+            task_inner_value(&envelope)
+                .get("analysis")
+                .and_then(Value::as_str),
+            Some("分析正文")
+        );
     }
 
     #[test]

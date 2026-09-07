@@ -122,6 +122,21 @@ function isNonEmptyText(value: PackageFileContent | undefined): boolean {
   return value.byteLength > 0
 }
 
+/** Tailwind `sm:`/`md:`/`lg:` prefixes. `text-sm` / `rounded-md` are allowed. */
+export function unsupportedTailwindBreakpoint(source: string): string | null {
+  const prefixes = ['sm:', 'md:', 'lg:', 'xl:', '2xl:'] as const
+  for (const prefix of prefixes) {
+    let rest = source
+    while (rest.includes(prefix)) {
+      const position = rest.indexOf(prefix)
+      const after = rest.charAt(position + prefix.length)
+      if (/[A-Za-z]/.test(after) || after === '[') return prefix
+      rest = rest.slice(position + prefix.length)
+    }
+  }
+  return null
+}
+
 /**
  * Validate that a playground project builds an installable package map.
  * Runs after path normalization via `buildPlaygroundPackageFiles`.
@@ -394,6 +409,101 @@ export function validatePlaygroundPackage(
     const source = files[coreEntry]
     if (typeof source === 'string' && source.trim().length === 0) {
       push('Tapp declaring backgroundRequirements must declare a core layer')
+    }
+  }
+
+  const source = [
+    code.core,
+    code.page,
+    code.widget,
+    code.widgetHtml,
+    code.pageHtml,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n')
+  const widgetSource = [code.widget, code.widgetHtml]
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n')
+
+  const calls = (method: string, from = source): boolean => {
+    let rest = from
+    while (rest.includes(method)) {
+      const position = rest.indexOf(method)
+      const next = rest.charAt(position + method.length)
+      if (!next || !/[A-Za-z0-9]/.test(next)) return true
+      rest = rest.slice(position + 1)
+    }
+    return false
+  }
+
+  if (calls('Tapp.ai') && !manifest.ai) {
+    push(
+      'Code calls Tapp.ai but manifest.ai is missing (protocolVersion 2, operations, outputFormats)',
+    )
+  }
+  if (calls('Tapp.game') && !manifest.game) {
+    push('Code calls Tapp.game but manifest.game is missing')
+  }
+  if (
+    (source.includes('Tapp.api(') || source.includes('Tapp.api (')) &&
+    (!manifest.apis || Object.keys(manifest.apis).length === 0)
+  ) {
+    push('Code calls Tapp.api() but manifest.apis is missing')
+  }
+  if (
+    (calls('Tapp.ui.openUrl') || calls('Tapp.ui.listOpenUrls')) &&
+    (!manifest.openUrls || manifest.openUrls.length === 0)
+  ) {
+    push('Code calls Tapp.ui.openUrl but manifest.openUrls is missing')
+  }
+  if (widgets.length > 0) {
+    if (!source.includes('Tapp.widgets')) {
+      push(
+        'Widget projects must assign Tapp.widgets[<id>] = { render } so the host can paint the card',
+      )
+    }
+    const widgetPageOnly: Array<[string, string]> = [
+      [
+        'Tapp.widget.register',
+        'Tapp.widget.register is Page-only; Widget code must assign Tapp.widgets[id] = { render }',
+      ],
+      ['Tapp.ui.confirm', 'Tapp.ui.confirm is not on the Widget SDK'],
+      ['Tapp.ui.setTitle', 'Tapp.ui.setTitle is not on the Widget SDK'],
+      [
+        'Tapp.ui.requestFullscreen',
+        'Tapp.ui.requestFullscreen is not on the Widget SDK',
+      ],
+      [
+        'Tapp.ui.exitFullscreen',
+        'Tapp.ui.exitFullscreen is not on the Widget SDK',
+      ],
+      ['Tapp.ui.fullscreen', 'Tapp.ui.fullscreen is not on the Widget SDK'],
+      ['Tapp.game', 'Tapp.game is not on the Widget SDK'],
+      ['Tapp.federation', 'Tapp.federation is not on the Widget SDK'],
+      ['Tapp.tappList', 'Tapp.tappList is not on the Widget SDK'],
+      ['Tapp.brewList', 'Tapp.brewList is not on the Widget SDK'],
+      ['Tapp.component', 'Tapp.component is not on the Widget SDK'],
+      ['Tapp.shortcut', 'Tapp.shortcut is not on the Widget SDK'],
+      ['Tapp.dynamicContent', 'Tapp.dynamicContent is not on the Widget SDK'],
+    ]
+    for (const [method, message] of widgetPageOnly) {
+      if (calls(method, widgetSource)) push(message)
+    }
+  }
+
+  for (const [field, text] of [
+    ['page', code.page],
+    ['pageHtml', code.pageHtml],
+    ['widget', code.widget],
+    ['widgetHtml', code.widgetHtml],
+    ['core', code.core],
+  ] as const) {
+    if (!text) continue
+    const prefix = unsupportedTailwindBreakpoint(text)
+    if (prefix) {
+      push(
+        `${field} uses unsupported Tailwind breakpoint \`${prefix}\` (sandbox on-demand compile ignores sm:/md:/lg:; use CSS media queries or container width)`,
+      )
     }
   }
 

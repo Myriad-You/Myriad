@@ -11,6 +11,12 @@ import { dirname, join, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { PERMISSION_LEVELS } from './runtime/permissionConfig.ts'
+import {
+  generateFullSDK,
+  generateWidgetSDK,
+} from './runtime/sandbox/sdkGenerator.ts'
+import type { TappInstance } from './types'
 import {
   storeAssetStorePath,
   storePackageRoot,
@@ -142,6 +148,11 @@ describe('tapp docs gating consistency', () => {
       /apps\/com\.myriad\.doudizhu\/assets\/felt\/table_felt\.png/,
     )
     assert.match(storeDoc, /(?:≥|>=)\s*1\s*MiB/)
+    const layout = storeDoc.split('## 仓库布局')[1]?.split(/^## /m)[0] ?? ''
+    assert.match(layout, /catalog\.json/)
+    assert.match(layout, /scripts\//)
+    assert.match(layout, /edge\//)
+    assert.match(layout, /development\//)
     assert.equal(LARGE_TAPP_INSTALL_BYTES, 1024 * 1024)
     assert.equal(isLargeTappInstall(1024 * 1024 - 1), false)
     assert.equal(isLargeTappInstall(1024 * 1024), true)
@@ -274,7 +285,12 @@ describe('tapp docs gating consistency', () => {
   })
 
   it('docs do not prescribe obsolete /api/tapp-store routes as live API', () => {
-    for (const name of ['REST_API.md', 'STORE.md', 'ARCHITECTURE.md']) {
+    const names = [
+      ...readdirSync(DOCS_TAPP).filter((n) => n.endsWith('.md')),
+      join('..', 'TAPP_DEVELOPMENT.md'),
+      join('..', '..', 'features', 'TAPP_FILE_FORMAT.md'),
+    ]
+    for (const name of names) {
       const text = read(join(DOCS_TAPP, name))
       // Allowed only as explicit negation
       const positives = [
@@ -374,6 +390,248 @@ describe('tapp docs gating consistency', () => {
     assert.match(
       handler,
       /from ['"]\.\.\/\.\.\/\.\.\/utils\/tappListInstallRequest['"]/,
+    )
+  })
+
+  it('MANIFEST permission-table tokens equal the shipped catalog', () => {
+    const catalog = Object.keys(PERMISSION_LEVELS).sort()
+    const contract = JSON.parse(
+      read(join(REPO, 'tools/tapp-cli/src/generated/contract.json')),
+    ) as { permissionLevels: Record<string, string> }
+    const contractTokens = Object.keys(contract.permissionLevels).sort()
+    assert.deepEqual(
+      contractTokens,
+      catalog,
+      'contract.json permissionLevels must equal PERMISSION_LEVELS',
+    )
+
+    const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
+    const section = manifest.split('## 权限列表')[1] ?? ''
+    const tokens = [
+      ...section.matchAll(/^\|\s*`([a-zA-Z0-9:]+)`\s*\|/gm),
+    ].map((m) => m[1])
+    assert.deepEqual(
+      [...tokens].sort(),
+      catalog,
+      `MANIFEST 权限列表 must list every TappPermission catalog token (missing ${catalog
+        .filter((t) => !tokens.includes(t))
+        .join(', ')}; extra ${tokens.filter((t) => !catalog.includes(t)).join(', ')})`,
+    )
+    assert.ok(tokens.includes('ai:search'), 'MANIFEST must list ai:search')
+  })
+
+  it('API_REFERENCE capability table includes every frozen full-SDK namespace', () => {
+    const gen = read(
+      join(REPO, 'frontend/src/tapp/runtime/sandbox/sdkFull.ts'),
+    )
+    const fullFn = gen.slice(gen.indexOf('export function generateFullSDK'))
+    const frozen = [
+      ...fullFn.matchAll(/Object\.freeze\(Tapp\.([A-Za-z0-9_]+)/g),
+    ].map((m) => m[1])
+    const frozenNs = [...new Set(frozen)]
+    assert.ok(frozenNs.includes('game'), 'generateFullSDK must freeze Tapp.game')
+
+    const perms = Object.keys(PERMISSION_LEVELS) as never[]
+    const instance: TappInstance = {
+      id: 'com.example.docs-gate',
+      manifest: {
+        id: 'com.example.docs-gate',
+        name: 'Docs Gate',
+        version: '1.0.0',
+        core: { entry: 'core.js' },
+        permissions: perms,
+        category: 'utility',
+        game: { protocol: 'session' },
+      },
+      status: 'running',
+      installedAt: '2026-01-01T00:00:00Z',
+      grantedPermissions: perms,
+      userRole: 'admin',
+    }
+    const pageSdk = generateFullSDK(instance, 'tok', 'page')
+    const widgetSdk = generateWidgetSDK(instance, 'tok')
+    assert.match(pageSdk, /sendRequest\('game', 'create'/)
+    assert.match(pageSdk, /api:\s*Object\.assign\(/)
+    assert.match(widgetSdk, /api:\s*Object\.assign\(/)
+    assert.equal(/\n\s+game:\s*\{/.test(widgetSdk), false)
+
+    const apiRef = read(join(DOCS_TAPP, 'API_REFERENCE.md'))
+    const cap = apiRef.split('## 能力边界与完整命名空间')[1] ?? ''
+    const capUntilNext = cap.split(/^## /m)[0] ?? cap
+    const missing = frozenNs.filter(
+      (ns) => !new RegExp('`' + ns + '`').test(capUntilNext),
+    )
+    assert.deepEqual(
+      missing,
+      [],
+      `API_REFERENCE 能力边界 must mention frozen namespaces: ${missing.join(', ')}`,
+    )
+    assert.match(capUntilNext, /`game`/)
+    assert.match(capUntilNext, /Tapp\.api\(name, params\)/)
+    assert.match(capUntilNext, /Tapp\.api\.list\(\)/)
+    assert.match(capUntilNext, /headless/)
+    assert.match(capUntilNext, /Widget/)
+    assert.match(capUntilNext, /Page/)
+    assert.match(apiRef, /## Game API/)
+    assert.match(apiRef, /\[Game API\]\(#game-api\)/)
+  })
+
+  it('examples do not present retired permission names as installable', () => {
+    const retired = ['storage', 'federation:write', 'brew:comment']
+    const files = [
+      ...readdirSync(DOCS_TAPP)
+        .filter((n) => n.endsWith('.md'))
+        .map((n) => join(DOCS_TAPP, n)),
+      DOCS_INDEX,
+      join(REPO, 'docs/features/TAPP_FILE_FORMAT.md'),
+    ]
+    const live: string[] = []
+    for (const file of files) {
+      const text = read(file)
+      for (const token of retired) {
+        const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        // Only permission arrays / permission-table cells, not namespace names.
+        const re = new RegExp(
+          `permissions[\\s\\S]{0,200}[\`'"]${escaped}[\`'"]`,
+          'g',
+        )
+        for (const m of text.matchAll(re)) {
+          if (new RegExp(`[\`'"]${escaped}:[a-zA-Z]+`).test(m[0])) continue
+          const start = Math.max(0, (m.index ?? 0) - 40)
+          const ctx = text.slice(start, (m.index ?? 0) + m[0].length + 40)
+          if (
+            /拒绝|已移除|不要再声明|退役|instead|历史文档|旧 \`|upgrade|升级说明|不会被解码|明确拒绝/i.test(
+              ctx,
+            )
+          ) {
+            continue
+          }
+          live.push(
+            `${file.replace(`${REPO}/`, '')}:${token} :: ${ctx.replace(/\s+/g, ' ').slice(0, 140)}`,
+          )
+        }
+      }
+    }
+    assert.deepEqual(
+      live,
+      [],
+      `retired tokens presented as live:\n${live.join('\n')}`,
+    )
+  })
+
+  it('reader-facing docs name the model in CONTEXT words, not generator identifiers', () => {
+    const forbidden = [
+      'generateFullSDK',
+      'generateWidgetSDK',
+      'HEADLESS_DENIED_ACTIONS',
+      'PERMISSION_MAP',
+    ]
+    const quickstart = read(join(DOCS_TAPP, 'QUICKSTART.md'))
+    const index = read(DOCS_INDEX)
+    const playgroundCtx = read(
+      join(DOCS_TAPP, 'PLAYGROUND_GENERATION_CONTEXT.md'),
+    )
+    const widget = read(join(DOCS_TAPP, 'WIDGET.md'))
+    const widgetLimit =
+      widget.split('## Widget SDK 限制')[1]?.split(/^## /m)[0] ?? ''
+    assert.ok(widgetLimit.length > 80, 'WIDGET SDK-limit section must exist')
+
+    const surfaces: Array<[string, string]> = [
+      ['QUICKSTART.md', quickstart],
+      ['TAPP_DEVELOPMENT.md', index],
+      ['WIDGET.md SDK-limit', widgetLimit],
+      ['PLAYGROUND_GENERATION_CONTEXT.md', playgroundCtx],
+    ]
+    const hits: string[] = []
+    for (const [label, text] of surfaces) {
+      for (const name of forbidden) {
+        if (text.includes(name)) hits.push(`${label}: ${name}`)
+      }
+    }
+    assert.deepEqual(
+      hits,
+      [],
+      `reader-facing docs must not teach generator identifiers:\n${hits.join('\n')}`,
+    )
+
+    const lifecycle =
+      quickstart.split('## 生命周期')[1]?.split(/^## /m)[0] ?? ''
+    for (const word of ['隐藏', '销毁', '卸载', '常驻']) {
+      assert.ok(
+        lifecycle.includes(word),
+        `QUICKSTART 生命周期 must contain ${word}`,
+      )
+    }
+
+    const archRow =
+      index
+        .split('\n')
+        .find((line) => line.includes('tapp/ARCHITECTURE.md')) ?? ''
+    for (const word of ['隐藏', '销毁', '卸载', '常驻']) {
+      assert.ok(
+        archRow.includes(word),
+        `TAPP_DEVELOPMENT 架构总览 row must name ${word}: ${archRow}`,
+      )
+    }
+
+    assert.match(quickstart, /Tapp\.api\(name, params\)/)
+    assert.match(widgetLimit, /Tapp\.api\(name, params\)/)
+    assert.match(widgetLimit, /Tapp\.api\.list\(\)/)
+    assert.match(widgetLimit, /\|\s*Widget\s*\|/)
+    assert.match(widgetLimit, /\|\s*Page\s*\|/)
+    assert.match(widgetLimit, /headless/)
+    assert.ok(
+      !/Full SDK \(Page\/headless\)/.test(widgetLimit),
+      'WIDGET must not lump Page/headless as one Full SDK',
+    )
+  })
+
+  it('PLAYGROUND_GENERATION_CONTEXT teaches the current AI task envelope', () => {
+    const playgroundCtx = read(
+      join(DOCS_TAPP, 'PLAYGROUND_GENERATION_CONTEXT.md'),
+    )
+    const playground = read(join(DOCS_TAPP, 'PLAYGROUND.md'))
+
+    assert.match(playgroundCtx, /Tapp\.ai\.tasks\.create/)
+    assert.match(playgroundCtx, /ai:search/)
+    assert.match(
+      playgroundCtx,
+      /generate[\s\S]{0,80}analyze[\s\S]{0,80}chat[\s\S]{0,80}image[\s\S]{0,80}search/,
+    )
+    assert.match(playgroundCtx, /contextProvenance/)
+    assert.match(playgroundCtx, /task\.result/)
+    assert.match(playgroundCtx, /queued/)
+    assert.match(playgroundCtx, /Tapp\.ai\.tasks\.get/)
+    assert.match(playgroundCtx, /protocolVersion/)
+    assert.match(playgroundCtx, /AI_V2_NOT_DECLARED/)
+    assert.match(playgroundCtx, /Tapp\.settings/)
+    assert.match(playgroundCtx, /Tapp\.shared/)
+    assert.match(playgroundCtx, /openUrls/)
+    assert.match(playgroundCtx, /manifest\.game/)
+    assert.match(playgroundCtx, /--tapp-primary/)
+    assert.match(playground, /code\.assets/)
+    assert.match(playgroundCtx, /Tapp\.widgets/)
+    assert.match(playgroundCtx, /render\(container, props\)/)
+    assert.match(playgroundCtx, /#tapp-content/)
+    assert.match(playgroundCtx, /仅 Page 预览/)
+    assert.match(playground, /仅 Page 预览/)
+    assert.ok(
+      !/Tapp\.ai\.generate\s*\(/.test(playgroundCtx),
+      'generation context must not invent Tapp.ai.generate()',
+    )
+    assert.match(playgroundCtx, /无条件注入/)
+    assert.match(playground, /PLAYGROUND_GENERATION_CONTEXT\.md/)
+    assert.match(playground, /无条件注入/)
+    assert.match(playground, /contextProvenance/)
+
+    const apiReference = read(join(DOCS_TAPP, 'API_REFERENCE.md'))
+    assert.match(
+      apiReference,
+      /version, locale, theme, features/,
+    )
+    assert.ok(
+      !apiReference.includes('{ version, name, environment }'),
+      'API_REFERENCE getApp must match host { version, locale, theme, features }',
     )
   })
 })

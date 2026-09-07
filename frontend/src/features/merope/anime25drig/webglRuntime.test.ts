@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
+  atlasUrlNeedsCors,
   createAtlasTexture,
   createIndexedDeformableMesh,
   loadImage,
+  resetCachedAtlasImagesForTests,
 } from './webglRuntime'
 
 test('uploads a packed character atlas through one WebGL texture allocation', () => {
@@ -133,7 +136,28 @@ test('releases partial mesh allocations when WebGL runs out of buffers', () => {
   assert.deepEqual(deleted, ['position', 'index', 'vao'])
 })
 
+test('live player keeps the last frame when animation pauses', () => {
+  const player = readFileSync(new URL('./player.ts', import.meta.url), 'utf8')
+  assert.match(player, /preserveDrawingBuffer:\s*true/)
+  assert.match(player, /WEBGL_lose_context/)
+  assert.match(player, /isConnected/)
+})
+
+test('same-origin atlas URLs skip CORS so guest origins can load the live face', () => {
+  const page = 'https://kiseki.blog/home'
+  assert.equal(atlasUrlNeedsCors('/api/merope/rig/assets/abc', page), false)
+  assert.equal(
+    atlasUrlNeedsCors('https://kiseki.blog/api/merope/rig/assets/abc', page),
+    false,
+  )
+  assert.equal(
+    atlasUrlNeedsCors('https://cdn.example/atlas.png', page),
+    true,
+  )
+})
+
 test('aborts an in-flight atlas image without leaving live handlers', async () => {
+  resetCachedAtlasImagesForTests()
   let image: FakeImage | null = null
   const NativeImage = globalThis.Image
   const TestImage = function () {
@@ -152,10 +176,75 @@ test('aborts an in-flight atlas image without leaving live handlers', async () =
     assert.equal(image?.onerror, null)
   } finally {
     globalThis.Image = NativeImage
+    resetCachedAtlasImagesForTests()
+  }
+})
+
+test('reuses a decoded atlas image when the live player remounts', async () => {
+  resetCachedAtlasImagesForTests()
+  let created = 0
+  let image: FakeImage | null = null
+  const NativeImage = globalThis.Image
+  const TestImage = function () {
+    created += 1
+    const createdImage = new FakeImage()
+    image = createdImage
+    return createdImage
+  }
+  globalThis.Image = TestImage as unknown as typeof Image
+  try {
+    const pending = loadImage('/atlas-reuse.png')
+    assert.ok(image)
+    image.complete = true
+    image.naturalWidth = 8
+    image.onload?.(new Event('load'))
+    await pending
+    const reused = await loadImage('/atlas-reuse.png')
+    assert.equal(created, 1)
+    assert.equal(reused, image)
+  } finally {
+    globalThis.Image = NativeImage
+    resetCachedAtlasImagesForTests()
+  }
+})
+
+test('decoded atlas cache keeps only the latest image', async () => {
+  resetCachedAtlasImagesForTests()
+  const images: FakeImage[] = []
+  const NativeImage = globalThis.Image
+  const TestImage = function () {
+    const createdImage = new FakeImage()
+    images.push(createdImage)
+    return createdImage
+  }
+  globalThis.Image = TestImage as unknown as typeof Image
+  const finish = (image: FakeImage) => {
+    image.complete = true
+    image.naturalWidth = 8
+    image.onload?.(new Event('load'))
+  }
+  try {
+    const firstPending = loadImage('/atlas-a.png')
+    finish(images[0])
+    await firstPending
+    const secondPending = loadImage('/atlas-b.png')
+    finish(images[1])
+    await secondPending
+    assert.equal(images[0].src, '')
+    const firstAgain = loadImage('/atlas-a.png')
+    finish(images[2])
+    await firstAgain
+    assert.equal(images.length, 3)
+    assert.equal(images[1].src, '')
+  } finally {
+    globalThis.Image = NativeImage
+    resetCachedAtlasImagesForTests()
   }
 })
 
 class FakeImage {
+  complete = false
+  naturalWidth = 0
   crossOrigin: string | null = null
   onload: ((event: Event) => void) | null = null
   onerror: OnErrorEventHandler = null

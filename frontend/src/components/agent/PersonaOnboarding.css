@@ -1069,6 +1069,21 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   letter-spacing: 0.04em;
 }
 
+.merope-ob-field__count {
+  margin-left: auto;
+  font-size: 11px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.72;
+}
+
+.merope-ob-field__count.is-max {
+  color: var(--merope-accent);
+  opacity: 1;
+}
+
 .merope-ob-field__hint {
   color: var(--merope-muted);
   font-size: 11.5px;
@@ -1577,6 +1592,19 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
     var(--sm-ease-standard, ease);
 }
 
+.merope-ob-choice__lane:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.merope-ob-choice__lock {
+  grid-area: flow;
+  color: var(--cfg-text-2, var(--merope-muted));
+  font-size: 0.75rem;
+  font-weight: 550;
+  line-height: 1.4;
+}
+
 .merope-ob-choice__lane:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px
@@ -1585,7 +1613,7 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
 
 /* 触屏上 :hover 点完会粘住，所以抬起只给真有指针的设备。 */
 @media (hover: hover) and (pointer: fine) {
-  .merope-ob-choice__lane:hover {
+  .merope-ob-choice__lane:hover:not(:disabled) {
     background:
       linear-gradient(
         color-mix(in srgb, var(--choice-accent) 7%, transparent),
@@ -1596,7 +1624,7 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
       var(--choice-fill);
   }
 
-  .merope-ob-choice__lane:hover .merope-ob-choice__go {
+  .merope-ob-choice__lane:hover:not(:disabled) .merope-ob-choice__go {
     opacity: 0.92;
     transform: translateX(3px);
   }
@@ -2288,7 +2316,13 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
 .merope-ob-persona-view__actions {
   display: flex;
   gap: 8px;
+  align-items: center;
   justify-content: flex-end;
+}
+
+.merope-ob-persona-view__actions .merope-ob-field__count {
+  margin-right: auto;
+  margin-left: 0;
 }
 
 .merope-ob-persona-view__action {

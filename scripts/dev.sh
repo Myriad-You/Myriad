@@ -10,19 +10,19 @@
 set -e
 
 # ==================== Colors & Styles ====================
-# Chrome matches shared/logo-ansi.txt (rose / dusk). Status stays semantic.
+# Chrome matches shared/logo-ansi.txt (pink / lilac). Status stays semantic.
 BOLD='\033[1m'
-DIM='\033[38;2;108;90;100m'
+DIM='\033[38;2;118;92;128m'
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[38;2;232;196;160m'
-BLUE='\033[38;2;167;134;139m'
-MAGENTA='\033[38;2;223;155;152m'
-CYAN='\033[38;2;230;169;168m'
-BRIGHT_YELLOW='\033[38;2;246;179;175m'
-BRIGHT_CYAN='\033[38;2;246;179;175m'
-BRIGHT_WHITE='\033[38;2;242;184;183m'
+YELLOW='\033[38;2;232;184;160m'
+BLUE='\033[38;2;176;160;220m'
+MAGENTA='\033[38;2;239;157;180m'
+CYAN='\033[38;2;250;186;204m'
+BRIGHT_YELLOW='\033[38;2;252;196;210m'
+BRIGHT_CYAN='\033[38;2;252;196;210m'
+BRIGHT_WHITE='\033[38;2;252;232;238m'
 NC='\033[0m' # Reset
 
 # ==================== Project Config ====================

@@ -459,15 +459,6 @@ impl ArchiveBudget {
 /// Validate one package asset size and running total.
 ///
 /// Returns the updated total after adding this asset.
-#[allow(dead_code)] // 仅测试调用：生产走同名 *_with(budget) 变体，这是默认预算的便捷包装。
-pub fn validate_asset_resource_bytes(
-    relative: &str,
-    size: u64,
-    total_so_far: u64,
-) -> Result<u64, String> {
-    validate_asset_resource_bytes_with(relative, size, total_so_far, AssetBudget::standard())
-}
-
 pub fn validate_asset_resource_bytes_with(
     relative: &str,
     size: u64,
@@ -566,11 +557,6 @@ pub fn validate_write_assets_declaration(
 // ── Archive entry pure rules ────────────────────────────────────────────────
 
 /// Reject oversized archive file counts before iterating entries.
-#[allow(dead_code)] // 仅测试调用：生产走同名 *_with(budget) 变体，这是默认预算的便捷包装。
-pub fn validate_archive_entry_count(count: usize) -> Result<(), String> {
-    validate_archive_entry_count_with(count, ArchiveBudget::standard())
-}
-
 pub fn validate_archive_entry_count_with(
     count: usize,
     budget: ArchiveBudget,
@@ -588,24 +574,6 @@ pub fn validate_archive_entry_count_with(
 ///
 /// `paths` tracks duplicates; `total_size` is uncompressed bytes seen so far.
 /// Directories contribute neither size nor must exist as files.
-#[allow(dead_code)] // 仅测试调用：生产走同名 *_with(budget) 变体，这是默认预算的便捷包装。
-pub fn validate_archive_entry(
-    name: &str,
-    is_dir: bool,
-    size: u64,
-    paths: &mut HashSet<String>,
-    total_size: u64,
-) -> Result<u64, String> {
-    validate_archive_entry_with(
-        name,
-        is_dir,
-        size,
-        paths,
-        total_size,
-        ArchiveBudget::standard(),
-    )
-}
-
 pub fn validate_archive_entry_with(
     name: &str,
     is_dir: bool,
@@ -740,20 +708,33 @@ mod tests {
     #[test]
     fn asset_totals_and_per_file_limits() {
         assert_eq!(
-            validate_asset_resource_bytes("assets/a.png", 10, 0).unwrap(),
+            validate_asset_resource_bytes_with("assets/a.png", 10, 0, AssetBudget::standard())
+                .unwrap(),
             10
         );
-        assert!(
-            validate_asset_resource_bytes("assets/a.png", MAX_TAPP_ASSET_BYTES + 1, 0)
-                .unwrap_err()
-                .contains("exceeds")
-        );
-        assert!(
-            validate_asset_resource_bytes("assets/a.png", 1, MAX_TAPP_ASSETS_TOTAL_BYTES)
-                .unwrap_err()
-                .contains("total size exceeds")
-        );
-        assert!(validate_asset_resource_bytes("not-under-assets.png", 1, 0).is_err());
+        assert!(validate_asset_resource_bytes_with(
+            "assets/a.png",
+            MAX_TAPP_ASSET_BYTES + 1,
+            0,
+            AssetBudget::standard(),
+        )
+        .unwrap_err()
+        .contains("exceeds"));
+        assert!(validate_asset_resource_bytes_with(
+            "assets/a.png",
+            1,
+            MAX_TAPP_ASSETS_TOTAL_BYTES,
+            AssetBudget::standard(),
+        )
+        .unwrap_err()
+        .contains("total size exceeds"));
+        assert!(validate_asset_resource_bytes_with(
+            "not-under-assets.png",
+            1,
+            0,
+            AssetBudget::standard()
+        )
+        .is_err());
     }
 
     #[test]
@@ -790,27 +771,30 @@ mod tests {
 
     #[test]
     fn archive_entry_rules_track_duplicates_and_size() {
-        validate_archive_entry_count(1).unwrap();
-        assert!(validate_archive_entry_count(MAX_TAPP_ARCHIVE_FILES + 1).is_err());
+        let budget = ArchiveBudget::standard();
+        validate_archive_entry_count_with(1, budget).unwrap();
+        assert!(validate_archive_entry_count_with(MAX_TAPP_ARCHIVE_FILES + 1, budget).is_err());
 
         let mut paths = HashSet::new();
-        let total = validate_archive_entry("src/main.js", false, 10, &mut paths, 0).unwrap();
+        let total =
+            validate_archive_entry_with("src/main.js", false, 10, &mut paths, 0, budget).unwrap();
         assert_eq!(total, 10);
         assert!(
-            validate_archive_entry("src/main.js", false, 1, &mut paths, total)
+            validate_archive_entry_with("src/main.js", false, 1, &mut paths, total, budget)
                 .unwrap_err()
                 .contains("Duplicate")
         );
         assert_eq!(
-            validate_archive_entry("empty/", true, 0, &mut paths, total).unwrap(),
+            validate_archive_entry_with("empty/", true, 0, &mut paths, total, budget).unwrap(),
             total
         );
-        assert!(validate_archive_entry(
+        assert!(validate_archive_entry_with(
             "big.bin",
             false,
             MAX_TAPP_RESOURCE_BYTES + 1,
             &mut HashSet::new(),
-            0
+            0,
+            budget
         )
         .unwrap_err()
         .contains("too large"));

@@ -31,9 +31,8 @@ interface Props {
 /**
  * 现成的人设 + 现成的主立绘，一次落地。
  *
- * 这一步不产出视觉设定：上传主图走 `upload_portrait`，它不像出图那样要求
- * 完整的 `visualIdentity`，所以导入进来的形象可以直接当血统源头用，后面
- * 去动作工作台分层即可。
+ * 上传主图走 `upload_portrait`。收尾时按这张图读出视觉特征写进
+ * `visualIdentity`，不沿用生成链的旧视觉设定。后面去动作工作台分层。
  */
 export default function ImportStep({
   displayName,
@@ -74,7 +73,7 @@ export default function ImportStep({
               onChange={(event) => onDisplayName(event.target.value)}
               aria-label={o.nameLabel}
             />
-            <small className="merope-ob-field__hint">{o.nameHint}</small>
+            <small className="merope-ob-field__hint">{o.importNameHint}</small>
           </FieldGroup>
 
           <FieldGroup label={o.genderLabel}>
@@ -115,7 +114,7 @@ export default function ImportStep({
         <PrimaryButton
           label={o.importFinish}
           busy={busy}
-          disabled={!personaReady || !gender}
+          disabled={!personaReady || !gender || !portraitUrl}
           onClick={() => {
             setError('')
             if (!gender) {
@@ -128,7 +127,11 @@ export default function ImportStep({
                   reason,
                   o.createFailed,
                   o.generationTimeout,
-                  { pro_unavailable: o.proUnavailable },
+                  {
+                    pro_unavailable: o.proUnavailable,
+                    portrait_required: o.importPortraitHint,
+                    visual_design_unusable: o.importVisualFailed,
+                  },
                 ),
               )
             })

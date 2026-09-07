@@ -182,20 +182,24 @@ describe('agent panel motion contract', () => {
   })
 
   it('keeps the composer until the last card has somewhere to return', () => {
-    const closingComposer = block(
+    const fullClosing = block(
       css,
-      ".agent-panel-overlay-anchor[data-stage='full'][data-phase='closing']\n  .agent-panel-composer {",
+      ".agent-panel-overlay-anchor[data-stage='full'][data-phase='closing'] {",
       ".agent-panel-overlay-anchor[data-stage='full'][data-phase='closing']\n  .agent-panel-presence[data-kind='row'],",
     )
+    assert.match(fullClosing, /opacity:\s*0/)
+    assert.match(fullClosing, /translate:\s*-50%\s+22px/)
+    assert.match(fullClosing, /scale:\s*1/)
+    assert.match(fullClosing, /transition-duration:\s*var\(--agent-row-exit\)/)
     assert.match(
-      closingComposer,
-      /transition-duration:\s*var\(--agent-row-exit\)/,
-    )
-    assert.match(
-      closingComposer,
+      fullClosing,
       /transition-delay:\s*calc\(\s*\(var\(--agent-stagger-wave\) \+ 1\)/,
     )
-    assert.doesNotMatch(closingComposer, /3 \* var\(--agent-stagger-step\)/)
+    assert.doesNotMatch(fullClosing, /3 \* var\(--agent-stagger-step\)/)
+    assert.doesNotMatch(
+      css,
+      /\[data-stage='full'\]\[data-phase='closing'\]\s+\.agent-panel-composer \{/,
+    )
     assert.match(css, /--agent-exit-stagger, var\(--agent-stagger, 0\)/)
   })
 
@@ -226,7 +230,7 @@ describe('agent panel motion contract', () => {
     )
     assert.match(faceSlot, /position:\s*absolute/)
     assert.match(faceSlot, /left:\s*50%/)
-    assert.match(faceSlot, /translate:\s*-50% var\(--agent-face-lift\)/)
+    assert.match(faceSlot, /translate:\s*-50% 0/)
     assert.match(
       faceSlot,
       /opacity var\(--agent-move\) var\(--agent-ease-exit\)/,
@@ -347,6 +351,44 @@ describe('agent panel motion contract', () => {
     assert.doesNotMatch(
       start,
       /^\s*\.agent-panel-presence\[data-kind='chip'\] \{/m,
+    )
+  })
+
+  it('grows the send slot from zero when speech is missing', () => {
+    const composer = readFileSync(
+      new URL('./AgentPanelComposer.tsx', import.meta.url),
+      'utf8',
+    )
+    const start = block(
+      css,
+      '@starting-style {',
+      ".agent-panel-presence[data-presence='out']",
+    )
+    const sendSlot = block(
+      css,
+      ".agent-panel-composer-row > .agent-panel-presence[data-kind='chip'] {",
+      ".agent-panel-composer-row\n  > .agent-panel-presence[data-kind='chip'][data-presence='in'] {",
+    )
+    assert.match(composer, /durationMs=\{AGENT_SWAP_MS\}/)
+    assert.match(presence, /durationMs = AGENT_ROW_MS/)
+    assert.match(sendSlot, /width:\s*96px/)
+    assert.match(sendSlot, /--agent-swap/)
+    assert.match(start, /margin-left:\s*-12px/)
+    assert.match(
+      start,
+      /\.agent-panel-composer-row > \.agent-panel-presence\[data-kind='chip'\] \{[\s\S]*?width:\s*0/,
+    )
+    assert.match(
+      css,
+      /\.agent-panel-composer-row\s*>\s*\.agent-panel-presence\[data-kind='chip'\]\[data-presence='out'\] \{[\s\S]*?width:\s*0/,
+    )
+    assert.match(
+      css,
+      /\[data-phase='opening'\][\s\S]*?\.agent-panel-composer-row[\s\S]*?width:\s*96px/,
+    )
+    assert.doesNotMatch(
+      sendSlot,
+      /grid-template-columns:\s*0fr/,
     )
   })
 
@@ -477,7 +519,7 @@ describe('agent panel motion contract', () => {
     )
     assert.match(
       css,
-      /html:not\(\[data-surface='solid'\]\) \.agent-panel-message-body\.glass[\s\S]*?--surface-alpha:\s*84%/,
+      /html:not\(\[data-surface='solid'\]\):not\(\[data-surface='liquid'\]\)\s*\n\s*\.agent-panel-overlay-anchor \{[\s\S]*?--surface-alpha:\s*92%/,
     )
     assert.match(
       css,

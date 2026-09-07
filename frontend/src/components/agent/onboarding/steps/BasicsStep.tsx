@@ -7,7 +7,7 @@ import { useLayoutEffect, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { agentService } from '../../../../services/agent'
 import { generationFailureMessage } from '../generationError'
-import { defaultNameStyle } from '../onboardingTypes'
+import { defaultNameStyle, VISUAL_NOTES_LIMIT } from '../onboardingTypes'
 import { ActionBar, PrimaryButton, StepBody } from '../ui/Chrome'
 import { ErrorNote } from '../ui/Feedback'
 import { Field, FieldGroup, TextArea, TextInput } from '../ui/Field'
@@ -18,7 +18,6 @@ interface Props {
   displayName: string
   gender: PersonaGender | null
   extraRequirements: string
-  selectedTags: string[]
   busy: boolean
   onDisplayName: (value: string) => void
   onGender: (value: PersonaGender) => void
@@ -31,7 +30,6 @@ export default function BasicsStep({
   displayName,
   gender,
   extraRequirements,
-  selectedTags,
   busy,
   onDisplayName,
   onGender,
@@ -56,13 +54,8 @@ export default function BasicsStep({
     if (busy || rollingName) return
     setNameError('')
     setRollingName(true)
-    const tags = selectedTags
-      .map((tag) => tag.trim())
-      .filter(Boolean)
-      .slice(0, 28)
     void agentService
       .suggestPersonaName({
-        selectedTags: tags,
         gender: gender ?? undefined,
         avoidName: displayName.trim() || undefined,
         nameStyle,
@@ -82,7 +75,7 @@ export default function BasicsStep({
             o.randomNameFailed,
             o.generationTimeout,
             {
-              standard_unavailable: o.standardUnavailable,
+              lite_unavailable: o.liteUnavailable,
               name_suggest_failed: o.randomNameFailed,
               name_unusable: o.nameUnusable,
             },
@@ -136,10 +129,16 @@ export default function BasicsStep({
           />
         </FieldGroup>
 
-        <Field label={o.extraLabel} optional optionalLabel={o.optional}>
+        <Field
+          label={o.extraLabel}
+          optional
+          optionalLabel={o.optional}
+          value={extraRequirements}
+          max={VISUAL_NOTES_LIMIT}
+        >
           <TextArea
             value={extraRequirements}
-            maxLength={500}
+            maxLength={VISUAL_NOTES_LIMIT}
             rows={3}
             placeholder={o.extraPlaceholder}
             onChange={(event) => onExtra(event.target.value)}

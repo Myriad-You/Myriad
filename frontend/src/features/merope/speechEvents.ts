@@ -1,5 +1,11 @@
 import type { SpeechArticulation, SpeechViseme } from './rig/articulation'
+import type { SpeechGesture } from './speech/phraseGestures'
 import type { SpeechProsodyPlan } from './speech/prosody'
+import { SPEECH_GESTURES } from './speech/phraseGestures'
+import {
+  MAX_AUDIO_PROSODY_ACCENTS,
+  MAX_AUDIO_PROSODY_MS,
+} from './speech/prosody'
 
 export const MEROPE_SPEECH_EVENT = 'merope-speech'
 
@@ -25,6 +31,7 @@ export type MeropeSpeechEventDetail =
   | (SpeechEventBase & {
       phase: 'prosody'
       prosody: SpeechProsodyPlan
+      text?: string
     })
   | (Omit<SpeechEventBase, 'utteranceId'> & {
       phase: 'cancel'
@@ -133,7 +140,16 @@ export function meropeSpeechEventDetail(
   }
   if (phase === 'prosody') {
     const prosody = sanitizeProsody(value.prosody, utteranceId)
-    return prosody ? { ...base, phase, prosody } : null
+    return prosody
+      ? {
+          ...base,
+          phase,
+          prosody,
+          ...(typeof value.text === 'string'
+            ? { text: value.text.slice(0, 2_000) }
+            : {}),
+        }
+      : null
   }
   return null
 }
@@ -165,16 +181,27 @@ function sanitizeProsody(
       }
       return [
         {
-          offsetMs: clamp(accent.offsetMs, 0, 30_000),
+          offsetMs: clamp(accent.offsetMs, 0, MAX_AUDIO_PROSODY_MS),
           intensity: clamp(accent.intensity, 0, 1),
+          ...(accent.gesture === 'none' ||
+          SPEECH_GESTURES.includes(accent.gesture as SpeechGesture)
+            ? { gesture: accent.gesture as SpeechGesture | 'none' }
+            : {}),
+          ...(typeof accent.textOffset === 'number' &&
+          Number.isInteger(accent.textOffset) &&
+          accent.textOffset >= 0 &&
+          accent.textOffset <= 2_000
+            ? { textOffset: accent.textOffset }
+            : {}),
         },
       ]
     })
-    .slice(0, 12)
+    .slice(0, MAX_AUDIO_PROSODY_ACCENTS)
+    .sort((left, right) => left.offsetMs - right.offsetMs)
   return {
     utteranceId,
     startedAtMs: Math.max(0, value.startedAtMs),
-    durationMs: clamp(value.durationMs, 0, 30_000),
+    durationMs: clamp(value.durationMs, 0, MAX_AUDIO_PROSODY_MS),
     accents,
   }
 }

@@ -96,7 +96,7 @@ impl LaneQueue {
     /// 获取执行许可（无限等待，仅在系统关闭时失败）。
     ///
     /// 用户路径请优先使用 [`Self::acquire_timeout`]。保留无超时入口供测试与内部调用。
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub async fn acquire(&self, lane_key: &str) -> Result<LaneGuard, String> {
         self.acquire_inner(lane_key, None).await
     }

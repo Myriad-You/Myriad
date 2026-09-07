@@ -153,6 +153,7 @@ function resolveShellStops(source: TappIconStyleSource): {
     permissions.includes('ai:generate') ||
     permissions.includes('ai:chat') ||
     permissions.includes('ai:image') ||
+    permissions.includes('ai:search') ||
     permissions.includes('3d:generate')
   ) {
     const c = CATEGORY_COLORS.ai

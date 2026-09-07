@@ -38,9 +38,6 @@ interface UiConfigField {
   value: string
 }
 
-/** @deprecated 从 uiBagOwnership 导入；此处 re-export 保持兼容 */
-export { ADVANCED_RESET_KEYS } from './uiBagOwnership'
-
 interface AdvancedConfigSectionProps {
   onReset: () => void
   title: string

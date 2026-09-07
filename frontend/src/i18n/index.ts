@@ -40,6 +40,7 @@ export interface TranslationKeys {
     durationSeconds: string
     durationMinutes: string
     durationMinutesSeconds: string
+    editMode: string
   }
 
   // 导航
@@ -133,13 +134,24 @@ export interface TranslationKeys {
     visualGenerating: string
     visualDownload: string
     visualFailed: string
+    avatarTitle: string
+    avatarHint: string
+    avatarGenerate: string
+    avatarRegenerate: string
+    avatarGenerating: string
+    avatarNeedsPortrait: string
+    avatarConfirm: string
+    avatarFailed: string
     motionPsdUpload: string
     motionPsdUploading: string
     visualConfirm: string
+    anime25dSeeThroughCredit: string
     anime25dRuntimeCredit: string
+    anime25dProjectThanks: string
     anime25dDebug: string
     overviewGroup: string
     overviewGroupDescription: string
+    statusGroup: string
     overviewName: string
     overviewMood: string
     overviewActivity: string
@@ -156,6 +168,16 @@ export interface TranslationKeys {
     overviewRig: string
     overviewRigReady: string
     overviewRigEmpty: string
+    overviewOutfitPortrait: string
+    overviewOutfitRig: string
+    overviewWardrobeWearing: string
+    overviewWardrobeCount: string
+    overviewWardrobeNoneReady: string
+    overviewWardrobeAllPortraits: string
+    overviewWardrobeAllRigs: string
+    overviewWardrobeMixed: string
+    overviewWardrobeOnePortrait: string
+    overviewWardrobeOneRig: string
     overviewSummary: string
     overviewEmpty: string
     personaGroup: string
@@ -165,8 +187,33 @@ export interface TranslationKeys {
     portraitGroupDescription: string
     visualSourceTitle: string
     visualSourceEmpty: string
+    wardrobeTitle: string
+    wardrobeHint: string
+    wardrobeGroupDescription: string
+    visualOutfitTitle: string
+    visualFixedTitle: string
+    wardrobeEmpty: string
+    wardrobeNeedCharacter: string
+    wardrobeReading: string
+    wardrobeFillFromPortrait: string
+    wardrobeFillFailed: string
+    wardrobeNew: string
+    wardrobeGenerate: string
+    wardrobeWearing: string
+    wardrobeWear: string
+    wardrobeDefault: string
+    wardrobeFull: string
+    wardrobeName: string
+    wardrobeNamePlaceholder: string
+    wardrobeRenameFailed: string
+    wardrobeRequirements: string
+    wardrobeRequirementsHint: string
+    wardrobeRequirementsPlaceholder: string
+    wardrobeApplyFailed: string
+    wardrobeDeleteFailed: string
     assetGroup: string
     assetEmpty: string
+    widgetFaceSlotTaken: string
     assetNeedsPortrait: string
     rigGroup: string
     rigGroupDescription: string
@@ -214,6 +261,7 @@ export interface TranslationKeys {
     anime25dBust: string
     anime25dBustY: string
     anime25dLean: string
+    anime25dBodyYaw: string
     anime25dBrow: string
     anime25dBrowAngSym: string
     anime25dBrowL: string
@@ -267,9 +315,7 @@ export interface TranslationKeys {
     anime25dInspectWorkload: string
     anime25dInspectEmpty: string
     rigPathUpload: string
-    rigPathUploadHint: string
     rigPathSeeThrough: string
-    rigPathSeeThroughHint: string
     rigTokenReady: string
     rigPreflightTitle: string
     rigPreflightSummary: string
@@ -352,6 +398,81 @@ export interface TranslationKeys {
     wallpaperSwitch: string
     language: string
     languageSwitch: string
+  }
+
+  // 教程覆层（现场高亮，不是人设引导 / 安装向导）
+  tour: {
+    start: string
+    startHint: string
+    next: string
+    back: string
+    done: string
+    skip: string
+    /** 长按「下一步」跳过时的提示 */
+    skipHold: string
+    /** 读屏用的步骤位置，占位符 {current} / {total} */
+    stepOf: string
+    hint: string
+    hintBody: string
+    hintTitle: string
+    hintWelcome: string
+    begin: string
+    noTourOnThisPage: string
+    couldNotStart: string
+    steps: {
+      nav: { title: string; body: string }
+      'home-grid': { title: string; body: string }
+      'home-edit': { title: string; body: string }
+      'home-edit-grid': { title: string; body: string }
+      'home-widget-library': { title: string; body: string }
+      'home-free-layout': { title: string; body: string }
+      'home-sticker': { title: string; body: string }
+      'control-island': { title: string; body: string }
+      'control-island-owner': { title: string; body: string }
+      'control-panel': { title: string; body: string }
+      'control-panel-owner': { title: string; body: string }
+      'library-filters': { title: string; body: string }
+      'library-grid': { title: string; body: string }
+      'library-grid-canvas': { title: string; body: string }
+      'library-card': { title: string; body: string }
+      'library-canvas': { title: string; body: string }
+      'reports-status': { title: string; body: string }
+      'reports-play': { title: string; body: string }
+      'reports-cards': { title: string; body: string }
+      'reports-cards-owner': { title: string; body: string }
+      'tapp-store-entry': { title: string; body: string }
+      'tapp-scope': { title: string; body: string }
+      'tapp-open-playground': { title: string; body: string }
+      'tapp-install': { title: string; body: string }
+      'tapp-grid': { title: string; body: string }
+      'tapp-grid-owner': { title: string; body: string }
+      'config-search': { title: string; body: string }
+      'config-sidebar': { title: string; body: string }
+      'config-content': { title: string; body: string }
+      'config-ai-persona-toggle': { title: string; body: string }
+      'config-ai-persona-card': { title: string; body: string }
+      'config-ai-persona-speech': { title: string; body: string }
+      'config-persona-tabs': { title: string; body: string }
+      'config-persona-portrait': { title: string; body: string }
+      'config-persona-overview': { title: string; body: string }
+      'config-persona-identity': { title: string; body: string }
+      'config-persona-wardrobe': { title: string; body: string }
+      'config-persona-motion': { title: string; body: string }
+      'tapp-detail-overview': { title: string; body: string }
+      'tapp-detail-settings': { title: string; body: string }
+      'tapp-detail-permissions': { title: string; body: string }
+      'tapp-playground-toolbar': { title: string; body: string }
+      'tapp-playground-preview': { title: string; body: string }
+      'tapp-playground-widget': { title: string; body: string }
+      'tapp-playground-code': { title: string; body: string }
+      'tapp-playground-prompt': { title: string; body: string }
+      'tapp-playground-generate': { title: string; body: string }
+      'tapp-playground-history': { title: string; body: string }
+      'tapp-playground-revisions': { title: string; body: string }
+      'tapp-playground-clear': { title: string; body: string }
+      'tapp-playground-export': { title: string; body: string }
+      'tapp-playground-install': { title: string; body: string }
+    }
   }
 
   // 登录
@@ -543,7 +664,16 @@ export interface TranslationKeys {
       visitorTitle: string
       visitorDesc: string
       enableAria: string
+      /** 访客统计开关悬停：开启以后 */
+      enablePreviewOn: string
+      /** 访客统计开关悬停：关闭以后 */
+      enablePreviewOff: string
       disabledBanner: string
+      /** 本机退出采集（不影响全站开关） */
+      optOutLabel: string
+      optOutDesc: string
+      optOutPreviewOn: string
+      optOutPreviewOff: string
       pagesTitle: string
       pagesDesc: string
       eventsTitle: string
@@ -1282,6 +1412,14 @@ export interface TranslationKeys {
     musicPlatform: string
     playlistId: string
     clearMusicCache: string
+    islandContentTitle: string
+    islandContentDesc: string
+    islandContentLocations: string
+    islandGreeting: string
+    islandWeather: string
+    islandQuote: string
+    islandMusic: string
+    islandTapp: string
     siteMetadata: string
     siteMetadataDesc: string
     /** 基础设置：网站名片 + PWA（原「网站元数据」与 PWA 合并） */
@@ -1321,10 +1459,14 @@ export interface TranslationKeys {
     fieldSiteKeywordsHint: string
     fieldSiteOgImage: string
     fieldSiteOgImageHint: string
+    fieldGoogleSiteVerification: string
+    fieldGoogleSiteVerificationHint: string
+    placeholderGoogleSiteVerification: string
     fieldSiteNoindex: string
     fieldSiteNoindexHint: string
     fieldSiteVisibilityPolicy: string
     fieldSiteVisibilityPolicyHint: string
+    seoOriginMissingHint: string
     visibilityPrivate: string
     visibilityPrivateHint: string
     visibilityPrivateHintBefore: string
@@ -1604,6 +1746,11 @@ export interface TranslationKeys {
     providerVolcengine: string
     aiVendorsTitle: string
     aiVendorsDesc: string
+    webSearchTitle: string
+    webSearchDesc: string
+    tinyfishApiKey: string
+    tinyfishApiKeyHint: string
+    tinyfishApiKeyPlaceholder: string
     aiVendorAdd: string
     aiVendorAddDesc: string
     aiVendorEmpty: string
@@ -1931,6 +2078,8 @@ export interface TranslationKeys {
     permEventPublishHint: string
     permAiImage: string
     permAiImageHint: string
+    permAiSearch: string
+    permAiSearchHint: string
     perm3dGenerate: string
     perm3dGenerateHint: string
     permSchedulerRegister: string
@@ -2013,8 +2162,18 @@ export interface TranslationKeys {
     aiCooldownSeconds: string
     aiCooldownSecondsHint: string
     unitSeconds: string
+    /** 开关悬停预告短标签：开启后 */
+    switchPreviewOnKicker: string
+    /** 开关悬停预告短标签：关闭后 */
+    switchPreviewOffKicker: string
     platformHelpAria: string
     platformEnableAria: string
+    /** 平台开关悬停：开启以后 */
+    platformEnablePreviewOn: string
+    /** 平台开关悬停：关闭以后 */
+    platformEnablePreviewOff: string
+    /** 平台开关悬停：未配置所以点不了 */
+    platformEnablePreviewNeedConfig: string
     platformOpenDetailAria: string
     siteFooterTitle: string
     siteFooterDesc: string
@@ -2072,6 +2231,9 @@ export interface TranslationKeys {
     brewSource: string
     brewTopic: string
     brewFeatured: string
+    githubRepos: string
+    githubReposField: string
+    githubReposFieldHint: string
     library: string
     dataReport: string
     multiPlatformAggregation: string
@@ -2144,6 +2306,51 @@ export interface TranslationKeys {
   // 首页
   home: {
     defaultBio: string
+    switchToFreeLayout: string
+    switchToStandardLayout: string
+    freeLayout: string
+    standardLayout: string
+    createSticker: string
+    stickerPromptPlaceholder: string
+    stickerSizeHint: string
+    stickerGenerating: string
+    stickerFailed: string
+    stickerNoSpace: string
+    stickerPickHint: string
+    stickerGenerateCropHint: string
+    stickerAddReference: string
+    stickerReferenceLimit: string
+    stickerModeGenerate: string
+    stickerModeUpload: string
+    stickerUploadImage: string
+    stickerUploading: string
+    stickerUploadFailed: string
+    stickerCropHint: string
+    stickerLongPressEdit: string
+    stickerSettings: string
+    stickerFloat: string
+    stickerFloatLoop: string
+    stickerFloatHover: string
+    stickerFloatOff: string
+    stickerFloatLoopHint: string
+    stickerFloatHoverHint: string
+    stickerFloatOffHint: string
+    stickerDownload: string
+    stickerDownloadHint: string
+    stickerFile: string
+    exportLayout: string
+    importLayout: string
+    exportLayoutSuccess: string
+    exportLayoutFailed: string
+    exportLayoutPartial: string
+    importLayoutSuccess: string
+    importLayoutFailed: string
+    importLayoutPartial: string
+    importLayoutConfirm: string
+    importLayoutInvalid: string
+    importLayoutSettingsBackup: string
+    importLayoutTooLarge: string
+    importLayoutTooMany: string
   }
 
   // 资料库
@@ -2256,6 +2463,13 @@ export interface TranslationKeys {
       continue: string
       dismiss: string
       failed: string
+    }
+    /** Chat asked for a job; this chip sends it to Work. */
+    workOffer: {
+      kicker: string
+      hint: string
+      accept: string
+      sent: string
     }
     /** 聊天档右边那枚心情贴。档位词复用设定页的 mood */
     mood: {
@@ -2466,6 +2680,7 @@ export interface TranslationKeys {
       saveFirst: string
       nameLabel: string
       nameHint: string
+      importNameHint: string
       namePlaceholder: string
       randomName: string
       randomNameBusy: string
@@ -2542,6 +2757,7 @@ export interface TranslationKeys {
       importLead: string
       importPersonaReady: string
       importPortraitHint: string
+      importVisualFailed: string
       importFinish: string
       personaFieldGenerating: string
       editPersona: string
@@ -2560,6 +2776,7 @@ export interface TranslationKeys {
       personaIncompleteHint: string
       proUnavailable: string
       standardUnavailable: string
+      liteUnavailable: string
       visualRequirements: string
       visualRequirementsHint: string
       visualRequirementsPlaceholder: string
@@ -2584,6 +2801,8 @@ export interface TranslationKeys {
       visualDesignFailed: string
       visualDesignLanguageFailed: string
       visualDesignRequired: string
+      visualGenderMismatch: string
+      visualIdentityUnusableForPortrait: string
       visualDesignSaveFailed: string
       portraitTalkLead: string
       portraitLoading: string
@@ -3071,6 +3290,7 @@ export interface TranslationKeys {
     profileSourceAuto: string
     profileSourceAutoDesc: string
     profileSourceAccount: string
+    profileSourcePersona: string
     profileTextSourceTitle: string
     profileTextSourceHint: string
     profileTextSourceEmpty: string
@@ -3083,8 +3303,12 @@ export interface TranslationKeys {
   // 小组件网格
   widgetGrid: {
     widgetLibrary: string
+    restoreWidgetLibrary: string
     searchWidgets: string
     clearSearch: string
+    filterWidgets: string
+    filterAll: string
+    filterReports: string
     noSearchResults: string
     deleteWidget: string
     positionConflict: string
@@ -3092,6 +3316,8 @@ export interface TranslationKeys {
     prevPage: string
     nextPage: string
     widgetSettings: string
+    longPressToEdit: string
+    createSticker: string
   }
 
   // 社交网络小组件
@@ -3371,7 +3597,17 @@ export interface TranslationKeys {
     defaultQuote: string
     anonymous: string
     unavailable: string
-  }
+  },
+
+  githubReposWidget: {
+    empty: string
+    emptyHint: string
+    loadFailed: string
+    sampleRepo: string
+    sampleRepoAlt: string
+    sampleDesc: string
+    sampleDescAlt: string
+  },
 
   // 音乐播放器小组件
   musicPlayer: {
@@ -3504,6 +3740,13 @@ export interface TranslationKeys {
     notConfigured: string
     fetchFailed: string
     showcaseEmpty: string
+    customFont: string
+    customFontHint: string
+    customFontChoose: string
+    customFontClear: string
+    customFontUploading: string
+    customFontFailed: string
+    customFontInUse: string
   }
 
   // Tapp 快捷方式小组件
@@ -3620,6 +3863,7 @@ export interface TranslationKeys {
     permPublishEvent: string
     permSubscribeEvent: string
     permAiImage: string
+    permAiSearch: string
     perm3dGenerate: string
     permSchedulerRegister: string
     permSpeechTts: string
@@ -3669,6 +3913,7 @@ export interface TranslationKeys {
     permPublishEventDesc: string
     permSubscribeEventDesc: string
     permAiImageDesc: string
+    permAiSearchDesc: string
     perm3dGenerateDesc: string
     permSchedulerRegisterDesc: string
     permSpeechTtsDesc: string

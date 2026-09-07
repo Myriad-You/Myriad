@@ -240,6 +240,8 @@ mod tests {
         assert!(voice_for("discord").cover.contains("主理人"));
         assert!(voice_for("steam").task.contains("集中"));
         assert!(voice_for("netease").task.contains("禁近义"));
+        assert!(voice_for("netease").task.contains("至少 4"));
+        assert!(voice_for("netease").visuals.contains("4-6"));
         assert!(voice_for("xbox").task.contains("完成度"));
     }
 
@@ -307,9 +309,16 @@ mod tests {
         assert!(x.uses_mass_accounts);
         assert!(x.visuals.contains("interest_circles"));
         assert!(x.visuals.contains("following_highlights"));
+        assert!(x.visuals.contains("不同切面"));
         assert!(!x.visuals.contains("'stats'"));
         assert!(x.omit.contains(&"stats"));
         assert!(prompt("x").contains(MASS_ACCOUNTS));
+        assert!(MASS_ACCOUNTS.contains("丢弃"));
+        assert!(MASS_ACCOUNTS.contains("禁止收容圈层"));
+        assert!(
+            !MASS_ACCOUNTS.contains("便利店"),
+            "do not paper over unreadable follows by banning 便利店"
+        );
     }
 
     #[test]

@@ -39,14 +39,12 @@ export function IslandShell({
         opacity: 0,
         y: isMobile ? -8 : 8,
         scale: 0.97,
-        filter: 'blur(4px)',
       }}
-      animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{
         opacity: 0,
         y: isMobile ? -8 : 8,
         scale: 0.97,
-        filter: 'blur(4px)',
       }}
       transition={SPRING_SNAPPY}
       className={`flex items-center gap-2 px-2.5 py-2 ${glass} ${className}`}

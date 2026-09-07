@@ -58,28 +58,6 @@ export class TokenManager {
   }
 
   /**
-   * 设置 Token（仅用于向后兼容，实际Token由后端通过HttpOnly Cookie设置）
-   * ✅ 安全修复 P0: 不再将 Token 存入 localStorage（防止 XSS 窃取）
-   * @deprecated 该方法仅用于向后兼容，新代码应依赖 HttpOnly Cookie
-   */
-  static setToken(token: string): void {
-    try {
-      if (!this.isValidToken(token)) {
-        throw new Error('Invalid token format')
-      }
-
-      // 不再保存到 localStorage（容易被 XSS 窃取）
-      // localStorage.setItem(this.TOKEN_KEY, token);
-
-      // HttpOnly Cookie 由后端在 Set-Cookie 头中设置，前端无法设置
-      // Token 仅存储在 HttpOnly Cookie 中，JavaScript 无法访问
-    } catch (e) {
-      console.error('Failed to validate token:', e)
-      throw e
-    }
-  }
-
-  /**
    * 移除 Token
    */
   static removeToken(): void {

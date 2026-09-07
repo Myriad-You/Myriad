@@ -22,6 +22,7 @@ use crate::services::tapp_package_read::{
 };
 use crate::services::tapp_storage::{sandbox_storage_count, sandbox_storage_entries};
 use crate::services::tapp_validation::validate_resource_path;
+use myriad_agent_rules::untrusted_block;
 use sea_orm::{ColumnTrait, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -213,7 +214,7 @@ async fn execute_tapp_understand(
 - 应用 ID：{tapp_id}
 
 ## UI 结构
-{ui_structure}
+{ui_block}
 
 ## 用户意图
 {user_intent}
@@ -238,7 +239,12 @@ async fn execute_tapp_understand(
 ```"#,
         tapp_name = tapp_name,
         tapp_id = tapp_id,
-        ui_structure = serde_json::to_string_pretty(&ui_analysis).unwrap_or_default(),
+        // UI 结构来自 TAPP 自己的代码。这个提示词的产物是会被执行的
+        // click/input 计划，所以第三方 DOM 必须带边界进来。
+        ui_block = untrusted_block(
+            "tapp_ui",
+            &serde_json::to_string_pretty(&ui_analysis).unwrap_or_default(),
+        ),
         user_intent = user_intent,
     );
 
@@ -1109,6 +1115,9 @@ async fn execute_page_understand(
     if let Some(analyzer) = ctx.ai_analyzer {
         let context_str = serde_json::to_string_pretty(&page_context).unwrap_or_default();
         let truncated_context: String = context_str.chars().take(USER_TEXT_MAX_CHARS).collect();
+        // 页面上下文含 DOM 与 TAPP 渲染的内容，同样是别人能写的；产物是
+        // 开了 `ui:interact` 就会真的执行的动作计划。
+        let truncated_context = untrusted_block("page_context", &truncated_context);
 
         let prompt = format!(
             "你是一个页面交互分析助手。请分析当前页面上下文并理解用户意图，生成操作计划。\n\n\
@@ -1394,7 +1403,7 @@ async fn execute_page_content(
         }
         "report" => super::data_read::execute("report.list", params, ctx).await,
         "library" => super::data_read::execute("stats.overview", params, ctx).await,
-        _ => Err(format!("Unable to read page content")),
+        _ => Err("Unable to read page content".to_string()),
     }
 }
 

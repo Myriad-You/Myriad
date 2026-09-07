@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { ToastType } from '../components/Toast'
-import type { WidgetConfig } from '../components/WidgetGrid'
+import type { WidgetConfig } from '../components/widgetGridTypes'
 import {
   FaGithub,
   FaSteam,
@@ -30,6 +30,7 @@ import {
 } from 'react'
 import AnimatedView from '../components/AnimatedView'
 import { Spinner } from '../components/Spinner'
+import { setStageLeaveHandler } from '../components/stageLeaveGate'
 import StageMode from '../components/StageMode'
 import Toast from '../components/Toast'
 import { preloadPlatformFaces } from '../components/widgets/reportCard/platformFaceLoaders'
@@ -41,6 +42,7 @@ import {
   usePageReady,
   useReportsScheduler,
 } from '../hooks/animation'
+import { isExlight } from '../hooks/useAnimationLevel'
 import { useHorizontalStripScroll } from '../hooks/useHorizontalStripScroll'
 import { usePageSeo } from '../hooks/usePageSeo'
 import {
@@ -480,6 +482,19 @@ export default function Reports() {
   const handleUserCloseStage = useCallback(() => {
     closeStageMode()
   }, [closeStageMode])
+
+  // 切页：先播完舞台内容退场，再让导航岛真正换路由。光幕 1s，内容 0.5s。
+  useEffect(() => {
+    if (!isStageMode) {
+      setStageLeaveHandler(null)
+      return
+    }
+    setStageLeaveHandler((proceed) => {
+      closeStageMode()
+      window.setTimeout(proceed, isExlight() ? 0 : 520)
+    })
+    return () => setStageLeaveHandler(null)
+  }, [isStageMode, closeStageMode])
 
   useEffect(() => {
     if (!platformVisibilityReady) {
@@ -1019,7 +1034,11 @@ export default function Reports() {
           <div className="flex-1 md:flex-none md:h-[60%] rounded-2xl relative overflow-hidden" />
 
           {/* 下半部分：卡片列表区域 - 移动端/桌面端都在下半部分 */}
-          <div className="md:h-[40%] flex flex-col relative justify-end md:justify-start">
+          <div
+            className="md:h-[40%] flex flex-col relative justify-end md:justify-start"
+            data-tour="reports-cards"
+            data-tour-fit=".reports-platform-card, .reports-empty"
+          >
             <div className="flex flex-col relative z-10">
               {platformVisibilityReady && (
                 <>
@@ -1143,6 +1162,7 @@ export default function Reports() {
                             whileHover={{ scale: 1.02, y: -4 }}
                             whileTap={{ scale: 0.98 }}
                             className={`
+                    reports-platform-card
                     relative aspect-2/1 rounded-2xl overflow-hidden cursor-pointer group
                     glass
                     hover:shadow-xl transition-shadow
@@ -1258,7 +1278,7 @@ export default function Reports() {
               {platformVisibilityReady && !hasEnabledPlatforms && (
                   <div className="pt-8 pb-12 -mt-7 -mb-11 px-1">
                     <motion.div
-                      className="relative rounded-2xl overflow-hidden min-h-55"
+                      className="reports-empty relative rounded-2xl overflow-hidden min-h-55"
                       initial={{ opacity: 0, y: 12 }}
                       animate={
                         isPageReady

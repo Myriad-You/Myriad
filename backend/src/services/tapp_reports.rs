@@ -27,7 +27,6 @@ pub enum ReportCatalogError {
 }
 
 impl ReportCatalogError {
-    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
     pub fn code(&self) -> &'static str {
         match self {
             Self::Database => "REPORT_DATABASE_ERROR",
@@ -160,7 +159,6 @@ pub enum TappReportCrudError {
 }
 
 impl TappReportCrudError {
-    #[allow(dead_code)] // Stable machine code for future API adapters.
     pub fn code(&self) -> &'static str {
         match self {
             Self::InvalidReportType => "INVALID_REPORT_TYPE",
@@ -231,8 +229,6 @@ pub struct CreatedTappReport {
     pub title: String,
     pub report_type: String,
     pub created_at: String,
-    #[allow(dead_code)] // Full document available for callers that need it.
-    pub document: Value,
 }
 
 /// Create a custom Tapp report in subject-scoped storage.
@@ -266,7 +262,7 @@ pub async fn create_tapp_report(
         tapp_id: Set(tapp_id.to_string()),
         user_id: Set(user_id),
         key: Set(storage_key),
-        value: Set(report_data.clone()),
+        value: Set(report_data),
         encrypted_value: NotSet,
         binding_fingerprint: NotSet,
         created_at: Set(now),
@@ -283,7 +279,6 @@ pub async fn create_tapp_report(
         title: title.to_string(),
         report_type: report_type.to_string(),
         created_at,
-        document: report_data,
     })
 }
 

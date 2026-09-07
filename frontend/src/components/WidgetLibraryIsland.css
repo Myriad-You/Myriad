@@ -1,0 +1,470 @@
+/* Widget library island: Stage Manager dock.
+ * --sm-dur-* / --sm-ease-* come from App's global settings-motion import. */
+
+.widget-library-island {
+  /* width / height / top|bottom / left / transform-origin: JS box style */
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgb(0 0 0 / 8%);
+  border-radius: 20px;
+  background: rgb(243 243 247 / 97%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 50%),
+    0 24px 64px rgb(0 0 0 / 18%),
+    0 2px 8px rgb(0 0 0 / 8%);
+}
+
+html.dark .widget-library-island {
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(44 44 46 / 96%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 8%),
+    0 24px 64px rgb(0 0 0 / 45%),
+    0 2px 8px rgb(0 0 0 / 28%);
+}
+
+.widget-library-gallery {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid rgb(0 0 0 / 6%);
+}
+
+html.dark .widget-library-gallery {
+  border-top-color: rgb(255 255 255 / 8%);
+}
+
+.widget-library-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 10px 14px;
+  overflow: auto;
+  background: rgb(255 255 255 / 22%);
+}
+
+html.dark .widget-library-sidebar {
+  background: rgb(0 0 0 / 16%);
+}
+
+.widget-library-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.widget-library-nav-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.widget-library-nav-item:hover {
+  background: rgb(0 0 0 / 5%);
+}
+
+html.dark .widget-library-nav-item:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.widget-library-nav-item.is-active {
+  background: color-mix(
+    in srgb,
+    var(--color-primary, #8b5cf6) 18%,
+    transparent
+  );
+  color: var(--color-primary, #8b5cf6);
+  font-weight: 650;
+}
+
+.widget-library-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 8px 14px 8px 16px;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.widget-library-title img {
+  height: 1.25rem;
+  width: 1.25rem;
+  object-fit: contain;
+}
+
+.widget-library-title span {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.widget-library-search {
+  position: relative;
+  width: 100%;
+  margin: 0 0 10px;
+}
+
+.widget-library-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.65rem;
+  color: var(--text-tertiary, var(--text-muted));
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.widget-library-search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 2rem;
+  border: 0;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  color: var(--text-primary);
+  background: rgb(0 0 0 / 6%);
+  box-shadow: none;
+  outline: none;
+  transition: background-color var(--sm-dur-base) var(--sm-ease-standard);
+}
+
+html.dark .widget-library-search-input {
+  background: rgb(255 255 255 / 8%);
+}
+
+.widget-library-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.widget-library-search-input:hover,
+.widget-library-search-input:focus {
+  background: rgb(0 0 0 / 9%);
+}
+
+html.dark .widget-library-search-input:hover,
+html.dark .widget-library-search-input:focus {
+  background: rgb(255 255 255 / 12%);
+}
+
+.widget-library-search-input::-webkit-search-decoration,
+.widget-library-search-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.widget-library-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  border: 0;
+  border-radius: 0.35rem;
+  color: var(--text-tertiary, var(--text-muted));
+  background: transparent;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.widget-library-search-clear:hover {
+  color: var(--text-primary);
+  background: rgb(0 0 0 / 5%);
+}
+
+html.dark .widget-library-search-clear:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.widget-library-stage-root {
+  position: fixed;
+  inset: 0;
+  /* Above GCP bar (9999). Ghost portals to body at 10001. */
+  z-index: 10000;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.widget-library-stage-scene {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  perspective-origin: 50% 50%;
+  transform-style: preserve-3d;
+}
+
+.widget-library-stage-scene > .widget-library-island {
+  position: absolute;
+  z-index: 1;
+  pointer-events: auto;
+}
+
+.widget-library-stage-scene > .widget-library-island.is-staged {
+  pointer-events: none;
+}
+
+.widget-library-stage-root.is-concealed .widget-library-island,
+.widget-library-stage-root.is-concealed .widget-library-stage-badge {
+  pointer-events: none;
+}
+
+.widget-library-island.is-staged {
+  overflow: hidden;
+  box-shadow: none;
+  pointer-events: none;
+
+  /* Silhouette shadow: box-shadow clips under overflow+radius in WebKit. */
+  filter:
+    drop-shadow(6px 14px 20px rgb(0 0 0 / 18%))
+    drop-shadow(0 4px 8px rgb(0 0 0 / 8%));
+}
+
+html.dark .widget-library-island.is-staged {
+  filter:
+    drop-shadow(6px 14px 20px rgb(0 0 0 / 32%))
+    drop-shadow(0 4px 8px rgb(0 0 0 / 16%));
+}
+
+.widget-library-island.is-staged .widget-library-tile:hover,
+.widget-library-island.is-staged .widget-library-tile:active {
+  transform: none;
+}
+
+.widget-library-stage-hit {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  transform: translateY(-50%);
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.widget-library-stage-hit:focus-visible {
+  outline: 2px solid
+    color-mix(in srgb, var(--color-primary, #8b5cf6) 70%, transparent);
+  outline-offset: 3px;
+}
+
+.widget-library-stage-badge {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  transform: translate(-8%, -42%);
+  cursor: pointer;
+  pointer-events: auto;
+  animation: widget-library-stage-badge-in 0.42s cubic-bezier(0.22, 1, 0.36, 1)
+    both;
+}
+
+.widget-library-stage-badge img {
+  width: 3.15rem;
+  height: 3.15rem;
+  padding: 0.38rem;
+  border-radius: 0.9rem;
+  background: rgb(255 255 255 / 94%);
+  object-fit: contain;
+  box-shadow: 0 1px 0 rgb(0 0 0 / 8%);
+}
+
+html.dark .widget-library-stage-badge img {
+  background: rgb(48 48 50 / 94%);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 35%);
+}
+
+@keyframes widget-library-stage-badge-in {
+  from {
+    opacity: 0;
+    transform: translate(-8%, -42%) translateX(-8px) scale(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-8%, -42%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-library-stage-badge {
+    animation: none;
+  }
+}
+
+.widget-library-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 28px 32px;
+  min-width: 0;
+  min-height: 0;
+  padding: 22px 28px 32px;
+  overflow: auto;
+}
+
+.widget-library-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 12rem;
+  padding: 0 1rem;
+  color: var(--text-tertiary, var(--text-muted));
+  font-size: 0.8125rem;
+}
+
+.widget-library-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: grab;
+  user-select: none;
+  transition: transform var(--sm-dur-base) var(--sm-ease-standard);
+}
+
+.widget-library-tile:hover {
+  z-index: 10;
+  transform: scale(1.02);
+}
+
+.widget-library-tile:active {
+  cursor: grabbing;
+  transform: scale(0.985);
+}
+
+.widget-library-tile-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  /* Same fill as WidgetShell .glass; inner glass is stripped so scale
+     does not double-stack frost. Catalog drop-shadow stays here. */
+  background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 4%),
+    0 10px 28px rgb(0 0 0 / 10%);
+  transition: box-shadow var(--sm-dur-fast) var(--sm-ease-standard);
+}
+
+html.dark .widget-library-tile-stage {
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 30%),
+    0 12px 32px rgb(0 0 0 / 35%);
+}
+
+.widget-library-tile:hover .widget-library-tile-stage {
+  box-shadow:
+    0 2px 4px rgb(0 0 0 / 6%),
+    0 16px 36px rgb(0 0 0 / 14%);
+}
+
+html.dark .widget-library-tile:hover .widget-library-tile-stage {
+  box-shadow:
+    0 2px 4px rgb(0 0 0 / 35%),
+    0 16px 36px rgb(0 0 0 / 42%);
+}
+
+.widget-library-tile-name {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--sm-dur-fast) var(--sm-ease-standard);
+}
+
+.widget-library-tile:hover .widget-library-tile-name {
+  color: var(--text-primary);
+}
+
+.widget-library-tile-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 6%);
+  pointer-events: none;
+  transition: box-shadow var(--sm-dur-fast) var(--sm-ease-standard);
+}
+
+html.dark .widget-library-tile-frame {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%);
+}
+
+.widget-library-tile:hover .widget-library-tile-frame {
+  box-shadow: inset 0 0 0 2px
+    color-mix(
+      in srgb,
+      var(--color-primary, #8b5cf6) 72%,
+      transparent
+    );
+}
+
+.widget-library-preview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  background: transparent;
+  contain: layout paint style;
+  transform-origin: top left;
+  pointer-events: none;
+}
+
+/*
+ * 预览在放大画布上再 scale，外壳 .glass 的圆角/毛玻璃会和岛叠两层。
+ * 卡片底画在未缩放的预览盒上；壳只负责裁剪，圆角 inherit 对齐外框。
+ */
+.widget-library-preview .h-full.w-full.glass {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+  border-radius: inherit !important;
+}
+
+.widget-library-preview .h-full.w-full.glass::before {
+  content: none !important;
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-library-tile,
+  .widget-library-tile:hover,
+  .widget-library-tile:active {
+    transform: none;
+    transition: none;
+  }
+}

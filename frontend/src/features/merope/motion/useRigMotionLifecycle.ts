@@ -130,7 +130,7 @@ export function useRigMotionLifecycle(
   rigRef: RefObject<RigMotionPort | null>,
   options: RigMotionLifecycleOptions = {},
 ): void {
-  useRigSingingLifecycle()
+  useRigSingingLifecycle(options.ready ?? true)
   useMotionRuntimeConsumer(getProductionMotionRuntime(), rigRef, options, true)
 }
 

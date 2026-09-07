@@ -1,7 +1,13 @@
 import type { RandomActionFrame, RandomActionName } from './randomAction'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyRandomActionFrame, RandomActionController } from './randomAction'
+import {
+  applyRandomActionFrame,
+  HANDOFF_MAX,
+  HANDOFF_MIN,
+  idleHandoffSeconds,
+  RandomActionController,
+} from './randomAction'
 
 function magnitude(frame: Readonly<RandomActionFrame>): number {
   return Math.max(
@@ -111,9 +117,36 @@ test('speech or another owner releases an action and resumes without a long free
   assert.equal(controller.getActiveAction(), null)
 
   assert.equal(magnitude(controller.sample(2.64, true, false)), 0)
-  assert.equal(magnitude(controller.sample(2.96, true, false)), 0)
-  controller.sample(2.98, true, false)
+  assert.equal(magnitude(controller.sample(3.4, true, false)), 0)
+  controller.sample(4.05, true, false)
   assert.notEqual(controller.getActiveAction(), null)
+})
+
+test('a displacement waits longer to resume than automation returning does', () => {
+  const resumed = (blockedOut: boolean): number => {
+    const controller = new RandomActionController(() => 0.5)
+    controller.sample(0, true, false)
+    controller.sample(1.61, true, false)
+    controller.sample(2.25, blockedOut, blockedOut)
+    for (let frame = 0; frame <= 300; frame += 1) {
+      const at = 2.64 + frame / 60
+      controller.sample(at, true, false)
+      if (controller.getActiveAction() !== null) return at
+    }
+    return Number.POSITIVE_INFINITY
+  }
+  // Automation coming back wants life at once. Being displaced by something
+  // that owns the body does not: resuming on the same short delay is what let
+  // a beat manufacture idle motion instead of merely yielding to it.
+  const afterToggle = resumed(false)
+  const afterDisplacement = resumed(true)
+  assert.ok(Number.isFinite(afterDisplacement))
+  assert.ok(
+    afterDisplacement > afterToggle + 0.5,
+    `displaced resumed at ${afterDisplacement}, toggle at ${afterToggle}`,
+  )
+  // ...but not so long that the character reads as frozen between beats.
+  assert.ok(afterDisplacement - 2.64 < 2.5)
 })
 
 test('resuming after speech does not snap the head or hands', () => {
@@ -123,7 +156,9 @@ test('resuming after speech does not snap the head or hands', () => {
   controller.sample(2.25, true, true)
   let previous = { ...controller.sample(2.64, true, false) }
   let largestStep = 0
-  for (let frame = 1; frame <= 60; frame += 1) {
+  // Long enough to include the resume itself, or this only measures the
+  // release ramp and says nothing about how the next clip enters.
+  for (let frame = 1; frame <= 150; frame += 1) {
     const current = controller.sample(2.64 + frame / 60, true, false)
     largestStep = Math.max(
       largestStep,
@@ -176,4 +211,35 @@ test('composes expressions and gestures without reopening authored closed eyes',
   assert.ok(Math.abs(target.brow - 0.3) < 1e-12)
   assert.equal(target.armY, 0.3)
   assert.equal(target.armPos, -0.1)
+})
+
+test('the handoff window is set by the residue, not by whoever arrives', () => {
+  const residue = (overrides: Partial<RandomActionFrame>): RandomActionFrame => ({
+    angleX: 0,
+    angleY: 0,
+    angleZ: 0,
+    body: 0,
+    eyeX: 0,
+    eyeY: 0,
+    brow: 0,
+    browAngSym: 0,
+    eyeOpen: 0,
+    irisScale: 0,
+    armY: 0,
+    armPos: 0,
+    ambientScale: 1,
+    ...overrides,
+  })
+  // A `shoulderEase` leaves an armY near 0.42; a `softBlink` leaves almost
+  // nothing. The window used to be 0.28 of the *incoming* clip's duration, so
+  // a short clip following a large one got the least time to shed the most.
+  const heavy = idleHandoffSeconds(residue({ armY: 0.42 }))
+  const faint = idleHandoffSeconds(residue({ angleZ: 0.04 }))
+  assert.ok(heavy > faint)
+  assert.equal(idleHandoffSeconds(residue({})), HANDOFF_MIN)
+  for (const window of [heavy, faint]) {
+    assert.ok(window >= HANDOFF_MIN && window <= HANDOFF_MAX)
+  }
+  // Saturates rather than growing without bound on an out-of-range residue.
+  assert.equal(idleHandoffSeconds(residue({ body: 9 })), HANDOFF_MAX)
 })

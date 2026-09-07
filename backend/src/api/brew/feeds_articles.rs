@@ -33,7 +33,8 @@ use super::comments_rsshub;
 use super::notes;
 use super::helpers::{
     brew_http_err, brew_store_http, build_feed_discovery_candidates, generate_opml,
-    get_admin_user_id_from_headers, get_user_and_admin_status, parse_opml,
+    get_admin_user_id_from_headers, get_user_and_admin_status, overlay_requested_feed_type,
+    parse_feed_type_label, parse_opml,
 };
 use super::reading_sync_ws;
 
@@ -387,6 +388,12 @@ pub struct AddSourceRequest {
     extra_config: Option<serde_json::Value>,
     /// 仅管理员可见
     admin_only: Option<bool>,
+    /// 导入包可带自定义图标 / 描述 / 站点链接，优先于抓取结果
+    icon: Option<String>,
+    description: Option<String>,
+    site_url: Option<String>,
+    enabled: Option<bool>,
+    sort_order: Option<i32>,
 }
 
 pub(crate) async fn add_source(
@@ -570,6 +577,22 @@ pub(crate) async fn add_source(
             }
         };
 
+    let overlay_text = |value: Option<String>| {
+        value.and_then(|raw| {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    };
+    let description = overlay_text(req.description.clone()).or(description);
+    let icon = overlay_text(req.icon.clone()).or(icon);
+    let site_url = overlay_text(req.site_url.clone()).or(site_url);
+    let feed_type =
+        overlay_requested_feed_type(feed_type, req.feed_type.as_deref(), source_type.clone());
+
     let now = Utc::now();
 
     // 对于 RSSHub 类型，提取路由路径
@@ -598,13 +621,14 @@ pub(crate) async fn add_source(
         } else {
             req.update_interval.unwrap_or(30)
         }),
-        enabled: Set(true),
+        enabled: Set(req.enabled.unwrap_or(true)),
         error_count: Set(0),
         item_count: Set(0),
         unread_count: Set(0),
         extra_config: Set(extra_config),
         rsshub_route: Set(rsshub_route),
         admin_only: Set(req.admin_only.unwrap_or(false)),
+        sort_order: Set(req.sort_order),
         created_at: Set(now.into()),
         updated_at: Set(now.into()),
         ..Default::default()
@@ -614,11 +638,9 @@ pub(crate) async fn add_source(
         Ok(source) => {
             // 下载图标到本地
             if let Some(icon_url) = &icon {
-                let icon_service = IconService::new();
-                if let Ok(Some(icon_info)) = icon_service.download_icon(source.id, icon_url).await {
-                    // 更新图标为本地路径
+                if let Some(local_path) = persist_source_icon(source.id, icon_url).await {
                     let mut active: brew_sources::ActiveModel = source.clone().into();
-                    active.icon = Set(Some(icon_info.local_path));
+                    active.icon = Set(Some(local_path));
                     if let Err(e) = active.update(&db).await {
                         tracing::warn!(
                             "Failed to update icon path for source {}: {}",
@@ -680,6 +702,17 @@ pub(crate) async fn get_source(
     }
 }
 
+async fn persist_source_icon(source_id: i32, icon: &str) -> Option<String> {
+    match IconService::new().download_icon(source_id, icon).await {
+        Ok(Some(info)) => Some(info.local_path),
+        Ok(None) => None,
+        Err(error) => {
+            tracing::warn!(%error, source_id, "Failed to persist source icon");
+            None
+        }
+    }
+}
+
 /// 更新订阅源（需要管理员权限）
 pub(crate) async fn update_source(
     State(db): State<DatabaseConnection>,
@@ -730,8 +763,12 @@ pub(crate) async fn update_source(
                 });
             }
             if let Some(icon) = req.icon {
-                // 支持空字符串清除图标
-                active.icon = Set(if icon.is_empty() { None } else { Some(icon) });
+                // 支持空字符串清除图标；data URI / 外链尽量落盘，避免库里长期存整段 base64
+                active.icon = Set(if icon.is_empty() {
+                    None
+                } else {
+                    Some(persist_source_icon(id, &icon).await.unwrap_or(icon))
+                });
             }
             if let Some(sort_order) = req.sort_order {
                 active.sort_order = Set(Some(sort_order));
@@ -745,13 +782,21 @@ pub(crate) async fn update_source(
                 active.source_type = Set(st);
             }
             if let Some(ref feed_type_str) = req.feed_type {
-                let ft = match feed_type_str.as_str() {
-                    "notion" => brew_sources::FeedType::Notion,
-                    "atom" => brew_sources::FeedType::Atom,
-                    "json" => brew_sources::FeedType::JsonFeed,
-                    _ => brew_sources::FeedType::Rss,
-                };
-                active.feed_type = Set(ft);
+                active.feed_type = Set(parse_feed_type_label(feed_type_str));
+            }
+            if let Some(description) = req.description {
+                active.description = Set(if description.trim().is_empty() {
+                    None
+                } else {
+                    Some(description)
+                });
+            }
+            if let Some(site_url) = req.site_url {
+                active.site_url = Set(if site_url.trim().is_empty() {
+                    None
+                } else {
+                    Some(site_url)
+                });
             }
             if let Some(ref extra_config) = req.extra_config {
                 active.extra_config = Set(Some(extra_config.clone()));
@@ -1010,6 +1055,7 @@ pub(crate) async fn import_opml(
             url: Set(feed.url),
             feed_type: Set(brew_sources::FeedType::Rss),
             category: Set(feed.category),
+            site_url: Set(feed.site_url),
             enabled: Set(true),
             error_count: Set(0),
             item_count: Set(0),

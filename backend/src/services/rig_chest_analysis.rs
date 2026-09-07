@@ -4,6 +4,7 @@
 //! once during import preview. The result is persisted in playback JSON;
 //! rendering never calls AI.
 
+use myriad_agent_rules::extract_json_object_from_ai_response;
 use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -540,9 +541,7 @@ fn parse_json_object(raw: &str) -> Option<Value> {
     if let Ok(value @ Value::Object(_)) = serde_json::from_str::<Value>(trimmed) {
         return Some(value);
     }
-    let start = trimmed.find('{')?;
-    let end = trimmed.rfind('}')?;
-    serde_json::from_str(&trimmed[start..=end]).ok()
+    serde_json::from_str(&extract_json_object_from_ai_response(trimmed)?).ok()
 }
 
 #[cfg(test)]

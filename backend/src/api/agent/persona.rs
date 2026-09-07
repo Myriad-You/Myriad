@@ -1,7 +1,10 @@
 //! Site persona — one personality, owner-writable.
 
 use super::*;
-use axum::{extract::State, Extension, Json};
+use axum::{
+    extract::{Path, State},
+    Extension, Json,
+};
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -83,8 +86,6 @@ pub struct ImportPersonaRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SuggestNameRequest {
-    #[serde(default)]
-    pub selected_tags: Vec<String>,
     #[serde(default)]
     pub gender: String,
     #[serde(default)]
@@ -220,22 +221,23 @@ pub async fn get_persona(
         .await
         .map_err(|error| persona_store_http("load persona", error))?;
 
-    let (mood, arousal, activity, do_not_disturb, dnd_start, dnd_end, dnd_active) =
+    let (mood, arousal, mood_revision, activity, do_not_disturb, dnd_start, dnd_end, dnd_active) =
         if merope::is_logged_in_addressee(user_id) {
             match merope::get_or_create_state(&db, user_id).await {
                 Ok(state) => (
                     state.mood,
                     state.arousal,
+                    state.mood_settled_at.timestamp_millis(),
                     merope::current_activity(&state).to_string(),
                     state.do_not_disturb,
                     state.dnd_start_minute.and_then(merope::format_clock_minute),
                     state.dnd_end_minute.and_then(merope::format_clock_minute),
                     merope::effective_do_not_disturb(&state),
                 ),
-                Err(_) => (70.0, 48.0, "idle".to_string(), false, None, None, false),
+                Err(_) => (70.0, 48.0, 0, "idle".to_string(), false, None, None, false),
             }
         } else {
-            (70.0, 48.0, "idle".to_string(), false, None, None, false)
+            (70.0, 48.0, 0, "idle".to_string(), false, None, None, false)
         };
 
     let report_count = report_platform_count(&db, user_id).await.unwrap_or(0);
@@ -244,9 +246,11 @@ pub async fn get_persona(
         let mut body = json!({
             "name": "Arael",
             "portraitAssetId": null,
+            "avatarAssetId": null,
             "hasCustomPersona": false,
             "mood": mood,
             "arousal": arousal,
+            "moodRevision": mood_revision,
             "activity": activity,
             "doNotDisturb": do_not_disturb,
             "doNotDisturbActive": dnd_active,
@@ -269,9 +273,13 @@ pub async fn get_persona(
     let mut body = json!({
         "name": display_name,
         "portraitAssetId": persona.portrait_asset_id,
+        // 贴纸头像是站点对外那张脸，和主立绘同一层可见性：能开 Agent 面板的人
+        // 都读得到，因为通知图标和头像来源都要用它。
+        "avatarAssetId": persona.avatar_asset_id,
         "hasCustomPersona": merope::has_custom_persona(&persona),
         "mood": mood,
         "arousal": arousal,
+        "moodRevision": mood_revision,
         "activity": activity,
         "doNotDisturb": do_not_disturb,
         "doNotDisturbActive": dnd_active,
@@ -289,6 +297,22 @@ pub async fn get_persona(
     Ok(Json(body))
 }
 
+/// GET /api/agent/wardrobe/{outfit_id}/face
+///
+/// Chat overlay playback. Any Agent user may read a saved set's public face.
+/// This does not change the worn outfit.
+pub async fn get_wardrobe_face(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(outfit_id): Path<String>,
+) -> Result<Json<Value>, HttpError> {
+    require_merope_enabled().await?;
+    let _user_id = parse_user_id_with_agent_access(&claims, &db).await?;
+    crate::api::merope_rig::wardrobe_outfit_face(&db, &outfit_id)
+        .await
+        .map_err(HttpError::from)
+}
+
 /// PUT /api/agent/persona
 pub async fn put_persona(
     State(db): State<DatabaseConnection>,
@@ -304,9 +328,6 @@ pub async fn put_persona(
     let previous = merope::get_persona_on(&transaction)
         .await
         .map_err(|error| persona_store_http("load persona", error))?;
-    let previous_portrait = previous
-        .as_ref()
-        .and_then(|persona| persona.portrait_asset_id.clone());
     let portrait = match body.portrait_asset_id {
         None => merope::PortraitUpdate::Keep,
         Some(None) => merope::PortraitUpdate::Clear,
@@ -320,7 +341,7 @@ pub async fn put_persona(
                         "error": "Portrait must be a site asset",
                         "code": "portrait_not_site_asset"
                     })),
-                )))
+                )));
             }
         },
     };
@@ -358,15 +379,6 @@ pub async fn put_persona(
         visual_profile,
         ..merope::PersonaContractUpdate::default()
     };
-    let (normalized_name, _) = merope::normalize_persona_fields(&body.name, &body.personality);
-    let generation_changed = previous.as_ref().is_some_and(|prev| {
-        merope::generation_inputs_changed(
-            &prev.name,
-            prev.visual_profile.as_ref(),
-            &normalized_name,
-            &contract.visual_profile,
-        )
-    });
     let saved = merope::upsert_persona_on(
         &transaction,
         body.name,
@@ -377,23 +389,15 @@ pub async fn put_persona(
     )
     .await
     .map_err(|error| persona_store_http("save persona", error))?;
-    let portrait_changed = previous_portrait != saved.portrait_asset_id;
-    let cleared_asset = if generation_changed || portrait_changed {
-        Some(
-            merope_rig::persist_active_asset(&transaction, None)
-                .await
-                .map_err(|error| persona_store_http("update persona portrait", error))?,
-        )
-    } else {
-        None
-    };
+    let live_rig = myriad_merope::active_outfit_rig_asset_id(saved.visual_profile.as_ref());
+    let live_asset = merope_rig::persist_active_asset(&transaction, live_rig.as_deref())
+        .await
+        .map_err(|error| persona_store_http("update persona portrait", error))?;
     transaction
         .commit()
         .await
         .map_err(|error| persona_store_http("commit persona save", error))?;
-    if let Some(asset_id) = cleared_asset {
-        merope_rig::mirror_active_asset(asset_id).await;
-    }
+    merope_rig::mirror_active_asset(live_asset).await;
     Ok(Json(json!({
         "name": saved.name,
         "personality": saved.personality,
@@ -627,7 +631,7 @@ fn distill_error(error: merope::report_dna::DistillReportDnaError) -> HttpError 
 }
 
 /// POST /api/agent/persona/name
-/// Lite (or Standard if Lite is off) rolls one given name in the selected style.
+/// Strict Lite rolls one given name in the selected style. Tags stay out.
 pub async fn suggest_name(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
@@ -637,10 +641,7 @@ pub async fn suggest_name(
     let user_id = require_site_owner(&claims, &db).await?;
     require_persona_reports(&db, user_id).await?;
     let language = normalize_signals_language(&body.language);
-    let tags =
-        merope::report_dna::sanitize_onboarding_tags_for_language(&body.selected_tags, language);
     match merope::onboarding_ai::suggest_display_name(
-        &tags,
         &body.gender,
         body.avoid_name.as_deref(),
         language,
@@ -688,7 +689,7 @@ pub async fn draft_persona(
                 "persona",
                 "Failed to draft a persona",
                 error,
-            ))
+            ));
         }
     };
     Ok(Json(json!({
@@ -732,7 +733,7 @@ pub async fn import_persona(
                 "persona",
                 "Failed to import a persona",
                 error,
-            ))
+            ));
         }
     };
     Ok(Json(json!({
@@ -799,7 +800,11 @@ pub async fn suggest_visual_design(
         ))
     })?;
     let requirements = myriad_merope::normalize_visual_requirements_for_design_with_gender(
-        &sanitize_visual_text(&body.visual_requirements, 500)?,
+        &sanitize_visual_text(
+            &body.visual_requirements,
+            myriad_merope::MAX_VISUAL_NOTES_CHARS,
+            "visualRequirements",
+        )?,
         gender,
     );
     let clothing_style =
@@ -825,8 +830,8 @@ pub async fn suggest_visual_design(
                     ))
                 })?;
             Some(
-                myriad_merope::normalize_visual_identity_for_prompt(&sanitized)
-                    .ok_or_else(visual_profile_error)?,
+                myriad_merope::normalize_visual_identity_for_prompt_checked(&sanitized)
+                    .map_err(|issue| visual_profile_issue(issue.prefixed("visualIdentity")))?,
             )
         }
         None => None,
@@ -861,11 +866,110 @@ pub async fn suggest_visual_design(
                 "visual",
                 "Failed to design upper-body appearance",
                 error,
-            ))
+            ));
         }
     };
     Ok(Json(json!({
         "visualIdentity": identity,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObservePortraitVisualRequest {
+    #[serde(default)]
+    pub gender: String,
+    #[serde(default)]
+    pub language: String,
+}
+
+/// POST /api/agent/persona/visual-from-portrait
+/// Pro reads the stored master portrait into visualIdentity + clothingStyle.
+/// Suggestion is returned for the import finish write; nothing is persisted here.
+pub async fn observe_visual_from_portrait(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Json(body): Json<ObservePortraitVisualRequest>,
+) -> Result<Json<Value>, HttpError> {
+    require_merope_enabled().await?;
+    let _user_id = require_site_owner(&claims, &db).await?;
+    let language = required_visual_language(&body.language).ok_or_else(|| {
+        HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Choose a supported interface language before reading the portrait",
+                "code": "visual_language_required"
+            })),
+        ))
+    })?;
+    let gender = required_visual_gender(&body.gender).ok_or_else(|| {
+        HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Choose a valid gender presentation before reading the portrait",
+                "code": "gender_required"
+            })),
+        ))
+    })?;
+    let persona = merope::get_persona(&db)
+        .await
+        .map_err(|error| persona_store_http("load persona", error))?
+        .ok_or_else(|| {
+            HttpError::from((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "Upload a master portrait before reading visual features",
+                    "code": "portrait_required"
+                })),
+            ))
+        })?;
+    let portrait_url = persona.portrait_asset_id.as_deref().ok_or_else(|| {
+        HttpError::from((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "Upload a master portrait before reading visual features",
+                "code": "portrait_required"
+            })),
+        ))
+    })?;
+    let (bytes, mime) = crate::services::image_cache::ImageCacheService::new()
+        .read_local_public_url(portrait_url)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "imported portrait bytes missing");
+            HttpError::from((
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "Uploaded master portrait is missing from storage",
+                    "code": "portrait_required"
+                })),
+            ))
+        })?;
+    let image =
+        crate::services::image_generation::ImageReference::new(bytes, mime).map_err(|error| {
+            tracing::error!(%error, "imported portrait is not a usable image");
+            HttpError::from((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "Uploaded master portrait is not a usable image",
+                    "code": "portrait_required"
+                })),
+            ))
+        })?;
+    let observed =
+        match merope::onboarding_ai::observe_visual_from_portrait(language, gender, &image).await {
+            Ok(value) => value,
+            Err(error) => {
+                return Err(onboarding_generation_error(
+                    "visual",
+                    "Failed to read visual features from the portrait",
+                    error,
+                ));
+            }
+        };
+    Ok(Json(json!({
+        "visualIdentity": observed.visual_identity,
+        "clothingStyle": observed.clothing_style,
     })))
 }
 
@@ -892,12 +996,12 @@ fn onboarding_generation_error(
             StatusCode::SERVICE_UNAVAILABLE,
             Json(onboarding_error_body(
                 if kind == "name" {
-                    "Standard model is unavailable"
+                    "Lite model is unavailable"
                 } else {
                     "Pro model is unavailable"
                 },
                 if kind == "name" {
-                    "standard_unavailable"
+                    "lite_unavailable"
                 } else {
                     "pro_unavailable"
                 },
@@ -1022,24 +1126,20 @@ fn required_visual_language(value: &str) -> Option<&'static str> {
 
 fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
     let source = value.as_object().ok_or_else(|| {
-        HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": "Visual profile must be an object",
-                "code": "visual_profile_invalid"
-            })),
+        visual_profile_issue(myriad_merope::VisualProfileIssue::new(
+            "visualProfile",
+            myriad_merope::VisualProfileReason::NotObject,
         ))
     })?;
     let mut profile = Map::new();
     if let Some(gender) = source.get("gender").and_then(Value::as_str) {
         if !matches!(gender, "female" | "male" | "nonbinary" | "unspecified") {
-            return Err(HttpError::from((
-                StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "error": "Visual profile gender is invalid",
-                    "code": "visual_profile_invalid"
-                })),
-            )));
+            return Err(visual_profile_issue(
+                myriad_merope::VisualProfileIssue::new(
+                    "gender",
+                    myriad_merope::VisualProfileReason::Invalid,
+                ),
+            ));
         }
         profile.insert("gender".into(), json!(gender));
     }
@@ -1051,12 +1151,9 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
     } else if let Some(clothing_style) = source.get("clothingStyle").and_then(Value::as_str) {
         let clothing_style =
             myriad_merope::normalize_clothing_style(clothing_style).ok_or_else(|| {
-                HttpError::from((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "error": "Visual profile clothing style is invalid",
-                        "code": "visual_profile_invalid"
-                    })),
+                visual_profile_issue(myriad_merope::VisualProfileIssue::new(
+                    "clothingStyle",
+                    myriad_merope::VisualProfileReason::UnknownStyle,
                 ))
             })?;
         profile.insert("clothingStyle".into(), json!(clothing_style));
@@ -1068,11 +1165,14 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
         );
     }
     for (key, max_chars) in [
-        ("extraRequirements", 500),
-        ("personaExtraRequirements", 500),
+        ("extraRequirements", myriad_merope::MAX_VISUAL_NOTES_CHARS),
+        (
+            "personaExtraRequirements",
+            myriad_merope::MAX_VISUAL_NOTES_CHARS,
+        ),
     ] {
         if let Some(text) = source.get(key).and_then(Value::as_str) {
-            let text = sanitize_visual_text(text, max_chars)?;
+            let text = sanitize_visual_text(text, max_chars, key)?;
             profile.insert(key.into(), json!(text));
         }
     }
@@ -1085,13 +1185,71 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
         let tags = merope::report_dna::sanitize_onboarding_tags(&tags);
         profile.insert("sourceTags".into(), json!(tags));
     }
+    if let Some(wardrobe) = source.get("wardrobe") {
+        if wardrobe.is_null() {
+            profile.insert("wardrobe".into(), json!([]));
+        } else {
+            let items = myriad_merope::sanitize_wardrobe_checked(wardrobe)
+                .map_err(|issue| visual_profile_issue(issue.prefixed("wardrobe")))?;
+            profile.insert("wardrobe".into(), json!(items));
+        }
+    }
+    if let Some(active) = source.get("activeOutfitId") {
+        if active.is_null() {
+            profile.insert("activeOutfitId".into(), Value::Null);
+        } else {
+            let id = match active.as_str().map(str::trim) {
+                None => {
+                    return Err(visual_profile_issue(
+                        myriad_merope::VisualProfileIssue::new(
+                            "activeOutfitId",
+                            myriad_merope::VisualProfileReason::Invalid,
+                        ),
+                    ));
+                }
+                Some("") => {
+                    return Err(visual_profile_issue(
+                        myriad_merope::VisualProfileIssue::new(
+                            "activeOutfitId",
+                            myriad_merope::VisualProfileReason::Empty,
+                        ),
+                    ));
+                }
+                Some(id) if id.chars().count() > myriad_merope::MAX_WARDROBE_ID_CHARS => {
+                    return Err(visual_profile_issue(
+                        myriad_merope::VisualProfileIssue::new(
+                            "activeOutfitId",
+                            myriad_merope::VisualProfileReason::TooLong {
+                                max_chars: myriad_merope::MAX_WARDROBE_ID_CHARS,
+                            },
+                        ),
+                    ));
+                }
+                Some(id) if id.chars().any(char::is_control) => {
+                    return Err(visual_profile_issue(
+                        myriad_merope::VisualProfileIssue::new(
+                            "activeOutfitId",
+                            myriad_merope::VisualProfileReason::ControlChar,
+                        ),
+                    ));
+                }
+                Some(id) => id,
+            };
+            profile.insert("activeOutfitId".into(), json!(id));
+        }
+    }
     if let Some(identity) = source.get("visualIdentity") {
         if identity.is_null() {
             profile.insert("visualIdentity".into(), Value::Null);
+            profile.entry("wardrobe".to_string()).or_insert(json!([]));
+            profile
+                .entry("activeOutfitId".to_string())
+                .or_insert(Value::Null);
+            drop_stale_active_outfit(&mut profile);
             return Ok(Value::Object(profile));
         }
-        let mut sanitized = myriad_merope::sanitize_upper_body_visual_identity(identity)
-            .ok_or_else(visual_profile_error)?;
+        let mut sanitized = myriad_merope::sanitize_upper_body_visual_identity_checked(identity)
+            .map_err(|issue| visual_profile_issue(issue.prefixed("visualIdentity")))?;
         if let Some(style) = profile
             .get("clothingStyle")
             .and_then(Value::as_str)
@@ -1101,16 +1259,54 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
             profile.insert("clothingStyle".into(), json!(style));
             myriad_merope::stamp_clothing_style(&mut sanitized, style);
         }
-        let sanitized = myriad_merope::normalize_visual_identity_for_prompt(&sanitized)
-            .ok_or_else(visual_profile_error)?;
+        let mut sanitized = myriad_merope::normalize_visual_identity_for_prompt_checked(&sanitized)
+            .map_err(|issue| visual_profile_issue(issue.prefixed("visualIdentity")))?;
+        if let Some(gender) = profile.get("gender").and_then(Value::as_str) {
+            let language = profile
+                .get("language")
+                .and_then(Value::as_str)
+                .unwrap_or("zh-CN");
+            if let Some(fixed) =
+                myriad_merope::ensure_visual_identity_states_gender(&sanitized, gender, language)
+            {
+                sanitized = fixed;
+            }
+        }
         profile.insert("visualIdentity".into(), sanitized);
     }
+    drop_stale_active_outfit(&mut profile);
     Ok(Value::Object(profile))
+}
+
+fn drop_stale_active_outfit(profile: &mut Map<String, Value>) {
+    let Some(id) = profile.get("activeOutfitId").and_then(Value::as_str) else {
+        return;
+    };
+    let known = profile
+        .get("wardrobe")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.get("id").and_then(Value::as_str) == Some(id))
+        });
+    if !known {
+        profile.insert("activeOutfitId".into(), Value::Null);
+    }
+}
+
+fn finish_wardrobe(mut profile: Value, previous: Option<&Map<String, Value>>) -> Value {
+    myriad_merope::ensure_default_wardrobe(&mut profile, previous);
+    myriad_merope::reconcile_wardrobe_rigs(&mut profile, previous);
+    if let Some(map) = profile.as_object_mut() {
+        drop_stale_active_outfit(map);
+    }
+    profile
 }
 
 fn merge_visual_profile(incoming: Value, previous: Option<&Value>) -> Value {
     let Some(previous) = previous.and_then(Value::as_object) else {
-        return incoming;
+        return finish_wardrobe(incoming, None);
     };
     let Some(target) = incoming.as_object() else {
         return incoming;
@@ -1119,13 +1315,19 @@ fn merge_visual_profile(incoming: Value, previous: Option<&Value>) -> Value {
     let identity_context_changed = ["gender", "clothingStyle"]
         .iter()
         .any(|key| merged.get(*key).is_some() && merged.get(*key) != previous.get(*key));
+    let identity_cleared = merged.get("visualIdentity").is_some_and(Value::is_null);
     for key in [
         "visualIdentity",
         "sourceTags",
         "personaExtraRequirements",
         "clothingStyle",
+        "wardrobe",
+        "activeOutfitId",
     ] {
         if key == "visualIdentity" && identity_context_changed {
+            continue;
+        }
+        if (key == "wardrobe" || key == "activeOutfitId") && identity_cleared {
             continue;
         }
         if merged.get(key).is_none() {
@@ -1134,23 +1336,42 @@ fn merge_visual_profile(incoming: Value, previous: Option<&Value>) -> Value {
             }
         }
     }
-    Value::Object(merged)
+    finish_wardrobe(Value::Object(merged), Some(previous))
 }
 
-fn sanitize_visual_text(value: &str, max_chars: usize) -> Result<String, HttpError> {
+fn sanitize_visual_text(value: &str, max_chars: usize, field: &str) -> Result<String, HttpError> {
     let value = value.trim();
-    if value.chars().count() > max_chars || value.chars().any(char::is_control) {
-        return Err(visual_profile_error());
+    if value.chars().count() > max_chars {
+        return Err(visual_profile_issue(
+            myriad_merope::VisualProfileIssue::new(
+                field,
+                myriad_merope::VisualProfileReason::TooLong { max_chars },
+            ),
+        ));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(visual_profile_issue(
+            myriad_merope::VisualProfileIssue::new(
+                field,
+                myriad_merope::VisualProfileReason::ControlChar,
+            ),
+        ));
     }
     Ok(value.to_string())
 }
 
-fn visual_profile_error() -> HttpError {
+fn visual_profile_issue(issue: myriad_merope::VisualProfileIssue) -> HttpError {
+    tracing::warn!(
+        field = %issue.field,
+        reason = issue.reason.as_str(),
+        "visual profile rejected"
+    );
     HttpError::from((
         StatusCode::BAD_REQUEST,
         Json(json!({
             "error": "Visual profile is invalid",
-            "code": "visual_profile_invalid"
+            "code": "visual_profile_invalid",
+            "message": issue.message(),
         })),
     ))
 }
@@ -1172,7 +1393,9 @@ mod tests {
             "clothingStyle": "uniform",
             "visualIdentity": {"character": {"faceDesign": "生成出来的脸"}},
             "sourceTags": ["生成链选的词条"],
-            "personaExtraRequirements": "生成链填的补充"
+            "personaExtraRequirements": "生成链填的补充",
+            "wardrobe": [{ "id": "w-old", "clothingStyle": "uniform" }],
+            "activeOutfitId": "w-old"
         });
         // 导入页真正发出去的载荷，键名与 OnboardingWizard 的提交一致。
         let incoming = json!({
@@ -1192,8 +1415,137 @@ mod tests {
         assert_eq!(merged["clothingStyle"], Value::Null);
         assert_eq!(merged["sourceTags"], json!([]));
         assert_eq!(merged["personaExtraRequirements"], json!(""));
+        assert_eq!(merged["wardrobe"], json!([]));
+        assert_eq!(merged["activeOutfitId"], Value::Null);
         // 身份留着：性别是导入页自己填的，不是继承来的。
         assert_eq!(merged["gender"], json!("female"));
+    }
+
+    fn test_outfit() -> Value {
+        json!({
+            "upperBodySilhouette": "窄肩与清晰领口，胸像轮廓紧凑，左右袖片伸入画面",
+            "outfitConstruction": "水手领内搭叠短外套，领巾形成胸前主形，结构止于高腰",
+            "sleeveArmDesign": "宽松袖口包住局部前臂，左右形状不完全对称，手可以不出现",
+            "materialPlan": "哑光布料为主，丝带带柔和光泽，金属与宝石只用于小面积焦点",
+            "heroAccessory": "左侧星形发夹与胸前星形扣形成一次呼应",
+            "paletteHint": "粉色头发，淡紫与白为主体，深紫压边，少量金色点缀",
+            "motif": "星轨与小型鸟笼，集中在发饰和胸前，不铺满服装"
+        })
+    }
+
+    #[test]
+    fn wardrobe_is_kept_on_partial_visual_saves_and_cleared_with_identity() {
+        let item = json!({
+            "id": "w-urban",
+            "clothingStyle": "urban",
+            "outfit": test_outfit()
+        });
+        let previous = json!({
+            "gender": "female",
+            "clothingStyle": "urban",
+            "wardrobe": [item],
+            "activeOutfitId": "w-urban"
+        });
+        let kept = merge_visual_profile(
+            sanitize_visual_profile(&json!({ "gender": "female" })).unwrap(),
+            Some(&previous),
+        );
+        assert_eq!(kept["wardrobe"][0]["id"], "w-urban");
+        assert_eq!(kept["activeOutfitId"], "w-urban");
+
+        let cleared = merge_visual_profile(
+            sanitize_visual_profile(&json!({
+                "gender": "female",
+                "visualIdentity": null
+            }))
+            .unwrap(),
+            Some(&previous),
+        );
+        assert_eq!(cleared["wardrobe"], json!([]));
+        assert_eq!(cleared["activeOutfitId"], Value::Null);
+    }
+
+    #[test]
+    fn empty_wardrobe_with_identity_becomes_the_default_outfit() {
+        let identity = json!({
+            "character": {
+                "faceDesign": "成熟的鹅蛋脸与自然眉形",
+                "eyeDesign": "金色多层虹膜与克制高光",
+                "hairShape": "银灰齐颌短发与偏分刘海",
+                "hairLayerPlan": "后发、刘海和左右侧发形成独立轮廓"
+            },
+            "outfit": test_outfit()
+        });
+        let profile = merge_visual_profile(
+            sanitize_visual_profile(&json!({
+                "gender": "female",
+                "clothingStyle": "urban",
+                "visualIdentity": identity,
+                "wardrobe": []
+            }))
+            .expect("identity can seed the default outfit"),
+            None,
+        );
+        assert_eq!(
+            profile["wardrobe"][0]["id"],
+            myriad_merope::DEFAULT_WARDROBE_ID
+        );
+        assert_eq!(
+            profile["activeOutfitId"],
+            myriad_merope::DEFAULT_WARDROBE_ID
+        );
+        assert!(profile["wardrobe"][0].get("name").is_none());
+
+        let restored = merge_visual_profile(
+            sanitize_visual_profile(&json!({
+                "gender": "female",
+                "clothingStyle": "idol",
+                "visualIdentity": {
+                    "character": identity["character"],
+                    "outfit": test_outfit()
+                },
+                "wardrobe": [{
+                    "id": "w-new",
+                    "clothingStyle": "idol",
+                    "outfit": test_outfit()
+                }],
+                "activeOutfitId": "w-new"
+            }))
+            .expect("other outfits stay valid"),
+            Some(&profile),
+        );
+        assert_eq!(
+            restored["wardrobe"][0]["id"],
+            myriad_merope::DEFAULT_WARDROBE_ID
+        );
+        assert_eq!(restored["wardrobe"][1]["id"], "w-new");
+        assert_eq!(restored["activeOutfitId"], "w-new");
+
+        let mut later_outfit = test_outfit();
+        later_outfit["outfitConstruction"] =
+            json!("敞开领口内搭叠短风衣，胸前只有一条结构线，止于高腰");
+        let replaced = merge_visual_profile(
+            sanitize_visual_profile(&json!({
+                "gender": "female",
+                "clothingStyle": "idol",
+                "visualIdentity": {
+                    "character": identity["character"],
+                    "outfit": later_outfit
+                },
+                "wardrobe": []
+            }))
+            .expect("empty wardrobe is valid before merge"),
+            Some(&profile),
+        );
+        assert_eq!(
+            replaced["wardrobe"][0]["id"],
+            myriad_merope::DEFAULT_WARDROBE_ID
+        );
+        assert_eq!(replaced["wardrobe"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            replaced["wardrobe"][0]["outfit"]["outfitConstruction"],
+            profile["wardrobe"][0]["outfit"]["outfitConstruction"]
+        );
     }
 
     /// 显式 `null` 才是清除。少了这一条，前端根本没有办法清掉这个字段。
@@ -1211,10 +1563,87 @@ mod tests {
         assert!(sanitize_visual_profile(&json!({ "clothingStyle": "not-a-style" })).is_err());
     }
 
+    fn visual_profile_error_body(value: &Value) -> Value {
+        sanitize_visual_profile(value)
+            .expect_err("invalid visual profile")
+            .0
+            .to_json()
+    }
+
+    #[test]
+    fn visual_profile_error_names_the_failing_field() {
+        let clothing = visual_profile_error_body(&json!({ "clothingStyle": "not-a-style" }));
+        assert_eq!(clothing["code"], "visual_profile_invalid");
+        assert_eq!(clothing["error"], "Visual profile is invalid");
+        assert_eq!(
+            clothing["message"],
+            "clothingStyle is not a known clothing style"
+        );
+
+        let gender = visual_profile_error_body(&json!({ "gender": "unknown" }));
+        assert_eq!(gender["message"], "gender is invalid");
+
+        let mut identity = json!({
+            "faceDesign": "成熟的鹅蛋脸与自然眉形",
+            "eyeDesign": "金色多层虹膜与克制高光",
+            "hairShape": "银灰齐颌短发与偏分刘海",
+            "hairLayerPlan": "后发、刘海和左右侧发形成独立轮廓",
+            "upperBodySilhouette": "紧凑肩线、清楚领口与胸前焦点",
+            "outfitConstruction": "高领内搭叠短外套并止于高腰",
+            "sleeveArmDesign": "左右袖片携局部前臂进入画面",
+            "materialPlan": "哑光布料、银色金属与小面积宝石",
+            "heroAccessory": "左胸星轨扣饰",
+            "paletteHint": "雾蓝为主、银白为辅、金色点缀",
+            "motif": "单一星轨弧线集中在胸前"
+        });
+        identity
+            .as_object_mut()
+            .expect("identity")
+            .remove("eyeDesign");
+        let missing = visual_profile_error_body(&json!({ "visualIdentity": identity }));
+        assert_eq!(missing["message"], "visualIdentity.eyeDesign is empty");
+
+        let extra = visual_profile_error_body(&json!({
+            "extraRequirements": "a".repeat(myriad_merope::MAX_VISUAL_NOTES_CHARS + 1)
+        }));
+        assert_eq!(
+            extra["message"],
+            format!(
+                "extraRequirements exceeds {} characters",
+                myriad_merope::MAX_VISUAL_NOTES_CHARS
+            )
+        );
+
+        let wardrobe = visual_profile_error_body(&json!({
+            "wardrobe": [{ "id": "w-a" }]
+        }));
+        assert_eq!(wardrobe["message"], "wardrobe.0.clothingStyle is empty");
+    }
+
     use super::*;
 
     #[test]
-    fn put_persona_clears_rig_when_generation_inputs_change() {
+    fn wardrobe_face_is_readable_by_agent_users_and_does_not_wear() {
+        let source = include_str!("persona.rs");
+        let getter = source
+            .split("/// GET /api/agent/wardrobe/{outfit_id}/face")
+            .nth(1)
+            .expect("wardrobe face")
+            .split("/// PUT /api/agent/persona")
+            .next()
+            .expect("getter body");
+        assert!(getter.contains("parse_user_id_with_agent_access"));
+        assert!(getter.contains("wardrobe_outfit_face"));
+        assert!(!getter.contains("require_site_owner"));
+        assert!(!getter.contains("upsert_persona"));
+        assert!(!getter.contains("persist_active_asset"));
+        let routes = include_str!("routes.rs");
+        assert!(routes.contains("/wardrobe/{outfit_id}/face"));
+        assert!(routes.contains("get_wardrobe_face"));
+    }
+
+    #[test]
+    fn put_persona_points_the_live_rig_at_the_worn_outfit() {
         let source = include_str!("persona.rs");
         let put = source
             .split("/// PUT /api/agent/persona")
@@ -1224,12 +1653,8 @@ mod tests {
             .next()
             .expect("PUT body");
         assert!(
-            put.contains("generation_inputs_changed"),
-            "PUT must use the same generation-input check as the persona store"
-        );
-        assert!(
-            put.contains("generation_changed || portrait_changed"),
-            "PUT must clear Rig when name or visual inputs change, not only when portrait id changes"
+            put.contains("active_outfit_rig_asset_id"),
+            "PUT must point the live rig at the worn outfit instead of wiping every saved package"
         );
         assert!(put.contains("persist_active_asset"));
     }
@@ -1359,7 +1784,7 @@ mod tests {
         );
         assert_eq!(
             profile["visualIdentity"]["character"]["faceDesign"],
-            "成熟的鹅蛋脸与自然眉形"
+            "中性。成熟的鹅蛋脸与自然眉形"
         );
         assert!(myriad_merope::upper_body_visual_identity_is_complete(
             &profile["visualIdentity"]
@@ -1472,7 +1897,7 @@ mod tests {
         );
         assert_eq!(
             myriad_merope::character_module(&profile["visualIdentity"]).unwrap()["faceDesign"],
-            "成熟的鹅蛋脸与自然眉形"
+            "女性化。成熟的鹅蛋脸与自然眉形"
         );
     }
 

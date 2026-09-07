@@ -67,6 +67,22 @@ test('generationFailureMessage strips a code prefix from quota-style detail', ()
   )
 })
 
+test('generationFailureMessage keeps visual profile field detail', () => {
+  assert.equal(
+    generationFailureMessage(
+      new ApiError(
+        'visualIdentity.character.faceDesign is empty',
+        400,
+        'visual_profile_invalid',
+      ),
+      '视觉设计保存失败',
+      'timed out',
+      { visual_profile_invalid: '视觉设计保存失败' },
+    ),
+    '视觉设计保存失败 visualIdentity.character.faceDesign is empty',
+  )
+})
+
 test('generationFailureMessage appends hint when it adds information', () => {
   assert.equal(
     generationFailureMessage(

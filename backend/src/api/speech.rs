@@ -56,6 +56,10 @@ pub fn create_speech_routes(app_state: crate::state::AppState) -> Router<crate::
         .route("/convo/start", post(start_convo_session))
         .route("/convo/stop", post(stop_convo_session))
         .route("/convo/interrupt", post(interrupt_convo_session))
+        .route(
+            "/convo/events",
+            get(super::speech_conversation::conversation_events),
+        )
         // 可用音色列表
         .route("/voices", get(get_voice_list))
         // 可用引擎列表
@@ -73,6 +77,13 @@ pub fn create_speech_routes(app_state: crate::state::AppState) -> Router<crate::
             app_state,
             crate::middleware::auth::auth_middleware,
         ))
+        // Cloud callbacks authenticate with a short-lived, server-bound key,
+        // never with browser cookies or a provider credential. No CSRF exemption.
+        .route(
+            "/convo/chat/completions",
+            post(super::speech_conversation::chat_completion)
+                .layer(axum::extract::DefaultBodyLimit::max(64 * 1024)),
+        )
 }
 
 // Standalone TTS DTO + synthesis live in services so agent does not depend on this API module.
@@ -913,6 +924,11 @@ pub async fn get_speech_status() -> impl IntoResponse {
     let convo_enabled = crate::services::agora_convo::convo_configured(&config);
     let persona_speech_enabled = config.merope_speech_enabled_resolved();
     drop(config);
+    let callback_ready = super::speech_conversation::callback_url(
+        &crate::oauth_url_builder::SiteConfig::get_base_url().await,
+    )
+    .is_ok();
+    let convo_enabled = convo_enabled && callback_ready;
     Json(SpeechStatusResponse {
         available: probe.available || convo_enabled,
         tts_enabled: probe.tts_enabled,
@@ -928,6 +944,8 @@ pub async fn get_speech_status() -> impl IntoResponse {
 pub struct ConvoStartRequest {
     #[serde(default)]
     pub language: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -936,48 +954,110 @@ pub struct ConvoAgentRequest {
 }
 
 pub async fn start_convo_session(
+    State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<ConvoStartRequest>,
 ) -> impl IntoResponse {
     let language = request.language.unwrap_or_else(|| "zh-CN".to_string());
-    let language = match language.as_str() {
-        code if code.starts_with("en") => "en-US",
-        _ => "zh-CN",
-    };
+    let language = crate::services::agora_convo::conversation_language(&language);
     let user_id = claims.sub.parse().unwrap_or(0);
-    let prompt = convo_system_prompt(user_id).await;
-    match crate::services::agora_convo::start_session(language, &prompt).await {
-        Ok(session) => (StatusCode::OK, Json(json_ok_session(session))).into_response(),
-        Err(error) => convo_error(error).into_response(),
+    if user_id <= 0
+        || crate::services::agent::ensure_agent_usage_allowed(&db, user_id)
+            .await
+            .is_err()
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"success": false, "error": "Agent is unavailable"})),
+        )
+            .into_response();
     }
-}
-
-pub async fn stop_convo_session(Json(request): Json<ConvoAgentRequest>) -> impl IntoResponse {
-    match crate::services::agora_convo::stop_session(&request.agent_id).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
-        Err(error) => convo_error(error).into_response(),
-    }
-}
-
-pub async fn interrupt_convo_session(Json(request): Json<ConvoAgentRequest>) -> impl IntoResponse {
-    match crate::services::agora_convo::interrupt_session(&request.agent_id).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
-        Err(error) => convo_error(error).into_response(),
-    }
-}
-
-async fn convo_system_prompt(user_id: i32) -> String {
-    let soul = crate::services::agent::merope::resolve_speaking_soul()
+    if crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(None)
         .await
-        .unwrap_or_else(|| {
-            crate::services::agent::merope::speaking_prompts::PERSONA_SPEAKING_CONTRACT.to_string()
-        });
-    let mut parts = vec![
-        soul,
-        "用嘴说出来：一两句就够，不要列表，不要 markdown。".to_string(),
-    ];
-    parts.extend(crate::services::agent::merope::speaking_prompt(user_id).await);
-    parts.join("\n\n")
+        .is_none()
+    {
+        return convo_error(
+            crate::services::agora_convo::AgoraConvoError::NotConfigured(
+                "Lite model is not configured for Chat mode".into(),
+            ),
+        )
+        .into_response();
+    }
+    let url = match super::speech_conversation::callback_url(
+        &crate::oauth_url_builder::SiteConfig::get_base_url().await,
+    ) {
+        Ok(url) => url,
+        Err(message) => {
+            return convo_error(
+                crate::services::agora_convo::AgoraConvoError::NotConfigured(message.into()),
+            )
+            .into_response();
+        }
+    };
+    let session_id = match super::agent::ensure_session(
+        &db,
+        request.session_id.as_deref(),
+        user_id,
+        crate::services::agent::AgentInteractionMode::Chat,
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(_) => return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"success": false, "error": "Could not prepare Chat session"})),
+        )
+            .into_response(),
+    };
+    let (chat, key) = match crate::services::agora_chat::ChatSession::register(
+        claims,
+        session_id.clone(),
+    )
+    .await
+    {
+        Ok(binding) => binding,
+        Err(message) => {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({"success": false, "error": message})),
+            )
+                .into_response();
+        }
+    };
+    let endpoint = crate::services::agora_convo::LlmEndpoint { url, api_key: key };
+    match crate::services::agora_convo::start_session(chat.clone(), language, &endpoint).await {
+        Ok(session) => {
+            let mut body = json_ok_session(session);
+            body["session_id"] = serde_json::json!(session_id);
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(error) => {
+            chat.close().await;
+            convo_error(error).into_response()
+        }
+    }
+}
+
+pub async fn stop_convo_session(
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<ConvoAgentRequest>,
+) -> impl IntoResponse {
+    let user_id = claims.sub.parse().unwrap_or(0);
+    match crate::services::agora_convo::stop_session(user_id, &request.agent_id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
+        Err(error) => convo_error(error).into_response(),
+    }
+}
+
+pub async fn interrupt_convo_session(
+    Extension(claims): Extension<Claims>,
+    Json(request): Json<ConvoAgentRequest>,
+) -> impl IntoResponse {
+    let user_id = claims.sub.parse().unwrap_or(0);
+    match crate::services::agora_convo::interrupt_session(user_id, &request.agent_id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response(),
+        Err(error) => convo_error(error).into_response(),
+    }
 }
 
 fn json_ok_session(session: crate::services::agora_convo::ConvoSession) -> serde_json::Value {
@@ -986,6 +1066,7 @@ fn json_ok_session(session: crate::services::agora_convo::ConvoSession) -> serde
         "app_id": session.app_id,
         "channel": session.channel,
         "uid": session.uid,
+        "agent_uid": session.agent_uid,
         "token": session.token,
         "agent_id": session.agent_id,
     })
@@ -994,6 +1075,10 @@ fn json_ok_session(session: crate::services::agora_convo::ConvoSession) -> serde
 fn convo_error(error: crate::services::agora_convo::AgoraConvoError) -> impl IntoResponse {
     use crate::services::agora_convo::AgoraConvoError;
     let (status, message) = match &error {
+        AgoraConvoError::SessionUnavailable => (
+            StatusCode::NOT_FOUND,
+            "Realtime session is unavailable".to_string(),
+        ),
         AgoraConvoError::NotConfigured(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg.clone()),
         AgoraConvoError::Token(e) => (StatusCode::BAD_REQUEST, e.to_string()),
         AgoraConvoError::Network(msg) => (
@@ -1002,13 +1087,11 @@ fn convo_error(error: crate::services::agora_convo::AgoraConvoError) -> impl Int
         ),
         AgoraConvoError::Api {
             status: http_status,
-            message,
+            ..
         } => {
-            let detail = if message.trim().is_empty() {
-                format!("Speech service request failed (HTTP {http_status})")
-            } else {
-                format!("{message} (HTTP {http_status})")
-            };
+            // Provider errors may echo the LLM callback key or TTS credentials.
+            let detail =
+                format!("Realtime voice provider rejected the request (HTTP {http_status})");
             (StatusCode::BAD_GATEWAY, detail)
         }
     };
@@ -1019,6 +1102,47 @@ fn convo_error(error: crate::services::agora_convo::AgoraConvoError) -> impl Int
             "error": message,
         })),
     )
+}
+
+#[cfg(test)]
+mod realtime_error_tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    #[test]
+    fn realtime_session_response_includes_both_transport_identities() {
+        let response = json_ok_session(crate::services::agora_convo::ConvoSession {
+            app_id: "app".into(),
+            channel: "channel".into(),
+            uid: 42,
+            agent_uid: 43,
+            token: "browser-scoped-token".into(),
+            agent_id: "agent".into(),
+        });
+        assert_eq!(response["uid"], 42);
+        assert_eq!(response["agent_uid"], 43);
+        assert_eq!(response["agent_id"], "agent");
+    }
+
+    #[tokio::test]
+    async fn provider_error_payload_cannot_echo_callback_or_tts_secrets() {
+        let secret = "ephemeral-callback-and-tts-secret";
+        let response = convo_error(crate::services::agora_convo::AgoraConvoError::Api {
+            status: 400,
+            message: secret.to_string(),
+        })
+        .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = String::from_utf8(
+            to_bytes(response.into_body(), 16 * 1024)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(!body.contains(secret));
+        assert!(!body.contains("callback"));
+    }
 }
 
 /// POST /api/speech/test

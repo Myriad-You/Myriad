@@ -42,7 +42,7 @@ html.dark .platform-card-snapshot-username {
   line-height: 1;
   padding: 0.12rem 0.32rem;
   border-radius: 999px;
-  color: color-mix(in srgb, var(--cfg-accent, #8b5cf6) 85%, var(--cfg-text-1));
+  color: var(--cfg-text-1);
   background: color-mix(
     in srgb,
     var(--cfg-accent, #8b5cf6) 12%,
@@ -51,6 +51,10 @@ html.dark .platform-card-snapshot-username {
   border: 1px solid
     color-mix(in srgb, var(--cfg-accent, #8b5cf6) 22%, transparent);
 }
+html.dark .platform-card-snapshot-level {
+  color: #fff;
+}
+
 
 /* 数据行：默认单行；溢出时 .is-marquee 无缝循环滚动 */
 .platform-card-snapshot-metrics {

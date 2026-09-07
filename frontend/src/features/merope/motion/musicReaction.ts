@@ -44,6 +44,19 @@ export const MUSIC_QUALITY: Readonly<Record<MusicMode, BehaviorQuality>> = {
   },
 }
 
+/** Below this the character is listening rather than joining in. */
+const PARTICIPATION_ENERGY = 0.12
+/**
+ * How long the music has to stay under that line before it counts.
+ *
+ * The silence threshold above already refuses to read the gap between two
+ * drum hits as a change of heart. This line needed the same protection and
+ * did not have it: a track whose energy rides on the threshold crosses it
+ * twice a bar, and each crossing rewrote the whole quality vector — a fine
+ * buzz locked to the rhythm, on exactly the songs that sit at that level.
+ */
+const PARTICIPATION_HOLD_MS = 400
+
 /**
  * Sparse music participation decisions for the existing behavior scheduler.
  * Listening is not permanent singing or perpetual motion. Musical stilling:
@@ -52,12 +65,14 @@ export const MUSIC_QUALITY: Readonly<Record<MusicMode, BehaviorQuality>> = {
  */
 export class MusicReactionPlanner {
   private quietSince = Number.NaN
+  private quietParticipationSince = Number.NaN
   private nextChoiceAt = 0
   private humming = false
   private seed = 1
 
   reset(trackId: string): void {
     this.quietSince = Number.NaN
+    this.quietParticipationSince = Number.NaN
     this.nextChoiceAt = 0
     this.humming = false
     this.seed = 2166136261
@@ -84,8 +99,16 @@ export class MusicReactionPlanner {
     ) {
       return 'sing'
 }
-    if (hasLyrics || !signal.audio || signal.audio.energy < 0.12)
+    if (hasLyrics || !signal.audio) return 'listen'
+    const under = signal.audio.energy < PARTICIPATION_ENERGY
+    if (!under) { this.quietParticipationSince = Number.NaN
+}
+    else if (!Number.isFinite(this.quietParticipationSince)) {
+      this.quietParticipationSince = nowMs
+    }
+    if (under && nowMs - this.quietParticipationSince >= PARTICIPATION_HOLD_MS) {
       return 'listen'
+    }
     if (nowMs >= this.nextChoiceAt) {
       this.humming = !this.humming
       this.seed ^= this.seed << 13

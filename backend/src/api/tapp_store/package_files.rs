@@ -814,9 +814,7 @@ pub(crate) async fn write_install_assets(
     manifest: &TappManifest,
     assets: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    use crate::services::tapp_install_resources::{
-        validate_asset_resource_bytes, validate_write_assets_declaration,
-    };
+    use crate::services::tapp_install_resources::validate_write_assets_declaration;
 
     validate_write_assets_declaration(manifest.assets.as_deref(), assets.keys())?;
     let mut total: u64 = 0;
@@ -852,7 +850,7 @@ pub(crate) fn validate_installed_resources(
         agent_schema_not_found, agent_schema_not_regular, asset_not_found, asset_not_regular,
         collect_declared_install_resources, invalid_declared_path, missing_after_install,
         not_regular_file, not_regular_in_sandbox, resource_not_found, validate_agent_schema_bytes,
-        validate_asset_resource_bytes, validate_text_resource_bytes, DeclaredResourceKind,
+        validate_text_resource_bytes, DeclaredResourceKind,
     };
 
     let mut asset_total: u64 = 0;

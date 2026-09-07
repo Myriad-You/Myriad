@@ -437,16 +437,15 @@ pub(crate) async fn load_session_history(
     session_id: &str,
     max_messages: u64,
     for_chat: bool,
-) -> Vec<crate::services::agent::ConversationMessage> {
+) -> Result<Vec<crate::services::agent::ConversationMessage>, sea_orm::DbErr> {
     let messages = agent_messages::Entity::find()
         .filter(agent_messages::Column::SessionId.eq(session_id))
         .order_by_desc(agent_messages::Column::CreatedAt)
         .paginate(db, max_messages)
         .fetch_page(0)
-        .await
-        .unwrap_or_default();
+        .await?;
 
-    messages
+    Ok(messages
         .into_iter()
         .rev()
         .map(|message| {
@@ -458,7 +457,7 @@ pub(crate) async fn load_session_history(
                 for_chat,
             )
         })
-        .collect()
+        .collect())
 }
 
 /// 确保会话存在，如果 session_id 为 None 则自动创建

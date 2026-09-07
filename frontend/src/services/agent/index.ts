@@ -57,6 +57,8 @@ export type {
   // 记忆
   MemoryEntry,
   MeropeStateChangedEvent,
+  MusicControlEvent,
+  OutfitOverlayEvent,
   PageElementTarget,
   PerformanceDirective,
   PerformancePhase,
@@ -93,6 +95,7 @@ export type {
   TaskInfo,
   TaskPreset,
   TaskPresetListResponse,
+  TaskStepHistoryItem,
   // 任务
   TaskStatus,
   ThinkingTokenEvent,

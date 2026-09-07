@@ -12,6 +12,7 @@ import { noteTurnTraceDrop } from './turnTrace'
 export type FaceSpeechVerdict = 'speak' | 'record-without-speech'
 
 export interface FaceSpeechLine {
+  runId?: string
   messageId: string
   text?: string
   source?: 'reply' | 'proactive' | 'interaction' | 'preview'
@@ -213,6 +214,33 @@ export function deliverWorkNotificationFace(
   })
 }
 
+/** On-page opening. Speaks on the visible face unless Chat currently holds the mouth. */
+export function deliverProactiveFace(
+  channel: AgentFaceChannel,
+  gate: FaceSpeechGate,
+  notification: {
+    id: string
+    body?: string
+    performance?: unknown
+    meropeState?: unknown
+  },
+): FaceDelivery {
+  if (notification.meropeState != null) {
+    channel.updateState(notification.meropeState)
+  }
+  const text = notification.body?.trim() ? notification.body : undefined
+  if (gate.chatUtteranceActive) {
+    noteTurnTraceDrop('gated_record')
+    return { surface: 'record', messageId: notification.id, text }
+  }
+  return deliverGatedLine(channel, gate, getAgentPanelMode(), {
+    messageId: notification.id,
+    text: notification.body,
+    source: 'proactive',
+    performance: notification.performance,
+  })
+}
+
 /**
  * Deliver a finished line. Speech goes through AgentFaceChannel; a blocked
  * Work completion is returned as `record` so the caller still keeps the
@@ -238,6 +266,8 @@ export function deliverGatedLine(
   if (liveBody) {
     liveBody.intend({
       messageId: line.messageId,
+      ...(line.runId ? { runId: line.runId } : {}),
+      ...(line.source ? { source: line.source } : {}),
       speechText: text,
       ...(performance ? { performance } : {}),
     })
@@ -250,7 +280,7 @@ export function deliverGatedLine(
     }
     return { surface: 'speech', messageId: line.messageId }
   }
-  if (text && speakUnmountedLine(line.messageId, text)) {
+  if (text && speakUnmountedLine(line.messageId, text, line.source)) {
     if (line.performance) {
       channel.deliver({ ...line, text: undefined })
     }
@@ -265,11 +295,16 @@ export function deliverGatedLine(
  * only app-layer speakLine outside Anime25DBodyAdapter.intend. Do not add
  * another caller; mount a body or stay silent.
  */
-function speakUnmountedLine(messageId: string, text: string): boolean {
+function speakUnmountedLine(
+  messageId: string,
+  text: string,
+  source: FaceSpeechLine['source'] = 'reply',
+): boolean {
   return getSpeechPipeline().speakLine({
     messageId,
     text,
-    generation: liveMotionGeneration(),
+    generation: source === 'reply' ? liveMotionGeneration() : 0,
+    source,
     interrupt: 'queue',
   })
 }

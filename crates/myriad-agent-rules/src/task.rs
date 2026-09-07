@@ -54,7 +54,12 @@ pub const TERMINAL_RETENTION_HOURS: i64 = 24;
 pub const WAITING_INPUT_TIMEOUT_HOURS: i64 = 2;
 
 /// User-visible error when a wait-for-input task times out.
-pub const WAITING_INPUT_TIMEOUT_ERROR: &str = "任务等待用户输入超时（2小时），已自动取消";
+///
+/// 从 [`WAITING_INPUT_TIMEOUT_HOURS`] 生成，而不是把小时数再抄一遍——常量改了
+/// 文案跟着改，不会出现「写着 2 小时、其实 3 小时才过期」。
+pub fn waiting_input_timeout_error() -> String {
+    format!("任务等待用户输入超时（{WAITING_INPUT_TIMEOUT_HOURS}小时），已自动取消")
+}
 
 /// Statuses that interrupt/cancel should target.
 pub fn is_cancellable_task_status(status: &TaskStatus) -> bool {
@@ -214,7 +219,12 @@ mod tests {
         assert!(is_terminal_past_retention(now - Duration::hours(25), now));
         assert!(!is_waiting_input_timed_out(now - Duration::hours(2), now));
         assert!(is_waiting_input_timed_out(now - Duration::hours(3), now));
-        assert!(WAITING_INPUT_TIMEOUT_ERROR.contains("超时"));
+        let message = waiting_input_timeout_error();
+        assert!(message.contains("超时"));
+        assert!(
+            message.contains(&format!("{WAITING_INPUT_TIMEOUT_HOURS}小时")),
+            "文案里的小时数必须跟着常量走"
+        );
     }
 
     #[test]

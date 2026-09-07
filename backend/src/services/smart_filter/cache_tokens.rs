@@ -1,8 +1,8 @@
 // SmartFilter cache load/save and token estimation.
 
+use crate::services::data_paths::platform_filtered_file;
 use serde_json::Value;
 use std::fs;
-use std::path::Path;
 
 use super::helpers::*;
 
@@ -200,7 +200,7 @@ impl SmartFilter {
     pub fn load_platform_cache(
         platform: &str,
     ) -> Result<SmartFilteredData, Box<dyn std::error::Error>> {
-        let cache_file = Path::new("cache/platforms").join(format!("{}_filtered.json", platform));
+        let cache_file = platform_filtered_file(platform);
 
         if !cache_file.exists() {
             return Err(format!("Cache file not found for platform: {}", platform).into());
@@ -215,13 +215,13 @@ impl SmartFilter {
 
     /// 检查平台缓存是否存在
     pub fn has_platform_cache(platform: &str) -> bool {
-        let cache_file = Path::new("cache/platforms").join(format!("{}_filtered.json", platform));
+        let cache_file = platform_filtered_file(platform);
         cache_file.exists()
     }
 
     /// 清除平台缓存
     pub fn clear_platform_cache(platform: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let cache_file = Path::new("cache/platforms").join(format!("{}_filtered.json", platform));
+        let cache_file = platform_filtered_file(platform);
         if cache_file.exists() {
             fs::remove_file(&cache_file)?;
             tracing::info!("Cleared cache for {}", platform);

@@ -133,9 +133,20 @@ pub async fn process(
         20,
         interaction_mode == crate::services::agent::AgentInteractionMode::Chat,
     )
-    .await;
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "[Agent API] Failed to load session history");
+        HttpError::from((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Could not load Agent session" })),
+        ))
+    })?;
     if let Err(error) = persist_user_message(&db, &session_id, &req.input).await {
-        tracing::warn!(%error, "[Agent API] Failed to persist user message");
+        tracing::error!(%error, "[Agent API] Failed to persist user message");
+        return Err(HttpError::from((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Could not save Agent message" })),
+        )));
     }
 
     let mut user_request = UserRequest {
@@ -237,6 +248,7 @@ pub async fn process(
         "dataDisplay": &api_response.data_display,
         "frontendAction": &api_response.frontend_action,
         "data": &api_response.data,
+        "task": &api_response.task,
     });
     if let Err(error) = persist_assistant_message(
         &db,
@@ -261,6 +273,18 @@ pub async fn process_stream(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ProcessRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, HttpError> {
+    let run = start_process_run(db, claims, req).await?;
+    Ok(Sse::new(agent_run_event_stream(run))
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+}
+
+/// Browser and realtime voice enter the same run lifecycle, history, budget,
+/// Chat supersession and director. Only their event transports differ.
+pub(crate) async fn start_process_run(
+    db: DatabaseConnection,
+    claims: Claims,
+    req: ProcessRequest,
+) -> Result<Arc<AgentRun>, HttpError> {
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     validate_input(&req.input)?;
     let interaction_mode = req
@@ -300,14 +324,15 @@ pub async fn process_stream(
             Ok(sid) => sid,
             Err(e) => {
                 tracing::warn!("[Agent API] Failed to ensure session: {}", e);
-                // Accepted autonomous proposals need a durable Work identity;
-                // running one without a session would make crash recovery
-                // impossible. Ordinary requests keep the established
-                // sessionless fallback.
-                if source_intent_id.is_some() {
+                // Chat and accepted autonomous proposals require a durable
+                // identity. Otherwise memory/history can fork silently, and
+                // accepted Work cannot recover after a crash.
+                if source_intent_id.is_some()
+                    || interaction_mode == crate::services::agent::AgentInteractionMode::Chat
+                {
                     return Err(HttpError::from((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "error": "Could not prepare durable Work session" })),
+                        Json(json!({ "error": "Could not prepare durable Agent session" })),
                     )));
                 }
                 // 不阻塞主流程，降级为无会话模式
@@ -325,7 +350,14 @@ pub async fn process_stream(
             20,
             interaction_mode == crate::services::agent::AgentInteractionMode::Chat,
         )
-        .await;
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "[Agent API] Failed to load session history");
+            HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Could not load Agent session" })),
+            ))
+        })?;
         if !history.is_empty() {
             tracing::info!(
                 session_id = %session_id,
@@ -340,7 +372,15 @@ pub async fn process_stream(
 
     if has_session {
         if let Err(e) = persist_user_message(&db, &session_id, &req.input).await {
-            tracing::warn!("[Agent API] Failed to persist user message: {}", e);
+            tracing::error!("[Agent API] Failed to persist user message: {}", e);
+            if interaction_mode == crate::services::agent::AgentInteractionMode::Chat
+                || source_intent_id.is_some()
+            {
+                return Err(HttpError::from((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "Could not save durable Agent message" })),
+                )));
+            }
         }
     }
 
@@ -469,11 +509,14 @@ pub async fn process_stream(
     // Claim before the spawn so the previous Chat run is cancelled even while
     // this request waits for a lane permit. Work never claims this slot.
     let chat_claim = if is_chat {
-        Some(crate::services::agent::turn::claim_chat_turn(user_id, &session_id).await)
+        Some(
+            crate::services::agent::turn::claim_chat_turn(user_id, &session_id, &run_id_for_meta)
+                .await,
+        )
     } else {
         None
     };
-    let (chat_cancel, chat_slot_id) = match chat_claim {
+    let (mut chat_cancel, chat_slot_id) = match chat_claim {
         Some((rx, slot_id)) => (Some(rx), Some(slot_id)),
         None => (None, None),
     };
@@ -495,13 +538,36 @@ pub async fn process_stream(
                     .await;
             }
         }
-        let mut lane_guard = match queue
-            .acquire_timeout(
-                &lane_key,
-                std::time::Duration::from_secs(LaneQueue::DEFAULT_ACQUIRE_TIMEOUT_SECS),
+        let acquire = if let Some(cancelled) = chat_cancel.as_mut() {
+            tokio::select! {
+                biased;
+                _ = cancelled => None,
+                result = queue.acquire_timeout(
+                    &lane_key,
+                    std::time::Duration::from_secs(LaneQueue::DEFAULT_ACQUIRE_TIMEOUT_SECS),
+                ) => Some(result),
+            }
+        } else {
+            Some(
+                queue
+                    .acquire_timeout(
+                        &lane_key,
+                        std::time::Duration::from_secs(LaneQueue::DEFAULT_ACQUIRE_TIMEOUT_SECS),
+                    )
+                    .await,
             )
-            .await
-        {
+        };
+        let Some(acquire) = acquire else {
+            let _ = tx
+                .send(crate::services::agent::turn::superseded_turn_event())
+                .await;
+            if let Some(slot_id) = chat_slot_id {
+                crate::services::agent::turn::finish_chat_turn(user_id, &session_id_clone, slot_id)
+                    .await;
+            }
+            return;
+        };
+        let mut lane_guard = match acquire {
             Ok(guard) => Some(guard),
             Err(e) => {
                 advance_intention_work(
@@ -546,7 +612,7 @@ pub async fn process_stream(
         // New Chat replaces the previous Chat run. Work is never registered here,
         // so a Chat send cannot cancel background Work. Dropping this future
         // does not run on SSE disconnect — only claim_chat_turn fires.
-        let turn_result = if let Some(cancelled) = chat_cancel {
+        let turn_result = if let Some(cancelled) = chat_cancel.take() {
             tokio::select! {
                 biased;
                 result = agent.process_with_progress(user_request, tx.clone()) => result,
@@ -673,6 +739,7 @@ pub async fn process_stream(
                                 "data": &api_response.data,
                                 "runId": run_id_for_meta,
                                 "taskId": if task_id.is_empty() { Value::Null } else { json!(task_id) },
+                                "task": &api_response.task,
                             })
                         };
                         if let Err(e) = persist_assistant_message(
@@ -775,10 +842,7 @@ pub async fn process_stream(
         // tx 在这里被 drop，channel 关闭，SSE 流结束
     });
 
-    // SSE 只是 run hub 的一个订阅者；连接被关闭不会触碰后台 sender 或执行任务。
-    let stream = agent_run_event_stream(run);
-
-    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+    Ok(run)
 }
 
 /// 重新订阅一个已存在的 Agent run。

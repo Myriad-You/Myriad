@@ -49,6 +49,51 @@ test('explicit layer grids contain stable interior topology', () => {
   assert.ok(mesh.indices.every((index) => index < mesh.vertices.length))
 })
 
+test('imports regional accessories and preserves independent depth/side fragments', async () => {
+  const psd = syntheticSeeThroughPsd()
+  psd.children?.push(
+    unknownBlob('neckwear_1_L', 106, 154, 120, 188),
+    unknownBlob('neckwear_2_L', 124, 154, 138, 188),
+    // Deliberately below the face: semantics must beat the upstream centroid.
+    unknownBlob('eyewear', 70, 160, 178, 179),
+    unknownBlob('legwear_1_L', 80, 210, 100, 230),
+    unknownBlob('objects_1', 180, 140, 200, 160),
+  )
+  const prepared = await prepareWithFakeCanvas(psd)
+  const layers = prepared.source.anime25dPlayback!.layers
+  const necklaces = layers.filter((layer) => layer.role === 'neckwear')
+  assert.equal(necklaces.length, 2)
+  assert.equal(new Set(necklaces.map((layer) => layer.name)).size, 2)
+  assert.ok(
+    necklaces.every((layer) => layer.group === 'body' && layer.side === 'L'),
+  )
+  assert.equal(layers.find((layer) => layer.role === 'eyewear')?.group, 'head')
+  assert.ok(layers.some((layer) => layer.role === 'objects'))
+  assert.ok(!layers.some((layer) => layer.name.startsWith('legwear')))
+  assert.ok(!layers.some((layer) => layer.role.startsWith('collar-')))
+})
+
+test('recognizing large props or appendages does not shrink the portrait framing', async () => {
+  const baseline = await prepareWithFakeCanvas(syntheticSeeThroughPsd())
+  for (const name of ['unclassified', 'objects', 'wings', 'tail']) {
+    const psd = syntheticSeeThroughPsd()
+    psd.children?.push(unknownBlob(name, 0, 0, psd.width, psd.height))
+    const prepared = await prepareWithFakeCanvas(psd)
+    assert.deepEqual(
+      prepared.source.anime25dPlayback!.pixelCanvas,
+      baseline.source.anime25dPlayback!.pixelCanvas,
+    )
+    assert.deepEqual(
+      prepared.source.anime25dPlayback!.anchors,
+      baseline.source.anime25dPlayback!.anchors,
+    )
+    assert.ok(
+      prepared.source.anime25dPlayback!.layers.some((l) => l.name === name),
+      'framing exclusion never deletes the drawing',
+    )
+  }
+})
+
 test('see-through PSD builds blink, mouth, strand, chest, and rigid side-arm fragments without limb IK', async () => {
   const psd = syntheticSeeThroughPsd()
   assert.equal(isAnime25DDocument(psd), true)

@@ -10,12 +10,20 @@
 
 import type { FontOption } from '../hooks/useTitleFont'
 import type { WidgetGlowMode, WidgetSurface } from '../hooks/useWidgetTheme'
+import type { StylePanelPosition } from './titleFontSelectorPlacement'
 import { FaCheck, FaPalette } from '@lib/icons'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useI18n } from '../contexts/I18nContext'
 import { useTappThemes } from '../hooks/useTappThemes'
@@ -33,16 +41,30 @@ import {
 } from '../hooks/useWidgetTheme'
 import { usePrimaryColor } from '../utils/colorSubscriber'
 import { useThemeMode } from '../utils/themeSubscriber'
+import {
+  placeStylePanel,
+  STYLE_PANEL_FALLBACK_HEIGHT,
+  STYLE_PANEL_WIDTH,
+} from './titleFontSelectorPlacement'
 
 interface TitleFontSelectorProps {
   csrfToken: string
   className?: string
+  /** 自由布局底栏：直接用轨道按钮样式，不要外包一层再 display:contents。 */
+  buttonClassName?: string
+  /** 自由布局没有 Hero 标题时，不展示字体/字号。 */
+  showHeroOptions?: boolean
 }
 
 type TabType = 'font' | 'size' | 'color' | 'surface' | 'glow' | 'preset'
 
 export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
-  ({ csrfToken, className = '' }) => {
+  ({
+      csrfToken,
+      className = '',
+      buttonClassName,
+      showHeroOptions = true,
+    }) => {
     const { t } = useI18n()
 
     const {
@@ -64,21 +86,37 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
     const { themes: tappThemes } = useTappThemes(isOpen)
 
     // 标签配置 - 使用 i18n；Tapp 预设页仅在存在已注册主题时出现
-    const TABS = useMemo<{ id: TabType; label: string }[]>(
-      () => [
-        { id: 'font', label: t.titleStyle.tabFont },
-        { id: 'size', label: t.titleStyle.tabSize },
+    const TABS = useMemo<{ id: TabType; label: string }[]>(() => {
+      const tabs: { id: TabType; label: string }[] = []
+      if (showHeroOptions) {
+        tabs.push(
+          { id: 'font', label: t.titleStyle.tabFont },
+          { id: 'size', label: t.titleStyle.tabSize },
+        )
+      }
+      tabs.push(
         { id: 'color', label: t.titleStyle.tabColor },
         { id: 'surface', label: t.titleStyle.tabSurface },
         { id: 'glow', label: t.titleStyle.tabGlow },
-        ...(tappThemes.length > 0
-          ? [{ id: 'preset' as const, label: t.titleStyle.tabPreset }]
-          : []),
-      ],
-      [t, tappThemes.length],
+      )
+      if (tappThemes.length > 0) {
+        tabs.push({ id: 'preset', label: t.titleStyle.tabPreset })
+      }
+      return tabs
+    }, [showHeroOptions, t, tappThemes.length])
+    const [activeTab, setActiveTab] = useState<TabType>(() =>
+      showHeroOptions ? 'font' : 'surface',
     )
-    const [activeTab, setActiveTab] = useState<TabType>('font')
-    const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 })
+    useEffect(() => {
+      if (!TABS.some((tab) => tab.id === activeTab)) {
+        setActiveTab(TABS[0]?.id ?? 'surface')
+      }
+    }, [TABS, activeTab])
+    const [panelPosition, setPanelPosition] = useState<StylePanelPosition>({
+      top: 0,
+      left: 0,
+      placement: 'below',
+    })
     const isDark = useThemeMode()
     // 壁纸主色变化时刷新自适应色块预览
     const primaryColor = usePrimaryColor()
@@ -92,16 +130,38 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       return getTitleColorCss('adaptive', isDark)
     }, [isDark, primaryColor])
 
-    // 计算面板位置
-    useEffect(() => {
-      if (isOpen && buttonRef.current) {
-        const rect = buttonRef.current.getBoundingClientRect()
-        setPanelPosition({
-          top: rect.bottom + 8,
-          left: Math.max(8, rect.left), // 确保不会超出左边界
-        })
+    // 贴着触发按钮放：下方不够（底栏）就翻到上方，并夹在视口内
+    useLayoutEffect(() => {
+      if (!isOpen || !buttonRef.current) return
+
+      const update = () => {
+        if (!buttonRef.current) return
+        const button = buttonRef.current.getBoundingClientRect()
+        const panel = panelRef.current
+        setPanelPosition(
+          placeStylePanel(
+            button,
+            panel?.offsetWidth || STYLE_PANEL_WIDTH,
+            panel?.offsetHeight || STYLE_PANEL_FALLBACK_HEIGHT,
+          ),
+        )
       }
-    }, [isOpen])
+
+      update()
+      const frame = window.requestAnimationFrame(update)
+      const panel = panelRef.current
+      const observer =
+        panel && typeof ResizeObserver !== 'undefined'
+          ? new ResizeObserver(update)
+          : null
+      if (panel) observer?.observe(panel)
+      window.addEventListener('resize', update)
+      return () => {
+        window.cancelAnimationFrame(frame)
+        observer?.disconnect()
+        window.removeEventListener('resize', update)
+      }
+    }, [isOpen, activeTab])
 
     // 点击外部关闭
     useEffect(() => {
@@ -126,11 +186,20 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
     // 打开选择器
     const handleOpen = useCallback(async () => {
       const willOpen = !isOpen
+      if (willOpen && buttonRef.current) {
+        setPanelPosition(
+          placeStylePanel(
+            buttonRef.current.getBoundingClientRect(),
+            STYLE_PANEL_WIDTH,
+            panelRef.current?.offsetHeight || STYLE_PANEL_FALLBACK_HEIGHT,
+          ),
+        )
+      }
       setIsOpen(willOpen)
-      if (willOpen) {
+      if (willOpen && showHeroOptions) {
         preloadAllFonts()
       }
-    }, [isOpen, preloadAllFonts])
+    }, [isOpen, preloadAllFonts, showHeroOptions])
 
     // 选择字体
     const handleSelectFont = useCallback(
@@ -496,45 +565,73 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       renderPresetList,
     ])
 
-    return (
-      <div className={className}>
-        {/* 样式选择按钮 */}
-        <button
-          ref={buttonRef}
-          onClick={handleOpen}
-          className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-          style={{ color: 'var(--color-primary)' }}
-          title={t.titleStyle.title}
-        >
-          <FaPalette className="w-3 h-3" />
-          {t.titleStyle.style}
-        </button>
+    const trigger = (
+      <button
+        ref={buttonRef}
+        onClick={handleOpen}
+        className={
+          buttonClassName ||
+          'px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
+        }
+        style={buttonClassName ? undefined : { color: 'var(--color-primary)' }}
+        title={t.titleStyle.title}
+      >
+        <FaPalette className="w-3 h-3" />
+        {t.titleStyle.style}
+      </button>
+    )
 
-        {/* 样式选择面板 - Portal 渲染 */}
-        {createPortal(
-          <AnimatePresence>
-            {isOpen && (
-              <motion.div
-                ref={panelRef}
-                initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                transition={{ duration: 0.15 }}
-                className="fixed w-80 glass rounded-xl shadow-lg overflow-hidden"
-                style={{
-                  zIndex: 99999,
-                  top: panelPosition.top,
-                  left: panelPosition.left,
-                }}
-              >
-                {renderTabs}
-                <div className="p-2">{renderTabContent}</div>
-              </motion.div>
-            )}
-          </AnimatePresence>,
-          document.body,
+    const panel = createPortal(
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            ref={panelRef}
+            data-library-dock-chrome=""
+            initial={{
+              opacity: 0,
+              y: panelPosition.placement === 'above' ? 8 : -8,
+              scale: 0.95,
+            }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{
+              opacity: 0,
+              y: panelPosition.placement === 'above' ? 8 : -8,
+              scale: 0.95,
+            }}
+            transition={{ duration: 0.15 }}
+            className="title-font-selector-panel fixed w-80 glass rounded-xl shadow-lg overflow-hidden"
+            style={{
+              zIndex: 99999,
+              top: panelPosition.top,
+              left: panelPosition.left,
+              transformOrigin:
+                panelPosition.placement === 'above'
+                  ? 'bottom left'
+                  : 'top left',
+            }}
+          >
+            {renderTabs}
+            <div className="p-2">{renderTabContent}</div>
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>,
+      document.body,
+    )
+
+    if (className) {
+      return (
+        <div className={className}>
+          {trigger}
+          {panel}
+        </div>
+      )
+    }
+
+    return (
+      <>
+        {trigger}
+        {panel}
+      </>
     )
   },
 )

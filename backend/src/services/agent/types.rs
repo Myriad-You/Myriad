@@ -122,77 +122,6 @@ pub enum IntentAction {
     Unknown(String),
 }
 
-/// 意图目标类型
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value")]
-#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
-pub enum IntentTarget {
-    /// 平台数据 (bilibili, steam, github 等)
-    Platform(String),
-    /// 报告
-    Report(Option<String>),
-    /// Tapp 应用
-    Tapp(Option<String>),
-    /// Brew 内容
-    Brew(Option<String>),
-    /// 音乐播放器
-    Music(Option<String>),
-    /// 用户资料
-    Profile,
-    /// 通用数据
-    Data(String),
-    /// 事件
-    Event(String),
-    /// 当前页面（根据 current_route 确定）
-    CurrentPage(String),
-    /// 未指定
-    Unspecified,
-}
-
-/// 意图约束条件
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
-pub struct IntentConstraints {
-    /// 时间范围
-    pub time_range: Option<TimeRange>,
-    /// 数量限制
-    pub limit: Option<u32>,
-    /// 筛选条件
-    pub filters: HashMap<String, Value>,
-    /// 排序方式
-    pub sort: Option<SortSpec>,
-    /// 输出格式
-    pub output_format: Option<OutputFormat>,
-}
-
-/// 时间范围
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
-pub struct TimeRange {
-    /// 开始时间
-    pub start: Option<chrono::DateTime<chrono::Utc>>,
-    /// 结束时间
-    pub end: Option<chrono::DateTime<chrono::Utc>>,
-    /// 相对时间描述 (如 "最近一周")
-    pub relative: Option<String>,
-}
-
-/// 排序规格
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
-pub struct SortSpec {
-    pub field: String,
-    pub order: SortOrder,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[allow(dead_code)] // 仅测试调用：intent 模型已建模但执行器尚未接入。
-pub enum SortOrder {
-    Asc,
-    Desc,
-}
-
 /// 输出格式
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -651,7 +580,6 @@ pub struct QuestionOption {
 
 /// 用户回答
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct UserAnswer {
     /// 问题 ID
     pub question_id: String,
@@ -895,7 +823,7 @@ impl Default for Capability {
 }
 
 impl Recipe {
-    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
+    #[cfg(test)]
     pub fn new(name: &str, original_request: &str, execution_type: ExecutionType) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -1254,7 +1182,6 @@ impl ExecutionContext {
 
 impl UserQuestion {
     /// 创建自由文本问题
-    #[allow(dead_code)]
     pub fn free_text(question: &str, context: &str, required: bool) -> Self {
         Self {
             question_id: uuid::Uuid::new_v4().to_string(),
@@ -1272,7 +1199,6 @@ impl UserQuestion {
     }
 
     /// 创建单选问题
-    #[allow(dead_code)]
     pub fn single_choice(
         question: &str,
         context: &str,
@@ -1295,7 +1221,6 @@ impl UserQuestion {
     }
 
     /// 创建确认问题
-    #[allow(dead_code)]
     pub fn confirmation(question: &str, context: &str) -> Self {
         Self {
             question_id: uuid::Uuid::new_v4().to_string(),
@@ -1371,7 +1296,6 @@ mod question_ttl_tests {
 }
 
 impl QuestionOption {
-    #[allow(dead_code)]
     pub fn new(value: &str, label: &str) -> Self {
         Self {
             value: value.to_string(),
@@ -1530,6 +1454,13 @@ pub enum AgentProgressEvent {
         mood: super::merope::MoodTransition,
         activity: String,
     },
+    /// Chat-only temporary wardrobe overlay. `null` returns to the worn set.
+    OutfitOverlay {
+        #[serde(rename = "outfitId")]
+        outfit_id: Option<String>,
+    },
+    /// Chat Lite may nudge the current player. Search and playlists stay in Work.
+    MusicControl { action: String },
     /// 错误
     Error {
         #[serde(rename = "taskId", skip_serializing_if = "Option::is_none")]

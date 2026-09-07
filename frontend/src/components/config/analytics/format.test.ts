@@ -4,8 +4,14 @@
  */
 
 import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
+import { before, describe, it } from 'node:test'
+import { loadLocale } from '../../../i18n/loadLocale.ts'
 import { formatCount, formatDuration, niceAxis, shortDay } from './format.ts'
+
+before(async () => {
+  await loadLocale('zh-CN')
+  await loadLocale('en-US')
+})
 
 describe('formatCount', () => {
   it('returns em dash for non-finite', () => {

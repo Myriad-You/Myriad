@@ -20,15 +20,17 @@ use axum::{
 };
 use myriad_merope::{
     build_character_asset_contract, build_character_visual_edit_prompt,
-    build_character_visual_prompt, character_asset_contract_fingerprint, compile_layered_rig,
-    migrate_rig_manifest, validate_character_asset_source, RigBone, RigCompileSource,
-    RigLayerSource, RigManifest, RigMotionProfile, RigOutfitProfile, RigPart, RigPoint, RigQuality,
-    RigSemanticAnchor, RigSemantics, RigSize, RigSpatialProfile, RigTexture, RigVertex,
-    CHARACTER_ASSET_CONTRACT_VERSION, MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL_VERSION,
-    PORTRAIT_CANVAS_HEIGHT, PORTRAIT_CANVAS_WIDTH, PORTRAIT_GENERATION_HEIGHT,
-    PORTRAIT_GENERATION_WIDTH, RIG_SCHEMA_VERSION,
+    build_character_visual_prompt, build_sticker_avatar_contract, build_sticker_avatar_prompt,
+    character_asset_contract_fingerprint, compile_layered_rig, migrate_rig_manifest,
+    validate_character_asset_source, RigBone, RigCompileSource, RigLayerSource, RigManifest,
+    RigMotionProfile, RigOutfitProfile, RigPart, RigPoint, RigQuality, RigSemanticAnchor,
+    RigSemantics, RigSize, RigSpatialProfile, RigTexture, RigVertex,
+    CHARACTER_ASSET_CONTRACT_VERSION, MEROPE_STICKER_STYLE_REFERENCE_SHA256,
+    MEROPE_STYLE_REFERENCE_SHA256, MEROPE_VISUAL_SCHOOL_VERSION, PORTRAIT_CANVAS_HEIGHT,
+    PORTRAIT_CANVAS_WIDTH, PORTRAIT_GENERATION_HEIGHT, PORTRAIT_GENERATION_WIDTH,
+    RIG_SCHEMA_VERSION, STICKER_AVATAR_CONTRACT_VERSION, STICKER_AVATAR_SIZE,
 };
-use sea_orm::{DatabaseConnection, TransactionTrait};
+use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -50,16 +52,28 @@ const MAX_RIG_IMPORT_ATLAS_BYTES: usize = 20 * 1024 * 1024;
 const MAX_RIG_ANALYSIS_REFERENCE_BYTES: usize = 10 * 1024 * 1024;
 const MEROPE_STYLE_REFERENCE_BYTES: &[u8] =
     include_bytes!("../../assets/merope/style-reference.png");
+/// 项目 logo 那张贴纸。Q 版头像的造型语言就是照它来的。
+const MEROPE_STICKER_STYLE_REFERENCE_BYTES: &[u8] =
+    include_bytes!("../../assets/merope/sticker-style-reference.webp");
 
 fn merope_style_reference(
 ) -> Result<image_generation::ImageReference, image_generation::ImageGenerationError> {
     image_generation::ImageReference::new(MEROPE_STYLE_REFERENCE_BYTES.to_vec(), "image/png")
 }
 
+fn merope_sticker_style_reference(
+) -> Result<image_generation::ImageReference, image_generation::ImageGenerationError> {
+    image_generation::ImageReference::new(
+        MEROPE_STICKER_STYLE_REFERENCE_BYTES.to_vec(),
+        "image/webp",
+    )
+}
+
 pub fn create_routes(app_state: AppState) -> Router<AppState> {
     let owner = Router::new()
         .route("/", get(get_site_rig))
         .route("/portrait", post(generate_portrait))
+        .route("/avatar", post(generate_sticker_avatar))
         .route(
             "/portrait/upload",
             post(upload_portrait).layer(DefaultBodyLimit::max(12 * 1024 * 1024)),
@@ -287,12 +301,17 @@ async fn current_master(db: &DatabaseConnection) -> ApiResult<Option<MasterProve
     };
     Ok(Some(MasterProvenance {
         asset_id,
-        generation_fingerprint: portrait_generation_fingerprint(
-            persona.name.trim(),
-            persona.visual_profile.as_ref().unwrap_or(&Value::Null),
-            persona.portrait_generation.as_ref(),
+        generation_fingerprint: myriad_merope::active_outfit_generation_fingerprint(
+            persona.visual_profile.as_ref(),
         )
-        .unwrap_or(None),
+        .or_else(|| {
+            portrait_generation_fingerprint(
+                persona.name.trim(),
+                persona.visual_profile.as_ref().unwrap_or(&Value::Null),
+                persona.portrait_generation.as_ref(),
+            )
+            .unwrap_or(None)
+        }),
         gender,
     }))
 }
@@ -374,10 +393,72 @@ async fn package_identity_matches(asset_id: &str, manifest: &RigManifest) -> Api
     Ok(matches)
 }
 
-async fn activate_asset(db: &DatabaseConnection, asset_id: &str) -> ApiResult<()> {
-    merope_rig::set_active_asset(db, Some(asset_id))
+async fn bind_and_activate_outfit_rig(
+    db: &DatabaseConnection,
+    user_id: i32,
+    asset_id: &str,
+) -> ApiResult<()> {
+    let transaction = db.begin().await.map_err(internal_error)?;
+    let persona = merope::get_persona_on(&transaction)
         .await
-        .map_err(internal_error)
+        .map_err(internal_error)?;
+    if let Some(row) = persona {
+        let mut profile = row.visual_profile.clone().unwrap_or_else(|| json!({}));
+        myriad_merope::bind_active_outfit_rig(&mut profile, asset_id);
+        if let Err(error) = merope::upsert_persona_on(
+            &transaction,
+            row.name,
+            row.personality,
+            merope::PortraitUpdate::Keep,
+            merope::PersonaContractUpdate {
+                visual_profile: merope::JsonDocumentUpdate::Set(profile),
+                ..Default::default()
+            },
+            user_id,
+        )
+        .await
+        {
+            let _ = transaction.rollback().await;
+            return Err(internal_error(error));
+        }
+    }
+    let persisted = match merope_rig::persist_active_asset(&transaction, Some(asset_id)).await {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = transaction.rollback().await;
+            return Err(internal_error(error));
+        }
+    };
+    transaction.commit().await.map_err(internal_error)?;
+    merope_rig::mirror_active_asset(persisted).await;
+    Ok(())
+}
+
+async fn detach_worn_outfit_rig<C>(db: &C, user_id: i32) -> ApiResult<()>
+where
+    C: sea_orm::ConnectionTrait,
+{
+    let Some(row) = merope::get_persona_on(db).await.map_err(internal_error)? else {
+        return Ok(());
+    };
+    let Some(mut profile) = row.visual_profile.clone() else {
+        return Ok(());
+    };
+    myriad_merope::detach_active_outfit_rig(&mut profile);
+    merope::upsert_persona_on(
+        db,
+        row.name,
+        row.personality,
+        merope::PortraitUpdate::Keep,
+        merope::PersonaContractUpdate {
+            visual_profile: merope::JsonDocumentUpdate::Set(profile),
+            ..Default::default()
+        },
+        user_id,
+    )
+    .await
+    .map_err(internal_error)?;
+    Ok(())
 }
 
 async fn compile_imported_rig(
@@ -658,6 +739,77 @@ pub async fn get_active_rig(crate::extract::Db(db): crate::extract::Db) -> ApiRe
     Err(not_found("No site face is configured"))
 }
 
+pub(crate) async fn wardrobe_outfit_face(
+    db: &DatabaseConnection,
+    outfit_id: &str,
+) -> ApiResult<Json<Value>> {
+    let outfit_id = outfit_id.trim();
+    if outfit_id.is_empty() || outfit_id.chars().count() > myriad_merope::MAX_WARDROBE_ID_CHARS {
+        return Err(bad_request("Invalid outfit id"));
+    }
+    let persona = merope::get_persona(db)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| not_found("No site face is configured"))?;
+    let profile = persona
+        .visual_profile
+        .as_ref()
+        .ok_or_else(|| not_found("Outfit is not in the wardrobe"))?;
+    let looks = myriad_merope::looks_from_visual_profile(profile);
+    let look = myriad_merope::wardrobe_look(&looks, outfit_id)
+        .cloned()
+        .ok_or_else(|| not_found("Outfit is not in the wardrobe"))?;
+    if !look.playable() {
+        return Err(not_found("Outfit has no portrait or rig"));
+    }
+    let gender = profile
+        .get("gender")
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "female" | "male" | "nonbinary" | "unspecified"))
+        .unwrap_or("unspecified");
+    if let Some(rig_id) = look.rig_asset_id.as_deref() {
+        if let Ok(mut manifest) = load_stored_manifest(rig_id).await {
+            let matches_item = match look.portrait_asset_id.as_deref() {
+                Some(portrait) => manifest_matches_master(
+                    &manifest,
+                    &MasterProvenance {
+                        asset_id: portrait.to_string(),
+                        generation_fingerprint: look.generation_fingerprint.clone(),
+                        gender: gender.to_string(),
+                    },
+                ),
+                None => manifest.validate().is_ok(),
+            };
+            if matches_item && matches!(package_identity_matches(rig_id, &manifest).await, Ok(true))
+            {
+                if gender == "male" {
+                    if let Some(playback) = manifest.anime25d_playback.as_mut() {
+                        rig_chest_analysis::apply_male_policy(playback);
+                    }
+                }
+                let manifest = rewrite_texture_urls(manifest, rig_id);
+                return Ok(Json(json!({
+                    "manifest": manifest,
+                    "portraitUrl": look.portrait_asset_id,
+                    "generationFingerprint": look.generation_fingerprint,
+                    "assetId": rig_id,
+                    "outfitId": look.id,
+                })));
+            }
+        }
+    }
+    if look.portrait_asset_id.is_some() {
+        return Ok(Json(json!({
+            "manifest": Value::Null,
+            "portraitUrl": look.portrait_asset_id,
+            "generationFingerprint": look.generation_fingerprint,
+            "assetId": Value::Null,
+            "outfitId": look.id,
+        })));
+    }
+    Err(not_found("Outfit face is unavailable"))
+}
+
 pub async fn get_atlas(Path(asset_id): Path<String>) -> ApiResult<Response> {
     let asset_id = merope_rig::normalize_asset_id(&asset_id)
         .ok_or_else(|| bad_request("Invalid rig asset id"))?;
@@ -904,7 +1056,7 @@ pub async fn import_site_rig(
         source_generation_fingerprint.as_deref(),
     )
     .await?;
-    activate_asset(&db, &asset_id).await?;
+    bind_and_activate_outfit_rig(&db, user_id, &asset_id).await?;
     Ok(Json(json!({ "manifest": manifest, "assetId": asset_id })))
 }
 
@@ -973,7 +1125,7 @@ pub async fn upload_portrait(
                 image_bytes = Some(reference);
             }
             Some("image") => {
-                return Err(bad_request("Portrait upload fields must not be duplicated"))
+                return Err(bad_request("Portrait upload fields must not be duplicated"));
             }
             _ => return Err(bad_request("Portrait upload contains an unsupported field")),
         }
@@ -1013,6 +1165,10 @@ pub async fn upload_portrait(
     {
         let _ = transaction.rollback().await;
         return Err(internal_error(error));
+    }
+    if let Err(error) = detach_worn_outfit_rig(&transaction, user_id).await {
+        let _ = transaction.rollback().await;
+        return Err(error);
     }
     let cleared_asset = match merope_rig::persist_active_asset(&transaction, None).await {
         Ok(asset_id) => asset_id,
@@ -1070,15 +1226,39 @@ pub async fn generate_portrait(
         .filter(|name| !name.is_empty())
         .unwrap_or("Arael");
     let additional_requirements = sanitize_portrait_adjustment(request.prompt.as_deref())?;
-    let visual_profile = persona
-        .as_ref()
-        .and_then(|row| row.visual_profile.clone())
-        .unwrap_or_else(|| {
-            json!({
-                "gender": "unspecified",
-                "language": "zh-CN"
-            })
-        });
+    let visual_profile = {
+        let mut profile = persona
+            .as_ref()
+            .and_then(|row| row.visual_profile.clone())
+            .unwrap_or_else(|| {
+                json!({
+                    "gender": "unspecified",
+                    "language": "zh-CN"
+                })
+            });
+        let gender = profile
+            .get("gender")
+            .and_then(Value::as_str)
+            .unwrap_or("unspecified")
+            .to_string();
+        let language = profile
+            .get("language")
+            .and_then(Value::as_str)
+            .unwrap_or("zh-CN")
+            .to_string();
+        if let Some(identity) = profile.get("visualIdentity").cloned() {
+            if !identity.is_null() {
+                if let Some(fixed) = myriad_merope::ensure_visual_identity_states_gender(
+                    &identity, &gender, &language,
+                ) {
+                    if let Some(root) = profile.as_object_mut() {
+                        root.insert("visualIdentity".into(), fixed);
+                    }
+                }
+            }
+        }
+        profile
+    };
     let gender = visual_profile.get("gender").and_then(Value::as_str);
     if !matches!(
         gender,
@@ -1093,18 +1273,33 @@ pub async fn generate_portrait(
         ));
     }
     let visual_identity = visual_profile.get("visualIdentity").unwrap_or(&Value::Null);
-    if !myriad_merope::upper_body_visual_identity_is_complete(visual_identity)
-        || myriad_merope::normalize_visual_identity_for_prompt(visual_identity).is_none()
-        || !myriad_merope::visual_identity_matches_gender_presentation(
-            visual_identity,
-            gender.unwrap_or("unspecified"),
-        )
-    {
+    if !myriad_merope::upper_body_visual_identity_is_complete(visual_identity) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": "Confirm an upper-body visual design before generating the portrait",
                 "code": "visual_design_required"
+            })),
+        ));
+    }
+    if myriad_merope::normalize_visual_identity_for_prompt(visual_identity).is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "The upper-body visual design cannot be used for portrait generation",
+                "code": "visual_identity_unusable"
+            })),
+        ));
+    }
+    if !myriad_merope::visual_identity_matches_gender_presentation(
+        visual_identity,
+        gender.unwrap_or("unspecified"),
+    ) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "The upper-body visual design does not match the chosen gender presentation",
+                "code": "visual_gender_mismatch"
             })),
         ));
     }
@@ -1270,6 +1465,12 @@ pub async fn generate_portrait(
             })),
         ));
     }
+    if let Err(error) = detach_worn_outfit_rig(&transaction, user_id).await {
+        let _ = transaction.rollback().await;
+        release_portrait_generation_lease(&db, &generation_token).await;
+        cleanup_uncommitted_portrait(&db, &persisted).await;
+        return Err(error);
+    }
     let cleared_asset = match merope_rig::persist_active_asset(&transaction, None).await {
         Ok(asset_id) => asset_id,
         Err(error) => {
@@ -1291,6 +1492,218 @@ pub async fn generate_portrait(
         "characterAssetContractVersion": CHARACTER_ASSET_CONTRACT_VERSION,
         "generationFingerprint": contract_fingerprint,
     })))
+}
+
+fn sticker_avatar_provider_error(error: image_generation::ImageGenerationError) -> ApiError {
+    let code = image_generation::image_generation_failure_code(&error);
+    tracing::error!(%error, code, "sticker avatar generation failed");
+    (
+        StatusCode::BAD_GATEWAY,
+        Json(json!({ "error": error.to_string(), "code": code })),
+    )
+}
+
+async fn release_avatar_generation_lease(db: &DatabaseConnection, token: &str) {
+    if let Err(error) = merope::release_avatar_generation(db, token).await {
+        tracing::error!(%error, "failed to release sticker avatar generation lease");
+    }
+}
+
+async fn cleanup_uncommitted_avatar(
+    db: &DatabaseConnection,
+    persisted: &image_generation::PersistedGeneratedImage,
+) {
+    if !persisted.created {
+        return;
+    }
+    let is_current = merope::get_persona(db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|persona| persona.avatar_asset_id)
+        .is_some_and(|asset_id| asset_id == persisted.url);
+    if is_current {
+        return;
+    }
+    if let Err(error) = image_generation::remove_persisted_generated(persisted).await {
+        tracing::warn!(%error, url = %persisted.url, "failed to remove uncommitted sticker avatar");
+    }
+}
+
+/// POST /api/merope/rig/avatar
+///
+/// 从已确认的主立绘派生一张 Q 版贴纸头像。主立绘是身份锚，项目 logo 是造型
+/// 参考——两张都作为参考图上传，文字只负责把最容易漂的颜色钉住。
+pub async fn generate_sticker_avatar(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+) -> ApiResult<Json<Value>> {
+    require_merope_enabled().await?;
+    let user_id = require_owner(&claims, &db).await?;
+    let persona = merope::get_persona(&db)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(portrait_required_for_avatar)?;
+    let portrait_asset_id = persona
+        .portrait_asset_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .ok_or_else(portrait_required_for_avatar)?
+        .to_string();
+    let name = persona.name.trim();
+    let visual_profile = persona.visual_profile.clone().unwrap_or(Value::Null);
+
+    let anchor = image_generation::load_local_reference(&portrait_asset_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "stored master portrait is unusable as an avatar anchor");
+            (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "The stored master portrait is missing from site storage",
+                    "code": "portrait_required"
+                })),
+            )
+        })?;
+    let style = merope_sticker_style_reference().map_err(portrait_generation_config_error)?;
+
+    let contract = build_sticker_avatar_contract(name, &visual_profile, &portrait_asset_id);
+    let contract_fingerprint = character_asset_contract_fingerprint(&contract);
+    let prompt = build_sticker_avatar_prompt(name, &visual_profile);
+    let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await.clone();
+    let config = image_generation::config_from_dynamic(&dynamic)
+        .map_err(portrait_generation_config_error)?;
+    tracing::info!(
+        provider = %config.provider,
+        model = %config.model,
+        size = STICKER_AVATAR_SIZE,
+        prompt_chars = prompt.chars().count(),
+        sticker_contract_version = STICKER_AVATAR_CONTRACT_VERSION,
+        style_reference_sha256 = MEROPE_STICKER_STYLE_REFERENCE_SHA256,
+        "sticker avatar generation started"
+    );
+
+    let generation_token = Uuid::new_v4().to_string();
+    let pending = json!({
+        "token": generation_token,
+        "inputFingerprint": contract_fingerprint,
+        "startedAt": chrono::Utc::now().to_rfc3339(),
+    });
+    // 名字与外观按人设行原样比对：这里不做归一化，锁要和落盘那一步锁同一组值。
+    let stored_visual_profile = persona.visual_profile.clone().unwrap_or(Value::Null);
+    let acquired = merope::acquire_avatar_generation(
+        &db,
+        &persona.name,
+        &stored_visual_profile,
+        &portrait_asset_id,
+        &pending,
+    )
+    .await
+    .map_err(internal_error)?;
+    if !acquired {
+        let current = merope::get_persona(&db).await.map_err(internal_error)?;
+        let (message, code) = if current.as_ref().is_some_and(|persona| {
+            merope::avatar_generation_is_pending(persona.avatar_generation.as_ref())
+        }) {
+            (
+                "An avatar generation is already in progress",
+                "avatar_generation_in_progress",
+            )
+        } else {
+            (
+                "Character visual inputs changed before generation started",
+                "character_visual_inputs_changed",
+            )
+        };
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({ "error": message, "code": code })),
+        ));
+    }
+
+    let generated = match crate::services::ai_cost_ledger::with_site_ai_ledger(
+        user_id,
+        "merope",
+        "sticker-avatar",
+        image_generation::generate_image_with_references(
+            &config,
+            &prompt,
+            STICKER_AVATAR_SIZE,
+            STICKER_AVATAR_SIZE,
+            &[anchor, style],
+            Some(image_generation::ImageBackground::Transparent),
+        ),
+    )
+    .await
+    {
+        Ok(generated) => generated,
+        Err(error) => {
+            release_avatar_generation_lease(&db, &generation_token).await;
+            return Err(sticker_avatar_provider_error(error));
+        }
+    };
+    let persisted = match image_generation::persist_generated_with_status(&generated).await {
+        Ok(persisted) => persisted,
+        Err(error) => {
+            release_avatar_generation_lease(&db, &generation_token).await;
+            return Err(bad_request(&error.to_string()));
+        }
+    };
+    let url = persisted.url.clone();
+    let avatar_generation = json!({
+        "fingerprint": contract_fingerprint,
+        "contract": contract,
+        "provider": config.provider,
+        "model": config.model,
+        "sourcePortraitAssetId": portrait_asset_id,
+    });
+    let completed = match merope::complete_avatar_generation(
+        &db,
+        &persona.name,
+        &stored_visual_profile,
+        &portrait_asset_id,
+        &generation_token,
+        &url,
+        &avatar_generation,
+        user_id,
+    )
+    .await
+    {
+        Ok(completed) => completed,
+        Err(error) => {
+            release_avatar_generation_lease(&db, &generation_token).await;
+            cleanup_uncommitted_avatar(&db, &persisted).await;
+            return Err(internal_error(error));
+        }
+    };
+    if !completed {
+        release_avatar_generation_lease(&db, &generation_token).await;
+        cleanup_uncommitted_avatar(&db, &persisted).await;
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "The master portrait changed while the avatar was generating",
+                "code": "character_visual_inputs_changed"
+            })),
+        ));
+    }
+    Ok(Json(json!({
+        "avatarUrl": url,
+        "avatarAssetId": url,
+        "stickerAvatarContractVersion": STICKER_AVATAR_CONTRACT_VERSION,
+        "generationFingerprint": contract_fingerprint,
+    })))
+}
+
+fn portrait_required_for_avatar() -> ApiError {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({
+            "error": "Generate or upload a master portrait before making an avatar",
+            "code": "portrait_required"
+        })),
+    )
 }
 
 #[cfg(test)]

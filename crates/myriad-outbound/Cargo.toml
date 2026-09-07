@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "SSRF-resistant outbound HTTP client helpers for Myriad (DNS pin, public IP, body cap)."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 reqwest = { version = "0.13", default-features = false, features = [

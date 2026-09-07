@@ -796,6 +796,7 @@ export function TappListPage() {
                       className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
                       style={{ color: 'var(--color-primary)' }}
                       title={t.tapp.playgroundTitle}
+                      data-tour="tapp-open-playground"
                     >
                       <TappPlaygroundIcon className="w-3.5 h-3.5" />
                       {t.tapp.playground}
@@ -814,6 +815,7 @@ export function TappListPage() {
                           : t.tapp.listScopeSwitchToMine
                       }
                       aria-pressed={listScope === 'site'}
+                      data-tour="tapp-scope"
                     >
                       {listScope === 'mine' ? (
                         <FaGlobe className="w-3.5 h-3.5" />
@@ -829,6 +831,7 @@ export function TappListPage() {
                     onClick={() => navigate(TAPP_STORE_PATH)}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
                     style={{ color: 'var(--color-primary)' }}
+                    data-tour="tapp-store-entry"
                   >
                     <MyriadStoreIcon className="w-4 h-4" />
                     {t.tapp.store}
@@ -851,6 +854,7 @@ export function TappListPage() {
                       className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer"
                       style={{ color: 'var(--color-primary)' }}
                       title={t.tapp.install}
+                      data-tour="tapp-install"
                     >
                       <FaPlus className="w-3 h-3" />
                       {t.tapp.install}
@@ -872,6 +876,7 @@ export function TappListPage() {
                         : t.tapp.listScopeSwitchToMine
                     }
                     aria-pressed={listScope === 'site'}
+                    data-tour="tapp-scope"
                   >
                     {listScope === 'mine' ? (
                       <FaGlobe
@@ -890,6 +895,7 @@ export function TappListPage() {
                   onClick={() => navigate(TAPP_STORE_PATH)}
                   className="p-2 rounded-lg glass shadow-sm"
                   title={t.tapp.storeTitle}
+                  data-tour="tapp-store-entry"
                 >
                   <MyriadStoreIcon
                     className="w-5 h-5"
@@ -901,6 +907,7 @@ export function TappListPage() {
                     onClick={(e) => openInstallDialog(e.currentTarget)}
                     className="p-2 rounded-lg glass shadow-sm"
                     title={t.tapp.manualInstall}
+                    data-tour="tapp-install"
                   >
                     <FaPlus
                       className="w-5 h-5"
@@ -913,7 +920,11 @@ export function TappListPage() {
           </div>
 
           {/* Content — hold cards while public site layout hydrates (no order flash) */}
-          {!listDisplayPending && orderedTapps.length === 0 && showEmpty ? (
+          <div
+            data-tour="tapp-grid"
+            data-tour-fit=".tapp-app-card, .tapp-app-empty"
+          >
+            {!listDisplayPending && orderedTapps.length === 0 && showEmpty ? (
             <div className="tapp-app-empty glass glass-chrome-free">
               <GlowBackground
                 color="var(--color-primary, #6366f1)"
@@ -1015,7 +1026,8 @@ export function TappListPage() {
                   ))}
               </AnimatePresence>
             </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 

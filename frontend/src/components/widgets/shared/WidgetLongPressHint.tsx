@@ -1,11 +1,12 @@
 /**
  * 编辑模式下「长按进入单独卡片设置」的通用齿轮提示。
  *
- * 统一右下角位置与样式，避免各小组件复制同一套 motion + SVG。
- * 仅视觉提示（pointer-events-none），实际设置由卡片长按手势打开。
+ * 统一左上角位置与样式。可点开设置气泡；卡片长按仍可用。
  */
 
+import type { MouseEvent } from 'react'
 import { motionShim as motion } from '@lib/motionShim'
+import './WidgetLongPressHint.css'
 
 export interface WidgetLongPressHintProps {
   /** 悬停 title（各小组件 i18n：longPressHint / longPressToEdit） */
@@ -17,29 +18,41 @@ export interface WidgetLongPressHintProps {
   visible?: boolean
   /** 追加到根节点的 className（少用；默认布局勿轻易覆盖） */
   className?: string
+  onClick?: () => void
 }
 
-const BASE_CLASS =
-  'absolute bottom-1.5 right-1.5 z-30 w-5 h-5 rounded-md flex items-center justify-center bg-black/15 dark:bg-white/15 pointer-events-none'
+const BASE_CLASS = 'widget-longpress-hint'
 
 export function WidgetLongPressHint({
   title,
   visible = true,
   className,
+  onClick,
 }: WidgetLongPressHintProps) {
   if (!visible) return null
 
+  const handleMouseDown = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    event.preventDefault()
+  }
+
   return (
-    <motion.div
+    <motion.button
+      type="button"
       className={className ? `${BASE_CLASS} ${className}` : BASE_CLASS}
-      initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+      initial={{ opacity: 0, scale: 0.72, x: -4, y: -4 }}
+      animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 22 }}
       title={title}
-      aria-hidden
+      aria-label={title}
+      onMouseDown={handleMouseDown}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick?.()
+      }}
     >
       <svg
-        className="w-3 h-3 text-gray-700 dark:text-gray-200"
+        className="widget-longpress-hint__icon"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -57,6 +70,6 @@ export function WidgetLongPressHint({
           d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
         />
       </svg>
-    </motion.div>
+    </motion.button>
   )
 }

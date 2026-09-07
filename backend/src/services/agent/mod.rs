@@ -1,5 +1,6 @@
 pub mod ai_process_pure;
 pub mod capability;
+pub mod chat_music;
 pub mod chat_prompt;
 pub mod consciousness;
 pub mod dag_pure;
@@ -31,6 +32,7 @@ pub mod response_agent;
 pub mod retry_pure;
 pub mod routing;
 pub mod run_hub;
+pub mod search_output;
 pub mod skill;
 pub mod skill_evolution;
 pub mod system_op_pure;
@@ -39,6 +41,13 @@ pub mod tier_router;
 pub mod turn;
 pub mod types;
 pub mod ui_analysis;
+pub mod web_search;
+
+#[cfg(test)]
+mod behavior_contract;
+
+#[cfg(test)]
+mod semantic_eval;
 
 // 重新导出核心类型
 pub use types::*;
@@ -46,7 +55,10 @@ pub use types::*;
 mod agent_footer;
 mod agent_header;
 mod confirmation_and_tasks;
+mod motion_overlay;
 mod process_and_recipe;
+mod process_chat;
+mod process_work;
 
 pub(crate) use confirmation_and_tasks::collect_step_frontend_actions;
 

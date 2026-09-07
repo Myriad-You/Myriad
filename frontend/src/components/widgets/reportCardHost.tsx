@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react'
-import type { WidgetComponentProps } from '../WidgetGrid'
+import type { WidgetComponentProps } from '../widgetGridTypes'
 /**
  * 首页目录用的报告卡宿主。
  *

@@ -27,6 +27,21 @@ test('page body text is not the Lite summary', () => {
   assert.equal(withSummary.summary, 'Short take.')
 })
 
+test('auto-truncated body is not treated as an authored summary', () => {
+  const body = 'The harbour was quiet after midnight.'.repeat(8)
+  const copy = pagePerceptionCopy(
+    {
+      type: 'brew_article',
+      title: 'Harbour Notes',
+      summary: `${body.slice(0, 200)}...`,
+      plainText: body,
+    },
+    '/brew',
+  )
+  assert.equal(copy.summary, 'Harbour Notes')
+  assert.equal(copy.hasBody, true)
+})
+
 test('same source replaces instead of appending', () => {
   const registry = new PerceptionRegistry()
   registry.replace({

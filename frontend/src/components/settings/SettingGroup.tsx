@@ -114,6 +114,7 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
           switchConfig.ariaLabel ||
           (typeof title === 'string' ? title : undefined)
         }
+        preview={switchConfig.preview}
       />
     </div>
   ) : null

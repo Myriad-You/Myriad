@@ -1,25 +1,30 @@
 /**
  * 可视化编辑的网格小组件系统
- * 16x4 网格布局，支持拖拽编辑
+ * 标准布局 16×4（窄屏紧凑重排）；自由布局同格、同宽、固定 16×8
  */
 
-import type { TappSettingItem } from '../tapp/types'
+import type { HomeLayoutMode } from '../utils/homeLayout'
+import type {
+  WidgetConfig,
+  WidgetGridHandle,
+  WidgetSize,
+  WidgetType,
+} from './widgetGridTypes'
+import { LuSparkles, LuX } from '@lib/icons'
+import { motionShim as motion } from '@lib/motionShim'
 
-import { FaChevronRight, FaCog, FaSearch, FaTimes } from '@lib/icons'
-import {
-  AnimatePresenceShim as AnimatePresence,
-  motionShim as motion,
-} from '@lib/motionShim'
 import React, {
+  forwardRef,
   Suspense,
   useCallback,
   useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-
 import { useI18n } from '../contexts/I18nContext'
 import { useHomeResizeObserver, useStaggerAnimation } from '../hooks/animation'
 import {
@@ -30,53 +35,87 @@ import {
 import { getPerformanceProfileSync } from '../hooks/usePerformanceProfile'
 import { useDebouncedWindowSize } from '../hooks/useSharedEventListener'
 import {
-  getStandardWidgetDimensions,
-  LIBRARY_PREVIEW_DISPLAY_SCALE,
-} from '../hooks/useWidgetSize'
+  freeLayoutFitsCellBudget,
+  HOME_FREE_ROWS,
+  HOME_STANDARD_COLS,
+  HOME_STANDARD_ROWS,
+  homeWidgetCellCount,
+  homeWidgetsOccupiedCells,
+  isHomeStickerItem,
+  isHomeWidgetItem,
+  findEmptyHomeSlot,
+  packWidgetsIntoColumns,
+} from '../utils/homeLayout'
+import { HomeStickerCrop } from './home/HomeStickerCrop'
+import { HomeStickerCropTip } from './home/HomeStickerCropTip'
+import {
+  defaultStickerCrop,
+  parseStickerCrop,
+  stickerSlotAspect,
+  type StickerCrop,
+} from '../utils/homeStickerCrop'
+import {
+  placeHomeStickerSelection,
+  stickerSizesSharingAspect,
+} from '../utils/homeStickerSize'
+import { WidgetInstanceSettings } from './widgets/shared/WidgetInstanceSettings'
+import { WidgetLongPressHint } from './widgets/shared/WidgetLongPressHint'
 import { resolveHomeGridColumns } from '../utils/viewportBands'
-import { widgetTypeMatchesLibrarySearch } from './widgetLibrarySearch'
-import { preloadBuiltinWidgets } from './widgets/builtinWidgets'
+import { setWidgetDragCursor, useWidgetDragCursor } from '../utils/widgetDragCursor'
+import {
+  GRID_WIDGET_PAD_PX,
+  WIDGET_SIZE_KEYS,
+  widgetSizeSpan,
+} from '../utils/widgetSizeScale'
+import { widgetDisplayLabel, widgetHostConfig } from './widgetLibraryModel'
+import {
+  coveringWidgetId,
+  dragGhostContentSize,
+  dragGhostHandoffDelays,
+  gridCellFromPoint,
+  heldWidgetId,
+  placementHasCommitted,
+  resolveDragGhostWidget,
+  shouldSkipWidgetEntrance,
+  widgetDragGhostBox,
+  type WidgetDragSession,
+} from './widgetPlacementPreview'
+import StickerWidget, {
+  stickerFloatMode,
+  stickerFloatPatch,
+} from './widgets/StickerWidget'
 import './WidgetGrid.css'
+
+export function startGridLibraryDrag(
+  grid: WidgetGridHandle | null,
+  event: React.MouseEvent | React.TouchEvent,
+  widgetTypeId: string,
+): void {
+  event.stopPropagation()
+  event.preventDefault()
+  if ('touches' in event) {
+    const touch = event.touches[0]
+    if (!touch) return
+    grid?.startNewWidgetDrag(widgetTypeId, {
+      x: touch.clientX,
+      y: touch.clientY,
+    })
+    return
+  }
+  grid?.startNewWidgetDrag(widgetTypeId, {
+    x: event.clientX,
+    y: event.clientY,
+  })
+}
 
 // ⚗ 移动端检测 - 使用统一的性能检测系统
 function getIsMobile(): boolean {
   return getPerformanceProfileSync().isMobile
 }
 
-// 小组件尺寸配置
-export type WidgetSize =
-  | '1x1'
-  | '2x1'
-  | '1x2'
-  | '2x2'
-  | '2x3'
-  | '3x2'
-  | '3x3'
-  | '2x4'
-  | '4x1'
-  | '4x2'
-  | '4x4'
-
-// 小组件配置接口
-export interface WidgetConfig {
-  id: string
-  type: string // 小组件类型标识
-  size: WidgetSize
-  position: { x: number; y: number } // 网格坐标 (0-15, 0-3)
-  config?: any // 小组件特定配置
-}
-
-// 小组件组件Props
-export interface WidgetComponentProps {
-  config: WidgetConfig
-  isEditMode: boolean
-  isPreview?: boolean
-  onConfigChange?: (newConfig: any) => void
-}
-
 // 网格尺寸常量（列数阈值见 utils/viewportBands.ts，与主页壳 / Tailwind lg 统一）
-const GRID_WIDTH = 16
-const GRID_HEIGHT = 4
+const GRID_WIDTH = HOME_STANDARD_COLS
+const GRID_HEIGHT = HOME_STANDARD_ROWS
 
 /**
  * Cross-band (tablet↔desktop) layout morph: never lerp left/top between compact
@@ -92,149 +131,42 @@ function readInitialHomeGridColumns(custom?: number): number {
   return resolveHomeGridColumns(window.innerWidth, 0)
 }
 
-// 尺寸到宽高的映射
-const SIZE_TO_DIMENSIONS: Record<WidgetSize, { w: number; h: number }> = {
-  '1x1': { w: 1, h: 1 },
-  '2x1': { w: 2, h: 1 },
-  '1x2': { w: 1, h: 2 },
-  '2x2': { w: 2, h: 2 },
-  '2x3': { w: 2, h: 3 },
-  '3x2': { w: 3, h: 2 },
-  '3x3': { w: 3, h: 3 },
-  '2x4': { w: 2, h: 4 },
-  '4x1': { w: 4, h: 1 },
-  '4x2': { w: 4, h: 2 },
-  '4x4': { w: 4, h: 4 },
-}
-
-function WidgetSettingsDialog({
-  title,
-  settings,
-  value,
-  onSave,
-  onClose,
-}: {
-  title: string
-  settings: TappSettingItem[]
-  value: Record<string, unknown>
-  onSave: (value: Record<string, unknown>) => void
-  onClose: () => void
-}) {
-  const { t } = useI18n()
-  const [draft, setDraft] = useState<Record<string, unknown>>(() => ({
-    ...Object.fromEntries(
-      settings
-        .filter((setting) => setting.defaultValue !== undefined)
-        .map((setting) => [setting.key, setting.defaultValue]),
-    ),
-    ...value,
-  }))
-
-  const update = (key: string, next: unknown) =>
-    setDraft((current) => ({ ...current, [key]: next }))
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div
-        className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-neutral-900"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="mb-4 text-base font-semibold text-neutral-900 dark:text-white">
-          {title}
-        </div>
-        <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
-          {settings.map((setting) => {
-            const current = draft[setting.key] ?? setting.defaultValue
-            return (
-              <label key={setting.key} className="block space-y-1.5">
-                <span className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
-                  {setting.label}
-                </span>
-                {setting.description && (
-                  <span className="block text-xs text-neutral-500 dark:text-neutral-400">
-                    {setting.description}
-                  </span>
-                )}
-                {setting.type === 'toggle' ? (
-                  <input
-                    type="checkbox"
-                    checked={current === true}
-                    onChange={(event) =>
-                      update(setting.key, event.target.checked)
-                    }
-                    className="h-5 w-5 accent-[var(--color-primary)]"
-                  />
-                ) : setting.type === 'select' ? (
-                  <select
-                    value={String(current ?? '')}
-                    onChange={(event) =>
-                      update(setting.key, event.target.value)
-                    }
-                    className="w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-neutral-800"
-                  >
-                    {setting.options?.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type={
-                      setting.type === 'number'
-                        ? 'number'
-                        : setting.type === 'color'
-                          ? 'color'
-                          : 'text'
-                    }
-                    value={String(current ?? '')}
-                    min={setting.min}
-                    max={setting.max}
-                    step={setting.step}
-                    placeholder={setting.placeholder}
-                    onChange={(event) =>
-                      update(
-                        setting.key,
-                        setting.type === 'number'
-                          ? event.target.value === ''
-                            ? null
-                            : Number(event.target.value)
-                          : event.target.value,
-                      )
-                    }
-                    className={`${setting.type === 'color' ? 'h-10' : 'px-3 py-2'} w-full rounded-lg border border-black/10 bg-white text-sm dark:border-white/10 dark:bg-neutral-800`}
-                  />
-                )}
-              </label>
-            )
-          })}
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm text-neutral-600 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10"
-          >
-            {t.common.cancel}
-          </button>
-          <button
-            type="button"
-            onClick={() => onSave(draft)}
-            className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white"
-          >
-            {t.common.save}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
+/** Position/grid 变时外壳要重绘，内部实现（iframe / 数据）不必跟着重挂。 */
+const WidgetGridItemBody = React.memo(
+  ({
+    widget,
+    widgetType,
+    isEditMode,
+    isPreview,
+    onConfigChange,
+  }: {
+    widget: WidgetConfig
+    widgetType: WidgetType
+    isEditMode: boolean
+    isPreview?: boolean
+    onConfigChange?: (newConfig: any) => void
+  }) => {
+    const WidgetComponent = widgetType.component
+    return (
+      <Suspense fallback={null}>
+        <WidgetComponent
+          config={widget}
+          isEditMode={isEditMode}
+          isPreview={isPreview}
+          onConfigChange={onConfigChange}
+        />
+      </Suspense>
+    )
+  },
+  (prev, next) =>
+    prev.widget.id === next.widget.id &&
+    prev.widget.type === next.widget.type &&
+    prev.widget.size === next.widget.size &&
+    prev.widget.config === next.widget.config &&
+    prev.isEditMode === next.isEditMode &&
+    prev.isPreview === next.isPreview &&
+    prev.widgetType === next.widgetType,
+)
 
 // Memoized Widget Item Component
 const WidgetGridItem = React.memo(
@@ -242,6 +174,9 @@ const WidgetGridItem = React.memo(
     widget,
     widgetType,
     isEditMode,
+    isPreview,
+    isHeld,
+    isCovered,
     isHovered,
     onDragStart,
     onMouseEnter,
@@ -253,10 +188,15 @@ const WidgetGridItem = React.memo(
     onConfigChange,
     index = 0,
     layoutMotion = true,
+    onRequestSticker,
+    allowSticker = false,
   }: {
     widget: WidgetConfig
     widgetType: WidgetType
     isEditMode: boolean
+    isPreview?: boolean
+    isHeld?: boolean
+    isCovered?: boolean
     isHovered: boolean
     onDragStart: (e: React.MouseEvent, id: string) => void
     onMouseEnter: (id: string) => void
@@ -274,24 +214,62 @@ const WidgetGridItem = React.memo(
     index?: number
     /** Geometry (left/top/w/h) CSS transition for band reflow */
     layoutMotion?: boolean
+    onRequestSticker?: (widget: WidgetConfig) => void
+    allowSticker?: boolean
   }) => {
     const anim = useAnimationLevel()
     const { t } = useI18n()
     const [showSettings, setShowSettings] = useState(false)
+    const [settingsAnchor, setSettingsAnchor] = useState<DOMRect | null>(null)
+    const [stickerCropOpen, setStickerCropOpen] = useState(false)
+    const [stickerCropDraft, setStickerCropDraft] = useState<StickerCrop>(
+      defaultStickerCrop,
+    )
+    const stickerPressRef = useRef<{
+      timer: number
+      move: (event: MouseEvent) => void
+      touchMove: (event: TouchEvent) => void
+      up: () => void
+    } | null>(null)
+    const stickerItemRef = useRef<HTMLDivElement>(null)
+    const [stickerTipAnchor, setStickerTipAnchor] = useState<DOMRect | null>(
+      null,
+    )
     const instanceSettings = widgetType.settings || []
+    const stickerSrc =
+      typeof widget.config?.imageUrl === 'string'
+        ? widget.config.imageUrl.trim()
+        : ''
+
+    const closeStickerCrop = useCallback(
+      (save: boolean) => {
+        if (save && onConfigChange) {
+          onConfigChange({
+            ...(widget.config && typeof widget.config === 'object'
+              ? widget.config
+              : {}),
+            crop: stickerCropDraft,
+          })
+        }
+        setStickerCropOpen(false)
+        setStickerTipAnchor(null)
+      },
+      [onConfigChange, stickerCropDraft, widget.config],
+    )
 
     // 使用统一动画协调系统；exlight 模式直接显示且不进入调度队列。
     // Entrance timing intentionally eased after feedback that 80ms / stiff-300 felt too fast.
+    // Edit mode skips stagger: a tile dropped from the library must paint now.
     const animationsEnabled = !isExlight(anim)
+    const skipEntrance = shouldSkipWidgetEntrance(isEditMode)
     const { canAnimate, onComplete } = useStaggerAnimation({
       groupId: 'widget-grid',
       index: index || 0,
       baseDelay: 115,
-      enabled: animationsEnabled,
+      enabled: animationsEnabled && !skipEntrance,
     })
 
-    const dim = SIZE_TO_DIMENSIONS[widget.size]
-    const WidgetComponent = widgetType.component
+    const dim = widgetSizeSpan(widget.size)
 
     // 使用传入的网格尺寸或默认值
     const gw = gridWidth || GRID_WIDTH
@@ -304,31 +282,65 @@ const WidgetGridItem = React.memo(
       top: `${(widget.position.y / gh) * 100}%`,
       width: `${(dim.w / gw) * 100}%`,
       height: `${(dim.h / gh) * 100}%`,
-      zIndex: isHovered ? 20 : 10,
+      zIndex: stickerCropOpen || (isHovered && !isCovered) ? 40 : 10,
       // 只提示 transform：left/top 是布局属性，will-change 对它们没有
       // 加速作用，写上去只是让编辑模式下每个小组件白白多提升一层合成层。
-      willChange: isEditMode ? 'transform' : 'auto',
+      willChange: isEditMode && isHovered && !isCovered ? 'transform' : 'auto',
     }
 
-    // 检查是否支持调整大小
-    const canResize =
-      !widgetType.supportedSizes || widgetType.supportedSizes.length > 1
+    useLayoutEffect(() => {
+      if (!stickerCropOpen) return
+      const sync = () => {
+        setStickerTipAnchor(
+          stickerItemRef.current?.getBoundingClientRect() ?? null,
+        )
+      }
+      sync()
+      window.addEventListener('resize', sync)
+      window.addEventListener('scroll', sync, true)
+      return () => {
+        window.removeEventListener('resize', sync)
+        window.removeEventListener('scroll', sync, true)
+      }
+    }, [stickerCropOpen])
+
+    useEffect(() => {
+      return () => {
+        const press = stickerPressRef.current
+        if (!press) return
+        window.clearTimeout(press.timer)
+        window.removeEventListener('mousemove', press.move)
+        window.removeEventListener('mouseup', press.up)
+        window.removeEventListener('touchmove', press.touchMove)
+        window.removeEventListener('touchend', press.up)
+        window.removeEventListener('touchcancel', press.up)
+      }
+    }, [])
+
+    const canResize = isHomeStickerItem(widget)
+      ? stickerSizesSharingAspect(widget.size).length > 1
+      : !widgetType.supportedSizes || widgetType.supportedSizes.length > 1
 
     // 低性能模式 / 低端设备：禁用 spring，改用轻量 tween
-    const useLiteTransition =
-      !anim.spring || !isStandardAnimation(anim)
+    const useLiteTransition = !anim.spring || !isStandardAnimation(anim)
 
     return (
       <motion.div
         className={`widget-grid-item absolute ${
+          isHomeStickerItem(widget) ? 'widget-grid-item--sticker' : ''
+        } ${
           layoutMotion && animationsEnabled
             ? 'widget-grid-item--layout-motion'
             : ''
         }`}
         style={style}
-        initial={animationsEnabled ? { opacity: 0, scale: 0.9, y: 14 } : false}
+        initial={
+          animationsEnabled && !skipEntrance
+            ? { opacity: 0, scale: 0.9, y: 14 }
+            : false
+        }
         animate={
-          !animationsEnabled || canAnimate
+          !animationsEnabled || skipEntrance || canAnimate
             ? { opacity: 1, scale: 1, y: 0 }
             : { opacity: 0, scale: 0.9, y: 14 }
         }
@@ -346,94 +358,301 @@ const WidgetGridItem = React.memo(
                 }
         }
       >
-        <div className="relative h-full w-full p-1 group">
+        <div
+          className={`relative h-full w-full group ${
+            isHomeStickerItem(widget) ? 'p-0' : 'p-1'
+          }${isHeld ? ' widget-grid-item-handoff is-held' : ''}${
+            isCovered ? ' widget-grid-item-handoff is-covered' : ''
+          }`}
+        >
           <div
-            className={`relative h-full w-full rounded-xl overflow-hidden transition-all ${
-              isEditMode
+            ref={stickerItemRef}
+            className={`relative h-full w-full rounded-xl transition-shadow ${
+              isHomeStickerItem(widget) ? 'overflow-visible' : 'overflow-hidden'
+            } ${
+              isEditMode && !isHomeStickerItem(widget) && !isCovered
                 ? 'cursor-move ring-1 ring-transparent hover:ring-blue-400/50'
-                : ''
-            } ${isHovered && isEditMode ? 'ring-blue-400/50 shadow-lg' : ''}`}
-            onMouseDown={(e) => onDragStart(e, widget.id)}
+                : isEditMode
+                  ? 'cursor-move'
+                  : ''
+            } ${isHovered && isEditMode && !isHomeStickerItem(widget) && !isCovered ? 'ring-blue-400/50 shadow-lg' : ''}`}
+            onMouseDown={(event) => {
+              if (stickerCropOpen || showSettings) {
+                event.stopPropagation()
+                return
+              }
+              const holdSticker =
+                isEditMode && isHomeStickerItem(widget) && Boolean(stickerSrc)
+              const holdSettings =
+                isEditMode &&
+                instanceSettings.length > 0 &&
+                Boolean(onConfigChange)
+              if (!holdSticker && !holdSettings) {
+                onDragStart(event, widget.id)
+                return
+              }
+              event.stopPropagation()
+              const startX = event.clientX
+              const startY = event.clientY
+              const clearPress = () => {
+                const press = stickerPressRef.current
+                if (!press) return
+                window.clearTimeout(press.timer)
+                window.removeEventListener('mousemove', press.move)
+                window.removeEventListener('mouseup', press.up)
+                window.removeEventListener('touchmove', press.touchMove)
+                window.removeEventListener('touchend', press.up)
+                window.removeEventListener('touchcancel', press.up)
+                stickerPressRef.current = null
+              }
+              const moved = (x: number, y: number) => {
+                if (Math.hypot(x - startX, y - startY) < 8) return
+                clearPress()
+                onDragStart(
+                  {
+                    clientX: x,
+                    clientY: y,
+                    stopPropagation() {},
+                    preventDefault() {},
+                  } as React.MouseEvent,
+                  widget.id,
+                )
+              }
+              const move = (moveEvent: MouseEvent) =>
+                moved(moveEvent.clientX, moveEvent.clientY)
+              const touchMove = (touchEvent: TouchEvent) => {
+                const touch = touchEvent.touches[0]
+                if (touch) moved(touch.clientX, touch.clientY)
+              }
+              const up = () => clearPress()
+              const timer = window.setTimeout(() => {
+                clearPress()
+                if (holdSticker) {
+                  setStickerCropDraft(
+                    parseStickerCrop(widget.config?.crop) ??
+                      defaultStickerCrop(),
+                  )
+                  setStickerCropOpen(true)
+                  return
+                }
+                setSettingsAnchor(
+                  stickerItemRef.current?.getBoundingClientRect() ?? null,
+                )
+                setShowSettings(true)
+              }, 500)
+              stickerPressRef.current = { timer, move, touchMove, up }
+              window.addEventListener('mousemove', move)
+              window.addEventListener('mouseup', up)
+              window.addEventListener('touchmove', touchMove, { passive: true })
+              window.addEventListener('touchend', up)
+              window.addEventListener('touchcancel', up)
+            }}
+            onTouchStart={(event) => {
+              if (!isEditMode || stickerCropOpen || showSettings) return
+              const holdSticker =
+                isHomeStickerItem(widget) && Boolean(stickerSrc)
+              const holdSettings =
+                instanceSettings.length > 0 && Boolean(onConfigChange)
+              if (!holdSticker && !holdSettings) return
+              const touch = event.touches[0]
+              if (!touch) return
+              event.stopPropagation()
+              const startX = touch.clientX
+              const startY = touch.clientY
+              const clearPress = () => {
+                const press = stickerPressRef.current
+                if (!press) return
+                window.clearTimeout(press.timer)
+                window.removeEventListener('mousemove', press.move)
+                window.removeEventListener('mouseup', press.up)
+                window.removeEventListener('touchmove', press.touchMove)
+                window.removeEventListener('touchend', press.up)
+                window.removeEventListener('touchcancel', press.up)
+                stickerPressRef.current = null
+              }
+              const moved = (x: number, y: number) => {
+                if (Math.hypot(x - startX, y - startY) < 8) return
+                clearPress()
+                onDragStart(
+                  {
+                    clientX: x,
+                    clientY: y,
+                    stopPropagation() {},
+                    preventDefault() {},
+                  } as React.MouseEvent,
+                  widget.id,
+                )
+              }
+              const move = (moveEvent: MouseEvent) =>
+                moved(moveEvent.clientX, moveEvent.clientY)
+              const touchMove = (touchEvent: TouchEvent) => {
+                const next = touchEvent.touches[0]
+                if (next) moved(next.clientX, next.clientY)
+              }
+              const up = () => clearPress()
+              const timer = window.setTimeout(() => {
+                clearPress()
+                if (holdSticker) {
+                  setStickerCropDraft(
+                    parseStickerCrop(widget.config?.crop) ??
+                      defaultStickerCrop(),
+                  )
+                  setStickerCropOpen(true)
+                  return
+                }
+                setSettingsAnchor(
+                  stickerItemRef.current?.getBoundingClientRect() ?? null,
+                )
+                setShowSettings(true)
+              }, 500)
+              stickerPressRef.current = { timer, move, touchMove, up }
+              window.addEventListener('mousemove', move)
+              window.addEventListener('mouseup', up)
+              window.addEventListener('touchmove', touchMove, { passive: true })
+              window.addEventListener('touchend', up)
+              window.addEventListener('touchcancel', up)
+            }}
             onMouseEnter={() => isEditMode && onMouseEnter(widget.id)}
             onMouseLeave={onMouseLeave}
           >
-            {/* 非报告类 lazy 小组件的 Suspense 兜底；ReportCard 已同步加载不会挂起 */}
-            <Suspense fallback={null}>
-              <WidgetComponent
-                config={widget}
-                isEditMode={isEditMode}
-                onConfigChange={onConfigChange}
-              />
-            </Suspense>
-          </div>
-
-          {/* 删除按钮（编辑模式） */}
-          {isEditMode && (
-            <>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onRemove(widget.id)
+            <WidgetGridItemBody
+              widget={widget}
+              widgetType={widgetType}
+              isEditMode={isEditMode}
+              isPreview={isPreview}
+              onConfigChange={onConfigChange}
+            />
+            {isEditMode && isHomeStickerItem(widget) && stickerSrc ? (
+              <WidgetLongPressHint
+                title={t.home.stickerLongPressEdit}
+                visible={!stickerCropOpen}
+                onClick={() => {
+                  setStickerCropDraft(
+                    parseStickerCrop(widget.config?.crop) ?? defaultStickerCrop(),
+                  )
+                  setStickerCropOpen(true)
                 }}
-                className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-red-500/90 hover:bg-red-600 text-white flex items-center justify-center shadow-md z-30 transition-all hover:scale-110 opacity-0 group-hover:opacity-100"
-                title={t.widgetGrid.deleteWidget}
-                aria-label={t.widgetGrid.deleteWidget}
-              >
-                <FaTimes size={10} />
-              </button>
-
-              {instanceSettings.length > 0 && onConfigChange && (
+              />
+            ) : isEditMode && instanceSettings.length > 0 ? (
+              <WidgetLongPressHint
+                title={t.widgetGrid.longPressToEdit}
+                visible={!showSettings}
+                onClick={() => {
+                  setSettingsAnchor(
+                    stickerItemRef.current?.getBoundingClientRect() ?? null,
+                  )
+                  setShowSettings(true)
+                }}
+              />
+            ) : null}
+            {isEditMode && !stickerCropOpen ? (
+              <>
                 <button
                   type="button"
+                  className="widget-grid-item-remove"
                   onMouseDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setShowSettings(true)
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemove(widget.id)
                   }}
-                  className="absolute top-1.5 right-8 flex h-5 w-5 items-center justify-center rounded-full bg-neutral-700/85 text-white opacity-0 shadow-md transition-all hover:scale-110 hover:bg-neutral-800 group-hover:opacity-100 z-30"
-                  title={t.widgetGrid.widgetSettings}
-                  aria-label={t.widgetGrid.widgetSettings}
+                  title={t.widgetGrid.deleteWidget}
+                  aria-label={t.widgetGrid.deleteWidget}
                 >
-                  <FaCog size={10} />
+                  <LuX className="widget-grid-item-remove__icon" aria-hidden />
                 </button>
-              )}
+                {allowSticker && onRequestSticker && isHomeWidgetItem(widget) ? (
+                  <button
+                    type="button"
+                    className="widget-grid-item-sticker"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onRequestSticker(widget)
+                    }}
+                    title={t.widgetGrid.createSticker}
+                    aria-label={t.widgetGrid.createSticker}
+                  >
+                    <LuSparkles
+                      className="widget-grid-item-sticker__icon"
+                      aria-hidden
+                    />
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+            {stickerCropOpen && stickerSrc ? (
+              <div
+                className="home-sticker-crop-overlay"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <HomeStickerCrop
+                  src={stickerSrc}
+                  aspect={stickerSlotAspect(widget.size)}
+                  crop={stickerCropDraft}
+                  fill
+                  onChange={setStickerCropDraft}
+                />
+              </div>
+            ) : null}
+            <HomeStickerCropTip
+              open={stickerCropOpen && Boolean(stickerSrc)}
+              anchor={stickerTipAnchor}
+              src={stickerSrc}
+              mode={stickerFloatMode(widget.config)}
+              ignoreRef={stickerItemRef}
+              onMode={(mode) => {
+                const current =
+                  widget.config && typeof widget.config === 'object'
+                    ? widget.config
+                    : {}
+                onConfigChange?.({
+                  ...current,
+                  ...stickerFloatPatch(mode),
+                })
+              }}
+              onClose={() => closeStickerCrop(true)}
+            />
+          </div>
 
-              {/* 调整大小手柄 - 明显的倒L型设计，触控时区域更大 */}
-              {canResize && (
-                <div
-                  className={`absolute bottom-0 right-0 cursor-se-resize z-50 flex items-end justify-end transition-transform hover:scale-110 active:scale-95 group/resize touch-none ${
-                    widget.size === '1x1'
-                      ? 'w-8 h-8 p-0.5 md:w-6 md:h-6'
-                      : 'w-14 h-14 p-2 md:w-12 md:h-12'
-                  }`}
-                  onMouseDown={(e) => onResizeStart(e, widget.id, 'se')}
-                  onTouchStart={(e) => onResizeStart(e, widget.id, 'se')}
-                >
-                  {/* L 型条 - 适配主题色，1x1组件更小 */}
-                  <div
-                    className={`border-b-8 border-r-8 rounded-br-xl drop-shadow-[0_4px_4px_color-mix(in_srgb,var(--color-primary),transparent_70%)] opacity-60 group-hover/resize:opacity-100 transition-all duration-200 border-[color-mix(in_srgb,var(--color-primary),white_60%)] group-hover/resize:border-[color-mix(in_srgb,var(--color-primary),white_30%)] dark:border-[color-mix(in_srgb,var(--color-primary),black_60%)] dark:group-hover/resize:border-[color-mix(in_srgb,var(--color-primary),black_30%)] ${
-                      widget.size === '1x1'
-                        ? 'w-4 h-4 border-b-5 border-r-5'
-                        : 'w-6 h-6'
-                    }`}
-                  />
-                </div>
-              )}
-            </>
-          )}
+          {isEditMode && !stickerCropOpen && canResize ? (
+            <div
+              className={`absolute bottom-0 right-0 cursor-se-resize z-50 flex items-end justify-end transition-transform hover:scale-110 active:scale-95 group/resize touch-none ${
+                widget.size === '1x1'
+                  ? 'w-8 h-8 p-0.5 md:w-6 md:h-6'
+                  : 'w-14 h-14 p-2 md:w-12 md:h-12'
+              }`}
+              onMouseDown={(e) => onResizeStart(e, widget.id, 'se')}
+              onTouchStart={(e) => onResizeStart(e, widget.id, 'se')}
+            >
+              {/* L 型条 - 适配主题色，1x1组件更小 */}
+              <div
+                className={`border-b-8 border-r-8 rounded-br-xl drop-shadow-[0_4px_4px_color-mix(in_srgb,var(--color-primary),transparent_70%)] opacity-60 group-hover/resize:opacity-100 transition-all duration-200 border-[color-mix(in_srgb,var(--color-primary),white_60%)] group-hover/resize:border-[color-mix(in_srgb,var(--color-primary),white_30%)] dark:border-[color-mix(in_srgb,var(--color-primary),black_60%)] dark:group-hover/resize:border-[color-mix(in_srgb,var(--color-primary),black_30%)] ${
+                  widget.size === '1x1'
+                    ? 'w-4 h-4 border-b-5 border-r-5'
+                    : 'w-6 h-6'
+                }`}
+              />
+            </div>
+          ) : null}
         </div>
-        {showSettings && instanceSettings.length > 0 && onConfigChange && (
-          <WidgetSettingsDialog
-            title={`${widgetType.name} · ${t.widgetGrid.widgetSettings}`}
+        {instanceSettings.length > 0 && onConfigChange ? (
+          <WidgetInstanceSettings
+            open={showSettings}
+            title={widgetDisplayLabel(
+              widgetType,
+              t.widgets as unknown as Record<string, unknown>,
+            )}
             settings={instanceSettings}
             value={(widget.config || {}) as Record<string, unknown>}
+            anchor={settingsAnchor}
+            ignoreRef={stickerItemRef}
             onClose={() => setShowSettings(false)}
             onSave={(next) => {
               onConfigChange(next)
               setShowSettings(false)
             }}
           />
-        )}
+        ) : null}
       </motion.div>
     )
   },
@@ -441,230 +660,57 @@ const WidgetGridItem = React.memo(
     return (
       prev.widget === next.widget &&
       prev.isEditMode === next.isEditMode &&
+      prev.isPreview === next.isPreview &&
+      prev.isHeld === next.isHeld &&
+      prev.isCovered === next.isCovered &&
       prev.isHovered === next.isHovered &&
       prev.widgetType === next.widgetType &&
       prev.gridWidth === next.gridWidth &&
       prev.gridHeight === next.gridHeight &&
       prev.layoutMotion === next.layoutMotion &&
-      prev.index === next.index
+      prev.index === next.index &&
+      prev.onRequestSticker === next.onRequestSticker &&
+      prev.allowSticker === next.allowSticker
     )
   },
 )
-
-/**
- * 库条带的按需预览槽。
- *
- * 此前一进编辑模式就把目录里**全部**小组件（22 个内置 + 所有 Tapp）
- * 的真实实现同时挂载：每个都带 `.glass` 的 backdrop-filter、光晕的
- * blur(24~64px)，外层还套了 scale(0.65)（缩放的模糊层要重新光栅化），
- * 屏幕外的那些也照样在合成。
- *
- * 现在只有滚动到附近时才挂真实组件；挂上之后不再卸载——来回滚动时
- * 反复卸载/重挂会让预览闪烁，且预览本身没有持续开销（数据请求都被
- * isPreview 挡掉了）。
- */
-const LibraryPreviewSlot = React.memo(
-  ({
-    scrollRef,
-    renderWidth,
-    renderHeight,
-    displayScale,
-    children,
-  }: {
-    scrollRef: React.RefObject<HTMLDivElement | null>
-    renderWidth: number
-    renderHeight: number
-    displayScale: number
-    children: React.ReactNode
-  }) => {
-    const [mounted, setMounted] = useState(false)
-    const slotRef = useRef<HTMLDivElement | null>(null)
-
-    useEffect(() => {
-      if (mounted) return
-      const node = slotRef.current
-      if (!node) return
-
-      // 不支持 IO 的环境退回「立即挂载」，行为与改造前一致
-      if (typeof IntersectionObserver === 'undefined') {
-        setMounted(true)
-        return
-      }
-
-      const observer = new IntersectionObserver(
-        (entries) => {
-          if (entries.some((entry) => entry.isIntersecting)) {
-            setMounted(true)
-            observer.disconnect()
-          }
-        },
-        {
-          root: scrollRef.current ?? null,
-          // 提前一屏挂载，滚动时不会看到空框
-          rootMargin: '0px 320px',
-        },
-      )
-      observer.observe(node)
-      return () => observer.disconnect()
-    }, [mounted, scrollRef])
-
-    return (
-      <div
-        ref={slotRef}
-        className="absolute top-0 left-0 origin-top-left pointer-events-none shadow-sm rounded-xl overflow-hidden ring-1 ring-black/5 dark:ring-white/5 widget-library-preview"
-        style={{
-          width: renderWidth,
-          height: renderHeight,
-          transform: `scale(${displayScale})`,
-        }}
-      >
-        {mounted ? <Suspense fallback={null}>{children}</Suspense> : null}
-      </div>
-    )
-  },
-)
-LibraryPreviewSlot.displayName = 'LibraryPreviewSlot'
-
-// 小组件库右侧滚动提示 - 独立组件，隔离滚动状态，
-// 避免每次滚动都重渲染整个小组件库（含所有预览小组件）导致卡顿
-const LibraryScrollHint = React.memo(
-  ({
-    scrollRef,
-    availableWidgets,
-  }: {
-    scrollRef: React.RefObject<HTMLDivElement | null>
-    availableWidgets: WidgetType[]
-  }) => {
-    const [canScrollRight, setCanScrollRight] = useState(false)
-    // 用户一旦手动滑动过，本次编辑期间就不再提示
-    const [hasScrolled, setHasScrolled] = useState(false)
-    const rafRef = useRef<number | null>(null)
-
-    const update = useCallback(() => {
-      rafRef.current = null
-      const el = scrollRef.current
-      if (!el) return
-      const hasOverflow = el.scrollWidth - el.clientWidth > 4
-      const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 4
-      setCanScrollRight(hasOverflow && !atEnd)
-      if (el.scrollLeft > 4) setHasScrolled(true)
-    }, [scrollRef])
-
-    useEffect(() => {
-      const el = scrollRef.current
-      if (!el) return
-
-      const onScroll = () => {
-        if (rafRef.current) return
-        rafRef.current = requestAnimationFrame(update)
-      }
-
-      el.addEventListener('scroll', onScroll, { passive: true })
-      window.addEventListener('resize', update)
-      return () => {
-        el.removeEventListener('scroll', onScroll)
-        window.removeEventListener('resize', update)
-        if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      }
-    }, [scrollRef, update])
-
-    // 小组件列表内容变化时（如切换 1 行/2 行模式）重新计算是否溢出
-    useEffect(() => {
-      update()
-    }, [availableWidgets, update])
-
-    const visible = canScrollRight && !hasScrolled
-
-    return (
-      <div
-        className={`pointer-events-none absolute inset-y-0 right-0 flex items-center justify-end pr-3 transition-opacity duration-300 ${
-          visible ? 'opacity-100' : 'opacity-0'
-        }`}
-      >
-        <motion.div
-          className="flex h-8 w-8 items-center justify-center rounded-full bg-white/95 dark:bg-neutral-900/90 shadow-lg ring-1 ring-black/5 dark:ring-white/10"
-          animate={
-            // 不可见时停止循环动画，避免编辑期间一直空跑 rAF
-            visible ? { x: [0, 5, 0], scale: [1, 1.08, 1] } : { x: 0, scale: 1 }
-          }
-          transition={
-            visible
-              ? {
-                  duration: 1.3,
-                  repeat: Number.POSITIVE_INFINITY,
-                  ease: 'easeInOut',
-                }
-              : { duration: 0.2 }
-          }
-        >
-          <FaChevronRight
-            className="text-gray-500 dark:text-white/70"
-            size={16}
-          />
-        </motion.div>
-      </div>
-    )
-  },
-)
-LibraryScrollHint.displayName = 'LibraryScrollHint'
-
-// 可用小组件类型定义
-export interface WidgetType {
-  id: string
-  name: string
-  defaultSize: WidgetSize
-  component: React.ComponentType<WidgetComponentProps>
-  supportedSizes?: WidgetSize[] // 支持的尺寸列表，如果未定义则支持所有尺寸
-  settings?: TappSettingItem[] // Tapp Widget 每实例设置声明
-}
-
-// 将 widget id 转换为翻译键 (kebab-case -> camelCase)
-function getWidgetTranslationKey(id: string): string {
-  return id.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())
-}
-
-/** Optional display label when host i18n has a key; never required for search. */
-function getWidgetDisplayLabel(
-  widgetType: WidgetType,
-  widgetsI18n: Record<string, unknown>,
-): string {
-  const key = getWidgetTranslationKey(widgetType.id)
-  const translated = widgetsI18n[key]
-  return typeof translated === 'string' && translated.trim()
-    ? translated
-    : widgetType.name
-}
-
-/** Free-form extras from third-party / Tapp widgets when present. */
-function getWidgetSearchExtras(
-  widgetType: WidgetType,
-): Array<string | null | undefined> {
-  const extra = widgetType as WidgetType & {
-    category?: string
-    tappId?: string
-    description?: string
-  }
-  return [extra.category, extra.tappId, extra.description]
-}
 
 interface WidgetGridProps {
   widgets: WidgetConfig[]
   availableWidgets: WidgetType[]
   onWidgetsChange?: (widgets: WidgetConfig[]) => void
   isEditMode: boolean
-  onToggleEditMode: (isEdit: boolean) => void
   children?: React.ReactNode
   customGridColumns?: number // Optional prop to override responsive grid columns
   customGridRows?: number // Optional prop to override default grid rows
-  libraryContainerClassName?: string
-  libraryContentClassName?: string
-  libraryStyle?: React.CSSProperties
-  libraryAnimation?: {
-    initial: any
-    animate: any
-    exit: any
-  }
   autoHeight?: boolean
+  /** Home only: free layout fills the stage with standard cell size. */
+  layoutMode?: HomeLayoutMode
+  stickerPickActive?: boolean
+  onPickStickerSlot?: (slot: {
+    x: number
+    y: number
+    size: WidgetSize
+    anchor: {
+      top: number
+      left: number
+      width: number
+      height: number
+      right: number
+      bottom: number
+    }
+  }) => void
+  stickerHighlight?: { x: number; y: number; size: WidgetSize } | null
+  /** Home tour only. Control-panel grids must not set this. */
+  tourAnchor?: string
+  tourFit?: string
+}
+
+const STICKER_WIDGET_TYPE: WidgetType = {
+  id: 'sticker',
+  name: 'Sticker',
+  defaultSize: '2x2',
+  component: StickerWidget,
 }
 
 /**
@@ -677,7 +723,7 @@ function checkCollision(
   gridHeight: number,
   excludeId?: string,
 ): boolean {
-  const dim = SIZE_TO_DIMENSIONS[widget.size]
+  const dim = widgetSizeSpan(widget.size)
   const { x, y } = widget.position
 
   // 检查是否超出边界
@@ -689,7 +735,7 @@ function checkCollision(
   for (const other of allWidgets) {
     if (other.id === excludeId || other.id === widget.id) continue
 
-    const otherDim = SIZE_TO_DIMENSIONS[other.size]
+    const otherDim = widgetSizeSpan(other.size)
     const { x: ox, y: oy } = other.position
 
     // AABB 碰撞检测
@@ -706,29 +752,150 @@ function checkCollision(
   return false
 }
 
-export default function WidgetGrid({
-  widgets,
-  availableWidgets,
-  onWidgetsChange,
-  isEditMode,
-  onToggleEditMode,
-  children,
-  customGridColumns,
-  customGridRows,
-  libraryContainerClassName,
-  libraryContentClassName,
-  libraryStyle,
-  libraryAnimation,
-  autoHeight,
-}: WidgetGridProps) {
+const WidgetDragGhost = React.memo(({
+  active,
+  settling,
+  exiting,
+  reducedMotion,
+  dragPreview,
+  gridWidth,
+  gridHeight,
+  gridRectRef,
+}: {
+  active: boolean
+  settling: boolean
+  exiting: boolean
+  reducedMotion: boolean
+  dragPreview: {
+    size: { w: number; h: number }
+    hasCollision: boolean
+    position?: { x: number; y: number } | null
+    settleCell?: { x: number; y: number } | null
+    fromLibrary?: boolean
+    padded?: boolean
+    widgetType?: WidgetType
+    widgetConfig?: WidgetConfig
+  } | null
+  gridWidth: number
+  gridHeight: number
+  gridRectRef: React.RefObject<DOMRect | null>
+}) => {
+  const pos = useWidgetDragCursor()
+  const [settleLanded, setSettleLanded] = useState(false)
+  useLayoutEffect(() => {
+    if (!settling || reducedMotion) {
+      setSettleLanded(settling)
+      return
+    }
+    setSettleLanded(false)
+    const frame = requestAnimationFrame(() => setSettleLanded(true))
+    return () => cancelAnimationFrame(frame)
+  }, [reducedMotion, settling])
+
+  if (
+    !active ||
+    !pos ||
+    !dragPreview?.widgetType ||
+    !dragPreview.widgetConfig
+  ) {
+    return null
+  }
+  const gridRect = gridRectRef.current
+  const cellWidth = gridRect ? gridRect.width / gridWidth : 100
+  const cellHeight = gridRect ? gridRect.height / gridHeight : 100
+  const padPx = dragPreview.padded === false ? 0 : GRID_WIDGET_PAD_PX
+  const settleBox =
+    settling &&
+    settleLanded &&
+    dragPreview.settleCell &&
+    gridRect
+      ? widgetDragGhostBox({
+          gridRect,
+          cell: dragPreview.settleCell,
+          size: dragPreview.size,
+          gridWidth,
+          gridHeight,
+          padPx,
+        })
+      : null
+  const floating = dragGhostContentSize(
+    cellWidth,
+    cellHeight,
+    dragPreview.size,
+    padPx,
+  )
+  const left = settleBox?.x ?? pos.x
+  const top = settleBox?.y ?? pos.y
+  const width = settleBox?.width ?? floating.width
+  const height = settleBox?.height ?? floating.height
+  const WidgetComponent = dragPreview.widgetType.component
+  const tileState = dragPreview.hasCollision
+    ? 'is-blocked'
+    : exiting
+      ? 'is-exiting'
+      : settling
+        ? 'is-settling'
+        : 'is-floating'
+  return createPortal(
+    <div
+      className={`widget-grid-drag-ghost${
+        settling ? ' is-settling' : ''
+      }${exiting ? ' is-exiting' : ''}`}
+      style={{ left, top }}
+    >
+      <div
+        className={`widget-grid-drag-ghost-tile ${tileState}`}
+        style={{ width, height }}
+      >
+        <Suspense fallback={null}>
+          <WidgetComponent
+            config={dragPreview.widgetConfig}
+            isEditMode={false}
+            isPreview={true}
+          />
+        </Suspense>
+      </div>
+    </div>,
+    document.body,
+  )
+})
+WidgetDragGhost.displayName = 'WidgetDragGhost'
+
+const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
+  (
+    {
+      widgets,
+      availableWidgets,
+      onWidgetsChange,
+      isEditMode,
+      children,
+      customGridColumns,
+      customGridRows,
+      autoHeight,
+      layoutMode = 'standard',
+      stickerPickActive = false,
+      onPickStickerSlot,
+      stickerHighlight = null,
+      tourAnchor,
+      tourFit,
+    },
+    ref,
+  ) => {
   const { t } = useI18n()
-  // Seed from real viewport immediately — never paint desktop 16-col on a
-  // phone-width DevTools session then “morph” into 4-col (looks broken).
+  const isFreeLayout = layoutMode === 'free'
+  const [stickerDrag, setStickerDrag] = useState<{
+    start: { x: number; y: number }
+    end: { x: number; y: number }
+  } | null>(null)
+  const [stickerHover, setStickerHover] = useState<{
+    x: number
+    y: number
+  } | null>(null)
   const [gridColumns, setGridColumns] = useState(() =>
     readInitialHomeGridColumns(customGridColumns),
   )
-  // Only enable compact mode (auto-layout) if we are in responsive mode (no custom columns) AND width is small
-  const isCompact = !customGridColumns && gridColumns < GRID_WIDTH
+  const isCompact =
+    !isFreeLayout && !customGridColumns && gridColumns < GRID_WIDTH
   const containerRef = useRef<HTMLDivElement | null>(null)
   // 缓存 gridRect 避免频繁调用 getBoundingClientRect
   const gridRectRef = useRef<DOMRect | null>(null)
@@ -739,7 +906,7 @@ export default function WidgetGrid({
   const bandSwitchingRef = useRef(false)
   /** After first successful apply; only then allow tablet↔desktop fade. */
   const bandSettledOnceRef = useRef(false)
-  const bandTimersRef = useRef<{ out?: number; in?: number }>({})
+  const bandTimersRef = useRef<{ out?: number; in?: number; raf?: number }>({})
   /**
    * null = settled; 'out' | 'in' = cross-band fade (no geometry lerp).
    */
@@ -749,22 +916,43 @@ export default function WidgetGrid({
    * Same-band only: drag/resize polish. Cross-band uses opacity crossfade —
    * never interpolate compact packing ↔ desktop saved coords.
    */
-  const geometryMotion = !isExlight(anim) && bandSwitch === null
+  const [motionMode, setMotionMode] = useState(layoutMode)
+  /** 切模式后两帧内关掉几何缓动，避免标准 16×4 与自由 16×8 互插。 */
+  const geometryMotion =
+    !isExlight(anim) &&
+    bandSwitch === null &&
+    motionMode === layoutMode
 
   // 计算内容高度 (用于 autoHeight)
   const contentHeight = useMemo(() => {
     if (!autoHeight) return 0
     let maxY = 0
     widgets.forEach((w) => {
-      const dim = SIZE_TO_DIMENSIONS[w.size]
+      const dim = widgetSizeSpan(w.size)
       maxY = Math.max(maxY, w.position.y + dim.h)
     })
     return maxY
   }, [widgets, autoHeight])
 
   // 响应式列档：防抖宽度 + 迟滞；tablet↔desktop 可淡入淡出；含 phone 则硬切
-  const { width: windowWidth } = useDebouncedWindowSize(150)
+  // 控制面板固定 12 列，不必为窗口 resize 重绘整棵网格。
+  const { width: windowWidth } = useDebouncedWindowSize(
+    150,
+    !isFreeLayout && !customGridColumns,
+  )
   const animHardCut = isExlight(anim)
+
+  useLayoutEffect(() => {
+    if (motionMode === layoutMode) return
+    let second = 0
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => setMotionMode(layoutMode))
+    })
+    return () => {
+      cancelAnimationFrame(first)
+      cancelAnimationFrame(second)
+    }
+  }, [layoutMode, motionMode])
 
   useEffect(() => {
     const clearBandTimers = () => {
@@ -776,14 +964,20 @@ export default function WidgetGrid({
         clearTimeout(bandTimersRef.current.in)
         bandTimersRef.current.in = undefined
       }
+      if (bandTimersRef.current.raf) {
+        cancelAnimationFrame(bandTimersRef.current.raf)
+        bandTimersRef.current.raf = undefined
+      }
     }
 
-    if (customGridColumns) {
+    if (isFreeLayout || customGridColumns) {
       clearBandTimers()
       bandSwitchingRef.current = false
       setBandSwitch(null)
-      setGridColumns(customGridColumns)
-      prevColumnsRef.current = customGridColumns
+      if (customGridColumns) {
+        setGridColumns(customGridColumns)
+        prevColumnsRef.current = customGridColumns
+      }
       bandSettledOnceRef.current = true
       return
     }
@@ -840,19 +1034,26 @@ export default function WidgetGrid({
           setBandSwitch(null)
           bandSwitchingRef.current = false
           bandSettledOnceRef.current = true
-          requestAnimationFrame(() => tryBandMorph())
+          bandTimersRef.current.raf = requestAnimationFrame(() => {
+            bandTimersRef.current.raf = undefined
+            tryBandMorph()
+          })
         }, GRID_BAND_IN_MS)
       }, GRID_BAND_OUT_MS)
     }
 
     tryBandMorph()
-  }, [windowWidth, customGridColumns, animHardCut])
+    return clearBandTimers
+  }, [windowWidth, customGridColumns, animHardCut, isFreeLayout])
 
   // Unmount only: drop pending band morph timers
   useEffect(() => {
     return () => {
       if (bandTimersRef.current.out) clearTimeout(bandTimersRef.current.out)
       if (bandTimersRef.current.in) clearTimeout(bandTimersRef.current.in)
+      if (bandTimersRef.current.raf) {
+        cancelAnimationFrame(bandTimersRef.current.raf)
+      }
       bandSwitchingRef.current = false
     }
   }, [])
@@ -860,84 +1061,66 @@ export default function WidgetGrid({
   // 紧凑模式布局计算 (自动重排)
   const compactLayout = useMemo(() => {
     if (!isCompact) return null
-
-    // 按原始位置排序 (y 优先, 然后 x)
-    const sortedWidgets = [...widgets].sort((a, b) => {
-      if (a.position.y === b.position.y) return a.position.x - b.position.x
-      return a.position.y - b.position.y
-    })
-
-    const occupied = new Set<string>()
-    const newWidgets: WidgetConfig[] = []
-    let maxY = 0
-
-    const isOccupied = (x: number, y: number, w: number, h: number) => {
-      for (let i = 0; i < w; i++) {
-        for (let j = 0; j < h; j++) {
-          if (occupied.has(`${x + i},${y + j}`)) return true
-        }
-      }
-      return false
-    }
-
-    const markOccupied = (x: number, y: number, w: number, h: number) => {
-      for (let i = 0; i < w; i++) {
-        for (let j = 0; j < h; j++) {
-          occupied.add(`${x + i},${y + j}`)
-        }
-      }
-    }
-
-    for (const widget of sortedWidgets) {
-      const dim = SIZE_TO_DIMENSIONS[widget.size]
-      // 限制宽度不超过当前网格列数
-      const w = Math.min(dim.w, gridColumns)
-      const h = dim.h
-
-      // 寻找第一个可用位置
-      let x = 0
-      let y = 0
-      let placed = false
-
-      while (!placed) {
-        if (x + w <= gridColumns && !isOccupied(x, y, w, h)) {
-          markOccupied(x, y, w, h)
-          newWidgets.push({
-            ...widget,
-            position: { x, y },
-          })
-          maxY = Math.max(maxY, y + h)
-          placed = true
-        } else {
-          x++
-          if (x >= gridColumns) {
-            x = 0
-            y++
-          }
-        }
-        // 防止死循环
-        if (y > 100) break
-      }
-    }
-
-    return { widgets: newWidgets, height: Math.max(4, maxY) }
+    return packWidgetsIntoColumns(widgets, gridColumns)
   }, [widgets, isCompact, gridColumns])
+
+  const freeGrid = isFreeLayout
+    ? { cols: HOME_STANDARD_COLS, rows: HOME_FREE_ROWS }
+    : null
 
   const currentWidgets =
     isCompact && compactLayout ? compactLayout.widgets : widgets
-  const currentGridWidth = gridColumns
-  const currentGridHeight =
-    isCompact && compactLayout
+  const currentGridWidth = freeGrid?.cols ?? gridColumns
+  const currentGridHeight = freeGrid
+    ? freeGrid.rows
+    : isCompact && compactLayout
       ? compactLayout.height
       : autoHeight
         ? Math.max(customGridRows || 0, contentHeight)
         : customGridRows || GRID_HEIGHT
 
+  const stickerDragRect = stickerDrag
+    ? {
+        x: Math.min(stickerDrag.start.x, stickerDrag.end.x),
+        y: Math.min(stickerDrag.start.y, stickerDrag.end.y),
+        w: Math.abs(stickerDrag.end.x - stickerDrag.start.x) + 1,
+        h: Math.abs(stickerDrag.end.y - stickerDrag.start.y) + 1,
+      }
+    : null
+  const stickerDragPlacement = stickerDragRect
+    ? placeHomeStickerSelection(
+        stickerDragRect.x,
+        stickerDragRect.y,
+        stickerDragRect.w,
+        stickerDragRect.h,
+      )
+    : null
+  const stickerDragCollision = Boolean(
+    stickerDragPlacement &&
+      checkCollision(
+        {
+          id: '__sticker-pick__',
+          type: 'sticker',
+          kind: 'sticker',
+          size: stickerDragPlacement.size,
+          position: {
+            x: stickerDragPlacement.x,
+            y: stickerDragPlacement.y,
+          },
+        },
+        widgets,
+        currentGridWidth,
+        currentGridHeight,
+      ),
+  )
+
+
   // Explicit height from cols/rows. Cross-band: snap (no height transition).
+  // Free layout sizes the plate to N×cell instead of stretching with the host.
   const gridPixelHeight =
-    containerWidth > 0
-      ? (containerWidth * currentGridHeight) / currentGridWidth
-      : undefined
+    freeGrid || containerWidth <= 0
+      ? undefined
+      : (containerWidth * currentGridHeight) / currentGridWidth
 
   /*
    * 高度过渡只表达「行数变了」，不表达「窗口宽度变了」。
@@ -957,16 +1140,18 @@ export default function WidgetGrid({
     return () => window.clearTimeout(timer)
   }, [currentGridHeight])
 
-  const [draggedWidget, setDraggedWidget] = useState<{
-    type: 'existing' | 'new'
-    widgetId?: string
-    widgetTypeId?: string
-    offset: { x: number; y: number }
-  } | null>(null)
+  const [draggedWidget, setDraggedWidget] = useState<WidgetDragSession | null>(
+    null,
+  )
+  const [dragSettling, setDragSettling] = useState(false)
+  const [previewUncovered, setPreviewUncovered] = useState(false)
+  const [previewExiting, setPreviewExiting] = useState(false)
+  const settleStartedAtRef = useRef(0)
   const [resizingWidget, setResizingWidget] = useState<{
     widgetId: string
     startPos: { x: number; y: number }
     startSize: WidgetSize
+    draftSize: WidgetSize
     direction?: 'se' | 's'
   } | null>(null)
   const [hoveredCell, setHoveredCell] = useState<{
@@ -976,28 +1161,6 @@ export default function WidgetGrid({
   const [widgetHistory, setWidgetHistory] = useState<WidgetConfig[][]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [hoveredWidgetId, setHoveredWidgetId] = useState<string | null>(null)
-  const [dragCursorPosition, setDragCursorPosition] = useState<{
-    x: number
-    y: number
-  } | null>(null)
-
-  // 小组件库横向滚动 - ref 本身不触发重渲染，滚动状态由独立子组件管理，
-  // 避免每次滚动都重渲染整个小组件库（含所有预览小组件）导致卡顿
-  const libraryScrollRef = useRef<HTMLDivElement>(null)
-  const [librarySearchQuery, setLibrarySearchQuery] = useState('')
-
-  // 离开编辑模式时清空搜索，避免下次进入带着旧筛选
-  useEffect(() => {
-    if (!isEditMode) setLibrarySearchQuery('')
-  }, [isEditMode])
-
-  // 进入编辑模式：预热目录内全部类型（含报告壳 + 全 report-* 对应 face）
-  useEffect(() => {
-    if (!isEditMode) return
-    void preloadBuiltinWidgets(availableWidgets.map((w) => w.id)).catch(
-      () => {},
-    )
-  }, [isEditMode, availableWidgets])
 
   /*
    * id → WidgetType 索引。
@@ -1006,30 +1169,11 @@ export default function WidgetGrid({
    */
   const widgetTypeById = useMemo(() => {
     const map = new Map<string, WidgetType>()
-    for (const widgetType of availableWidgets) map.set(widgetType.id, widgetType)
+    for (const widgetType of availableWidgets)
+      map.set(widgetType.id, widgetType)
+    map.set(STICKER_WIDGET_TYPE.id, STICKER_WIDGET_TYPE)
     return map
   }, [availableWidgets])
-
-  // 按运行时元数据过滤（内置 + 第三方 Tapp 同一路径，不依赖预置名单）
-  const libraryWidgets = useMemo(() => {
-    const widgetsI18n = t.widgets as Record<string, unknown>
-    return availableWidgets.filter((widgetType) =>
-      widgetTypeMatchesLibrarySearch(librarySearchQuery, {
-        id: widgetType.id,
-        name: widgetType.name,
-        label: getWidgetDisplayLabel(widgetType, widgetsI18n),
-        extras: getWidgetSearchExtras(widgetType),
-      }),
-    )
-  }, [availableWidgets, librarySearchQuery, t.widgets])
-
-  // 搜索结果变化时滚回列表起点，避免停在空区域
-  useEffect(() => {
-    const el = libraryScrollRef.current
-    if (!el) return
-    el.scrollLeft = 0
-    el.scrollTop = 0
-  }, [librarySearchQuery])
 
   // RAF ref for drag handling
   const rafRef = useRef<number | null>(null)
@@ -1050,12 +1194,20 @@ export default function WidgetGrid({
     onWidgetsChange,
     widgetHistory,
     historyIndex,
+    isFreeLayout,
+    widgetTypeById,
+    currentGridWidth: GRID_WIDTH,
+    currentGridHeight: GRID_HEIGHT,
   })
   latestRef.current = {
     widgets,
     onWidgetsChange,
     widgetHistory,
     historyIndex,
+    isFreeLayout,
+    widgetTypeById,
+    currentGridWidth,
+    currentGridHeight,
   }
 
   // 保存到历史记录
@@ -1078,6 +1230,49 @@ export default function WidgetGrid({
       gridRectRef.current = containerRef.current.getBoundingClientRect()
     }
   }, [])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      startNewWidgetDrag(widgetTypeId, point) {
+        const latest = latestRef.current
+        const widgetType = latest.widgetTypeById.get(widgetTypeId)
+        if (latest.isFreeLayout) {
+          const extra = homeWidgetCellCount(widgetType?.defaultSize ?? '2x2')
+          if (
+            !freeLayoutFitsCellBudget(
+              homeWidgetsOccupiedCells(latest.widgets),
+              extra,
+            )
+          ) {
+            return
+          }
+        }
+        updateGridRectCache()
+        setDragSettling(false)
+        setPreviewUncovered(false)
+        setPreviewExiting(false)
+        setWidgetDragCursor(point)
+        setDraggedWidget({
+          type: 'new',
+          widgetTypeId,
+        })
+        const gridRect = gridRectRef.current
+        if (!gridRect || !widgetType) return
+        const size = widgetSizeSpan(widgetType.defaultSize)
+        setHoveredCell(
+          gridCellFromPoint({
+            point,
+            gridRect,
+            gridWidth: latest.currentGridWidth,
+            gridHeight: latest.currentGridHeight,
+            size,
+          }),
+        )
+      },
+    }),
+    [updateGridRectCache],
+  )
 
   // 🆕 使用首页原子化 ResizeObserver
   const { observeHomeResize, unobserveHomeResize } = useHomeResizeObserver()
@@ -1103,6 +1298,100 @@ export default function WidgetGrid({
     [observeHomeResize, unobserveHomeResize],
   )
 
+
+  useEffect(() => {
+    if (!stickerDrag) return
+    const onMove = (event: MouseEvent) => {
+      const rect = gridRectRef.current
+      if (!rect || rect.width <= 0 || rect.height <= 0) return
+      const x = Math.max(
+        0,
+        Math.min(
+          currentGridWidth - 1,
+          Math.floor(((event.clientX - rect.left) / rect.width) * currentGridWidth),
+        ),
+      )
+      const y = Math.max(
+        0,
+        Math.min(
+          currentGridHeight - 1,
+          Math.floor(((event.clientY - rect.top) / rect.height) * currentGridHeight),
+        ),
+      )
+      setStickerDrag((prev) =>
+        prev && (prev.end.x !== x || prev.end.y !== y)
+          ? { ...prev, end: { x, y } }
+          : prev,
+      )
+    }
+    const onUp = () => {
+      setStickerDrag((prev) => {
+        if (!prev) return null
+        const x = Math.min(prev.start.x, prev.end.x)
+        const y = Math.min(prev.start.y, prev.end.y)
+        const w = Math.abs(prev.end.x - prev.start.x) + 1
+        const h = Math.abs(prev.end.y - prev.start.y) + 1
+        const placed = placeHomeStickerSelection(x, y, w, h)
+        const candidate = {
+          id: '__sticker-pick__',
+          type: 'sticker',
+          kind: 'sticker' as const,
+          size: placed.size,
+          position: { x: placed.x, y: placed.y },
+        }
+        if (
+          onPickStickerSlot &&
+          !checkCollision(candidate, widgets, currentGridWidth, currentGridHeight)
+        ) {
+          const grid = gridRectRef.current
+          const dim = widgetSizeSpan(placed.size)
+          const anchor = grid
+            ? {
+                left:
+                  grid.left + (placed.x / currentGridWidth) * grid.width,
+                top:
+                  grid.top + (placed.y / currentGridHeight) * grid.height,
+                width: (dim.w / currentGridWidth) * grid.width,
+                height: (dim.h / currentGridHeight) * grid.height,
+                right:
+                  grid.left +
+                  ((placed.x + dim.w) / currentGridWidth) * grid.width,
+                bottom:
+                  grid.top +
+                  ((placed.y + dim.h) / currentGridHeight) * grid.height,
+              }
+            : {
+                left: 0,
+                top: 0,
+                width: 0,
+                height: 0,
+                right: 0,
+                bottom: 0,
+              }
+          onPickStickerSlot({
+            x: placed.x,
+            y: placed.y,
+            size: placed.size,
+            anchor,
+          })
+        }
+        return null
+      })
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [
+    stickerDrag,
+    currentGridWidth,
+    currentGridHeight,
+    widgets,
+    onPickStickerSlot,
+  ])
+
   // 清理 ResizeObserver
   useEffect(() => {
     return () => {
@@ -1115,7 +1404,7 @@ export default function WidgetGrid({
   // 开始拖拽现有小组件
   const handleWidgetDragStart = useCallback(
     (e: React.MouseEvent, widgetId: string) => {
-      if (!isEditMode) return
+      if (!isEditMode || stickerPickActive) return
       e.stopPropagation()
       e.preventDefault()
 
@@ -1125,43 +1414,30 @@ export default function WidgetGrid({
       // 拖拽开始时更新 gridRect 缓存
       updateGridRectCache()
 
-      // 立即设置光标位置
-      setDragCursorPosition({ x: e.clientX, y: e.clientY })
+      setDragSettling(false)
+      setPreviewUncovered(false)
+      setPreviewExiting(false)
+      setWidgetDragCursor({ x: e.clientX, y: e.clientY })
 
-      // 设置拖拽状态
       setDraggedWidget({
         type: 'existing',
         widgetId,
-        offset: { x: 0, y: 0 }, // offset 现在不再使用
       })
+      const gridRect = gridRectRef.current
+      if (gridRect) {
+        const latest = latestRef.current
+        setHoveredCell(
+          gridCellFromPoint({
+            point: { x: e.clientX, y: e.clientY },
+            gridRect,
+            gridWidth: latest.currentGridWidth,
+            gridHeight: latest.currentGridHeight,
+            size: widgetSizeSpan(widget.size),
+          }),
+        )
+      }
     },
-    [isEditMode, updateGridRectCache],
-  )
-
-  // 开始拖拽新小组件
-  const handleNewWidgetDragStart = useCallback(
-    (e: React.MouseEvent | React.TouchEvent, widgetTypeId: string) => {
-      e.stopPropagation()
-      e.preventDefault()
-
-      // 拖拽开始时更新 gridRect 缓存
-      updateGridRectCache()
-
-      // 获取初始位置
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
-
-      // 立即设置光标位置
-      setDragCursorPosition({ x: clientX, y: clientY })
-
-      // 设置拖拽状态
-      setDraggedWidget({
-        type: 'new',
-        widgetTypeId,
-        offset: { x: 0, y: 0 },
-      })
-    },
-    [updateGridRectCache],
+    [isEditMode, stickerPickActive, updateGridRectCache],
   )
 
   // 开始调整大小
@@ -1171,7 +1447,7 @@ export default function WidgetGrid({
       widgetId: string,
       direction: 'se' | 's' = 'se',
     ) => {
-      if (!isEditMode) return
+      if (!isEditMode || stickerPickActive) return
       e.stopPropagation()
       e.preventDefault()
 
@@ -1189,10 +1465,11 @@ export default function WidgetGrid({
         widgetId,
         startPos: { x: clientX, y: clientY },
         startSize: widget.size,
+        draftSize: widget.size,
         direction,
       })
     },
-    [isEditMode, updateGridRectCache],
+    [isEditMode, stickerPickActive, updateGridRectCache],
   )
 
   // 调整大小移动
@@ -1235,39 +1512,39 @@ export default function WidgetGrid({
 
         // 如果是底部调整，锁定宽度
         if (resizingWidget.direction === 's') {
-          rawW = SIZE_TO_DIMENSIONS[widget.size].w
+          rawW = widgetSizeSpan(resizingWidget.startSize).w
         }
 
         // Find closest valid size
         let bestSize = widget.size
         let minDistance = Infinity
 
-        // 获取该组件类型支持的尺寸列表
+        const sticker = isHomeStickerItem(widget)
         const widgetType = widgetTypeById.get(widget.type)
-
-        // 如果找不到组件类型定义，或者没有定义 supportedSizes，则不允许调整大小（锁定当前尺寸）
-        // 这是一个安全措施，防止意外拉伸到不支持的尺寸
-        if (!widgetType) {
+        if (!sticker && !widgetType) {
           rafRef.current = null
           return
         }
 
-        const supportedSizes =
-          widgetType.supportedSizes ||
-          (Object.keys(SIZE_TO_DIMENSIONS) as WidgetSize[])
+        const supportedSizes = sticker
+          ? stickerSizesSharingAspect(resizingWidget.startSize)
+          : widgetType?.supportedSizes || WIDGET_SIZE_KEYS
 
-        // 过滤出有效的尺寸
-        const validSizes = supportedSizes.filter(
-          (size) => SIZE_TO_DIMENSIONS[size],
-        )
+        const validSizes = sticker
+          ? supportedSizes
+          : supportedSizes.filter((size) =>
+              WIDGET_SIZE_KEYS.includes(
+                size as (typeof WIDGET_SIZE_KEYS)[number],
+              ),
+            )
 
         for (const size of validSizes) {
-          const dim = SIZE_TO_DIMENSIONS[size]
+          const dim = widgetSizeSpan(size)
 
           // 如果是底部调整，只考虑宽度相同的尺寸
           if (
             resizingWidget.direction === 's' &&
-            dim.w !== SIZE_TO_DIMENSIONS[widget.size].w
+            dim.w !== widgetSizeSpan(resizingWidget.startSize).w
           ) {
             continue
           }
@@ -1281,10 +1558,17 @@ export default function WidgetGrid({
           }
         }
 
-        if (bestSize !== widget.size) {
+        if (bestSize !== resizingWidget.draftSize) {
           const newWidget = { ...widget, size: bestSize }
-          // Check collision excluding itself
+          const fitsBudget =
+            !isFreeLayout ||
+            !isHomeWidgetItem(widget) ||
+            freeLayoutFitsCellBudget(
+              homeWidgetsOccupiedCells(widgets, widget.id),
+              homeWidgetCellCount(bestSize),
+            )
           if (
+            fitsBudget &&
             !checkCollision(
               newWidget,
               widgets,
@@ -1293,10 +1577,9 @@ export default function WidgetGrid({
               widget.id,
             )
           ) {
-            const updatedWidgets = widgets.map((w) =>
-              w.id === widget.id ? newWidget : w,
+            setResizingWidget((prev) =>
+              prev ? { ...prev, draftSize: bestSize as WidgetSize } : prev,
             )
-            onWidgetsChange?.(updatedWidgets)
           }
         }
 
@@ -1308,22 +1591,31 @@ export default function WidgetGrid({
       widgets,
       currentGridWidth,
       currentGridHeight,
-      onWidgetsChange,
       widgetTypeById,
+      isFreeLayout,
     ],
   )
 
   // 结束调整大小
   const handleResizeEnd = useCallback(() => {
     if (resizingWidget) {
-      saveToHistory(widgets)
+      const committed = widgets.find((w) => w.id === resizingWidget.widgetId)
+      if (committed && committed.size !== resizingWidget.draftSize) {
+        const next = widgets.map((w) =>
+          w.id === resizingWidget.widgetId
+            ? { ...w, size: resizingWidget.draftSize }
+            : w,
+        )
+        onWidgetsChange?.(next)
+        saveToHistory(next)
+      }
       setResizingWidget(null)
     }
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
-  }, [resizingWidget, widgets, saveToHistory])
+  }, [resizingWidget, widgets, onWidgetsChange, saveToHistory])
 
   // 拖拽移动
   const handleDragMove = useCallback(
@@ -1350,13 +1642,8 @@ export default function WidgetGrid({
         const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
 
         // 更新光标位置（用于渲染跟随光标的预览）
-        setDragCursorPosition({ x: clientX, y: clientY })
+        setWidgetDragCursor({ x: clientX, y: clientY })
 
-        // 计算单元格尺寸
-        const cellWidth = gridRect.width / currentGridWidth
-        const cellHeight = gridRect.height / currentGridHeight
-
-        // 获取当前拖拽的小组件尺寸
         let size: WidgetSize = '1x1'
         if (draggedWidget.type === 'existing' && draggedWidget.widgetId) {
           const widget = widgets.find((w) => w.id === draggedWidget.widgetId)
@@ -1365,28 +1652,18 @@ export default function WidgetGrid({
           const widgetType = widgetTypeById.get(draggedWidget.widgetTypeId)
           size = widgetType?.defaultSize || '1x1'
         }
-        const dim = SIZE_TO_DIMENSIONS[size]
-
-        // 计算鼠标在网格中的位置
-        let mouseX = clientX - gridRect.left
-        let mouseY = clientY - gridRect.top
-
-        // 所有小组件都以中心点为参考
-        // 减去小组件尺寸的一半，使光标位于中心
-        mouseX -= (dim.w * cellWidth) / 2
-        mouseY -= (dim.h * cellHeight) / 2
-
-        // 转换为网格坐标
-        let gridX = Math.floor(mouseX / cellWidth)
-        let gridY = Math.floor(mouseY / cellHeight)
-
-        // 确保小组件不会超出边界（考虑小组件尺寸）
-        gridX = Math.max(0, Math.min(currentGridWidth - dim.w, gridX))
-        gridY = Math.max(0, Math.min(currentGridHeight - dim.h, gridY))
+        const dim = widgetSizeSpan(size)
+        const nextCell = gridCellFromPoint({
+          point: { x: clientX, y: clientY },
+          gridRect,
+          gridWidth: currentGridWidth,
+          gridHeight: currentGridHeight,
+          size: dim,
+        })
 
         setHoveredCell((prev) => {
-          if (prev?.x === gridX && prev?.y === gridY) return prev
-          return { x: gridX, y: gridY }
+          if (prev?.x === nextCell.x && prev?.y === nextCell.y) return prev
+          return nextCell
         })
 
         rafRef.current = null
@@ -1403,6 +1680,7 @@ export default function WidgetGrid({
 
   // 结束拖拽
   const handleDragEnd = useCallback(() => {
+    if (dragSettling) return
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
@@ -1411,7 +1689,10 @@ export default function WidgetGrid({
     if (!draggedWidget || !hoveredCell) {
       setDraggedWidget(null)
       setHoveredCell(null)
-      setDragCursorPosition(null)
+      setDragSettling(false)
+      setPreviewUncovered(false)
+      setPreviewExiting(false)
+      setWidgetDragCursor(null)
       return
     }
 
@@ -1444,53 +1725,71 @@ export default function WidgetGrid({
         )
         onWidgetsChange?.(updatedWidgets)
         saveToHistory(updatedWidgets)
+        settleStartedAtRef.current = performance.now()
+        setDraggedWidget({
+          ...draggedWidget,
+          pendingId: widget.id,
+          pendingCell: hoveredCell,
+        })
+        setHoveredCell(null)
+        setDragSettling(true)
+        return
       }
     } else if (draggedWidget.type === 'new' && draggedWidget.widgetTypeId) {
       // 添加新小组件
       const widgetType = widgetTypeById.get(draggedWidget.widgetTypeId)
       if (!widgetType) return
 
+      const settingsConfig =
+        widgetType.settings && widgetType.settings.length > 0
+          ? Object.fromEntries(
+              widgetType.settings
+                .filter((setting) => setting.defaultValue !== undefined)
+                .map((setting) => [setting.key, setting.defaultValue]),
+            )
+          : undefined
       const newWidget: WidgetConfig = {
         id: `widget_${Date.now()}`,
         type: widgetType.id,
         size: widgetType.defaultSize,
         position: hoveredCell,
-        config:
-          widgetType.settings && widgetType.settings.length > 0
-            ? Object.fromEntries(
-                widgetType.settings
-                  .filter((setting) => setting.defaultValue !== undefined)
-                  .map((setting) => [setting.key, setting.defaultValue]),
-              )
-            : undefined,
+        config: widgetHostConfig(widgetType.id) ?? settingsConfig,
       }
 
-      // 为特定类型的小组件自动设置配置
-      if (widgetType.id.startsWith('platform-')) {
-        // 平台卡片小组件
-        const platformId = widgetType.id.replace('platform-', '')
-        newWidget.config = { platformId }
-      } else if (widgetType.id.startsWith('report-')) {
-        // 报告卡片小组件
-        const platformId = widgetType.id.replace('report-', '')
-        newWidget.config = { platformId }
-      }
-
-      // 检查碰撞
+      const fitsBudget =
+        !isFreeLayout ||
+        freeLayoutFitsCellBudget(
+          homeWidgetsOccupiedCells(widgets),
+          homeWidgetCellCount(newWidget.size),
+        )
       if (
+        fitsBudget &&
         !checkCollision(newWidget, widgets, currentGridWidth, currentGridHeight)
       ) {
         const newWidgets = [...widgets, newWidget]
         onWidgetsChange?.(newWidgets)
         saveToHistory(newWidgets)
+        settleStartedAtRef.current = performance.now()
+        setDraggedWidget({
+          ...draggedWidget,
+          pendingId: newWidget.id,
+          pendingCell: hoveredCell,
+        })
+        setHoveredCell(null)
+        setDragSettling(true)
+        return
       }
     }
 
     setDraggedWidget(null)
     setHoveredCell(null)
-    setDragCursorPosition(null)
+    setDragSettling(false)
+    setPreviewUncovered(false)
+    setPreviewExiting(false)
+    setWidgetDragCursor(null)
   }, [
     draggedWidget,
+    dragSettling,
     hoveredCell,
     widgets,
     widgetTypeById,
@@ -1498,6 +1797,7 @@ export default function WidgetGrid({
     saveToHistory,
     currentGridWidth,
     currentGridHeight,
+    isFreeLayout,
   ])
 
   // 移除小组件（引用恒定，见 latestRef 注释）
@@ -1558,7 +1858,7 @@ export default function WidgetGrid({
   // 注册拖拽事件（鼠标和触屏）- 使用 ref 避免频繁重建监听器
   // 关键优化: 移动端禁用编辑模式,避免 passive: false 破坏滚动性能
   useEffect(() => {
-    if (draggedWidget) {
+    if (draggedWidget && !dragSettling) {
       const isMobile = getIsMobile()
       const moveHandler = (e: MouseEvent | TouchEvent) =>
         handleDragMoveRef.current(e)
@@ -1589,7 +1889,54 @@ export default function WidgetGrid({
         }
       }
     }
-  }, [draggedWidget]) // 只依赖 draggedWidget 是否存在
+  }, [draggedWidget, dragSettling])
+
+  const wasEditModeRef = useRef(isEditMode)
+  useEffect(() => {
+    const wasEditMode = wasEditModeRef.current
+    wasEditModeRef.current = isEditMode
+    if (!wasEditMode || isEditMode) return
+    setDraggedWidget(null)
+    setHoveredCell(null)
+    setDragSettling(false)
+    setPreviewUncovered(false)
+    setPreviewExiting(false)
+    setWidgetDragCursor(null)
+  }, [isEditMode])
+
+  const handoffId = draggedWidget?.pendingId
+  const handoffCommitted = placementHasCommitted(widgets, draggedWidget)
+  useEffect(() => {
+    if (!dragSettling || !handoffId || !handoffCommitted) return
+    const reduced =
+      isExlight(anim) ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const delays = dragGhostHandoffDelays(
+      reduced,
+      performance.now() - settleStartedAtRef.current,
+    )
+    const uncoverTimer = window.setTimeout(
+      () => setPreviewUncovered(true),
+      delays.uncoverMs,
+    )
+    const exitTimer = window.setTimeout(
+      () => setPreviewExiting(true),
+      delays.exitMs,
+    )
+    const clearTimer = window.setTimeout(() => {
+      setDraggedWidget(null)
+      setHoveredCell(null)
+      setDragSettling(false)
+      setPreviewUncovered(false)
+      setPreviewExiting(false)
+      setWidgetDragCursor(null)
+    }, delays.clearMs)
+    return () => {
+      window.clearTimeout(uncoverTimer)
+      window.clearTimeout(exitTimer)
+      window.clearTimeout(clearTimer)
+    }
+  }, [anim, dragSettling, handoffCommitted, handoffId])
 
   // 注册调整大小事件 - 使用 ref 避免频繁重建监听器
   // 关键优化: 移动端使用 passive 监听避免阻塞滚动
@@ -1644,69 +1991,48 @@ export default function WidgetGrid({
         e.preventDefault()
         handleRedo()
       }
-      // ESC: 取消编辑
-      if (e.key === 'Escape') {
-        onToggleEditMode(false)
-      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isEditMode, handleUndo, handleRedo, onToggleEditMode])
+  }, [handleRedo, handleUndo, isEditMode])
 
   // 预览拖拽位置和组件信息
   const dragPreview = useMemo(() => {
-    if (!draggedWidget || !hoveredCell) return null
-
-    let size: WidgetSize = '1x1'
-    let widgetType: WidgetType | undefined
-    let widgetConfig: WidgetConfig | undefined
-
-    if (draggedWidget.type === 'existing' && draggedWidget.widgetId) {
-      const widget = widgets.find((w) => w.id === draggedWidget.widgetId)
-      size = widget?.size || '1x1'
-      widgetConfig = widget
-      widgetType = widget ? widgetTypeById.get(widget.type) : undefined
-    } else if (draggedWidget.type === 'new' && draggedWidget.widgetTypeId) {
-      widgetType = widgetTypeById.get(draggedWidget.widgetTypeId)
-      size = widgetType?.defaultSize || '1x1'
-
-      // 创建预览配置
-      widgetConfig = {
-        id: 'drag-preview',
-        type: draggedWidget.widgetTypeId,
-        size,
-        position: hoveredCell,
-        config: draggedWidget.widgetTypeId.startsWith('platform-')
-          ? { platformId: draggedWidget.widgetTypeId.replace('platform-', '') }
-          : draggedWidget.widgetTypeId.startsWith('report-')
-            ? { platformId: draggedWidget.widgetTypeId.replace('report-', '') }
-            : undefined,
-      }
-    }
-
-    const dim = SIZE_TO_DIMENSIONS[size]
-    const testWidget: WidgetConfig = {
-      id: 'preview',
-      type: widgetConfig?.type || '',
-      size,
-      position: hoveredCell,
-    }
-
-    const hasCollision = checkCollision(
-      testWidget,
+    if (!draggedWidget) return null
+    const ghost = resolveDragGhostWidget({
+      dragged: draggedWidget,
       widgets,
-      currentGridWidth,
-      currentGridHeight,
-      draggedWidget.type === 'existing' ? draggedWidget.widgetId : undefined,
-    )
+      widgetTypeById,
+    })
+    if (!ghost) return null
+
+    const hasCollision = hoveredCell
+      ? checkCollision(
+          {
+            id: 'preview',
+            type: ghost.widgetConfig?.type || '',
+            size: ghost.widgetConfig?.size || '1x1',
+            position: hoveredCell,
+          },
+          widgets,
+          currentGridWidth,
+          currentGridHeight,
+          draggedWidget.type === 'existing' ? draggedWidget.widgetId : undefined,
+        )
+      : false
 
     return {
       position: hoveredCell,
-      size: dim,
+      settleCell: draggedWidget.pendingCell ?? hoveredCell ?? null,
+      size: ghost.size,
       hasCollision,
-      widgetType,
-      widgetConfig,
+      fromLibrary: ghost.fromLibrary,
+      padded: ghost.widgetConfig
+        ? !isHomeStickerItem(ghost.widgetConfig)
+        : true,
+      widgetType: ghost.widgetType,
+      widgetConfig: ghost.widgetConfig,
     }
   }, [
     draggedWidget,
@@ -1721,7 +2047,9 @@ export default function WidgetGrid({
   const gridBackground = useMemo(
     () => (
       <div
-        className="widget-grid-background absolute inset-0 pointer-events-none z-0"
+        className={`widget-grid-background absolute inset-0 pointer-events-none z-0${
+          stickerPickActive ? ' is-sticker-pick' : ''
+        }`}
         style={
           {
             '--widget-grid-cell-w': `${100 / currentGridWidth}%`,
@@ -1730,228 +2058,7 @@ export default function WidgetGrid({
         }
       />
     ),
-    [currentGridWidth, currentGridHeight],
-  )
-
-  // 小组件库内容
-  const libraryContent = (
-    <motion.div
-      initial={libraryAnimation?.initial || { y: '-100%' }}
-      animate={libraryAnimation?.animate || { y: 0 }}
-      exit={libraryAnimation?.exit || { y: '-100%' }}
-      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-      className={
-        libraryContainerClassName ||
-        'fixed top-0 left-0 right-0 z-50 glass-surface glass-80 border-b border-gray-200/50 dark:border-white/5 shadow-2xl'
-      }
-      style={libraryStyle}
-    >
-      <div className="w-full max-w-480 mx-auto">
-        {/* 控制栏：标题 → 搜索 */}
-        <div className="flex flex-wrap items-center gap-3 px-4 sm:px-6 py-3 border-b border-gray-200/30 dark:border-white/5">
-          <div className="flex items-center gap-2 text-gray-800 dark:text-gray-100 shrink-0">
-            <img
-              src="/icons/widgets/library.webp"
-              alt=""
-              aria-hidden="true"
-              className="h-5 w-5 object-contain"
-              draggable={false}
-              decoding="async"
-            />
-            <span className="font-bold">{t.widgetGrid.widgetLibrary}</span>
-          </div>
-
-          <div
-            className="relative w-44 sm:w-52 min-w-0"
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <FaSearch
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-white/40"
-              size={12}
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={librarySearchQuery}
-              onChange={(e) => setLibrarySearchQuery(e.target.value)}
-              placeholder={t.widgetGrid.searchWidgets}
-              aria-label={t.widgetGrid.searchWidgets}
-              autoComplete="off"
-              className="widget-library-search-input w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/5 py-1.5 pl-8 pr-8 text-sm text-gray-800 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-white/35 outline-none focus:border-blue-400/60 focus:ring-2 focus:ring-blue-400/20 transition-[border-color,box-shadow]"
-            />
-            {librarySearchQuery ? (
-              <button
-                type="button"
-                onClick={() => setLibrarySearchQuery('')}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 hover:text-gray-700 dark:hover:text-white/80 hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                title={t.widgetGrid.clearSearch}
-                aria-label={t.widgetGrid.clearSearch}
-              >
-                <FaTimes size={10} />
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        {/* 组件列表 - 横向滚动 */}
-        <div className="relative">
-          <div
-            ref={libraryScrollRef}
-            className={
-              libraryContentClassName ||
-              'flex items-center gap-6 p-6 overflow-x-auto scrollbar-hide min-h-40'
-            }
-            onWheel={(e) => {
-              if (libraryContentClassName) return
-              // 只接管纯垂直滚轮手势（deltaX 恒为 0，鼠标滚轮特征）；
-              // 只要带有 deltaX（触控板横滑及其惯性尾段都会带一点）就完全交给浏览器原生处理，
-              // 否则会在惯性阶段跟原生横向滚动打架，造成内容位置概率性闪现
-              if (e.deltaX !== 0 || e.deltaY === 0) return
-              const el = e.currentTarget
-              const maxScrollLeft = el.scrollWidth - el.clientWidth
-              if (maxScrollLeft <= 0) return
-              e.preventDefault()
-              el.scrollLeft = Math.max(
-                0,
-                Math.min(maxScrollLeft, el.scrollLeft + e.deltaY),
-              )
-            }}
-          >
-            {libraryWidgets.length === 0 ? (
-              <div className="flex w-full min-h-28 items-center justify-center px-4 text-sm text-gray-500 dark:text-white/50">
-                {t.widgetGrid.noSearchResults}
-              </div>
-            ) : (
-              libraryWidgets.map((widgetType) => {
-              const WidgetComponent = widgetType.component
-              // 与 useWidgetSize 标准尺寸同步：内部按 scale=1 设计稿渲染，
-              // 外层仅用 LIBRARY_PREVIEW_DISPLAY_SCALE 压缩条带展示。
-              const standard = getStandardWidgetDimensions(
-                widgetType.defaultSize,
-              )
-              const renderWidth = standard.width
-              const renderHeight = standard.height
-              const displayScale = LIBRARY_PREVIEW_DISPLAY_SCALE
-              const wrapperWidth = renderWidth * displayScale
-              const wrapperHeight = renderHeight * displayScale
-
-              // 构造预览配置
-              const previewConfig: WidgetConfig = {
-                id: `preview-${widgetType.id}`,
-                type: widgetType.id,
-                size: widgetType.defaultSize,
-                position: { x: 0, y: 0 },
-                config: widgetType.id.startsWith('platform-')
-                  ? { platformId: widgetType.id.replace('platform-', '') }
-                  : widgetType.id.startsWith('report-')
-                    ? { platformId: widgetType.id.replace('report-', '') }
-                    : undefined,
-              }
-
-              const libraryLabel = getWidgetDisplayLabel(
-                widgetType,
-                t.widgets as Record<string, unknown>,
-              )
-              const isLibrary1x1 = widgetType.defaultSize === '1x1'
-
-              return (
-                <motion.div
-                  key={widgetType.id}
-                  className={`relative group cursor-move shrink-0${isLibrary1x1 ? ' flex flex-col items-center' : ''}`}
-                  style={
-                    isLibrary1x1
-                      ? { width: wrapperWidth }
-                      : {
-                          width: wrapperWidth,
-                          height: wrapperHeight,
-                        }
-                  }
-                  draggable
-                  onMouseDown={(e: React.MouseEvent) =>
-                    handleNewWidgetDragStart(e, widgetType.id)
-                  }
-                  onTouchStart={(e: React.TouchEvent) =>
-                    handleNewWidgetDragStart(e, widgetType.id)
-                  }
-                  whileHover={{ scale: 1.05, zIndex: 10 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  {isLibrary1x1 ? (
-                    <>
-                      {/* 1x1：预览框固定尺寸；名称放框外下方，避免内叠 tip 溢出 */}
-                      <div
-                        className="relative"
-                        style={{
-                          width: wrapperWidth,
-                          height: wrapperHeight,
-                        }}
-                      >
-                        <LibraryPreviewSlot
-                          scrollRef={libraryScrollRef}
-                          renderWidth={renderWidth}
-                          renderHeight={renderHeight}
-                          displayScale={displayScale}
-                        >
-                          <WidgetComponent
-                            config={previewConfig}
-                            isEditMode={true}
-                            isPreview={true}
-                          />
-                        </LibraryPreviewSlot>
-                        <div className="absolute inset-0 z-20 rounded-xl ring-1 ring-black/5 dark:ring-white/10 group-hover:ring-2 group-hover:ring-blue-500 transition-all bg-transparent" />
-                      </div>
-                      <div
-                        className="mt-5 w-full px-0.5 text-center text-[10px] font-bold leading-tight text-gray-600 dark:text-gray-300 line-clamp-2 break-words pointer-events-none"
-                        title={libraryLabel}
-                      >
-                        {libraryLabel}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {/* 缩放容器（按需挂载，见 LibraryPreviewSlot） */}
-                      <LibraryPreviewSlot
-                        scrollRef={libraryScrollRef}
-                        renderWidth={renderWidth}
-                        renderHeight={renderHeight}
-                        displayScale={displayScale}
-                      >
-                        <WidgetComponent
-                          config={previewConfig}
-                          isEditMode={true}
-                          isPreview={true}
-                        />
-                      </LibraryPreviewSlot>
-
-                      {/* 遮罩层 - 用于拖拽交互和高亮 */}
-                      <div className="absolute inset-0 z-20 rounded-xl ring-1 ring-black/5 dark:ring-white/10 group-hover:ring-2 group-hover:ring-blue-500 transition-all bg-transparent" />
-
-                      {/* 悬浮提示（非 1x1 维持原样） */}
-                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-bold text-gray-600 dark:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none glass-surface glass-90 px-3 py-1 rounded-full shadow-sm border border-gray-200/50 dark:border-neutral-700/50">
-                        {libraryLabel}
-                      </div>
-                    </>
-                  )}
-                </motion.div>
-              )
-            })
-            )}
-
-            {/* 占位符，确保最后一个元素右侧有间距 */}
-            {libraryWidgets.length > 0 ? (
-              <div className="w-2 shrink-0" />
-            ) : null}
-          </div>
-
-          {/* 右侧提示：还有更多小组件可滚动查看，一旦手动滑动过就不再出现 */}
-          <LibraryScrollHint
-            scrollRef={libraryScrollRef}
-            availableWidgets={libraryWidgets}
-          />
-        </div>
-      </div>
-    </motion.div>
+    [currentGridWidth, currentGridHeight, stickerPickActive],
   )
 
   return (
@@ -1961,217 +2068,332 @@ export default function WidgetGrid({
       }`}
       data-grid-cols={currentGridWidth}
       data-grid-compact={isCompact ? 'true' : 'false'}
+      data-layout-mode={layoutMode}
       data-band-switch={bandSwitch ?? undefined}
     >
-      {/* 编辑模式：小组件库（顶部悬浮） */}
-      {libraryContainerClassName ? (
-        createPortal(
-          <AnimatePresence>
-            {isEditMode && !isCompact && libraryContent}
-          </AnimatePresence>,
-          document.body,
-        )
-      ) : (
-        <AnimatePresence>
-          {isEditMode && !isCompact && libraryContent}
-        </AnimatePresence>
-      )}
-
       {/* 网格区域 */}
       <div
         className={`relative w-full flex flex-col min-h-0 ${
-          isCompact ? 'justify-start pb-20' : 'flex-1 justify-end'
+          isCompact
+            ? 'justify-start pb-20'
+            : isFreeLayout
+              ? 'flex-1 items-center justify-center'
+              : 'flex-1 justify-end'
         }`}
       >
         {/* 插入 children (InfoBar) */}
         {children}
 
         <div
-          ref={gridRef}
-          className={`widget-grid-container relative w-full rounded-xl ${
-            geometryMotion && rowCountMorphing
-              ? 'widget-grid-container--layout-motion'
-              : ''
-          } ${isEditMode ? 'edit-mode' : ''}`}
-          data-band-switch={bandSwitch ?? undefined}
-          style={
-            gridPixelHeight
-              ? { height: gridPixelHeight }
-              : {
-                  aspectRatio: `${currentGridWidth} / ${currentGridHeight}`,
-                }
+          className={
+            isFreeLayout
+              ? 'widget-grid-host widget-grid-host--free'
+              : 'widget-grid-host'
           }
         >
-          {/* 背景网格线（编辑模式） */}
-          {isEditMode && !isCompact && gridBackground}
+          <div
+            ref={gridRef}
+            className={`widget-grid-container relative rounded-xl w-full ${
+              geometryMotion && rowCountMorphing && !isFreeLayout
+                ? 'widget-grid-container--layout-motion'
+                : ''
+            } ${isEditMode ? 'edit-mode' : ''}`}
+            data-tour={tourAnchor}
+            data-tour-fit={tourFit}
+            data-band-switch={bandSwitch ?? undefined}
+            style={
+              isFreeLayout
+                ? {
+                    aspectRatio: `${HOME_STANDARD_COLS} / ${HOME_FREE_ROWS}`,
+                  }
+                : gridPixelHeight
+                  ? { height: gridPixelHeight }
+                  : {
+                      aspectRatio: `${currentGridWidth} / ${currentGridHeight}`,
+                    }
+            }
+          >
+            {/* 背景网格线（编辑模式） */}
+            {isEditMode && !isCompact && gridBackground}
 
-          {/* 拖拽位置指示器 - 网格中的目标位置预览 */}
-          {dragPreview && !isCompact && (
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-              className={`absolute z-20 overflow-visible rounded-xl transition-all pointer-events-none ${
-                dragPreview.hasCollision
-                  ? 'bg-red-500/10 ring-2 ring-red-500/50'
-                  : 'bg-blue-500/10 ring-2 ring-blue-500/50'
-              }`}
-              style={{
-                left: `${(dragPreview.position.x / currentGridWidth) * 100}%`,
-                top: `${(dragPreview.position.y / currentGridHeight) * 100}%`,
-                width: `${(dragPreview.size.w / currentGridWidth) * 100}%`,
-                height: `${(dragPreview.size.h / currentGridHeight) * 100}%`,
-              }}
-            >
-              {/* 状态提示：1x1 格子窄，强制单行并允许溢出，避免「位置冲突」折行 */}
-              <div className="absolute inset-0 flex items-center justify-center overflow-visible">
-                <div
-                  className={`rounded-full font-bold shadow-lg whitespace-nowrap ${
-                    dragPreview.size.w === 1 && dragPreview.size.h === 1
-                      ? 'px-1.5 py-0.5 text-[9px] leading-none'
-                      : 'px-3 py-1 text-xs'
-                  } ${
-                    dragPreview.hasCollision
-                      ? 'bg-red-500/90 text-white'
-                      : 'bg-blue-500/90 text-white'
-                  }`}
-                >
-                  {dragPreview.hasCollision
-                    ? t.widgetGrid.positionConflict
-                    : t.widgetGrid.canPlace}
-                </div>
+            {/* 拖拽位置指示器 - 网格中的目标位置预览 */}
+            {dragPreview?.position && !isCompact && (
+              <div
+                className={`widget-grid-drop-slot${
+                  dragPreview.hasCollision ? ' is-blocked' : ''
+                }`}
+                style={{
+                  left: `${(dragPreview.position.x / currentGridWidth) * 100}%`,
+                  top: `${(dragPreview.position.y / currentGridHeight) * 100}%`,
+                  width: `${(dragPreview.size.w / currentGridWidth) * 100}%`,
+                  height: `${(dragPreview.size.h / currentGridHeight) * 100}%`,
+                }}
+              >
+                {dragPreview.hasCollision ? (
+                  <div className="widget-grid-drop-slot-flag">
+                    {t.widgetGrid.positionConflict}
+                  </div>
+                ) : null}
               </div>
-            </motion.div>
-          )}
+            )}
 
-          {/* 小组件 */}
-          <div className="absolute inset-0 z-10">
-            {currentWidgets.map((widget, index) => {
-              const widgetType = widgetTypeById.get(widget.type)
-              if (!widgetType) {
-                // 未知/未注册组件：渲染轻量占位而非静默跳过（issue #72）。
-                // 此前 return null 导致 Tapp widget 在注册表尚未同步/同步
-                // 失败时整卡空白且无任何提示，用户无法区分"加载中/失败/被
-                // 过滤"；占位至少暴露该格子的 widget 类型，便于诊断。
-                const dim =
-                  SIZE_TO_DIMENSIONS[widget.size] || SIZE_TO_DIMENSIONS['2x2']
-                const gw = currentGridWidth
-                const gh = currentGridHeight
-                return (
-                  <div
-                    key={widget.id}
-                    className="widget-grid-item absolute flex items-center justify-center"
-                    style={{
-                      left: `${(widget.position.x / gw) * 100}%`,
-                      top: `${(widget.position.y / gh) * 100}%`,
-                      width: `${(dim.w / gw) * 100}%`,
-                      height: `${(dim.h / gh) * 100}%`,
-                      zIndex: 10,
-                    }}
-                  >
-                    <div className="relative h-full w-full p-1">
-                      <div className="h-full w-full rounded-xl border border-dashed border-gray-300/60 dark:border-white/15 bg-white/40 dark:bg-white/5 flex items-center justify-center px-4">
-                        <span className="text-xs text-gray-400 dark:text-white/35 text-center break-all">
-                          {widget.type}
-                        </span>
+
+            {stickerPickActive && isFreeLayout && isEditMode && !isCompact ? (
+              <div
+                data-sticker-pick=""
+                className="absolute inset-0 z-30 cursor-crosshair bg-transparent"
+                onMouseMove={(event) => {
+                  if (stickerDrag) return
+                  const node = containerRef.current
+                  if (!node) return
+                  const rect = node.getBoundingClientRect()
+                  if (rect.width <= 0 || rect.height <= 0) return
+                  const x = Math.max(
+                    0,
+                    Math.min(
+                      currentGridWidth - 1,
+                      Math.floor(
+                        ((event.clientX - rect.left) / rect.width) *
+                          currentGridWidth,
+                      ),
+                    ),
+                  )
+                  const y = Math.max(
+                    0,
+                    Math.min(
+                      currentGridHeight - 1,
+                      Math.floor(
+                        ((event.clientY - rect.top) / rect.height) *
+                          currentGridHeight,
+                      ),
+                    ),
+                  )
+                  setStickerHover((prev) =>
+                    prev && prev.x === x && prev.y === y ? prev : { x, y },
+                  )
+                }}
+                onMouseLeave={() => setStickerHover(null)}
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  const node = containerRef.current
+                  if (!node) return
+                  const rect = node.getBoundingClientRect()
+                  gridRectRef.current = rect
+                  if (rect.width <= 0 || rect.height <= 0) return
+                  const x = Math.max(
+                    0,
+                    Math.min(
+                      currentGridWidth - 1,
+                      Math.floor(
+                        ((event.clientX - rect.left) / rect.width) *
+                          currentGridWidth,
+                      ),
+                    ),
+                  )
+                  const y = Math.max(
+                    0,
+                    Math.min(
+                      currentGridHeight - 1,
+                      Math.floor(
+                        ((event.clientY - rect.top) / rect.height) *
+                          currentGridHeight,
+                      ),
+                    ),
+                  )
+                  setStickerDrag({ start: { x, y }, end: { x, y } })
+                }}
+              />
+            ) : null}
+            {stickerPickActive &&
+            stickerHover &&
+            !stickerDrag &&
+            currentGridWidth > 0 ? (
+              <div
+                className="absolute z-20 pointer-events-none rounded-lg bg-[color-mix(in_srgb,var(--color-primary,#8b5cf6)_22%,transparent)] ring-2 ring-[color-mix(in_srgb,var(--color-primary,#8b5cf6)_70%,white)]"
+                style={{
+                  left: `${(stickerHover.x / currentGridWidth) * 100}%`,
+                  top: `${(stickerHover.y / currentGridHeight) * 100}%`,
+                  width: `${(1 / currentGridWidth) * 100}%`,
+                  height: `${(1 / currentGridHeight) * 100}%`,
+                }}
+              />
+            ) : null}
+            {stickerHighlight && currentGridWidth > 0 ? (
+              <div
+                className="absolute z-20 pointer-events-none rounded-xl bg-[color-mix(in_srgb,var(--color-primary,#8b5cf6)_18%,transparent)] ring-2 ring-[color-mix(in_srgb,var(--color-primary,#8b5cf6)_70%,white)]"
+                style={{
+                  left: `${(stickerHighlight.x / currentGridWidth) * 100}%`,
+                  top: `${(stickerHighlight.y / currentGridHeight) * 100}%`,
+                  width: `${(widgetSizeSpan(stickerHighlight.size).w / currentGridWidth) * 100}%`,
+                  height: `${(widgetSizeSpan(stickerHighlight.size).h / currentGridHeight) * 100}%`,
+                }}
+              />
+            ) : null}
+            {stickerDrag && stickerDragRect && currentGridWidth > 0 ? (
+              <div
+                className={`absolute z-20 pointer-events-none rounded-xl ${
+                  stickerDragCollision
+                    ? 'bg-red-500/10 ring-2 ring-red-500/50'
+                    : 'bg-[color-mix(in_srgb,var(--color-primary,#8b5cf6)_18%,transparent)] ring-2 ring-[color-mix(in_srgb,var(--color-primary,#8b5cf6)_70%,white)]'
+                }`}
+                style={{
+                  left: `${(stickerDragRect.x / currentGridWidth) * 100}%`,
+                  top: `${(stickerDragRect.y / currentGridHeight) * 100}%`,
+                  width: `${(stickerDragRect.w / currentGridWidth) * 100}%`,
+                  height: `${(stickerDragRect.h / currentGridHeight) * 100}%`,
+                }}
+              />
+            ) : null}
+
+            {/* 小组件 */}
+            <div
+              className={`absolute inset-0 z-10${
+                stickerPickActive ? ' pointer-events-none' : ''
+              }`}
+            >
+              {currentWidgets.map((rawWidget, index) => {
+                const widget =
+                  resizingWidget?.widgetId === rawWidget.id &&
+                  resizingWidget.draftSize !== rawWidget.size
+                    ? { ...rawWidget, size: resizingWidget.draftSize }
+                    : rawWidget
+                const widgetType = isHomeStickerItem(widget)
+                  ? STICKER_WIDGET_TYPE
+                  : widgetTypeById.get(widget.type)
+                if (!widgetType) {
+                  // 未知/未注册组件：渲染轻量占位而非静默跳过（issue #72）。
+                  // 此前 return null 导致 Tapp widget 在注册表尚未同步/同步
+                  // 失败时整卡空白且无任何提示，用户无法区分"加载中/失败/被
+                  // 过滤"；占位至少暴露该格子的 widget 类型，便于诊断。
+                  const dim =
+                    widgetSizeSpan(widget.size)
+                  const gw = currentGridWidth
+                  const gh = currentGridHeight
+                  return (
+                    <div
+                      key={widget.id}
+                      className="widget-grid-item absolute flex items-center justify-center"
+                      style={{
+                        left: `${(widget.position.x / gw) * 100}%`,
+                        top: `${(widget.position.y / gh) * 100}%`,
+                        width: `${(dim.w / gw) * 100}%`,
+                        height: `${(dim.h / gh) * 100}%`,
+                        zIndex: 10,
+                      }}
+                    >
+                      <div className="relative h-full w-full p-1">
+                        <div className="h-full w-full rounded-xl border border-dashed border-gray-300/60 dark:border-white/15 bg-white/40 dark:bg-white/5 flex items-center justify-center px-4">
+                          <span className="text-xs text-gray-400 dark:text-white/35 text-center break-all">
+                            {widget.type}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )
+                }
+
+                // 只闭包 widget.id（对某个格子恒定），实际读写走
+                // handleWidgetConfigChange 的 latestRef，因此即便这个箭头
+                // 被 memo 冻在旧的一帧，也不会写回过期的 widgets 数组。
+                const handleConfigChange = (newConfig: any) =>
+                  handleWidgetConfigChange(widget.id, newConfig)
+
+                return (
+                  <WidgetGridItem
+                    key={widget.id}
+                    widget={widget}
+                    widgetType={widgetType}
+                    isEditMode={isEditMode && !isCompact}
+                    isHeld={
+                      heldWidgetId({
+                        dragged: draggedWidget,
+                        settling: dragSettling,
+                        uncovered: previewUncovered || previewExiting,
+                      }) === widget.id
+                    }
+                    isCovered={
+                      coveringWidgetId({
+                        dragged: draggedWidget,
+                        settling: dragSettling,
+                      }) === widget.id
+                    }
+                    isHovered={hoveredWidgetId === widget.id}
+                    onDragStart={handleWidgetDragStart}
+                    onMouseEnter={setHoveredWidgetId}
+                    onMouseLeave={handleWidgetMouseLeave}
+                    onRemove={handleRemoveWidget}
+                    onResizeStart={handleResizeStart}
+                    gridWidth={currentGridWidth}
+                    gridHeight={currentGridHeight}
+                    onConfigChange={handleConfigChange}
+                    index={index}
+                    layoutMotion={geometryMotion}
+                    onRequestSticker={(widget) => {
+                      const slot = findEmptyHomeSlot(
+                        widgets,
+                        widget.size,
+                        currentGridWidth,
+                        currentGridHeight,
+                      )
+                      if (slot) {
+                        const grid = gridRectRef.current
+                        const dim = widgetSizeSpan(widget.size)
+                        const gw = currentGridWidth
+                        const gh = currentGridHeight
+                        const anchor = grid
+                          ? {
+                              left: grid.left + (slot.x / gw) * grid.width,
+                              top: grid.top + (slot.y / gh) * grid.height,
+                              width: (dim.w / gw) * grid.width,
+                              height: (dim.h / gh) * grid.height,
+                              right:
+                                grid.left + ((slot.x + dim.w) / gw) * grid.width,
+                              bottom:
+                                grid.top + ((slot.y + dim.h) / gh) * grid.height,
+                            }
+                          : {
+                              left: 0,
+                              top: 0,
+                              width: 0,
+                              height: 0,
+                              right: 0,
+                              bottom: 0,
+                            }
+                        onPickStickerSlot?.({
+                          ...slot,
+                          size: widget.size,
+                          anchor,
+                        })
+                      }
+                    }}
+                    allowSticker={Boolean(
+                      isFreeLayout &&
+                        isEditMode &&
+                        stickerPickActive &&
+                        onPickStickerSlot,
+                    )}
+                  />
                 )
-              }
-
-              // 只闭包 widget.id（对某个格子恒定），实际读写走
-              // handleWidgetConfigChange 的 latestRef，因此即便这个箭头
-              // 被 memo 冻在旧的一帧，也不会写回过期的 widgets 数组。
-              const handleConfigChange = (newConfig: any) =>
-                handleWidgetConfigChange(widget.id, newConfig)
-
-              return (
-                <WidgetGridItem
-                  key={widget.id}
-                  widget={widget}
-                  widgetType={widgetType}
-                  isEditMode={isEditMode && !isCompact}
-                  isHovered={hoveredWidgetId === widget.id}
-                  onDragStart={handleWidgetDragStart}
-                  onMouseEnter={setHoveredWidgetId}
-                  onMouseLeave={handleWidgetMouseLeave}
-                  onRemove={handleRemoveWidget}
-                  onResizeStart={handleResizeStart}
-                  gridWidth={currentGridWidth}
-                  gridHeight={currentGridHeight}
-                  onConfigChange={handleConfigChange}
-                  index={index}
-                  layoutMotion={geometryMotion}
-                />
-              )
-            })}
+              })}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 跟随光标的真实小组件预览 */}
-      <AnimatePresence>
-        {draggedWidget &&
-          dragCursorPosition &&
-          dragPreview &&
-          dragPreview.widgetType &&
-          dragPreview.widgetConfig &&
-          (() => {
-            // 计算实际的网格单元格尺寸
-            const gridRect = containerRef.current?.getBoundingClientRect()
-            let cellWidth = 100
-            let cellHeight = 100
-
-            if (gridRect) {
-              cellWidth = gridRect.width / currentGridWidth
-              cellHeight = gridRect.height / currentGridHeight
-            }
-
-            // 计算预览的实际像素尺寸
-            const previewWidth = dragPreview.size.w * cellWidth
-            const previewHeight = dragPreview.size.h * cellHeight
-
-            return (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                className="fixed pointer-events-none z-9999"
-                style={{
-                  left: `${dragCursorPosition.x}px`,
-                  top: `${dragCursorPosition.y}px`,
-                }}
-              >
-                {/* 小组件预览 - 中心对齐光标 */}
-                <div
-                  className={`absolute rounded-xl shadow-2xl ring-2 transition-all ${
-                    dragPreview.hasCollision
-                      ? 'ring-red-500/70'
-                      : 'ring-blue-500/70'
-                  }`}
-                  style={{
-                    left: '50%',
-                    top: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    width: `${previewWidth}px`,
-                    height: `${previewHeight}px`,
-                    opacity: 0.95,
-                  }}
-                >
-                  <Suspense fallback={null}>
-                    <dragPreview.widgetType.component
-                      config={dragPreview.widgetConfig}
-                      isEditMode={false}
-                      isPreview={true}
-                    />
-                  </Suspense>
-                </div>
-              </motion.div>
-            )
-          })()}
-      </AnimatePresence>
+      <WidgetDragGhost
+        active={Boolean(draggedWidget)}
+        settling={dragSettling}
+        exiting={previewExiting}
+        reducedMotion={isExlight(anim)}
+        dragPreview={dragPreview}
+        gridWidth={currentGridWidth}
+        gridHeight={currentGridHeight}
+        gridRectRef={gridRectRef}
+      />
     </div>
   )
-}
+},
+)
+
+export default WidgetGrid

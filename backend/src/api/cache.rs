@@ -10,8 +10,8 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
-use std::path::PathBuf;
 
+use crate::services::data_paths::{platform_filtered_file, platforms_cache_dir};
 use crate::services::image_proxy_urls::proxy_image_url;
 
 #[derive(Debug, Serialize)]
@@ -161,7 +161,7 @@ fn build_platform_preview(slug: &str, opts: PreviewOptions) -> Value {
         });
     }
 
-    let cache_path = PathBuf::from(format!("./cache/platforms/{}_filtered.json", slug));
+    let cache_path = platform_filtered_file(slug);
     let content = match fs::read_to_string(&cache_path) {
         Ok(c) => c,
         Err(error) => {
@@ -536,7 +536,7 @@ pub async fn clear_platform_cache(
     State(_db): State<DatabaseConnection>,
     Path(platform): Path<String>,
 ) -> (StatusCode, Json<Value>) {
-    let cache_path = PathBuf::from(format!("./cache/platforms/{}_filtered.json", platform));
+    let cache_path = platform_filtered_file(&platform);
 
     if !cache_path.exists() {
         return (
@@ -602,7 +602,7 @@ pub async fn clear_caches(
     let mut errors = Vec::new();
 
     for platform in platforms {
-        let cache_path = PathBuf::from(format!("./cache/platforms/{}_filtered.json", platform));
+        let cache_path = platform_filtered_file(&platform);
 
         if !cache_path.exists() {
             continue;
@@ -639,7 +639,7 @@ pub async fn clear_caches(
 ///
 /// DELETE /api/cache/all
 pub async fn clear_all_caches(State(_db): State<DatabaseConnection>) -> (StatusCode, Json<Value>) {
-    let cache_dir = PathBuf::from("./cache/platforms");
+    let cache_dir = platforms_cache_dir();
     let mut removed_files = Vec::new();
     let mut errors = Vec::new();
 
@@ -708,7 +708,7 @@ pub async fn clear_all_caches(State(_db): State<DatabaseConnection>) -> (StatusC
 
 /// 辅助函数：获取平台缓存信息
 fn get_platform_cache_info(platform: &str) -> CacheInfo {
-    let cache_path = PathBuf::from(format!("./cache/platforms/{}_filtered.json", platform));
+    let cache_path = platform_filtered_file(platform);
 
     let (exists, size_bytes, modified_at) = if cache_path.exists() {
         match fs::metadata(&cache_path) {

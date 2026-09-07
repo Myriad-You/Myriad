@@ -1,5 +1,6 @@
 import { currentCopy } from '../i18n/localeCopy'
 import { ApiError, parseApiErrorBody } from '../services/api'
+import { withAiTimeoutSignal } from './aiRequestTimeout.mjs'
 import { httpStatusMessage, isUselessErrorText } from './userFacingError'
 
 /**
@@ -110,10 +111,13 @@ export async function fetchJson<T = any>(
 
   for (let attempt = 0; ; attempt++) {
     try {
-      const response = await fetch(url, {
-        credentials: 'include',
-        ...options,
-      })
+      const response = await fetch(
+        url,
+        withAiTimeoutSignal(url, {
+          credentials: 'include',
+          ...options,
+        }),
+      )
 
       if (
         retryable &&

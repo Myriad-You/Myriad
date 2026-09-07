@@ -226,6 +226,7 @@ fn main() {
     for (field, constant) in [
         ("baselineExpressions", "PERFORMANCE_BASELINE_EXPRESSIONS"),
         ("postures", "PERFORMANCE_POSTURES"),
+        ("phraseIntents", "PERFORMANCE_PHRASE_INTENTS"),
         ("cueIntents", "PERFORMANCE_CUE_INTENTS"),
         ("interruptModes", "PERFORMANCE_INTERRUPT_MODES"),
     ] {

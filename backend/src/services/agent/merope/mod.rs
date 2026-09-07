@@ -1,12 +1,15 @@
 //! Merope: site persona, per-addressee state, hidden proactive speech.
 
+mod appraisal;
 pub mod chat_remember;
 pub mod gates;
 pub mod ingest;
 pub mod motion;
 pub mod motion_local;
+pub mod motion_preview;
 pub mod onboarding_ai;
 pub mod onboarding_prompts;
+pub mod outfit_overlay;
 pub mod report_dna;
 pub mod speaking_prompts;
 pub mod state;
@@ -22,14 +25,16 @@ pub use motion::{
     MotionPhase, PerformanceDirective,
 };
 pub use myriad_merope::RigStateSummary;
+pub use outfit_overlay::{apply_model_wear_directive, chat_wardrobe_section, overlay_outfit_id};
 pub use store::{
-    acquire_portrait_generation, clear_persona_on, complete_portrait_generation,
+    acquire_avatar_generation, acquire_portrait_generation, avatar_generation_is_pending,
+    clear_persona_on, complete_avatar_generation, complete_portrait_generation,
     credit_music_listening, generation_inputs_changed, get_or_create_state, get_persona,
     get_persona_on, insert_diary, insert_proactive, latest_diary, list_diary_from_sources,
-    list_remembered, normalize_persona_fields, portrait_generation_is_pending, promote_activity,
-    recent_proactive, release_portrait_generation, set_activity, set_dnd_schedule,
-    set_do_not_disturb, update_affect, upsert_persona_on, JsonDocumentUpdate,
-    PersonaContractUpdate, PortraitUpdate,
+    normalize_persona_fields, portrait_generation_is_pending, promote_activity, recent_proactive,
+    release_avatar_generation, release_portrait_generation, set_activity, set_dnd_schedule,
+    set_do_not_disturb, sticker_avatar_asset_id, update_affect, upsert_persona_on,
+    JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate,
 };
 
 /// Logged-in users only. Guests use negative ids; heartbeat is `SYSTEM_USER_ID` (0).
@@ -119,10 +124,11 @@ pub async fn maybe_refuse_new_task(
 /// Returns the persisted mood transition for this utterance, if Merope applied.
 pub async fn note_user_turn(
     db: &sea_orm::DatabaseConnection,
-    user_id: i32,
-    text: &str,
+    request: &crate::services::agent::UserRequest,
     utterance_index: u32,
-) -> Option<MoodTransition> {
+) -> Option<(MoodTransition, chrono::DateTime<chrono::FixedOffset>)> {
+    let user_id = request.user_id;
+    let text = &request.raw_input;
     if !is_logged_in_addressee(user_id) {
         return None;
     }
@@ -140,8 +146,8 @@ pub async fn note_user_turn(
     .await
     .ok()?;
     let after = store::affect_from_state(&saved);
-    if !praised && !scolded && text.chars().count() >= CHAT_DIARY_MIN_CHARS {
-        spawn_mood_hint(user_id, text);
+    if !praised && !scolded && !text.trim().is_empty() {
+        appraisal::spawn(db.clone(), request, &saved);
     }
     if !is_extremely_low(previous.mood) && is_extremely_low(after.mood) {
         spawn_ingest(
@@ -157,7 +163,7 @@ pub async fn note_user_turn(
     } else {
         "user_turn"
     };
-    Some(MoodTransition::from_affect(
+    let transition = MoodTransition::from_affect(
         &previous,
         &store::affect_from_state(&saved),
         cause,
@@ -165,7 +171,9 @@ pub async fn note_user_turn(
             .updated_at
             .with_timezone(&chrono::Utc)
             .timestamp_millis(),
-    ))
+    );
+    // Carry the actual persisted input anchor, not a later mood revision.
+    Some((transition, saved.last_user_message_at?))
 }
 
 /// After planning, so this turn is not already sitting in the diary the model just read.
@@ -177,46 +185,6 @@ pub async fn note_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, tex
         return;
     }
     maybe_write_chat_diary(db, user_id, text).await;
-}
-
-fn spawn_mood_hint(user_id: i32, text: impl Into<String>) {
-    let text = text.into();
-    tokio::spawn(async move {
-        if !is_logged_in_addressee(user_id) || !is_enabled().await {
-            return;
-        }
-        let Some(analyzer) =
-            crate::services::ai::create_ai_analyzer_for_tier(crate::config::ModelTier::Lite).await
-        else {
-            return;
-        };
-        let Ok(raw) = crate::services::ai_cost_ledger::with_site_ai_ledger(
-            user_id,
-            "merope",
-            "mood_hint",
-            analyzer.analyze_with_system(
-                "只输出两个 -2 到 2 的整数，空格分隔：效价 唤醒。不要解释，不要输出别的字。",
-                &text,
-            ),
-        )
-        .await
-        else {
-            return;
-        };
-        let Some((valence, arousal)) = parse_appraisal_hint(&raw) else {
-            return;
-        };
-        if valence == 0 && arousal == 0 {
-            return;
-        }
-        let Ok(db) = crate::services::tapp_registry::database().await else {
-            return;
-        };
-        let _ = update_affect(&db, user_id, false, |affect| {
-            apply_mood_hint(affect, valence, arousal);
-        })
-        .await;
-    });
 }
 
 const CHAT_DIARY_MIN_CHARS: usize = 8;
@@ -297,7 +265,7 @@ pub async fn resolve_addressee_label(db: &sea_orm::DatabaseConnection, user_id: 
 pub use speaking_prompts::{
     addressee_speaking_section, format_activity_section, format_mood_section, format_persona,
     format_recent_section, format_remembered_section, guest_speaking_section,
-    mood_tone_instruction, rank_remembered,
+    mood_tone_instruction,
 };
 
 /// Prompt sections for whoever this turn is speaking to. Empty when Merope is off.
@@ -324,7 +292,6 @@ pub async fn speaking_prompt_with_query(user_id: i32, query: Option<&str>) -> Ve
 }
 
 const REMEMBERED_PROMPT_LIMIT: usize = 8;
-const REMEMBERED_CANDIDATE_LIMIT: u64 = 32;
 const RECENT_LEDGER_LIMIT: u64 = 4;
 /// Chat diary only. Event diary reaches speaking via Remember, not this ledger.
 const RECENT_SPEAKING_DIARY_SOURCES: &[&str] = &[store::DIARY_SOURCE_CHAT];
@@ -339,13 +306,8 @@ async fn speaking_prompt_from_db(
     let Ok(state) = get_or_create_state(db, user_id).await else {
         return sections;
     };
-    if let Ok(notes) = list_remembered(db, user_id, REMEMBERED_CANDIDATE_LIMIT).await {
-        let facts: Vec<String> = notes
-            .into_iter()
-            .map(|note| ingest::compact_summary(&note.content))
-            .filter(|content| !content.is_empty())
-            .collect();
-        let ranked = rank_remembered(&facts, query, REMEMBERED_PROMPT_LIMIT);
+    if let Ok(ranked) = store::recall_remembered(db, user_id, query, REMEMBERED_PROMPT_LIMIT).await
+    {
         if let Some(block) = format_remembered_section(&ranked) {
             sections.push(block);
         }
@@ -382,12 +344,11 @@ pub fn has_custom_persona(persona: &agent_persona::Model) -> bool {
     format_persona(persona).is_some()
 }
 
-pub use gates::{decide_ingest, is_chatting, is_valuable_event, IngestDecision};
+pub use gates::{decide_ingest, is_valuable_event, IngestDecision, IngestSight};
 pub use state::{
-    apply_mood_hint, apply_task_outcome, apply_user_utterance, clamp_mood, detect_mood_cue,
-    effective_activity, is_extremely_low, mood_band, parse_appraisal_hint, Affect, AffectBaseline,
-    MoodTransition, ACTIVITY_STALE_SECS, DEFAULT_AROUSAL, DEFAULT_MOOD, MOOD_FLOOR,
-    MUSIC_LISTENING_MIN_SECS, ORIGIN,
+    apply_task_outcome, apply_user_utterance, clamp_mood, detect_mood_cue, effective_activity,
+    is_extremely_low, mood_band, Affect, AffectBaseline, MoodTransition, ACTIVITY_STALE_SECS,
+    DEFAULT_AROUSAL, DEFAULT_MOOD, MOOD_FLOOR, MUSIC_LISTENING_MIN_SECS, ORIGIN,
 };
 
 /// The activity to act on, with a stale one read as idle.
@@ -510,6 +471,8 @@ mod tests {
             visual_profile: None,
             portrait_asset_id: None,
             portrait_generation: None,
+            avatar_asset_id: None,
+            avatar_generation: None,
             updated_by: None,
             updated_at: chrono::Utc::now().into(),
         };

@@ -11,7 +11,7 @@ pub use myriad_agent_rules::{
     is_cancellable_task_status, is_terminal_past_retention, is_waiting_input_timed_out,
     lane_id_from_user_session, session_id_from_lane_id, session_id_from_lane_key,
     status_counts_from_iter, task_status_from_db_str, task_status_to_db_str,
-    TERMINAL_RETENTION_HOURS, WAITING_INPUT_TIMEOUT_ERROR, WAITING_INPUT_TIMEOUT_HOURS,
+    waiting_input_timeout_error, TERMINAL_RETENTION_HOURS, WAITING_INPUT_TIMEOUT_HOURS,
 };
 
 #[cfg(test)]
@@ -78,7 +78,7 @@ mod tests {
         assert!(is_terminal_past_retention(now - Duration::hours(25), now));
         assert!(!is_waiting_input_timed_out(now - Duration::hours(2), now));
         assert!(is_waiting_input_timed_out(now - Duration::hours(3), now));
-        assert!(WAITING_INPUT_TIMEOUT_ERROR.contains("超时"));
+        assert!(waiting_input_timeout_error().contains("超时"));
     }
 
     #[test]

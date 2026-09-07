@@ -97,6 +97,7 @@ test('derives a complete deterministic shell profile at import time', () => {
     centerX: 384,
     radiusX: 308 * 0.95,
     radiusZ: 308 * 0.55,
+    yawFollowScale: 1,
   })
 })
 

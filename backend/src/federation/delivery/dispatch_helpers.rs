@@ -1,8 +1,9 @@
 //! Unit tests for delivery queue classification and retry helpers.
 
 use crate::federation::types::key_id;
+use serde_json::json;
 
-use super::queue_and_query::*;
+use super::*;
 
 const WEEK_SECS: i64 = 7 * 24 * 60 * 60;
 
@@ -89,8 +90,6 @@ fn retry_backoff_jitter_actually_spreads_a_batch() {
     let seen: std::collections::HashSet<i64> = (0..64).map(|_| retry_backoff_secs(10)).collect();
     assert!(seen.len() > 1, "backoff must not be deterministic at scale");
 }
-use super::*;
-use serde_json::json;
 
 #[test]
 fn move_signing_uses_old_actor_base() {

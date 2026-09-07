@@ -9,6 +9,7 @@ import {
   notificationSourceFor,
   shouldDeliverNotification,
   shouldEmitNotificationToast,
+  shouldSurfaceNotification,
 } from './notificationDelivery.ts'
 import { DEFAULT_NOTIFICATION_PREFERENCES } from './notificationPreferencesApi.ts'
 
@@ -100,6 +101,78 @@ describe('shouldEmitNotificationToast', () => {
         true,
       ),
       false,
+    )
+  })
+})
+
+describe('shouldSurfaceNotification', () => {
+  const task = note({
+    notification_type: 'task_completed',
+    metadata: { event_key: 'agent.task_completed' },
+  })
+  const progress = note({
+    notification_type: 'task_progress',
+    metadata: { event_key: 'agent.task_progress' },
+  })
+  const brew = note({
+    notification_type: 'brew_new_items',
+    metadata: { event_key: 'brew.new_items' },
+  })
+
+  it('hides agent notifications on every surface while looking at the panel', () => {
+    for (const location of ['panel', 'toast', 'island', 'browser'] as const) {
+      assert.equal(
+        shouldSurfaceNotification(
+          DEFAULT_NOTIFICATION_PREFERENCES,
+          task,
+          location,
+          true,
+        ),
+        false,
+        location,
+      )
+      assert.equal(
+        shouldSurfaceNotification(
+          DEFAULT_NOTIFICATION_PREFERENCES,
+          progress,
+          location,
+          true,
+        ),
+        false,
+        location,
+      )
+    }
+  })
+
+  it('still surfaces agent notifications when the panel is closed', () => {
+    assert.equal(
+      shouldSurfaceNotification(
+        DEFAULT_NOTIFICATION_PREFERENCES,
+        task,
+        'island',
+        false,
+      ),
+      shouldDeliverNotification(
+        DEFAULT_NOTIFICATION_PREFERENCES,
+        task,
+        'island',
+      ),
+    )
+  })
+
+  it('does not hide brew notifications while looking at the agent panel', () => {
+    assert.equal(
+      shouldSurfaceNotification(
+        DEFAULT_NOTIFICATION_PREFERENCES,
+        brew,
+        'island',
+        true,
+      ),
+      shouldDeliverNotification(
+        DEFAULT_NOTIFICATION_PREFERENCES,
+        brew,
+        'island',
+      ),
     )
   })
 })

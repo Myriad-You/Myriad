@@ -340,7 +340,6 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   font-weight: 600;
   color: color-mix(in srgb, var(--ws-accent) 85%, #111);
   background: color-mix(in srgb, var(--ws-soft) 70%, transparent);
-  backdrop-filter: blur(6px);
   pointer-events: none;
 }
 

@@ -1,9 +1,9 @@
-import type { WidgetConfig } from './WidgetGrid'
+import type { WidgetConfig } from './widgetGridTypes'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../contexts/I18nContext'
 import { isExlight } from '../hooks/useAnimationLevel'
 
@@ -86,6 +86,137 @@ function applyStageGradient(
 
 function getBlurAmount(easeProgress: number, isEnteringPhase: boolean) {
   return isEnteringPhase ? easeProgress * 20 : (1 - easeProgress) * 20
+}
+
+const CURTAIN_MS = 1000
+const DARK_CURTAIN_CLASS =
+  'absolute inset-0 transition-opacity duration-500 ease-out'
+
+type CurtainPhase = 'enter' | 'exit'
+
+const curtain = {
+  raf: 0,
+  start: null as number | null,
+  phase: 'enter' as CurtainPhase,
+  progress: 0,
+  baseClass: null as string | null,
+  getIsDark: () => false,
+}
+
+function easeInOutCubic(progress: number) {
+  return progress < 0.5
+    ? 4 * progress * progress * progress
+    : 1 - (-2 * progress + 2) ** 3 / 2
+}
+
+function stageBg(): HTMLElement | null {
+  if (typeof document === 'undefined') return null
+  return document.getElementById('bg-gradient') as HTMLElement | null
+}
+
+function rememberCurtainBase(el: HTMLElement) {
+  if (!curtain.baseClass) curtain.baseClass = el.className
+}
+
+function applyCurtainClass(el: HTMLElement, isDark: boolean) {
+  if (isDark) {
+    el.className = DARK_CURTAIN_CLASS
+  } else if (curtain.baseClass) {
+    el.className = curtain.baseClass
+  }
+}
+
+function paintCurtain(
+  el: HTMLElement,
+  easeProgress: number,
+  entering: boolean,
+) {
+  applyStageGradient(el, curtain.getIsDark(), easeProgress, entering)
+  const blurAmount = isExlight()
+    ? 0
+    : getBlurAmount(easeProgress, entering)
+  el.style.backdropFilter = blurAmount > 0.5 ? `blur(${blurAmount}px)` : ''
+}
+
+function finishCurtainExit(el: HTMLElement) {
+  el.style.removeProperty('background-image')
+  el.style.backdropFilter = ''
+  el.style.transition = ''
+  if (curtain.baseClass) el.className = curtain.baseClass
+  curtain.progress = 0
+  curtain.phase = 'enter'
+  curtain.start = null
+}
+
+function curtainTick(timestamp: number) {
+  const el = stageBg()
+  if (!el) {
+    curtain.raf = 0
+    return
+  }
+  if (curtain.start === null) curtain.start = timestamp
+  const linear = Math.min((timestamp - curtain.start) / CURTAIN_MS, 1)
+  const eased = easeInOutCubic(linear)
+  curtain.progress = eased
+  const entering = curtain.phase === 'enter'
+  paintCurtain(el, eased, entering)
+  if (linear < 1) {
+    curtain.raf = requestAnimationFrame(curtainTick)
+    return
+  }
+  curtain.raf = 0
+  if (!entering) finishCurtainExit(el)
+}
+
+function startCurtain(phase: CurtainPhase) {
+  const el = stageBg()
+  if (!el) return
+  rememberCurtainBase(el)
+  if (curtain.raf) cancelAnimationFrame(curtain.raf)
+  curtain.phase = phase
+  curtain.start = null
+  curtain.progress = 0
+  el.style.transition = 'none'
+  if (phase === 'enter') applyCurtainClass(el, curtain.getIsDark())
+  curtain.raf = requestAnimationFrame(curtainTick)
+}
+
+function playStageCurtainEnter(getIsDark: () => boolean) {
+  curtain.getIsDark = getIsDark
+  startCurtain('enter')
+}
+
+function playStageCurtainExit() {
+  const el = stageBg()
+  if (!el) return
+  rememberCurtainBase(el)
+  if (curtain.phase === 'exit' && curtain.raf) return
+  if (!el.style.backgroundImage && !curtain.raf) return
+  startCurtain('exit')
+}
+
+function isCurtainBusy() {
+  return curtain.raf !== 0
+}
+
+function syncStageCurtainTheme(isDark: boolean, active: boolean) {
+  curtain.getIsDark = () => isDark
+  const el = stageBg()
+  if (!el) return
+  rememberCurtainBase(el)
+  if (!active) {
+    // 光幕还在或退出扫描未开始时不要还原 class，否则会把扫描层闪掉
+    if (
+      !isCurtainBusy() &&
+      !el.style.backgroundImage &&
+      curtain.baseClass
+    ) {
+      el.className = curtain.baseClass
+    }
+    return
+  }
+  applyCurtainClass(el, isDark)
+  paintCurtain(el, curtain.progress, curtain.phase === 'enter')
 }
 
 // 预编译正则表达式（避免每次调用时重新创建）
@@ -366,8 +497,6 @@ export default function StageMode({
     return document.documentElement.classList.contains('dark')
   })
   const isDarkModeRef = useRef(isDarkMode)
-  const gradientStateRef = useRef({ easeProgress: 0, isEntering: true })
-  const bgGradientBaseClassRef = useRef<string | null>(null)
 
   // 自动切换概览/详情 - 基于篇章 (使用 useMemo 替代 useEffect 避免状态同步延迟)
   const showOverview = useMemo(() => {
@@ -494,63 +623,7 @@ export default function StageMode({
   }, [isDarkMode])
 
   useEffect(() => {
-    const bgGradient =
-      typeof document !== 'undefined'
-        ? document.getElementById('bg-gradient')
-        : null
-    if (bgGradient && !bgGradientBaseClassRef.current) {
-      bgGradientBaseClassRef.current = bgGradient.className
-    }
-  }, [])
-
-  // 修复：确保组件卸载时清理全局背景副作用，防止切换页面时背景卡死
-  useEffect(() => {
-    return () => {
-      if (typeof document === 'undefined') return
-      const bgGradient = document.getElementById('bg-gradient')
-      if (bgGradient && bgGradient.style.backgroundImage) {
-        bgGradient.style.removeProperty('background-image')
-        bgGradient.style.backdropFilter = ''
-        bgGradient.style.transition = ''
-        if (bgGradientBaseClassRef.current) {
-          bgGradient.className = bgGradientBaseClassRef.current
-        }
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return
-    const bgGradient = document.getElementById(
-      'bg-gradient',
-    ) as HTMLElement | null
-    if (!bgGradient) return
-
-    if (bgGradientBaseClassRef.current && !isOpen) {
-      bgGradient.className = bgGradientBaseClassRef.current
-      return
-    }
-
-    if (!isOpen) return
-
-    if (isDarkMode) {
-      bgGradient.className =
-        'absolute inset-0 transition-opacity duration-500 ease-out'
-    } else if (bgGradientBaseClassRef.current) {
-      bgGradient.className = bgGradientBaseClassRef.current
-    }
-
-    const { easeProgress, isEntering } = gradientStateRef.current
-    applyStageGradient(bgGradient, isDarkMode, easeProgress, isEntering)
-    // exlight：不写内联 backdrop（即便 CSS !important 能盖住，也避免多余合成）
-    const blurAmount = isExlight()
-      ? 0
-      : getBlurAmount(easeProgress, isEntering)
-    if (blurAmount > 0.5) {
-      bgGradient.style.backdropFilter = `blur(${blurAmount}px)`
-    } else {
-      bgGradient.style.backdropFilter = ''
-    }
+    syncStageCurtainTheme(isDarkMode, isOpen)
   }, [isDarkMode, isOpen])
 
   // 使用 ref 存储 onClose，避免因父组件重渲染导致 timer 被重置
@@ -606,104 +679,47 @@ export default function StageMode({
     }, totalDuration)
 
     return () => clearTimeout(timer)
-  }, [isOpen, currentChapter, chapters, isPaused, playAllMode]) // 添加 isPaused 和 playAllMode 依赖
+  }, [
+    isOpen,
+    currentChapter,
+    chapters,
+    isPaused,
+    playAllMode,
+    t.reportsPage.deepInsight,
+  ])
 
-  // 激活时调整全局背景 - 柔和光幕扫描动画
-  useEffect(() => {
-    if (typeof document === 'undefined') return
-    const bgGradient = document.getElementById(
-      'bg-gradient',
-    ) as HTMLElement | null
-    if (!bgGradient) return
-
-    if (!bgGradientBaseClassRef.current) {
-      bgGradientBaseClassRef.current = bgGradient.className
-    }
-
-    let animationFrameId: number | null = null
-    let startTime: number | null = null
-    const duration = 1000 // 稍微延长动画时间以配合柔和感
-
-    const cleanupOverlay = () => {
-      bgGradient.style.removeProperty('background-image')
-      bgGradient.style.backdropFilter = ''
-      bgGradient.style.transition = ''
-      gradientStateRef.current = { easeProgress: 0, isEntering: true }
-      if (bgGradientBaseClassRef.current) {
-        bgGradient.className = bgGradientBaseClassRef.current
-      }
-    }
-
-    const animate = (timestamp: number, isEnteringPhase: boolean) => {
-      if (startTime === null) startTime = timestamp
-      const progress = Math.min((timestamp - startTime) / duration, 1)
-      const easeProgress =
-        progress < 0.5
-          ? 4 * progress * progress * progress
-          : 1 - (-2 * progress + 2) ** 3 / 2
-
-      gradientStateRef.current = { easeProgress, isEntering: isEnteringPhase }
-
-      const themeIsDark = isDarkModeRef.current
-      applyStageGradient(bgGradient, themeIsDark, easeProgress, isEnteringPhase)
-
-      const blurAmount = isExlight()
-        ? 0
-        : getBlurAmount(easeProgress, isEnteringPhase)
-      if (blurAmount > 0.5) {
-        bgGradient.style.backdropFilter = `blur(${blurAmount}px)`
-      } else {
-        bgGradient.style.backdropFilter = ''
-      }
-
-      if (progress < 1) {
-        animationFrameId = requestAnimationFrame((t) =>
-          animate(t, isEnteringPhase),
-        )
-      } else if (!isEnteringPhase) {
-        cleanupOverlay()
-      }
-    }
-
+  // 光幕进出扫描挂在 #bg-gradient 上，不跟 React 树走。
+  // 切页在内容退完之后才发生，卸载时不能取消还在播的退出扫描。
+  useLayoutEffect(() => {
     if (isOpen) {
-      if (isDarkModeRef.current) {
-        bgGradient.className =
-          'absolute inset-0 transition-opacity duration-500 ease-out'
-      } else if (bgGradientBaseClassRef.current) {
-        bgGradient.className = bgGradientBaseClassRef.current
-      }
-      bgGradient.style.transition = 'none'
-      startTime = null
-      animationFrameId = requestAnimationFrame((t) => animate(t, true))
-    } else if (bgGradient.style.backgroundImage) {
-      bgGradient.style.transition = 'none'
-      startTime = null
-      animationFrameId = requestAnimationFrame((t) => animate(t, false))
-    } else if (bgGradientBaseClassRef.current) {
-      bgGradient.className = bgGradientBaseClassRef.current
+      playStageCurtainEnter(() => isDarkModeRef.current)
+      return
     }
-
-    return () => {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId)
-      if (!isOpen) {
-        cleanupOverlay()
-      }
-    }
+    playStageCurtainExit()
   }, [isOpen])
+
+  useLayoutEffect(() => {
+    return () => {
+      const stillOnReports =
+        typeof window !== 'undefined' &&
+        window.location.pathname === '/reports'
+      if (stillOnReports) return
+      playStageCurtainExit()
+    }
+  }, [])
 
   if (!reportData) return null
 
   return (
     <AnimatePresence mode="wait">
       {isOpen && (
-        <>
-          <motion.div
-            className="fixed inset-0 z-40 pointer-events-none"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-          >
+        <motion.div
+          className="fixed inset-0 z-40 pointer-events-none"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.5 }}
+        >
             {/* 内容容器 - 与页面布局对齐 */}
             <div className="h-full flex flex-col pt-20 pb-6 px-3 xs:px-4 sm:px-6">
               <div className="flex-1 max-w-7xl mx-auto w-full">
@@ -762,8 +778,7 @@ export default function StageMode({
                 </div>
               </div>
             </div>
-          </motion.div>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   )

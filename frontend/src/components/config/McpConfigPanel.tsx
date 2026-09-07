@@ -507,6 +507,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         itemKey="mcp_id"
         label={c.mcpFieldId}
         description={c.mcpFieldIdHint}
+        {...bindGuide('advanced.mcpId', g.advanced.mcpId)}
         value={draft.id}
         onChange={(v) => {
           setFormError(null)
@@ -521,6 +522,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         itemKey="mcp_command"
         label={c.mcpFieldCommand}
         description={c.mcpFieldCommandHint}
+        {...bindGuide('advanced.mcpCommand', g.advanced.mcpCommand)}
         value={draft.command}
         onChange={(v) => {
           setFormError(null)
@@ -535,6 +537,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         itemKey="mcp_args"
         label={c.mcpFieldArgs}
         description={c.mcpFieldArgsHint}
+        {...bindGuide('advanced.mcpArgs', g.advanced.mcpArgs)}
         value={draft.argsText}
         onChange={(v) => setDraft((d) => ({ ...d, argsText: v }))}
         placeholder="-y @modelcontextprotocol/server-github"
@@ -545,6 +548,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         itemKey="mcp_env"
         label={c.mcpFieldEnv}
         description={c.mcpFieldEnvHint}
+        {...bindGuide('advanced.mcpEnv', g.advanced.mcpEnv)}
         value={draft.envText}
         onChange={(v) => setDraft((d) => ({ ...d, envText: v }))}
         placeholder={'GITHUB_TOKEN=ghp_…\nFOO=bar'}
@@ -557,6 +561,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         itemKey="mcp_max_restart"
         label={c.mcpFieldMaxRestart}
         description={c.mcpFieldMaxRestartHint}
+        {...bindGuide('advanced.mcpMaxRestart', g.advanced.mcpMaxRestart)}
         value={draft.max_restart_attempts}
         onChange={(v) =>
           setDraft((d) => ({
@@ -573,6 +578,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         itemKey="mcp_enabled"
         label={c.mcpFieldEnabled}
         description={c.mcpFieldEnabledHint}
+        {...bindGuide('advanced.mcpEnabled', g.advanced.mcpEnabled)}
         value={draft.enabled}
         onChange={(v) => setDraft((d) => ({ ...d, enabled: v }))}
         layout="horizontal"
@@ -582,6 +588,7 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         itemKey="mcp_auto_restart"
         label={c.mcpFieldAutoRestart}
         description={c.mcpFieldAutoRestartHint}
+        {...bindGuide('advanced.mcpAutoRestart', g.advanced.mcpAutoRestart)}
         value={draft.auto_restart}
         onChange={(v) => setDraft((d) => ({ ...d, auto_restart: v }))}
         layout="horizontal"
@@ -591,6 +598,10 @@ export function McpConfigPanel({ onMessage }: McpConfigPanelProps) {
         itemKey="mcp_trust_annotations"
         label={c.mcpFieldTrustAnnotations}
         description={c.mcpFieldTrustAnnotationsHint}
+        {...bindGuide(
+          'advanced.mcpTrustAnnotations',
+          g.advanced.mcpTrustAnnotations,
+        )}
         value={draft.trust_annotations}
         onChange={(v) => setDraft((d) => ({ ...d, trust_annotations: v }))}
         layout="horizontal"

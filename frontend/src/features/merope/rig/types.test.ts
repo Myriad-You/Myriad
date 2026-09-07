@@ -6,7 +6,11 @@ import { ANIME25D_PLAYBACK_VERSION } from '../anime25drig/credit'
 import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
 import { deriveAnime25DShellProfile } from '../anime25drig/shellProfile'
 import { RIG_IR_VERSION } from './contract'
-import { isLiveMeropeManifest, isRigManifest } from './types'
+import {
+  isLiveMeropeManifest,
+  isRigManifest,
+  sameLiveFaceRuntime,
+} from './types'
 
 const manifest: MeropeRigManifest = {
   schemaVersion: 1,
@@ -149,6 +153,13 @@ test('only treats a layered Anime2.5D package as a live site face', () => {
   assert.equal(isLiveMeropeManifest(live), false)
   live.anime25dPlayback.shellProfile.torso.radiusZ = 1
   assert.equal(isLiveMeropeManifest(live), true)
+  live.anime25dPlayback.shellProfile.torso.yawFollowScale = 0.4
+  assert.equal(isLiveMeropeManifest(live), true)
+  live.anime25dPlayback.shellProfile.torso.yawFollowScale = 1.4
+  assert.equal(isLiveMeropeManifest(live), false)
+  // Compiled before the follow became per-model: still live, turns fully.
+  delete live.anime25dPlayback.shellProfile.torso.yawFollowScale
+  assert.equal(isLiveMeropeManifest(live), true)
   live.anime25dPlayback.chestProfile = {
     version: 2,
     enabled: true,
@@ -179,6 +190,21 @@ test('only treats a layered Anime2.5D package as a live site face', () => {
   assert.equal(isLiveMeropeManifest(live), true)
   live.anime25dPlayback.chestProfile.radiusX = 900
   assert.equal(isLiveMeropeManifest(live), false)
+})
+
+test('same live face runtime ignores a freshly parsed copy of the same atlas', () => {
+  const first = structuredClone(manifest)
+  const second = structuredClone(first)
+  first.textures[0].url = '/api/merope/rig/assets/a'
+  second.textures[0].url = '/api/merope/rig/assets/a'
+  first.sourceMasterAssetId = 'master'
+  second.sourceMasterAssetId = 'master'
+  first.characterAssetContractVersion = 13
+  second.characterAssetContractVersion = 13
+  assert.equal(sameLiveFaceRuntime(first, second), true)
+  second.textures[0].url = '/api/merope/rig/assets/b'
+  assert.equal(sameLiveFaceRuntime(first, second), false)
+  assert.equal(sameLiveFaceRuntime(first, null), false)
 })
 
 test('validates portrait generation provenance when present', () => {

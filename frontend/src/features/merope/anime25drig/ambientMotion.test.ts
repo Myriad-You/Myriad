@@ -3,6 +3,8 @@ import test from 'node:test'
 import {
   AMBIENT_HEAD_GAZE_SHARE,
   AmbientMotionController,
+  EYE_SACCADE_FLOOR_SECONDS,
+  EYE_SACCADE_SECONDS_PER_UNIT,
 } from './ambientMotion'
 
 function magnitude(pose: {
@@ -159,4 +161,27 @@ test('scanpaths differ across seeds but not render frequencies and do not keep r
   assert.notDeepEqual(a.samples, run(43, 60).samples)
   assert.ok(a.positive > 2 && a.negative > 2)
   assert.ok(a.neutral < 5)
+})
+
+test('a small glance is given long enough to look like a glance', () => {
+  // Minimum-jerk motion carries jerk proportional to 1/duration cubed, so a
+  // move's smoothness is set by how long it is given, near enough regardless
+  // of how far it goes. At a 0.12s floor the small inspection glances — two
+  // thirds of the scanpath — were seven frames long and scored 796 against
+  // 425 for the large looks on the same measure.
+  const duration = (travel: number) =>
+    EYE_SACCADE_FLOOR_SECONDS +
+    Math.min(1.8, travel) * EYE_SACCADE_SECONDS_PER_UNIT
+
+  assert.ok(
+    EYE_SACCADE_FLOOR_SECONDS >= 0.15,
+    `the smallest glance gets ${EYE_SACCADE_FLOOR_SECONDS}s, which is what made them read as flicks`,
+  )
+  // Bought without slowing the large sweeps, which already looked right.
+  assert.ok(
+    duration(1.8) <= 0.27,
+    `a full sweep now takes ${duration(1.8)}s against 0.264s before`,
+  )
+  assert.ok(duration(0.15) < duration(0.65))
+  assert.ok(duration(0.65) < duration(1.8))
 })

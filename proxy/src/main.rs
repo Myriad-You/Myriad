@@ -238,13 +238,15 @@ async fn handle(
     // ActivityPub/MFP endpoints registered outside /api (WebFinger discovery,
     // NodeInfo, actor documents and inboxes) — remote instances resolve
     // @user@domain against these, so they must not fall through to the frontend.
-    // SEO: crawler UAs on /tapp/run/* get the backend HTML shell; browsers get SPA.
+    // SEO: crawler UAs on `/`, module indexes, /tapp/run/* and /brew/item/*
+    // get the backend HTML shell; browsers get SPA.
     let ua = req
         .headers()
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let upstream = if is_backend_path(&path, ua) {
+    let query = req.uri().query().unwrap_or("");
+    let upstream = if is_backend_path_for(&path, ua, query) {
         &state.backend_upstream
     } else {
         &state.frontend_upstream
@@ -403,13 +405,36 @@ fn is_seo_crawler_ua(ua: &str) -> bool {
         "anthropic-ai",
         "storebot-google",
         "google-inspectiontool",
+        "google-site-verification",
         "preview",
+        "qq-url-preview",
+        "dingtalkbot",
     ];
     MARKERS.iter().any(|m| ua.contains(m))
         // Generic bot/spider/crawl (exclude common false positives is hard; keep short)
         || ua.contains("bot/")
         || ua.contains("spider")
         || ua.contains("crawler")
+}
+
+/// In-app browsers that also fetch link previews with the same UA (WeChat / Weibo /
+/// WeCom). Must NOT be treated as ordinary browsers, but humans in these WebViews
+/// still need the SPA — backend shells inject a `?_spa=1` bounce for them.
+/// Keep in sync with frontend `isInappShareUserAgent` and backend `is_inapp_share_ua`.
+fn is_inapp_share_ua(ua: &str) -> bool {
+    let ua = ua.to_ascii_lowercase();
+    ua.contains("micromessenger")
+        || ua.contains("windowswechat")
+        || ua.contains("wxwork")
+        || ua.contains("weibo")
+}
+
+fn query_has_spa_bypass(query: &str) -> bool {
+    query.split('&').any(|pair| pair == "_spa=1")
+}
+
+fn wants_seo_html_shell(user_agent: &str) -> bool {
+    is_seo_crawler_ua(user_agent) || is_inapp_share_ua(user_agent)
 }
 
 /// Paths served by the backend. Everything else goes to the frontend SPA.
@@ -423,8 +448,19 @@ fn is_seo_crawler_ua(ua: &str) -> bool {
 /// WebFinger, etc.). Prefer whole-site outer reverse proxies so this list only needs
 /// to live in Myriad proxy.
 ///
-/// `user_agent` is used only for `/tapp/run/*` SEO shell routing (crawlers → backend).
+/// `user_agent` is used only for crawler HTML shells (crawlers → backend, humans → SPA).
+fn is_seo_document_shell_path(path: &str) -> bool {
+    matches!(path, "/" | "/tapp" | "/brew" | "/library" | "/reports")
+        || path.starts_with("/tapp/run/")
+        || path.starts_with("/brew/item/")
+}
+
+#[cfg(test)]
 fn is_backend_path(path: &str, user_agent: &str) -> bool {
+    is_backend_path_for(path, user_agent, "")
+}
+
+fn is_backend_path_for(path: &str, user_agent: &str, query: &str) -> bool {
     if path.starts_with("/api/")
         || path == "/health"
         // Public SEO sitemap + robots (backend api::seo)
@@ -434,12 +470,13 @@ fn is_backend_path(path: &str, user_agent: &str) -> bool {
     {
         return true;
     }
-    // Crawler HTML shells (humans stay on SPA)
-    if path.starts_with("/tapp/run/") && is_seo_crawler_ua(user_agent) {
-        return true;
-    }
-    // Site-owner original Brew articles only (backend 404s non-own content)
-    if path.starts_with("/brew/item/") && is_seo_crawler_ua(user_agent) {
+    // Crawler / in-app share HTML shells (ordinary browsers stay on SPA).
+    // `?_spa=1` is the bounce target so WeChat/Weibo WebViews can load the SPA
+    // after the first-byte OG document.
+    if is_seo_document_shell_path(path)
+        && wants_seo_html_shell(user_agent)
+        && !query_has_spa_bypass(query)
+    {
         return true;
     }
     // Federation (ActivityPub/MFP) public endpoints, see backend main.rs.
@@ -1034,7 +1071,17 @@ mod tests {
         assert!(is_backend_path("/robots.txt", browser));
         assert!(is_backend_path("/llms.txt", browser));
         assert!(is_backend_path("/api/seo/sitemap.xml", browser));
-        // Tapp / Brew item SEO shells: crawlers only
+        // Homepage / module indexes / Tapp / Brew SEO shells: crawlers only
+        assert!(is_backend_path("/", googlebot));
+        assert!(is_backend_path("/tapp", googlebot));
+        assert!(is_backend_path("/brew", "facebookexternalhit/1.1"));
+        assert!(is_backend_path("/library", googlebot));
+        assert!(is_backend_path("/reports", googlebot));
+        assert!(!is_backend_path("/", browser));
+        assert!(!is_backend_path("/tapp", browser));
+        assert!(!is_backend_path("/library", browser));
+        assert!(!is_backend_path("/tapp/store", googlebot));
+        assert!(!is_backend_path("/tapp/playground", googlebot));
         assert!(is_backend_path("/tapp/run/com.example.app", googlebot));
         assert!(is_backend_path(
             "/tapp/run/com.example.app",
@@ -1044,6 +1091,24 @@ mod tests {
         assert!(is_backend_path("/brew/item/42", googlebot));
         assert!(is_backend_path("/brew/item/42", "Twitterbot/1.0"));
         assert!(!is_backend_path("/brew/item/42", browser));
+        // WeChat / QQ share: first document is the SEO shell; `?_spa=1` is SPA.
+        assert!(is_backend_path(
+            "/",
+            "Mozilla/5.0 MicroMessenger/8.0.42 NetType/WIFI"
+        ));
+        assert!(!is_backend_path_for(
+            "/",
+            "Mozilla/5.0 MicroMessenger/8.0.42 NetType/WIFI",
+            "_spa=1"
+        ));
+        assert!(is_backend_path("/brew/item/42", "QQ-URL-Preview/1.0"));
+        assert!(is_backend_path("/", "Mozilla/5.0 Weibo"));
+        // GSC HTML-tag verification crawler (not Googlebot)
+        assert!(is_backend_path(
+            "/",
+            "Mozilla/5.0 (compatible; Google-Site-Verification/1.0)"
+        ));
+        assert!(!is_backend_path("/", browser));
         // Discovery
         assert!(is_backend_path("/.well-known/webfinger", browser));
         assert!(is_backend_path("/.well-known/nodeinfo", browser));

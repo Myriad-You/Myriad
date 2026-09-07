@@ -20,6 +20,8 @@ export interface SiteMetadata {
   site_keywords: string
   /** 社交分享预览图 URL；空则回退 favicon */
   site_og_image: string
+  /** Google Search Console HTML 标签验证码；空则不写 meta */
+  google_site_verification: string
   /** true → robots noindex,nofollow */
   site_noindex: boolean
   /** GA4 Measurement ID（G-XXXXXXXX）；空则不加载 gtag */
@@ -37,6 +39,7 @@ const DEFAULT_METADATA: SiteMetadata = {
   site_favicon: '/favicon.webp',
   site_keywords: '',
   site_og_image: '',
+  google_site_verification: '',
   site_noindex: false,
   ga_measurement_id: '',
   umami_website_id: '',
@@ -100,6 +103,10 @@ function normalizeMetadata(raw: Partial<SiteMetadata> | null | undefined): SiteM
     site_favicon: favicon,
     site_keywords: raw?.site_keywords ?? DEFAULT_METADATA.site_keywords,
     site_og_image,
+    google_site_verification:
+      typeof raw?.google_site_verification === 'string'
+        ? raw.google_site_verification
+        : DEFAULT_METADATA.google_site_verification,
     site_noindex: Boolean(raw?.site_noindex),
     ga_measurement_id:
       raw?.ga_measurement_id ?? DEFAULT_METADATA.ga_measurement_id,
@@ -405,6 +412,9 @@ function applyEffectiveSeo(): void {
 
   const keywords = base.site_keywords.trim()
   upsertMetaByName('keywords', keywords || null)
+  const gsc = base.google_site_verification.trim()
+  const gscSafe = /^[A-Za-z0-9_-]{1,128}$/.test(gsc) ? gsc : ''
+  upsertMetaByName('google-site-verification', gscSafe || null)
   upsertMetaByName('robots', noindex ? 'noindex, nofollow' : 'index, follow')
 
   upsertMetaByProperty('og:type', 'website')

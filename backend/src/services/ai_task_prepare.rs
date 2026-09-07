@@ -43,19 +43,14 @@ impl std::fmt::Display for AiTaskLogicError {
 impl std::error::Error for AiTaskLogicError {}
 
 pub fn permission_for_operation(operation: TappAiOperation) -> TappPermission {
-    match operation {
-        TappAiOperation::Generate => TappPermission::AiGenerate,
-        TappAiOperation::Analyze => TappPermission::AiAnalyze,
-        TappAiOperation::Chat => TappPermission::AiChat,
-        TappAiOperation::Image => TappPermission::AiImage,
-    }
+    operation.catalog_permission()
 }
 
 pub fn default_output_format(operation: TappAiOperation) -> TappAiOutputFormat {
-    if operation == TappAiOperation::Image {
-        TappAiOutputFormat::Image
-    } else {
-        TappAiOutputFormat::Text
+    match operation {
+        TappAiOperation::Image => TappAiOutputFormat::Image,
+        TappAiOperation::Search => TappAiOutputFormat::Json,
+        _ => TappAiOutputFormat::Text,
     }
 }
 
@@ -117,6 +112,14 @@ pub fn build_operation_prompt(
             }
             Ok(format!("{instruction}\n\nData:\n{data}"))
         }
+        TappAiOperation::Search => extract_text_input(input, "query")
+            .filter(|query| !query.trim().is_empty())
+            .ok_or_else(|| {
+                AiTaskLogicError::new(
+                    "INVALID_AI_TASK_INPUT",
+                    "search input must be a non-empty string or contain query",
+                )
+            }),
         TappAiOperation::Chat => {
             let messages = input
                 .get("messages")
@@ -170,6 +173,15 @@ pub fn assemble_task_prompt(
             return Err(AiTaskLogicError::new(
                 "UNSAFE_AI_TASK_INPUT",
                 "Image prompt is invalid or unsafe",
+            ));
+        }
+    } else if operation == TappAiOperation::Search {
+        if prompt.len() > MAX_INPUT_BYTES
+            || myriad_prompt_security::validate_prompt_security(&prompt).is_some()
+        {
+            return Err(AiTaskLogicError::new(
+                "UNSAFE_AI_TASK_INPUT",
+                "AI task prompt is invalid or unsafe",
             ));
         }
     } else {
@@ -241,10 +253,29 @@ pub fn normalize_text_result(
 mod tests {
     use super::{
         assemble_task_prompt, build_operation_prompt, normalize_text_result,
-        validate_idempotency_key, IMAGE_PROMPT_MAX_CHARS,
+        permission_for_operation, validate_idempotency_key, IMAGE_PROMPT_MAX_CHARS,
     };
+    use crate::services::permission_service::TappPermission;
     use myriad_tapp_contract::manifest::{TappAiOperation, TappAiOutputFormat};
     use serde_json::json;
+
+    #[test]
+    fn operation_permissions_come_from_the_catalog() {
+        let cases = [
+            (TappAiOperation::Generate, TappPermission::AiGenerate),
+            (TappAiOperation::Analyze, TappPermission::AiAnalyze),
+            (TappAiOperation::Chat, TappPermission::AiChat),
+            (TappAiOperation::Image, TappPermission::AiImage),
+            (TappAiOperation::Search, TappPermission::AiSearch),
+        ];
+        for (operation, permission) in cases {
+            assert_eq!(permission_for_operation(operation), permission);
+            assert_eq!(
+                permission_for_operation(operation).as_str(),
+                operation.permission()
+            );
+        }
+    }
 
     #[test]
     fn validates_idempotency_key_shape() {
@@ -273,6 +304,14 @@ mod tests {
             build_operation_prompt(TappAiOperation::Generate, &json!({ "prompt": "world" }))
                 .unwrap(),
             "world"
+        );
+        assert_eq!(
+            build_operation_prompt(TappAiOperation::Search, &json!("rss rust")).unwrap(),
+            "rss rust"
+        );
+        assert_eq!(
+            build_operation_prompt(TappAiOperation::Search, &json!({ "query": "docs" })).unwrap(),
+            "docs"
         );
     }
 

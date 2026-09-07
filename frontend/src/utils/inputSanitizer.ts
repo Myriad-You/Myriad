@@ -16,13 +16,6 @@ export function escapeHtml(unsafe: string): string {
 }
 
 /**
- * 移除 HTML 标签
- */
-export function stripHtmlTags(html: string): string {
-  return html.replace(/<[^>]*>/g, '')
-}
-
-/**
  * 清洗用户名输入
  */
 export function sanitizeUsername(username: string): string {

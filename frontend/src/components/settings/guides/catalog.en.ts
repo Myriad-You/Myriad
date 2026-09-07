@@ -15,15 +15,6 @@ export const en: SettingGuidesCatalog = {
       notes:
         'When the domain changes, the “return address” registered at login services (GitHub and the like) usually needs updating too, or login will fail.\nCertificates and domain DNS must match what you put here. When unsure, follow the checklist the system shows.',
     },
-    siteMetadata: {
-      what: 'Your site’s public name card: name, one-line intro, and small icon. (Merged into “Site identity & app”.)',
-      chain:
-        '1) After editing, click “Save configuration” at the bottom of the page.\n2) Once saved, the browser tab, site name near the login area, and the short blurb when shared all use the new content.\n3) This is separate from “Site address” above: here you only change the name card, not how people reach you.',
-      frontend:
-        'Name and icon on the browser tab, site name on the login page, and the preview blurb when you paste the link into chat apps.\nAfter saving, force-refresh (Ctrl/Cmd+Shift+R) to see whether the icon updated.',
-      notes:
-        'The icon can be a web image URL or a small local upload (keep it small).\nIf the icon doesn’t change right away, the browser is usually still remembering the old one.',
-    },
     siteIdentity: {
       what: 'Public site card (name, blurb, icon) and whether visitors can install the site as a PWA.',
       chain:
@@ -56,7 +47,7 @@ export const en: SettingGuidesCatalog = {
     siteSeo: {
       what: 'Help search engines and social previews understand your site: keywords, share image, and whether to allow indexing.',
       chain:
-        '1) Edit SEO fields here → save config at the bottom.\n2) After save, this page updates meta (keywords / robots / Open Graph) right away.\n3) Works with Site Metadata above: title and description also feed share cards.',
+        '1) Edit SEO fields here → save config at the bottom.\n2) After save, this page updates meta (keywords / robots / Open Graph) right away.\n3) Works with Site identity above: title and description also feed share cards.',
       frontend:
         'meta keywords, robots, og:*, and twitter:* in page source.\nLink preview image and text in chat apps.',
       notes:
@@ -77,12 +68,14 @@ export const en: SettingGuidesCatalog = {
       notes:
         'Landscape ≥1200×630 works best. Uploaded data URLs rarely work for crawlers — use a public image URL in production.',
     },
-    siteNoindex: {
-      what: 'Whether search engines may index this site (single switch).',
+    googleSiteVerification: {
+      what: 'HTML-tag ownership check for Google Search Console.',
       chain:
-        '1) On = allow indexing (robots: index, follow).\n2) Off = block (noindex, nofollow) → save at the bottom.\n3) Already-indexed pages do not vanish immediately — off only asks engines not to keep collecting.',
-      frontend: '<meta name="robots"> in the page head.',
-      notes: 'Turn off for private, demo, or not-yet-public instances. Keep on for a public site.',
+        '1) Add the property in Search Console → choose HTML tag.\n2) Paste the content value or the whole meta tag here → save at the bottom.\n3) Google fetches the homepage, checks the meta, then you can submit /sitemap.xml.',
+      frontend:
+        '<meta name="google-site-verification"> on crawler HTML shells and the SPA head. Google’s verification fetch uses the crawler shell.',
+      notes:
+        'Do not use HTML-file verification (this app is an SPA and will not serve google*.html at the site root). DNS TXT verification does not use this field.',
     },
     siteVisibilityPolicy: {
       what: 'Four-level policy for search engines and AI discovery/citation.',
@@ -329,6 +322,20 @@ export const en: SettingGuidesCatalog = {
       frontend: 'The attribution line.',
       notes: 'If the other side has no author field, leave empty.',
     },
+    island: {
+      what: 'What the collapsed top-right control island cycles through.',
+      chain:
+        '1) Tick greeting, weather, quote, music, Tapp → save at the bottom.\n2) After save, the island updates without a full reload.\n3) Notifications on the island stay under Notification settings, not this group.\n4) If the music player is off, ticking music here still has nothing to show.',
+      frontend: 'The capsule control island at the top-right of every page.',
+      notes: 'If nothing is ticked the island stays, empty, and still opens the control panel.',
+    },
+    islandContent: {
+      what: 'Each item in this group: show it on the island carousel or not.',
+      chain:
+        '1) Greeting, weather, quote, music, and Tapp are independent.\n2) Weather still needs a location; quote still needs a working source; music still needs the player on with a track.\n3) Tapp still has to write dynamic content itself.\n4) Notifications are not in this group.',
+      frontend: 'The lines currently cycling on the control island.',
+      notes: 'This is one site-wide owner setting; visitors see the same island.',
+    },
   },
 
   platforms: {
@@ -345,7 +352,15 @@ export const en: SettingGuidesCatalog = {
       chain:
         '1) Title-row switch controls collection (on by default; when off the server rejects new beacons).\n2) The client beacons on page open (batched / idle).\n3) The server aggregates PV/UV by server-local calendar day; egress IP may resolve top countries.\n4) Switch 7/14/30 days for trends shared by all sections below.\n5) Nested sections each have their own option guide: pages, events, referrers.',
       frontend: 'Data & stats → Visitor stats subcategory (KPIs including countries, chart, nested lists).',
-      notes: 'Historical data remains readable when collection is off. Admin and site-owner sessions are excluded. Same visitor counts once per day for UV (hashed; no raw IP). Country tiles can be empty when geo lookup fails.',
+      notes: 'Historical data remains readable when collection is off. Admin and site-owner sessions are excluded. Use “Opt out on this device” in this group to stop beacons from this browser only. Same visitor counts once per day for UV (hashed; no raw IP). Country tiles can be empty when geo lookup fails.',
+    },
+    analyticsOptOut: {
+      what: 'Stop this browser from sending visit beacons. Does not turn off site-wide collection or affect other people.',
+      chain:
+        '1) On: this device stops sending visitor beacons.\n2) If the site-wide collection switch stays on, other visitors are still counted.\n3) The group switch blocks all new beacons; this one only blocks the current browser.\n4) Stored locally — clearing site data or switching browsers resumes reporting.',
+      frontend:
+        'Data & stats → Visitor stats → “Opt out on this device.” Compare with a private window: private still counts, this browser does not.',
+      notes: 'Does not delete history. Admin sessions are already excluded.',
     },
     pageAnalytics: {
       what: 'Traffic by route in the selected range.',
@@ -557,13 +572,13 @@ export const en: SettingGuidesCatalog = {
       frontend:
         'Chat uses this persona. Write it on this item’s secondary settings page. The first-level row shows your mood band and current activity. Guests do not see mood.',
       notes:
-        'Only the site owner can write the persona. Deleting the persona also clears mood and diary. Heartbeat is never blocked by mood. Speaking aloud is a separate switch below, off by default.',
+        'Only the site owner can write the persona. Deleting the persona also clears mood and diary. Heartbeat is never blocked by mood. Speaking aloud is a separate switch on this card, off by default.',
     },
     agentPersonaSpeech: {
       what: 'Whether the persona face speaks chat replies aloud.',
       chain:
         '1) Off by default. Off: replies stay text; the face still mouths the line, with no voice.\n2) On, with speech configured: replies go through the speech pipeline; real audio drives the mouth; text visemes only if TTS fails.\n3) Requires Agent persona on, and a speech provider on the AI page. The switch does not count while persona is off.\n4) Push-to-listen is still manual and separate.\n5) Reader/podcast TTS uses the speech provider, not this switch.',
-      frontend: 'Settings → AI → Persona → Speak. Takes effect on the next chat turn after save.',
+      frontend: 'Settings → AI → Agent → Speak. Takes effect on the next chat turn after save.',
       notes: 'Voice uses quota. Turning this off does not turn off the persona.',
     },
     liteEnable: {
@@ -608,6 +623,14 @@ export const en: SettingGuidesCatalog = {
       frontend: 'Settings → AI → “Add provider” in the section header.',
       notes: 'You do not re-enter a key when switching models. New keys here win over older per-feature fields.',
     },
+    webSearch: {
+      what: 'TinyFish key for Work-mode web search. Search is free; a key is still required.',
+      chain:
+        '1) Sign up at agent.tinyfish.ai, paste the key here, and save.\n2) Work-mode ai.webSearch and reading-list web fallback use TinyFish Search first (reading lists also Fetch page text).\n3) If this key is empty, search falls back to configured Gemini Google Search.\n4) The key is a host secret: outbound only, never returned to apps.',
+      frontend: 'Settings → AI → Web search. After saving, ask a Work-mode question that needs the live web.',
+      notes:
+        'Visitors do not fill this in. Chat mode does not use web search. Clear the field and save to delete the stored key; saving the mask leaves it unchanged.',
+    },
     provider: {
       what: 'Which smart-service company to use.',
       chain:
@@ -635,6 +658,55 @@ export const en: SettingGuidesCatalog = {
         '1) Decides answer style, strength, and cost.\n2) Must be a name already enabled on your account.\n3) Works only together with provider and secret key.',
       frontend: 'Differences in assistant answer quality and speed.',
       notes: 'Wrong name causes the call to fail; use the name from the provider’s console.',
+    },
+    heartbeat: {
+      what: 'Let Agent run a task on a schedule without you watching.',
+      chain:
+        '1) Add a task here: name, schedule (preset or cron), and what to do.\n2) When due, Agent runs that instruction in Work mode.\n3) The list can enable, edit, or delete; last result shows on the row.\n4) Independent of persona mood — heartbeat is never blocked by mood.\n5) You must be signed in to read or write these tasks.',
+      frontend: 'Settings → AI → Agent → Schedule. Runs also show on the assistant timeline.',
+      notes: 'Write a clear action. Invalid cron never fires. Tasks use AI quota.',
+    },
+    skills: {
+      what: 'Ways of working Agent remembers: ones you wrote, or ones it learned or revised while doing tasks.',
+      chain:
+        '1) After a successful job it may store a skill and reuse it next time.\n2) You can also ask the assistant to learn or edit one.\n3) This page only lists, searches, and deletes — it does not create skill text.\n4) After delete, that skill is no longer used.',
+      frontend: 'Settings → AI → Agent → Skills. Badges mark manual / learned / revised.',
+      notes: 'Deleting means teaching again. Skills are not permissions and cannot bypass site permissions or quota.',
+    },
+    memory: {
+      what: 'Short facts Agent chose to keep, injected into later chat.',
+      chain:
+        '1) It writes a row when it thinks a fact is worth keeping.\n2) Search, edit, or delete here.\n3) Edits apply on the next chat turn.\n4) Not the same as persona diary: diary is per person; memory is fact lines.',
+      frontend: 'Settings → AI → Agent → Memory. Expand a row to edit the text.',
+      notes: 'Do not put secrets in memory. Deleted rows are no longer injected.',
+    },
+    imageModel: {
+      what: 'The exact model name used for image generation.',
+      chain:
+        '1) Saved together with the image provider.\n2) Must be a name already enabled on that provider.\n3) Still needs image permission and remaining quota.\n4) Can differ from the text model.',
+      frontend: 'Settings → AI → Image → Model. On failure, check the name first.',
+      notes: 'Each vendor writes names differently — follow the on-page placeholder.',
+    },
+    speechStt: {
+      what: 'The recognition model that turns speech into text.',
+      chain:
+        '1) Fill after picking a speech provider.\n2) Assistant dictation and the on-page speech test use this.\n3) The name must be enabled at that provider.\n4) Some providers (e.g. MiniMax) do not show this field.',
+      frontend: 'Settings → AI → Speech → recognition model. Use the on-page test.',
+      notes: 'Not the same name as the read-aloud model. A wrong name fails transcription.',
+    },
+    speechTts: {
+      what: 'The synthesis model that reads text aloud.',
+      chain:
+        '1) Fill after picking a speech provider.\n2) Assistant TTS, persona speaking, and the on-page test use this.\n3) Persona “Speak” is a separate switch and needs persona on.\n4) OpenRouter often has no official TTS listing.',
+      frontend: 'Settings → AI → Speech → TTS model. Use the on-page test first.',
+      notes: 'Podcast/reader TTS uses the speech provider itself, not the persona speak switch.',
+    },
+    speechVoice: {
+      what: 'Which voice ID to use for read-aloud.',
+      chain:
+        '1) Saved with the TTS model.\n2) Must be a voice the current provider supports.\n3) Persona speaking uses this voice too.\n4) Empty falls back to the on-page placeholder default.',
+      frontend: 'Settings → AI → Speech → Voice. One test line is enough to hear the difference.',
+      notes: 'Voice names are vendor-specific — do not paste an OpenAI voice into Gemini.',
     },
   },
 
@@ -728,19 +800,47 @@ export const en: SettingGuidesCatalog = {
         'Third-party buttons on the login / register page.\nA full login attempt in a private window is the best verification.',
       notes: 'If the site address isn’t set up, you’ll see a strong warning — fix basic configuration first. Don’t leak secrets.',
     },
-    allowRegister: {
-      what: '(Legacy key) Whether first third-party login auto-creates an account. For public local password registration, see Users → allow public registration.',
-      chain:
-        '1) Corrected meaning: open /register local sign-up is not configured on this page.\n2) Toggle public local registration under “Users.”\n3) Whether third-party buttons appear still depends on providers configured here.',
-      frontend: 'Third-party buttons (this section); local register link under Users and the login page.',
-      notes: 'Prefer users.allowLocalRegister.',
-    },
     provider: {
       what: 'The concrete fill-in fields for one third-party login method.',
       chain:
         '1) Fully filled and enabled → the login page shows that brand’s button.\n2) Missing fields often mean you can’t return after clicking.\n3) Return address depends on the site address configuration.',
       frontend: 'That brand’s login button. You can test one provider alone.',
       notes: 'Follow the on-page steps; avoid extra spaces when pasting.',
+    },
+    callback: {
+      what: 'The address this site must receive after a successful login — register it exactly at the login service.',
+      chain:
+        '1) Built from Site address + this provider’s slug; you usually do not edit it.\n2) The Redirect URI in the provider console must match character-for-character.\n3) After a domain change, update the provider console too.\n4) Discord data sync may show a second callback, separate from login.',
+      frontend: 'The callback row inside an expanded sign-in card; copyable. A full private-window login is the check.',
+      notes: 'An extra slash or http vs https will fail the return.',
+    },
+    clientId: {
+      what: 'The application ID the login service issued (Client ID).',
+      chain:
+        '1) Copy it here after creating the app in their console.\n2) Works only together with the secret and callback.\n3) A wrong ID fails on their authorize page.',
+      frontend: 'Client ID on the sign-in method card.',
+      notes: 'It may appear in the browser; still do not reuse someone else’s.',
+    },
+    clientSecret: {
+      what: 'The application secret the login service issued (Client Secret).',
+      chain:
+        '1) Only the server uses it to exchange tokens; the page never shows the full value.\n2) Needed with the ID and callback to complete login.\n3) After rotation the old secret dies immediately — update this field.',
+      frontend: 'Secret field on the sign-in method card (masked).',
+      notes: 'Do not paste into chat or public repos. Saving the mask keeps the stored value.',
+    },
+    discovery: {
+      what: 'OpenID discovery URL used to find authorize and token endpoints automatically.',
+      chain:
+        '1) Only for OIDC providers (Google and similar). GitHub’s dedicated kind has no such field.\n2) Use the official .well-known/openid-configuration.\n3) A wrong URL blocks the authorize page or token exchange.',
+      frontend: 'Discovery URL on an OIDC card.',
+      notes: 'Copy from the on-page steps; do not point at a mirror unless you know why.',
+    },
+    advanced: {
+      what: 'This method’s slug, display name, scopes, and icon.',
+      chain:
+        '1) The slug appears in the callback path — changing it means updating the provider console too.\n2) Display name is the label on the login button.\n3) Scopes decide which profile fields you get; extras may be rejected.\n4) Icon only changes how the button looks.',
+      frontend: 'Sign-in method card → expand → Advanced.',
+      notes: 'If login already works, do not casually change the slug.',
     },
   },
 
@@ -752,6 +852,20 @@ export const en: SettingGuidesCatalog = {
       frontend:
         'Whether assistant features work, and whether smart/networked actions in small apps are refused.\nLog in as a normal user and try a refused-permission message.',
       notes: 'Be especially careful with guest abilities. Presets don’t randomly change media/theme powers unrelated to the assistant.',
+    },
+    agentPresetUser: {
+      what: 'Which assistant-capability preset signed-in users get.',
+      chain:
+        '1) Picking a tier bulk-changes user elevated abilities.\n2) Editing Fine-tune below turns it Custom.\n3) Admins are usually not limited by these.\n4) Quota is set separately underneath.',
+      frontend: 'Permissions → Agent presets → Users. Check while signed in as a normal account.',
+      notes: 'Think through abuse before opening network or scheduler for users.',
+    },
+    agentPresetGuest: {
+      what: 'Which assistant-capability preset unsigned visitors get.',
+      chain:
+        '1) Unsigned visits are allowed or denied from this tier.\n2) Guests have no full backend assistant session — opening too much invites flooding.\n3) Some abilities (scheduler, federation writes) never appear in the guest preset.\n4) Keep quota clearly below signed-in users.',
+      frontend: 'Permissions → Agent presets → Guests. Verify in a signed-out private window.',
+      notes: 'Keep this tight in production.',
     },
     fineTune: {
       what: 'On top of a preset, turn individual abilities on or off one by one.',
@@ -825,6 +939,13 @@ export const en: SettingGuidesCatalog = {
         '1) On: unsigned visitors can open /register and sign up.\n2) Off: local accounts only via admin create on this page.\n3) Not the same as third-party login (GitHub/Google) — that is under Sign-in methods.\n4) Usually takes effect for visitors after config is saved.',
       frontend: '“Allow public local registration” switch at the top of Users; whether login shows “Register.” Try /register in a private window.',
       notes: 'Be careful on public sites (bulk sign-ups). Safer: keep off + admin-created accounts, or trusted third-party login only.',
+    },
+    privateTappInstall: {
+      what: 'When to automatically uninstall a normal user’s personal (private) Tapp installs.',
+      chain:
+        '1) Default is 14 days inactive: a daily worker prunes by last login/seen; logout itself does not delete.\n2) 7 days is shorter; a custom 1–365 day value also appears in the menu.\n3) “Logout”: wipe that user’s private installs as soon as they sign out.\n4) Does not touch site-wide public installs, nor admin apps in the public namespace.\n5) Cleanup removes the install relationship; the package remains in the store.',
+      frontend: 'Top of the Users list, beside public registration.',
+      notes: 'On a public site, do not keep personal installs forever. Admin accounts skip logout cleanup.',
     },
   },
 
@@ -942,6 +1063,62 @@ export const en: SettingGuidesCatalog = {
         '1) Save writes runtime data/agent/mcp_servers.json (often /data/agent/mcp_servers.json in the container) and hot-reloads children (no full site restart).\n2) Enabled servers start command/args; tools surface as mcp.{id}.{tool} for the agent.\n3) The list shows health and tool counts; disabled entries stay on disk but do not start.\n4) Env fields can hold secrets that live only on the server.',
       frontend: 'Settings → Advanced → “MCP tool servers” (admin only). Deep link /config?section=mcp.',
       notes: 'Config path follows the deploy data directory. Commands must be on PATH. Do not commit secrets. A failed save leaves running processes until a successful save.',
+    },
+    mcpId: {
+      what: 'Short id for this MCP server; it appears inside tool names.',
+      chain:
+        '1) Letters, digits, and . _ - only.\n2) After save, tools are mcp.{id}.{tool}.\n3) Must be unique in this config.\n4) Changing the id is like a new server — old tool names stop working.',
+      frontend: 'MCP add/edit form → Server ID.',
+      notes: 'Keep it short English, e.g. github.',
+    },
+    mcpCommand: {
+      what: 'Executable used to start this server.',
+      chain:
+        '1) Something on PATH such as npx, node, or python.\n2) Combined with args into the start line.\n3) If the command is missing, the server will not become healthy.',
+      frontend: 'MCP form → Command.',
+      notes: 'In containers, confirm the image actually has this binary.',
+    },
+    mcpArgs: {
+      what: 'Arguments after the start command.',
+      chain:
+        '1) Space-separated; quote segments that contain spaces.\n2) Typical: -y @modelcontextprotocol/server-github.\n3) Hot-reloaded with the command after save.',
+      frontend: 'MCP form → Args.',
+      notes: 'Wrong package or path fails startup — check health and logs.',
+    },
+    mcpEnv: {
+      what: 'Environment variables for this process, often secrets.',
+      chain:
+        '1) One KEY=value per line.\n2) Stored only in server config — not git, not returned to apps.\n3) After save the child starts with the new env.',
+      frontend: 'MCP form → Environment.',
+      notes: 'Do not paste secrets into chat. Empty is fine if the server needs none.',
+    },
+    mcpMaxRestart: {
+      what: 'How many times to auto-start after a crash.',
+      chain:
+        '1) 0–50. After the cap, no more automatic restarts.\n2) Only matters if crash auto-restart is on.\n3) 0 means never auto-start.',
+      frontend: 'MCP form → Max restart attempts.',
+      notes: 'Repeated crashes mean a bad command or secret — raising the cap is not a fix.',
+    },
+    mcpEnabled: {
+      what: 'Whether to start this server now.',
+      chain:
+        '1) On: save starts the child and indexes tools.\n2) Off: does not start; config stays for later.\n3) The list row can toggle this in place.',
+      frontend: 'MCP form → Enabled, and the switch on the list row.',
+      notes: 'Off is not delete.',
+    },
+    mcpAutoRestart: {
+      what: 'Whether to start again if the child exits unexpectedly.',
+      chain:
+        '1) On: retries up to max restart attempts.\n2) Off: stays down until you enable or save again.\n3) Separate from Enabled — nothing runs if it is off.',
+      frontend: 'MCP form → Restart on crash.',
+      notes: 'Safer to enable only for commands you control.',
+    },
+    mcpTrustAnnotations: {
+      what: 'Whether to trust this server’s own “read-only” marks and skip some confirms.',
+      chain:
+        '1) On: tools it labels read-only may skip the confirm dialog.\n2) Destructive tools always confirm, regardless of this switch.\n3) Annotations are the server’s claim, not a host audit.',
+      frontend: 'MCP form → Trust this server’s tool annotations.',
+      notes: 'Turn on only for servers you deploy and trust.',
     },
   },
 

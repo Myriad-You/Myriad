@@ -2,20 +2,23 @@
 
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
-use super::agora_rtc_token::{build_rtc_token_now, AgoraTokenError};
+use super::agora_rtc_token::{build_rtc_rtm_token_now, AgoraTokenError};
 use super::http_client::{apply_proxy, ProxyConfig};
 use super::minimax_speech::{is_minimax_vendor, DEFAULT_MINIMAX_TTS_MODEL, DEFAULT_MINIMAX_VOICE};
 use crate::config::DynamicConfig;
 use crate::GLOBAL_DYNAMIC_CONFIG;
 
 pub const DEFAULT_AGORA_API_BASE: &str = "https://api.agora.io/cn";
-pub const USER_RTC_UID: u32 = 1;
-pub const AGENT_RTC_UID: u32 = 8888;
 const TOKEN_TTL_SECS: u32 = 3600;
 
 #[derive(Debug)]
 pub enum AgoraConvoError {
+    SessionUnavailable,
     NotConfigured(String),
     Token(AgoraTokenError),
     Network(String),
@@ -25,6 +28,7 @@ pub enum AgoraConvoError {
 impl std::fmt::Display for AgoraConvoError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SessionUnavailable => write!(f, "Realtime session is unavailable"),
             Self::NotConfigured(msg) => write!(f, "{msg}"),
             Self::Token(e) => write!(f, "{e}"),
             Self::Network(msg) => write!(f, "Network error: {msg}"),
@@ -46,8 +50,52 @@ pub struct ConvoSession {
     pub app_id: String,
     pub channel: String,
     pub uid: u32,
+    pub agent_uid: u32,
     pub token: String,
     pub agent_id: String,
+}
+
+#[derive(Clone)]
+struct OwnedSession {
+    user_id: i32,
+    expires_at: Instant,
+    // Bind controls to the credentials used to create the session, even when
+    // the active vendor configuration changes. Never return these to a client.
+    endpoint: Arc<AgoraEndpoint>,
+    chat: Arc<super::agora_chat::ChatSession>,
+}
+
+impl OwnedSession {
+    fn permits(&self, user_id: i32, now: Instant) -> bool {
+        user_id > 0 && self.user_id == user_id && now < self.expires_at
+    }
+}
+
+static SESSIONS: LazyLock<Mutex<HashMap<String, OwnedSession>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+async fn owned_session(user_id: i32, agent_id: &str) -> Result<OwnedSession, AgoraConvoError> {
+    SESSIONS
+        .lock()
+        .await
+        .get(agent_id)
+        .filter(|session| session.permits(user_id, Instant::now()))
+        .cloned()
+        .ok_or(AgoraConvoError::SessionUnavailable)
+}
+
+pub fn conversation_language(language: &str) -> &'static str {
+    match language
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "ja" => "ja-JP",
+        "en" => "en-US",
+        _ => "zh-CN",
+    }
 }
 
 fn json_str(value: &Value, pointers: &[&str]) -> Option<String> {
@@ -151,6 +199,11 @@ pub fn resolve_agora_endpoint(config: &DynamicConfig) -> Result<AgoraEndpoint, A
 
 pub fn convo_configured(config: &DynamicConfig) -> bool {
     resolve_agora_endpoint(config).is_ok()
+        && resolve_minimax_tts(config).is_ok()
+        && config
+            .resolve_strict_lite_ai_config()
+            .and_then(|resolved| resolved.api_key)
+            .is_some_and(|key| !key.trim().is_empty())
 }
 
 fn nonempty(value: &str) -> bool {
@@ -183,32 +236,35 @@ pub fn build_join_body(
     channel: &str,
     agent_token: &str,
     user_uid: u32,
+    agent_uid: u32,
     llm: &LlmEndpoint,
     tts: &TtsEndpoint,
     language: &str,
-    system_prompt: &str,
 ) -> Value {
     json!({
         "name": channel,
         "properties": {
             "channel": channel,
             "token": agent_token,
-            "agent_rtc_uid": AGENT_RTC_UID.to_string(),
+            "agent_rtc_uid": agent_uid.to_string(),
             "remote_rtc_uids": [user_uid.to_string()],
             "enable_string_uid": false,
             "idle_timeout": 30,
+            "advanced_features": { "enable_rtm": true },
+            "parameters": {
+                "data_channel": "rtm",
+                "enable_error_message": true
+            },
             "asr": { "language": language },
             "llm": {
+                "vendor": "custom",
                 "url": llm.url,
                 "api_key": llm.api_key,
-                "system_messages": [{
-                    "role": "system",
-                    "content": system_prompt
-                }],
+                "system_messages": [],
                 "greeting_message": "",
                 "failure_message": "",
-                "max_history": 10,
-                "params": { "model": llm.model }
+                "max_history": 0,
+                "params": { "model": "myriad-chat", "stream": true }
             },
             "tts": {
                 "vendor": "minimax",
@@ -228,85 +284,17 @@ pub fn build_join_body(
     })
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LlmEndpoint {
     pub url: String,
     pub api_key: String,
-    pub model: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TtsEndpoint {
     pub api_key: String,
     pub model: String,
     pub voice: String,
-}
-
-pub fn resolve_llm_endpoint(config: &DynamicConfig) -> Result<LlmEndpoint, AgoraConvoError> {
-    let sources = config.effective_vendor_sources();
-    let source = sources.iter().find(|item| {
-        item.enabled
-            && !is_minimax_vendor(item)
-            && matches!(
-                item.kind.trim().to_ascii_lowercase().as_str(),
-                "openai" | "openrouter" | "openai_compatible"
-            )
-            && DynamicConfig::nonempty_opt(item.api_key.as_ref()).is_some()
-    });
-    if let Some(source) = source {
-        let key = DynamicConfig::nonempty_opt(source.api_key.as_ref()).unwrap_or_default();
-        let mut base = source.base_url.trim().to_string();
-        if base.is_empty() {
-            base = if source.kind.trim().eq_ignore_ascii_case("openrouter") {
-                "https://openrouter.ai/api/v1".to_string()
-            } else {
-                config.shared_openai_base_url()
-            };
-        }
-        let model = if source.kind.trim().eq_ignore_ascii_case("openrouter") {
-            config
-                .openai_model
-                .trim()
-                .to_string()
-                .if_empty("openai/gpt-oss-20b:free")
-        } else {
-            config
-                .openai_model
-                .trim()
-                .to_string()
-                .if_empty("gpt-4o-mini")
-        };
-        return Ok(LlmEndpoint {
-            url: chat_completions_url(&base),
-            api_key: key,
-            model,
-        });
-    }
-    if let Some(key) = config.shared_openrouter_api_key() {
-        return Ok(LlmEndpoint {
-            url: chat_completions_url("https://openrouter.ai/api/v1"),
-            api_key: key,
-            model: config
-                .openai_model
-                .trim()
-                .to_string()
-                .if_empty("openai/gpt-oss-20b:free"),
-        });
-    }
-    if let Some(key) = config.shared_openai_api_key() {
-        return Ok(LlmEndpoint {
-            url: chat_completions_url(&config.shared_openai_base_url()),
-            api_key: key,
-            model: config
-                .openai_model
-                .trim()
-                .to_string()
-                .if_empty("gpt-4o-mini"),
-        });
-    }
-    Err(AgoraConvoError::NotConfigured(
-        "Realtime talk needs a public OpenAI-compatible language model".to_string(),
-    ))
 }
 
 pub fn resolve_minimax_tts(config: &DynamicConfig) -> Result<TtsEndpoint, AgoraConvoError> {
@@ -337,36 +325,17 @@ pub fn resolve_minimax_tts(config: &DynamicConfig) -> Result<TtsEndpoint, AgoraC
     })
 }
 
-fn chat_completions_url(base: &str) -> String {
-    let trimmed = base.trim().trim_end_matches('/');
-    if trimmed.ends_with("/chat/completions") {
-        trimmed.to_string()
-    } else {
-        format!("{trimmed}/chat/completions")
-    }
-}
-
-trait IfEmpty {
-    fn if_empty(self, fallback: &str) -> String;
-}
-
-impl IfEmpty for String {
-    fn if_empty(self, fallback: &str) -> String {
-        if self.is_empty() {
-            fallback.to_string()
-        } else {
-            self
-        }
-    }
-}
-
 pub async fn start_session(
+    chat: Arc<super::agora_chat::ChatSession>,
     language: &str,
-    system_prompt: &str,
+    llm: &LlmEndpoint,
 ) -> Result<ConvoSession, AgoraConvoError> {
+    let user_id = chat.claims.sub.parse().unwrap_or(0);
+    if user_id <= 0 {
+        return Err(AgoraConvoError::SessionUnavailable);
+    }
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let agora = resolve_agora_endpoint(&config)?;
-    let llm = resolve_llm_endpoint(&config)?;
+    let agora = Arc::new(resolve_agora_endpoint(&config)?);
     let tts = resolve_minimax_tts(&config)?;
     drop(config);
     let AgoraEndpoint {
@@ -375,31 +344,26 @@ pub async fn start_session(
         customer_id,
         customer_secret,
         api_base,
-    } = agora;
+    } = agora.as_ref();
+
+    let expires_at = Instant::now() + Duration::from_secs(TOKEN_TTL_SECS.into());
 
     let channel = format!("merope-{}", uuid::Uuid::new_v4().simple());
-    let user_token = build_rtc_token_now(
-        &app_id,
-        &certificate,
-        &channel,
-        USER_RTC_UID,
-        TOKEN_TTL_SECS,
-    )?;
-    let agent_token = build_rtc_token_now(
-        &app_id,
-        &certificate,
-        &channel,
-        AGENT_RTC_UID,
-        TOKEN_TTL_SECS,
-    )?;
+    // RTM IDs are app-wide, not channel-local. Fixed IDs would kick users (and
+    // agents) out of other conversations. Both participants join RTC and RTM.
+    let (user_uid, agent_uid) = transport_uids(uuid::Uuid::new_v4());
+    let user_token =
+        build_rtc_rtm_token_now(app_id, certificate, &channel, user_uid, TOKEN_TTL_SECS)?;
+    let agent_token =
+        build_rtc_rtm_token_now(app_id, certificate, &channel, agent_uid, TOKEN_TTL_SECS)?;
     let body = build_join_body(
         &channel,
         &agent_token,
-        USER_RTC_UID,
-        &llm,
+        user_uid,
+        agent_uid,
+        llm,
         &tts,
         language,
-        system_prompt,
     );
 
     let proxy = ProxyConfig::from_dynamic_config().await;
@@ -412,10 +376,10 @@ pub async fn start_session(
     .and_then(|b| b.build())
     .map_err(|e| AgoraConvoError::Network(e.to_string()))?;
 
-    let url = join_url(&api_base, &app_id);
+    let url = join_url(api_base, app_id);
     let response = client
         .post(url)
-        .basic_auth(&customer_id, Some(&customer_secret))
+        .basic_auth(customer_id, Some(customer_secret))
         .json(&body)
         .send()
         .await
@@ -445,33 +409,83 @@ pub async fn start_session(
         status = %agent_status,
         "Agora conversational agent joined"
     );
+    SESSIONS.lock().await.insert(
+        agent_id.clone(),
+        OwnedSession {
+            user_id,
+            expires_at,
+            endpoint: agora.clone(),
+            chat,
+        },
+    );
+    let expiring_id = agent_id.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep_until(expires_at.into()).await;
+        let expired = {
+            let mut sessions = SESSIONS.lock().await;
+            if sessions
+                .get(&expiring_id)
+                .is_some_and(|session| session.expires_at == expires_at)
+            {
+                sessions.remove(&expiring_id)
+            } else {
+                None
+            }
+        };
+        if let Some(session) = expired {
+            session.chat.close().await;
+            let _ = post_agent_action(&session.endpoint, &expiring_id, "leave").await;
+        }
+    });
     Ok(ConvoSession {
-        app_id,
+        app_id: app_id.clone(),
         channel,
-        uid: USER_RTC_UID,
+        uid: user_uid,
+        agent_uid,
         token: user_token,
         agent_id,
     })
 }
 
-pub async fn stop_session(agent_id: &str) -> Result<(), AgoraConvoError> {
-    post_agent_action(agent_id, "leave").await
+fn transport_uids(seed: uuid::Uuid) -> (u32, u32) {
+    let user_uid = ((seed.as_u128() as u32) & 0x7fff_fffe).max(2);
+    (user_uid, user_uid + 1)
 }
 
-pub async fn interrupt_session(agent_id: &str) -> Result<(), AgoraConvoError> {
-    post_agent_action(agent_id, "interrupt").await
+pub async fn stop_session(user_id: i32, agent_id: &str) -> Result<(), AgoraConvoError> {
+    let session = owned_session(user_id, agent_id).await?;
+    session.chat.close().await;
+    // Keep the owner until a failed leave can be retried or the lease expires.
+    post_agent_action(&session.endpoint, agent_id, "leave").await?;
+    SESSIONS.lock().await.remove(agent_id);
+    Ok(())
 }
 
-async fn post_agent_action(agent_id: &str, action: &str) -> Result<(), AgoraConvoError> {
-    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+pub async fn interrupt_session(user_id: i32, agent_id: &str) -> Result<(), AgoraConvoError> {
+    let session = owned_session(user_id, agent_id).await?;
+    session.chat.interrupt().await;
+    post_agent_action(&session.endpoint, agent_id, "interrupt").await
+}
+
+pub async fn chat_session(
+    user_id: i32,
+    agent_id: &str,
+) -> Result<Arc<super::agora_chat::ChatSession>, AgoraConvoError> {
+    Ok(owned_session(user_id, agent_id).await?.chat)
+}
+
+async fn post_agent_action(
+    endpoint: &AgoraEndpoint,
+    agent_id: &str,
+    action: &str,
+) -> Result<(), AgoraConvoError> {
     let AgoraEndpoint {
         app_id,
         customer_id,
         customer_secret,
         api_base,
         ..
-    } = resolve_agora_endpoint(&config)?;
-    drop(config);
+    } = endpoint;
 
     let proxy = ProxyConfig::from_dynamic_config().await;
     let client = apply_proxy(
@@ -482,10 +496,10 @@ async fn post_agent_action(agent_id: &str, action: &str) -> Result<(), AgoraConv
     )
     .and_then(|b| b.build())
     .map_err(|e| AgoraConvoError::Network(e.to_string()))?;
-    let url = agent_action_url(&api_base, &app_id, agent_id, action);
+    let url = agent_action_url(api_base, app_id, agent_id, action);
     let response = client
         .post(url)
-        .basic_auth(&customer_id, Some(&customer_secret))
+        .basic_auth(customer_id, Some(customer_secret))
         .json(&json!({}))
         .send()
         .await
@@ -526,6 +540,55 @@ fn api_error_message(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn controls_require_the_live_owner_not_just_an_agent_id() {
+        let now = Instant::now();
+        let (chat, _) = super::super::agora_chat::ChatSession::register(
+            crate::middleware::auth::mint_session_claims(7, "tester", false, false, 0),
+            "chat-test".into(),
+        )
+        .await
+        .unwrap();
+        let session = OwnedSession {
+            user_id: 7,
+            expires_at: now + Duration::from_secs(10),
+            endpoint: Arc::new(AgoraEndpoint {
+                app_id: "app".into(),
+                certificate: String::new(),
+                customer_id: String::new(),
+                customer_secret: String::new(),
+                api_base: String::new(),
+            }),
+            chat: chat.clone(),
+        };
+        assert!(session.permits(7, now));
+        assert!(!session.permits(8, now));
+        assert!(!session.permits(0, now));
+        assert!(!session.permits(-1, now));
+        assert!(!session.permits(7, session.expires_at));
+        chat.close().await;
+    }
+
+    #[tokio::test]
+    async fn unknown_or_foreign_sessions_fail_before_provider_resolution() {
+        assert!(matches!(
+            interrupt_session(7, "unknown").await,
+            Err(AgoraConvoError::SessionUnavailable)
+        ));
+        assert!(matches!(
+            stop_session(8, "unknown").await,
+            Err(AgoraConvoError::SessionUnavailable)
+        ));
+    }
+
+    #[test]
+    fn japanese_is_not_silently_transcribed_as_chinese() {
+        assert_eq!(conversation_language("ja-JP"), "ja-JP");
+        assert_eq!(conversation_language("JA_jp"), "ja-JP");
+        assert_eq!(conversation_language("en-GB"), "en-US");
+        assert_eq!(conversation_language("zh-CN"), "zh-CN");
+    }
+
     #[test]
     fn join_and_leave_urls() {
         assert_eq!(
@@ -541,44 +604,29 @@ mod tests {
     #[test]
     fn join_body_uses_minimax_and_chat_completions() {
         let llm = LlmEndpoint {
-            url: "https://openrouter.ai/api/v1/chat/completions".to_string(),
-            api_key: "sk-or".to_string(),
-            model: "openai/gpt-oss-20b:free".to_string(),
+            url: "https://myriad.example/api/speech/convo/chat/completions".to_string(),
+            api_key: "ephemeral-callback-only".to_string(),
         };
         let tts = TtsEndpoint {
             api_key: "mm-key".to_string(),
             model: "speech-2.8-turbo".to_string(),
             voice: "female-shaonv".to_string(),
         };
-        let body = build_join_body(
-            "room-1",
-            "agent-token",
-            1,
-            &llm,
-            &tts,
-            "zh-CN",
-            "you are merope",
-        );
+        let body = build_join_body("room-1", "agent-token", 1, 8888, &llm, &tts, "zh-CN");
         assert_eq!(body["properties"]["tts"]["vendor"], "minimax");
         assert_eq!(
             body["properties"]["tts"]["params"]["voice_setting"]["voice_id"],
             "female-shaonv"
         );
         assert_eq!(body["properties"]["llm"]["url"], llm.url);
+        assert_eq!(body["properties"]["llm"]["vendor"], "custom");
+        assert_eq!(body["properties"]["llm"]["params"]["model"], "myriad-chat");
+        assert_eq!(body["properties"]["llm"]["system_messages"], json!([]));
         assert_eq!(body["properties"]["remote_rtc_uids"][0], "1");
+        assert_eq!(body["properties"]["agent_rtc_uid"], "8888");
         assert_eq!(body["properties"]["asr"]["language"], "zh-CN");
-    }
-
-    #[test]
-    fn chat_url_appends_completions() {
-        assert_eq!(
-            chat_completions_url("https://api.openai.com/v1"),
-            "https://api.openai.com/v1/chat/completions"
-        );
-        assert_eq!(
-            chat_completions_url("https://api.openai.com/v1/chat/completions"),
-            "https://api.openai.com/v1/chat/completions"
-        );
+        assert_eq!(body["properties"]["advanced_features"]["enable_rtm"], true);
+        assert_eq!(body["properties"]["parameters"]["data_channel"], "rtm");
     }
 
     #[test]
@@ -587,21 +635,49 @@ mod tests {
     }
 
     #[test]
-    fn vendor_source_enables_realtime_talk() {
+    fn transport_uids_are_nonzero_distinct_and_session_scoped() {
+        for seed in [0, u128::MAX, 42, 123456789] {
+            let (user, agent) = transport_uids(uuid::Uuid::from_u128(seed));
+            assert!(user > 0 && agent > 0);
+            assert_ne!(user, agent);
+        }
+        assert_ne!(
+            transport_uids(uuid::Uuid::from_u128(42)),
+            transport_uids(uuid::Uuid::from_u128(44))
+        );
+    }
+
+    #[test]
+    fn realtime_talk_requires_transport_voice_and_strict_lite() {
         let mut config = crate::config::DynamicConfig::default();
-        config.ai_vendor_sources = vec![crate::config::AiVendorSource {
-            slug: "agora".to_string(),
-            kind: "agora".to_string(),
-            display_name: "Shengwang / Agora".to_string(),
-            enabled: true,
-            preset: "agora".to_string(),
-            api_key: Some("c".repeat(32)),
-            secret_id: Some("cid".to_string()),
-            secret_key: Some("csec".to_string()),
-            app_id: Some("a".repeat(32)),
-            base_url: "https://api.agora.io/cn".to_string(),
-            ..crate::config::AiVendorSource::default()
-        }];
+        config.ai_vendor_sources = vec![
+            crate::config::AiVendorSource {
+                slug: "agora".to_string(),
+                kind: "agora".to_string(),
+                display_name: "Shengwang / Agora".to_string(),
+                enabled: true,
+                preset: "agora".to_string(),
+                api_key: Some("c".repeat(32)),
+                secret_id: Some("cid".to_string()),
+                secret_key: Some("csec".to_string()),
+                app_id: Some("a".repeat(32)),
+                base_url: "https://api.agora.io/cn".to_string(),
+                ..crate::config::AiVendorSource::default()
+            },
+            crate::config::AiVendorSource {
+                slug: "minimax".to_string(),
+                kind: "minimax".to_string(),
+                display_name: "MiniMax".to_string(),
+                enabled: true,
+                preset: "minimax".to_string(),
+                api_key: Some("minimax-key".to_string()),
+                ..crate::config::AiVendorSource::default()
+            },
+        ];
+        config.lite_enabled = true;
+        config.lite_ai_provider = "openai".to_string();
+        config.lite_openai_model = "lite-model".to_string();
+        config.lite_openai_api_key = Some("lite-key".to_string());
         assert!(convo_configured(&config));
         config.ai_vendor_sources[0].enabled = false;
         assert!(!convo_configured(&config));

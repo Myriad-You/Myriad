@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use super::http_client::{apply_proxy, ProxyConfig};
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]

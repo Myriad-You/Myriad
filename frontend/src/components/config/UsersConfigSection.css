@@ -653,7 +653,7 @@ html.dark .users-identity-item {
 }
 
 .users-provider-badge.primary {
-  color: color-mix(in srgb, var(--cfg-accent) 70%, var(--cfg-text-1));
+  color: var(--cfg-text-1);
 }
 
 html.dark .users-provider-badge {
@@ -661,7 +661,7 @@ html.dark .users-provider-badge {
 }
 
 html.dark .users-provider-badge.primary {
-  color: color-mix(in srgb, var(--cfg-accent) 75%, var(--cfg-text-1));
+  color: #fff;
 }
 
 .users-provider-name {

@@ -5,7 +5,7 @@
 
 import type { ComponentType } from 'react'
 import type { TranslationKeys } from '../../i18n'
-import type { WidgetComponentProps, WidgetSize, WidgetType } from '../WidgetGrid'
+import type { WidgetComponentProps, WidgetSize, WidgetType } from '../widgetGridTypes'
 import { lazy } from 'react'
 import {
   preloadReportCardsForTypes,
@@ -84,6 +84,10 @@ const WeatherWidget = lazyWidget(
 const WelcomeWidget = lazyWidget(
   () => import('./WelcomeWidget'),
   'WelcomeWidget',
+)
+const GithubReposWidget = lazyWidget(
+  () => import('./GithubReposWidget'),
+  'GithubReposWidget',
 )
 
 type WidgetsI18n = TranslationKeys['widgets']
@@ -223,6 +227,11 @@ export const BUILTIN_WIDGET_BASE_CONFIG = {
     component: BrewFeaturedWidget,
     supportedSizes: ['4x2', '4x4'] as WidgetSize[],
   },
+  'github-repos': {
+    defaultSize: '2x2' as WidgetSize,
+    component: GithubReposWidget,
+    supportedSizes: ['2x1', '2x2', '4x2'] as WidgetSize[],
+  },
 } as const
 
 export type BuiltinWidgetId = keyof typeof BUILTIN_WIDGET_BASE_CONFIG
@@ -255,6 +264,7 @@ const BUILTIN_WIDGET_ORDER: BuiltinWidgetId[] = [
   'brew-featured',
   'brew-topic',
   'brew-source',
+  'github-repos',
 ]
 
 /** Map widget id → t.widgets key */
@@ -287,6 +297,7 @@ const WIDGET_NAME_KEY: Record<BuiltinWidgetId, keyof WidgetsI18n> = {
   'brew-source': 'brewSource',
   'brew-topic': 'brewTopic',
   'brew-featured': 'brewFeatured',
+  'github-repos': 'githubRepos',
 }
 
 /**
@@ -346,6 +357,19 @@ export function getBuiltinWidgets(
       defaultSize: base.defaultSize,
       component: base.component,
       supportedSizes: [...base.supportedSizes],
+      settings:
+        id === 'github-repos'
+          ? [
+              {
+                key: 'repo',
+                type: 'input',
+                label: widgetsI18n.githubReposField,
+                description: widgetsI18n.githubReposFieldHint,
+                placeholder: 'owner/repo',
+                defaultValue: '',
+              },
+            ]
+          : undefined,
     }
   })
 }

@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  isPlaygroundPreviewExpectedError,
   isPreviewPermission,
   PREVIEW_PERMISSIONS,
+  PREVIEW_UNAVAILABLE_CODE,
+  previewUnavailableMessage,
   selectPreviewGrantedPermissions,
 } from './previewGrants.ts'
 
@@ -60,5 +63,45 @@ describe('previewGrants (MYR-024)', () => {
     }
     assert.equal(isPreviewPermission('network:fetch'), false)
     assert.equal(isPreviewPermission('storage'), false)
+  })
+
+  it('does not treat preview-disabled host APIs as repairable runtime bugs', () => {
+    assert.equal(PREVIEW_UNAVAILABLE_CODE, 'PREVIEW_UNAVAILABLE')
+    assert.match(
+      previewUnavailableMessage('ai.tasks.create'),
+      /ai\.tasks\.create is unavailable in temporary preview/,
+    )
+    assert.equal(
+      isPlaygroundPreviewExpectedError(
+        previewUnavailableMessage('ai.tasks.create'),
+      ),
+      true,
+    )
+    assert.equal(
+      isPlaygroundPreviewExpectedError('Unknown action: ai.tasks.create'),
+      true,
+    )
+    assert.equal(
+      isPlaygroundPreviewExpectedError(
+        'Permission denied: Missing permission: ai:image',
+      ),
+      true,
+    )
+    assert.equal(
+      isPlaygroundPreviewExpectedError(
+        'Permission denied: Missing permission: ai:generate, ai:analyze, ai:chat, ai:image, ai:search',
+      ),
+      true,
+    )
+    assert.equal(
+      isPlaygroundPreviewExpectedError(
+        'Permission denied: Missing permission: storage:read',
+      ),
+      false,
+    )
+    assert.equal(
+      isPlaygroundPreviewExpectedError('ReferenceError: foo is not defined'),
+      false,
+    )
   })
 })

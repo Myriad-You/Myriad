@@ -6,7 +6,7 @@
  */
 
 import type { TranslationKeys } from '../../i18n'
-import type { WidgetComponentProps } from '../WidgetGrid'
+import type { WidgetComponentProps } from '../widgetGridTypes'
 
 import { motionShim as motion } from '@lib/motionShim'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'

@@ -66,6 +66,7 @@ import {
   registerUIHandlers,
   registerUserHandlers,
   registerWidgetHandlers,
+  registerWidgetInvalidateTargetHandler,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
 import {
@@ -76,7 +77,12 @@ import { onSpaNavigation } from './spaNavigation'
 import { createTappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
-import { onTappSharedChange, onTappStorageChange } from './WidgetRuntimeSignals'
+import {
+  isForeignTappKvChange,
+  onTappSettingsChange,
+  onTappSharedChange,
+  onTappStorageChange,
+} from './WidgetRuntimeSignals'
 
 // 核心模块
 
@@ -113,6 +119,12 @@ export interface TappPageSandboxProps {
    * but never issues a backend Runtime Grant or registers host-mutating APIs.
    */
   previewMode?: boolean
+  /** Shared Playground tab stores so Page and Widget preview see the same KV. */
+  previewStores?: {
+    storage: Map<string, unknown>
+    settings: Map<string, unknown>
+    shared: Map<string, unknown>
+  }
   /**
    * When true, host has hidden this surface (e.g. multi-window minimize).
    * Composed with document visibility into a single lifecycle:pause/resume
@@ -413,6 +425,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
   headless = false,
   previewMode = false,
   paused = false,
+  previewStores,
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const bridgeRef = useRef<TappBridge | null>(null)
@@ -458,13 +471,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     () =>
       onTappStorageChange((change) => {
         const bridge = bridgeRef.current
-        if (
-          !bridge ||
-          change.tappId !== tappInstance.id ||
-          change.source === bridge
-        ) {
-          return
-        }
+        if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
         bridge.emit('storageChanged', {
           key: change.key,
           operation: change.operation,
@@ -477,14 +484,21 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     () =>
       onTappSharedChange((change) => {
         const bridge = bridgeRef.current
-        if (
-          !bridge ||
-          change.tappId !== tappInstance.id ||
-          change.source === bridge
-        ) {
-          return
-        }
+        if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
         bridge.emit('sharedChanged', {
+          key: change.key,
+          operation: change.operation,
+        })
+      }),
+    [tappInstance.id],
+  )
+
+  useEffect(
+    () =>
+      onTappSettingsChange((change) => {
+        const bridge = bridgeRef.current
+        if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
+        bridge.emit('settingsChanged', {
           key: change.key,
           operation: change.operation,
         })
@@ -681,7 +695,10 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
           headless ? 'headless' : 'page',
         )
 
-    bridge.initialize(iframe, currentTappInstance, sessionToken, runtimeGrant)
+    const instanceForBridge = previewMode
+      ? { ...currentTappInstance, previewMode: true }
+      : currentTappInstance
+    bridge.initialize(iframe, instanceForBridge, sessionToken, runtimeGrant)
     // Apply current minimize/paused state (effect may have run before bridge existed).
     bridge.setSurfaceActive(!pausedRef.current)
 
@@ -716,9 +733,14 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       registerPlaygroundPreviewHandlers(
         bridge,
         currentTappInstance,
-        previewStorageRef.current,
-        previewSettingsRef.current,
+        previewStores?.storage ?? previewStorageRef.current,
+        previewStores?.settings ?? previewSettingsRef.current,
+        currentCode.assets || {},
+        previewStores?.shared,
       )
+      registerWidgetInvalidateTargetHandler(bridge, currentTappInstance, {
+        preview: true,
+      })
     } else {
       // Always mount the hot path; gate heavy optional capabilities by
       // grantedPermissions (same pattern as TappWidgetSandbox).
@@ -730,7 +752,8 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         hasExact('ai:generate') ||
         hasExact('ai:analyze') ||
         hasExact('ai:chat') ||
-        hasExact('ai:image')
+        hasExact('ai:image') ||
+        hasExact('ai:search')
       const hasMedia =
         hasExact('media:read') ||
         hasExact('media:control') ||
@@ -771,6 +794,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       registerStorageHandlers(bridge, currentTappInstance.id)
       registerAssetHandlers(bridge, currentTappInstance)
       if (!headless) registerWidgetHandlers(bridge, currentTappInstance)
+      registerWidgetInvalidateTargetHandler(bridge, currentTappInstance)
       if (hasPlatform) {
         registerPlatformHandlers(bridge, currentTappInstance)
       }
@@ -790,9 +814,9 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       if (hasReport) {
         registerReportHandlers(bridge, currentTappInstance)
       }
-      if (hasMedia) {
-        registerMediaHandlers(bridge, currentTappInstance)
-      }
+      const closeMedia = hasMedia
+        ? registerMediaHandlers(bridge, currentTappInstance)
+        : () => {}
       if (hasSpeech) {
         registerSpeechHandlers(bridge, currentTappInstance)
       }
@@ -829,6 +853,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         closeAdvanced,
         closeFederationSockets,
         closeScheduler,
+        closeMedia,
         closeDataExchange,
         closeAITaskStreams,
         closeEventStream,
@@ -933,6 +958,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     handleReady,
     headless,
     previewMode,
+    previewStores,
     subjectEpoch,
     t.tapp.cannotLoadApp,
   ])

@@ -23,19 +23,11 @@ use super::runtime_grant::RuntimeGrantContext;
 fn catalog_http_error(err: ReportCatalogError) -> (StatusCode, Json<Value>) {
     let status =
         StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    // Preserve prior bodies: list/fetch used plain "error" strings without codes.
     (
         status,
         Json(json!({
-            "error": match &err {
-                ReportCatalogError::Database => {
-                    // get_runtime_report used "Failed to fetch report" (singular)
-                    // for single-item paths; list used plural. Callers that need
-                    // singular override below.
-                    err.message()
-                }
-                other => other.message(),
-            }
+            "error": err.message(),
+            "code": err.code(),
         })),
     )
 }
@@ -93,10 +85,11 @@ pub async fn get_runtime_report(
     let report = tapp_reports::get_user_platform_report(&db, user_id, report_id)
         .await
         .map_err(|err| match err {
-            ReportCatalogError::Database => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to fetch report", "code": "report_fetch_failed" })),
-            ),
+            ReportCatalogError::Database => {
+                let (status, Json(mut body)) = catalog_http_error(err);
+                body["error"] = json!("Failed to fetch report");
+                (status, Json(body))
+            }
             other => catalog_http_error(other),
         })?;
     Ok(Json(tapp_reports::platform_report_payload(&report)))
@@ -114,12 +107,10 @@ pub async fn get_runtime_platform_report(
     let report = tapp_reports::get_latest_user_platform_report(&db, user_id, &platform)
         .await
         .map_err(|err| match err {
-            ReportCatalogError::Database => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to fetch report", "code": "report_fetch_failed" })),
-            ),
-            ReportCatalogError::InvalidPlatform(msg) => {
-                (StatusCode::BAD_REQUEST, Json(json!({ "error": msg })))
+            ReportCatalogError::Database => {
+                let (status, Json(mut body)) = catalog_http_error(err);
+                body["error"] = json!("Failed to fetch report");
+                (status, Json(body))
             }
             other => catalog_http_error(other),
         })?;
@@ -158,7 +149,13 @@ pub struct ListReportsQuery {
 fn crud_http_error(err: TappReportCrudError) -> (StatusCode, Json<Value>) {
     let status =
         StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (status, Json(json!({ "error": err.message() })))
+    (
+        status,
+        Json(json!({
+            "error": err.message(),
+            "code": err.code(),
+        })),
+    )
 }
 
 /// POST /api/tapp/reports

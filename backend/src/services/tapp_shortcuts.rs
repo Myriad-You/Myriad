@@ -26,7 +26,6 @@ pub enum ShortcutRegistryError {
 }
 
 impl ShortcutRegistryError {
-    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
     pub fn code(&self) -> &'static str {
         match self {
             Self::InvalidKeys => "INVALID_SHORTCUT_KEYS",

@@ -41,19 +41,23 @@ pub fn clamp_image_dim(dim: u32) -> u32 {
     dim.clamp(IMAGE_DIM_MIN, IMAGE_DIM_MAX)
 }
 
+/// Resolve width/height from optional JSON values (256–2048, default 1024).
+pub fn resolve_image_size(width: Option<&Value>, height: Option<&Value>) -> (u32, u32) {
+    (
+        width
+            .and_then(parse_image_dim)
+            .map(clamp_image_dim)
+            .unwrap_or(DEFAULT_IMAGE_WIDTH),
+        height
+            .and_then(parse_image_dim)
+            .map(clamp_image_dim)
+            .unwrap_or(DEFAULT_IMAGE_HEIGHT),
+    )
+}
+
 /// Resolve width/height from params with defaults and clamps.
 pub fn resolve_image_dimensions(params: &HashMap<String, Value>) -> (u32, u32) {
-    let width = params
-        .get("width")
-        .and_then(parse_image_dim)
-        .map(clamp_image_dim)
-        .unwrap_or(DEFAULT_IMAGE_WIDTH);
-    let height = params
-        .get("height")
-        .and_then(parse_image_dim)
-        .map(clamp_image_dim)
-        .unwrap_or(DEFAULT_IMAGE_HEIGHT);
-    (width, height)
+    resolve_image_size(params.get("width"), params.get("height"))
 }
 
 /// Extract image generation prompt from string or nested prompt.generate object.
@@ -106,6 +110,10 @@ mod tests {
         assert_eq!(parse_image_dim(&json!("nope")), None);
         assert_eq!(clamp_image_dim(10), IMAGE_DIM_MIN);
         assert_eq!(clamp_image_dim(9999), IMAGE_DIM_MAX);
+        assert_eq!(
+            resolve_image_size(None, None),
+            (DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT)
+        );
     }
 
     #[test]
@@ -134,5 +142,14 @@ mod tests {
             ("height".into(), json!(768)),
         ]));
         assert_eq!(dims, (512, 768));
+        assert_eq!(
+            resolve_image_size(Some(&json!("768")), Some(&json!("1024px"))),
+            (768, 1024)
+        );
+        assert_eq!(resolve_image_size(None, None), (1024, 1024));
+        assert_eq!(
+            resolve_image_size(Some(&json!(100)), Some(&json!(5000))),
+            (IMAGE_DIM_MIN, IMAGE_DIM_MAX)
+        );
     }
 }

@@ -61,16 +61,32 @@ impl ContractViolation {
     }
 }
 
-/// Top-level output field names a capability declares.
+/// Output field names a capability declares for the planner `"o"` index.
 ///
-/// Returned to the planner as the `"o"` entry of the compact index so it can
-/// address a specific field instead of the whole step output.
+/// Tapp-envelope schemas (`format` / `value` / `contextProvenance`) expose the
+/// inner payload fields, so the planner writes `"dataFrom": "analyze.analysis"`
+/// rather than `"analyze.value"`. Path resolution unwraps the envelope so those
+/// inner names resolve. Chat's `value` is a string, so `"o"` is `value`.
 pub fn declared_output_fields(schema: &Value) -> Vec<String> {
-    schema
-        .get("properties")
-        .and_then(Value::as_object)
-        .map(|properties| properties.keys().cloned().collect())
-        .unwrap_or_default()
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    if properties.contains_key("format")
+        && properties.contains_key("value")
+        && properties.contains_key("contextProvenance")
+    {
+        if let Some(inner) = properties
+            .get("value")
+            .and_then(|value| value.get("properties"))
+            .and_then(Value::as_object)
+        {
+            if !inner.is_empty() {
+                return inner.keys().cloned().collect();
+            }
+        }
+        return vec!["value".to_string()];
+    }
+    properties.keys().cloned().collect()
 }
 
 /// Remove `{"type": "any"}` annotations so unconstrained nodes validate as
@@ -136,6 +152,14 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn sample_exposes_planner_field(sample: &serde_json::Map<String, Value>, field: &str) -> bool {
+        sample.contains_key(field)
+            || sample
+                .get("value")
+                .and_then(Value::as_object)
+                .is_some_and(|inner| inner.contains_key(field))
+    }
+
     fn summarize_schema() -> Value {
         json!({
             "type": "object",
@@ -157,6 +181,37 @@ mod tests {
     fn declared_fields_empty_without_properties() {
         assert!(declared_output_fields(&json!({})).is_empty());
         assert!(declared_output_fields(&json!({ "type": "string" })).is_empty());
+    }
+
+    #[test]
+    fn declared_fields_flatten_task_envelope() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "format": { "type": "string" },
+                "value": {
+                    "type": "object",
+                    "properties": {
+                        "summary": { "type": "string" },
+                        "style": { "type": "string" }
+                    }
+                },
+                "contextProvenance": { "type": "array" }
+            }
+        });
+        let mut fields = declared_output_fields(&schema);
+        fields.sort();
+        assert_eq!(fields, vec!["style".to_string(), "summary".to_string()]);
+
+        let chat = json!({
+            "type": "object",
+            "properties": {
+                "format": { "type": "string" },
+                "value": { "type": "string" },
+                "contextProvenance": { "type": "array" }
+            }
+        });
+        assert_eq!(declared_output_fields(&chat), vec!["value".to_string()]);
     }
 
     #[test]
@@ -271,36 +326,59 @@ mod tests {
             // execute_ai_summarize
             (
                 "ai.summarize",
-                json!({ "summary": "摘要正文", "style": "brief" }),
+                json!({
+                    "format": "json",
+                    "value": { "summary": "摘要正文", "style": "brief" },
+                    "contextProvenance": []
+                }),
             ),
             // execute_ai_analyze — `analysis` is the model's prose, not a struct
             (
                 "ai.analyze",
-                json!({ "analysis": "分析正文", "type": "custom" }),
+                json!({
+                    "format": "json",
+                    "value": { "analysis": "分析正文", "type": "custom" },
+                    "contextProvenance": []
+                }),
             ),
             // execute_ai_recommend — array when JSON extraction succeeds…
             (
                 "ai.recommend",
-                json!({ "recommendations": [{ "name": "x", "reason": "y" }], "count": 5 }),
+                json!({
+                    "format": "json",
+                    "value": { "recommendations": [{ "name": "x", "reason": "y" }], "count": 5 },
+                    "contextProvenance": []
+                }),
             ),
-            // …and the raw string when it does not
             (
                 "ai.recommend",
-                json!({ "recommendations": "推荐正文", "count": 5 }),
+                json!({
+                    "format": "json",
+                    "value": { "recommendations": "推荐正文", "count": 5 },
+                    "contextProvenance": []
+                }),
             ),
-            // execute_ai_chat
-            ("ai.chat", json!({ "reply": "回复正文" })),
-            // execute_ai_image
+            (
+                "ai.chat",
+                json!({
+                    "format": "text",
+                    "value": "回复正文",
+                    "contextProvenance": []
+                }),
+            ),
             (
                 "ai.image",
                 json!({
-                    "imageUrl": "https://example.invalid/a.png",
-                    "width": 1024,
-                    "height": 768,
-                    "provider": "openrouter"
+                    "format": "image",
+                    "value": {
+                        "url": "https://example.invalid/a.png",
+                        "width": 1024,
+                        "height": 768
+                    },
+                    "contextProvenance": []
                 }),
             ),
-            // execute_gemini_grounding_search_wrapper (ai.webSearch / groundingSearch)
+            // web_search::execute_capability (ai.webSearch / groundingSearch)
             (
                 "ai.webSearch",
                 json!({
@@ -349,12 +427,29 @@ mod tests {
                     "sourceLang": "zh"
                 }),
             ),
-            // execute_code_explain
+            (
+                "translate.text",
+                json!({
+                    "originalText": "a",
+                    "translated": "b",
+                    "targetLang": "en",
+                    "sourceLang": null
+                }),
+            ),
             (
                 "code.explain",
                 json!({
                     "code": "fn main() {}",
                     "language": "rust",
+                    "explanation": "e",
+                    "complexity": "simple"
+                }),
+            ),
+            (
+                "code.explain",
+                json!({
+                    "code": "fn main() {}",
+                    "language": null,
                     "explanation": "e",
                     "complexity": "simple"
                 }),
@@ -430,7 +525,7 @@ mod tests {
             let capability = registry.get(capability_id).expect("registered");
             let actual = sample.as_object().expect("object sample");
             for field in declared_output_fields(&capability.output_schema) {
-                if !actual.contains_key(&field) {
+                if !sample_exposes_planner_field(actual, &field) {
                     phantom.push(format!("{capability_id}.{field}"));
                 }
             }

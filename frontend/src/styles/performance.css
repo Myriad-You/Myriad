@@ -281,7 +281,7 @@ html[data-perf-mode='exlight'] .playground-text-shimmer {
  * blur 已被全局关掉；这里只抬「亮色半透明面板」不透明度。
  * 浮层若把 --cfg-frost-bg 再和 transparent 混一次（88%/90%），
  * 令牌抬到 96% 后实际仍约 84%，必须进白名单直接盖实底。
- * 遮罩/scrim（.control-panel-overlay 等）不抬实心，只保留无 blur。
+ * 全屏 scrim 不抬实心，只保留无 blur。
  * 仅 exlight。
  */
 html[data-perf-mode='exlight'] .music-volume-popup,

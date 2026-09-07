@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "Pure Agent rules extracted from backend *_pure modules."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

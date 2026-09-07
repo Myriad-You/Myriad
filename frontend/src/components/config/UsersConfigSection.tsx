@@ -554,6 +554,8 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
         disabled: privateTappInstallLoading,
         loading: privateTappInstallLoading,
         className: 'users-private-tapp-choice',
+        guide: renderGuide(g.users.privateTappInstall),
+        guidePath: 'users.privateTappInstall',
       },
     ]
   }, [
@@ -575,6 +577,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     c.usersRoleAdmin,
     c.usersOnline,
     g.users.allowLocalRegister,
+    g.users.privateTappInstall,
     renderGuide,
   ])
 

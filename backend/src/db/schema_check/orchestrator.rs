@@ -403,13 +403,6 @@ pub async fn ensure_single_owner(db: &DatabaseConnection) -> Result<(), DbErr> {
     Ok(())
 }
 
-/// 强制重新执行 schema 检查
-#[allow(dead_code)]
-pub async fn force_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
-    tracing::warn!("⚠️ Force schema check");
-    ensure_schema(db).await
-}
-
 #[cfg(test)]
 mod drift_tests {
     use super::SchemaDrift;

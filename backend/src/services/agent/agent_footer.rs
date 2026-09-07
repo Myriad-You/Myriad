@@ -445,20 +445,22 @@ pub async fn user_is_current_admin(db: &sea_orm::DatabaseConnection, user_id: i3
 
 /// Agent 能力预设（与 Tapp 权限页「开关模板」对应；运行时以 Tapp 开关为准）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // 预设档位名 / 单测映射
 pub enum AgentUsageMode {
     /// 禁用（Agent 相关 elevated 全关）
+    #[allow(dead_code)] // Catalog template; production starts from Elevated then Tapp-filters.
     None,
     /// 仅 AI 对话/分析
+    #[allow(dead_code)] // Catalog template; production starts from Elevated then Tapp-filters.
     Chat,
     /// 标准（平台/共享 Brew 只读 + AI；无出站）
+    #[allow(dead_code)] // Catalog template; production starts from Elevated then Tapp-filters.
     Standard,
     /// 扩展（标准 + 出站抓取 + 调度 + 个人 Tapp 写）
     Elevated,
 }
 
 impl AgentUsageMode {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn parse(s: &str) -> Self {
         match s {
             "chat" => Self::Chat,
@@ -528,10 +530,6 @@ fn permissions_for_usage_mode(mode: AgentUsageMode) -> std::collections::HashSet
                     "profile:read",
                     "random:read",
                     "search:read",
-                    "filter:read",
-                    "compare:read",
-                    "icon:read",
-                    "prompt:write",
                     "router:read",
                     "router:write",
                     "ui:read",
@@ -596,7 +594,8 @@ fn agent_perm_to_tapp(perm: &str) -> Option<crate::services::permission_service:
         "ai:analyze" => Some(TappPermission::AiAnalyze),
         "ai:image" => Some(TappPermission::AiImage),
         "3d:generate" => Some(TappPermission::ThreeDGenerate),
-        "ai:search" | "ai:generate" => Some(TappPermission::AiGenerate),
+        "ai:search" => Some(TappPermission::AiSearch),
+        "ai:generate" => Some(TappPermission::AiGenerate),
         // 读（basic，默认全员）
         "brew:read" => Some(TappPermission::BrewRead),
         "report:read" => Some(TappPermission::ReportRead),
@@ -615,9 +614,9 @@ fn agent_perm_to_tapp(perm: &str) -> Option<crate::services::permission_service:
         "music:control" => Some(TappPermission::MediaControl),
         "music:read" => Some(TappPermission::MediaRead),
         "notion:read" => Some(TappPermission::NetworkFetch),
-        "profile:read" | "random:read" | "search:read" | "filter:read" | "compare:read"
-        | "icon:read" | "rsshub:read" => Some(TappPermission::PlatformRead),
-        "prompt:write" => Some(TappPermission::AiGenerate),
+        "profile:read" | "random:read" | "search:read" | "rsshub:read" => {
+            Some(TappPermission::PlatformRead)
+        }
         "platform:write" => Some(TappPermission::PlatformWrite),
         "brew:admin" => Some(TappPermission::BrewManage),
         // system:read / 宿主 UI 无 Tapp 对应，见 retain 特例
@@ -662,11 +661,8 @@ pub(crate) fn granted_covers_tapp_permission(
         .iter()
         .any(|perm| granted.contains(*perm)),
         TappPermission::StorageRead | TappPermission::UiNotification => true,
-        TappPermission::AiGenerate => {
-            granted.contains("ai:generate")
-                || granted.contains("ai:search")
-                || granted.contains("prompt:write")
-        }
+        TappPermission::AiGenerate => granted.contains("ai:generate"),
+        TappPermission::AiSearch => granted.contains("ai:search"),
         TappPermission::NetworkFetch => ["http:fetch", "web:scrape", "proxy:read", "notion:read"]
             .iter()
             .any(|perm| granted.contains(*perm)),
@@ -1190,6 +1186,7 @@ mod tests {
 
         let chat = permissions_for_usage_mode(AgentUsageMode::Chat);
         assert!(chat.contains("ai:chat"));
+        assert!(!chat.contains("ai:search"));
         assert!(!chat.contains("brew:manage"));
         assert!(!chat.contains("http:fetch"));
 
@@ -1229,7 +1226,7 @@ mod tests {
         );
         assert_eq!(
             agent_perm_to_tapp("ai:search"),
-            Some(TappPermission::AiGenerate)
+            Some(TappPermission::AiSearch)
         );
         assert_eq!(
             agent_perm_to_tapp("http:fetch"),

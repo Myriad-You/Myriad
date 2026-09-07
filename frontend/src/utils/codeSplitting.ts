@@ -84,12 +84,14 @@ export const routeComponents = {
   tappRun: lazyWithPreload(() => import('../tapp/pages/TappRunPage.tsx')),
 }
 
+/** Home idle prefetch. Config / tapp detail / run stay on intent (hover or navigate). */
+export const CRITICAL_PRELOAD_ROUTES = ['library', 'tapp', 'tappStore'] as const
+
 /**
  * 预加载关键路由
  */
 export function preloadCriticalRoutes(): void {
-  // 首页加载后预加载常用模块（含 Tapp：用户常从导航岛直达）
-  preloadRoutes(['library', 'config', 'tapp', 'tappStore', 'tappDetail', 'tappRun'])
+  preloadRoutes([...CRITICAL_PRELOAD_ROUTES])
 }
 
 /** Prefetch Tapp chunks on intent (nav hover / focus). */

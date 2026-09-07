@@ -1,40 +1,26 @@
 /**
- * 米哈游游戏卡片 —— 游戏字体与 logo
+ * 米哈游游戏卡片 —— 系统字体与 logo
  *
- * 字体（GitHub: chsoul/mihoyo-fonts，游戏内中文字体，已按角色名+UI标签子集化）：
- * - GenshinUI：原神（汉仪文黑系）
- * - StarRailUI：星穹铁道
- * - 绝区零没有公开的游戏内正文字体，用重斜体系统字传达风格
+ * 默认三家都用 system-ui，用字重 / 斜体区分。可选自定义字体通过
+ * `--gp-font` 注入（数据目录上传，不进发行物）。
  * logo（Wikimedia/Wikipedia 官方 wordmark）经 CSS mask 上色，跟随主题色。
  */
 
-@font-face {
-  font-family: 'HoYo Genshin UI';
-  src: url('/fonts/hoyo/GenshinUI-subset.woff2?v=2') format('woff2');
-  font-display: swap;
+.gp-font-genshin,
+.gp-font-genshin * {
+  font-family: var(--gp-font, system-ui, sans-serif);
 }
 
-@font-face {
-  font-family: 'HoYo StarRail UI';
-  src: url('/fonts/hoyo/StarRailUI-subset.woff2?v=2') format('woff2');
-  font-display: swap;
-}
-
-.gp-font-genshin {
-  font-family: 'HoYo Genshin UI', system-ui, sans-serif;
-}
-
-/* 星铁/绝区零整卡加粗；字体只有单字重，由浏览器合成粗体。
-   用 !important 压过子元素上的 Tailwind font-* 工具类 */
+/* 星铁/绝区零整卡加粗。用 !important 压过子元素上的 Tailwind font-* 工具类 */
 .gp-font-hsr,
 .gp-font-hsr * {
-  font-family: 'HoYo StarRail UI', system-ui, sans-serif;
+  font-family: var(--gp-font, system-ui, sans-serif);
   font-weight: 700 !important;
 }
 
 .gp-font-zzz,
 .gp-font-zzz * {
-  font-family: system-ui, sans-serif;
+  font-family: var(--gp-font, system-ui, sans-serif);
   font-style: italic;
   font-weight: 800 !important;
   letter-spacing: 0.01em;

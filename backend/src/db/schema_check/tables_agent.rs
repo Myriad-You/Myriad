@@ -435,6 +435,18 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: None,
                 },
                 ColumnDef {
+                    name: "avatar_asset_id".into(),
+                    data_type: "text".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
+                    name: "avatar_generation".into(),
+                    data_type: "jsonb".into(),
+                    is_nullable: true,
+                    default_value: None,
+                },
+                ColumnDef {
                     name: "updated_by".into(),
                     data_type: "integer".into(),
                     is_nullable: true,

@@ -19,7 +19,6 @@
   color: rgb(107 114 128 / 60%);
   pointer-events: auto;
   background: rgb(255 255 255 / 30%);
-  backdrop-filter: blur(6px);
   padding: 0.25rem 0.5rem;
   border-radius: 0.75rem;
   border: 1px solid rgb(229 231 235 / 20%);
@@ -226,7 +225,6 @@ html.dark .site-footer-content:hover {
   pointer-events: none;
   z-index: 1000;
   box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
-  backdrop-filter: blur(8px);
   box-sizing: border-box;
 }
 

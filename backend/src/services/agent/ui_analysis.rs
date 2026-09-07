@@ -569,29 +569,11 @@ pub fn generate_suggested_actions(elements: &Value, _functions: &[Value]) -> Vec
 }
 
 /// Best-effort extract a JSON object string from an AI response.
+/// 从模型回复里取出 JSON 对象。规则本体在 [`myriad_agent_rules`]，这里只保留
+/// 名字给既有调用方——数组版 `extract_json_array_from_ai_response` 早就在那边了，
+/// 对象版当初留在这个 UI 分析模块里，是放错了地方。
 pub fn extract_json_from_response(response: &str) -> Option<String> {
-    if let Some(start) = response.find("```json") {
-        if let Some(end) = response[start..]
-            .find("```\n")
-            .or_else(|| response[start..].rfind("```"))
-        {
-            let json_start = start + 7;
-            let json_content = &response[json_start..start + end];
-            return Some(json_content.trim().to_string());
-        }
-    }
-
-    if response.trim().starts_with('{') {
-        return Some(response.trim().to_string());
-    }
-
-    if let (Some(start), Some(end)) = (response.find('{'), response.rfind('}')) {
-        if end > start {
-            return Some(response[start..=end].to_string());
-        }
-    }
-
-    None
+    myriad_agent_rules::extract_json_object_from_ai_response(response)
 }
 
 /// Detect SPA page type from a path.

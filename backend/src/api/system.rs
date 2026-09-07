@@ -6,12 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 // Global flag to trigger config reload
 pub static CONFIG_RELOAD_REQUESTED: AtomicBool = AtomicBool::new(false);
 
-#[allow(dead_code)]
 pub fn is_config_reload_requested() -> bool {
     CONFIG_RELOAD_REQUESTED.load(Ordering::Relaxed)
 }
 
-#[allow(dead_code)]
 pub fn reset_config_reload_flag() {
     CONFIG_RELOAD_REQUESTED.store(false, Ordering::Relaxed);
 }

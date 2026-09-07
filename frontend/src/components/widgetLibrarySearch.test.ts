@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  classifyWidgetLibraryKind,
   collectWidgetLibrarySearchText,
   normalizeWidgetLibraryQuery,
+  presentWidgetLibraryKindFilters,
+  widgetMatchesLibraryKind,
   widgetMatchesLibrarySearch,
   widgetTypeMatchesLibrarySearch,
 } from './widgetLibrarySearch'
@@ -98,5 +101,82 @@ describe('widgetLibrarySearch', () => {
   it('ignores blank candidates', () => {
     assert.equal(widgetMatchesLibrarySearch('x', [null, undefined, '  ']), false)
     assert.equal(widgetMatchesLibrarySearch('x', [null, 'axb']), true)
+  })
+
+  it('classifies host widgets onto topic rows with Tapp', () => {
+    assert.equal(classifyWidgetLibraryKind({ id: 'weather' }), 'tapp:utility')
+    assert.equal(classifyWidgetLibraryKind({ id: 'music-player' }), 'tapp:media')
+    assert.equal(classifyWidgetLibraryKind({ id: 'report-github' }), 'report')
+    assert.equal(
+      classifyWidgetLibraryKind({
+        id: 'com.example.clock',
+        isTappWidget: true,
+        category: 'media',
+      }),
+      'tapp:media',
+    )
+    assert.equal(
+      classifyWidgetLibraryKind({
+        id: 'com.example.todo',
+        isTappWidget: true,
+      }),
+      'tapp:utility',
+    )
+  })
+
+  it('lists only kinds that currently have a widget', () => {
+    assert.deepEqual(
+      presentWidgetLibraryKindFilters([
+        { id: 'weather' },
+        { id: 'music-player' },
+        { id: 'report-github' },
+        {
+          id: 'com.example.clock',
+          isTappWidget: true,
+          category: 'media',
+        },
+        {
+          id: 'com.example.notes',
+          isTappWidget: true,
+          category: 'productivity',
+        },
+      ]),
+      ['all', 'report', 'tapp:media', 'tapp:productivity', 'tapp:utility'],
+    )
+  })
+
+  it('omits empty report rows', () => {
+    assert.deepEqual(presentWidgetLibraryKindFilters([{ id: 'weather' }]), [
+      'all',
+      'tapp:utility',
+    ])
+  })
+
+  it('matches kind filter', () => {
+    assert.equal(widgetMatchesLibraryKind('all', { id: 'weather' }), true)
+    assert.equal(
+      widgetMatchesLibraryKind('tapp:utility', { id: 'weather' }),
+      true,
+    )
+    assert.equal(
+      widgetMatchesLibraryKind('report', { id: 'report-github' }),
+      true,
+    )
+    assert.equal(
+      widgetMatchesLibraryKind('tapp:media', {
+        id: 'com.example.clock',
+        isTappWidget: true,
+        category: 'media',
+      }),
+      true,
+    )
+    assert.equal(
+      widgetMatchesLibraryKind('tapp:media', { id: 'music-player' }),
+      true,
+    )
+    assert.equal(
+      widgetMatchesLibraryKind('tapp:media', { id: 'weather' }),
+      false,
+    )
   })
 })

@@ -32,7 +32,7 @@ import { getTappRuntime } from '../../TappRuntime'
 export function registerMediaHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
-): void {
+): () => void {
   // 高频操作（seek、volume）不需要后端日志记录，直接本地处理
   const HIGH_FREQUENCY_ACTIONS = new Set(['seek', 'volume', 'mute', 'unmute'])
 
@@ -740,6 +740,8 @@ export function registerMediaHandlers(
       }
     }
   })
+
+  return stopSpectrumStream
 }
 
 /**

@@ -12,6 +12,10 @@ Runtime Grant、One-shot Data Exchange、AI Task、Scoped Event Broker 和 Agent
 
 ## 一句话模型
 
+第一次读可以先记住四件事：包按**层**组织（共享层 `core`、页面层 `page`、每个小组件一层）；
+运行时有 **Page / Widget / headless** 三种沙箱；安装来源是 **`direct` / `store` / `install-file`**；
+生命周期是 **隐藏 / 销毁 / 卸载 / 常驻**（看不见不等于销毁，离开页面也不等于把 iframe 冻住）。
+
 Tapp 不是把第三方脚本直接加载到 Myriad 页面中，而是：
 
 1. 后端校验并持久化 Manifest、代码、资源和授权结果；
@@ -19,6 +23,8 @@ Tapp 不是把第三方脚本直接加载到 Myriad 页面中，而是：
 3. 代码在带 CSP 的 sandbox iframe 中运行；
 4. Tapp 只能通过 `postMessage` Bridge 调用宿主 SDK；
 5. Bridge 做前端权限预检，后端再次做身份、所有权、权限、速率、输入和出站安全校验。
+
+只通过这条 Bridge 说话的 Tapp 是独立作品，许可由作者自选；见根目录 `LICENSE` 的 AGPL 第 7 条附加许可。契约与 CLI 为 Apache-2.0。
 
 宿主写入 `srcdoc` 的 Manifest 元数据、Widget props、i18n 和启动参数必须使用 inline-script
 序列化器；Tapp JavaScript 源码必须转义 HTML 的 `</script` 终止序列。直接把字符串插入
@@ -246,15 +252,30 @@ SDK 的 `lifecycle.onDestroy` 同时监听 `pagehide` 与 `beforeunload`，并�
   给公开部署展示站长数据。`GET` 同样 optional_auth；写仅 owner/管理员。
 - 三者都不能互相伪装：settings / shared 路由不能当任意 storage 用，storage 也不能读写
   `_settings.*` 或 `_shared.*`。
+- 三种 KV 写入成功后向同 Tapp 其他活着的沙箱广播 `onChanged`（写者不回声）。storage /
+  shared 额外 remount 可见 Widget；settings 只广播。详情页宿主编辑器的 settings 落盘
+  也走同一条 `onChanged`，不经过 `Tapp.settings.set`。
 
 storage 批量读取使用 `storage.getAll` 对应的单次数据库查询，不能退回 `keys + N 次 get`。
 
-停止会清除动态与 Manifest 后台需求并卸载 headless 实例。卸载还会清理资源缓存、
-Widget/平台内存注册和安装资源；是否保留用户数据由 `keep_data` 选项决定。
+### 隐藏、销毁、卸载、常驻
+
+SDK 回调和安装动作不是同一层，不要把「看不见」写成销毁：
+
+| 动作 | 谁 | 沙箱 | 安装 |
+| ---- | -- | ---- | ---- |
+| **隐藏** | 切 Tab、最小化、滚出视野、多窗口最小化 | iframe 留在原地；发 `lifecycle:pause`；桥、授予权限、会话令牌保留 | 仍装着、实例仍活 |
+| **销毁** | 停应用、代码/登录态/权限变更、暂存池淘汰、离开运行页（该页 Page iframe） | iframe / 桥 / 授予权限 / 会话令牌释放 | 应用仍装着，下次可再创建实例 |
+| **卸载** | 用户移除该 TAPP | 先销毁全部实例（运行的、隐藏的、常驻的） | 再清存储与注册；需重新安装 |
+| **常驻** | `backgroundRequirements` 或 `Tapp.background.require` | `TappBackgroundRunner` 以 headless core 跨页承接（无页面 iframe） | 与隐藏不同：隐藏是页内藏起 iframe，常驻是跨页无头存活 |
+
+`onPause` / `onResume` 只对应隐藏。`onDestroy` 对应销毁。停止应用会清除动态与 Manifest
+后台需求并**销毁** headless 实例。卸载还会清理资源缓存、Widget/平台内存注册和安装资源；
+是否保留用户数据由 `keep_data` 选项决定。
 同一 Tapp 的 start/stop 进入按 ID 串行的 transition 队列；多窗口并发打开、关闭或卸载时，
 不能重复启动，也不能因迟到的 start 覆盖用户随后发出的 stop。
 
-## 后台 core
+## 常驻（headless core）
 
 后台需求有两个来源：
 
@@ -265,8 +286,8 @@ Widget/平台内存注册和安装资源；是否保留用户数据由 `keep_dat
 
 可见 Widget 已有自己的沙箱，不属于后台需求。只有声明 `media`、`sync`、
 `notification`、`scheduler`、`event-listener` 或 `realtime` 时，
-`TappBackgroundRunner` 才额外启动 headless core；这避免每个 Widget Tapp 多跑一份
-隐藏 iframe，也避免记录永远不会触发运行器的无效 `widget` 状态。
+`TappBackgroundRunner` 才额外启动 headless core；这避免每个 Widget Tapp 再挂一份看不见的
+Page iframe，也避免记录永远不会触发运行器的无效 `widget` 状态。
 
 ## 沙箱与 Bridge
 
@@ -321,17 +342,19 @@ runtime ID 和最终权限；停止、更新、卸载或 Bridge 销毁会撤销�
 `PERMISSION_MAP`；Rust 单测与 `permissionMapConsistency.test.ts` 会在漂移时失败。权限字符串
 还必须能通过 `myriad-tapp-contract` 的 `TappPermission::from_str`；前端 `PERMISSION_LEVELS` 由测试锁到同一份导出。
 
-### Page 与 Widget 的 handler 不对称
+### 三种沙箱能调用的面不一样
 
-Page 注册完整 handler 集合。Widget 为减少能力面和启动成本，只注册生命周期、UI、用户
-角色、存储、文件、AI Task、平台/报告读取、上下文/人设名片/声明 API、媒体、语音、动画、事件、
-一次性数据交换、Agent Interaction、后台需求和调度等必要集合；平台与报告写 handler
-不会进入 Widget。新增 SDK 方法时必须同时核对：SDK 生成器、权限映射、目标沙箱的
-handler、后端路由/服务和文档。
+Page 是完整面（含 `Tapp.game`、联邦、tappList、model3d）。
+Widget 为减小能力面和启动成本，只提供生命周期、UI、用户角色、存储、文件、AI Task、
+平台/报告读取、上下文/人设名片/声明 API、媒体、语音、动画、事件、一次性数据交换、
+Agent Interaction、常驻需求和调度；平台与报告写、Tapp/Brew 管理、组件、快捷键、
+联邦和 `Tapp.game` 不会进入 Widget。
 
-Headless 使用第三种显式能力配置：保留 storage、scheduler、event、federation、AI、报告读取、
-人设名片等后台能力，但不生成或注册可见 UI、Widget/Tapp 列表管理、组件/快捷键、动态内容、DOM 与文件下载
-控制面。能力配置同时作用于 SDK 生成结果和 Bridge handler，避免仅“隐藏方法”而后端 action 仍可达。
+headless（常驻）保留 storage、scheduler、event、联邦、`Tapp.game`、AI、报告、人设名片等
+后台能力，但没有可见 UI、Widget/Tapp 列表管理、组件/快捷键、动态内容、DOM、文件下载和
+model3d。SDK 上拿掉的方法，桥也不会再接：不能只从对象上藏方法。
+
+新增 SDK 方法时必须同时核对：公开方法、权限映射、目标沙箱是否真的接了、后端路由/服务和文档。
 
 ## 权限模型
 
@@ -353,14 +376,15 @@ SDK action 映射仍以 `docs/development/tapp/fixtures/` 下 JSON
 `TappPermissionService`。后端永远是授权判定的最终边界。
 
 `Tapp.user.getAllowedPermissionLevels()` 查询后端当前动态下放配置，回答角色在系统层面
-能否使用某个等级；`Tapp.permissions` 才是当前安装实例实际获得的权限集合。两者不能
-互相替代。
+能否使用某个等级；`Tapp.permissions` 是创建该沙箱时注入的**授予权限**快照。两者不能
+互相替代。Manifest `permissions` 只是**声明权限**；安装同意落入 `approved_permissions`
+（**批准权限**）；只有授予权限决定运行时行为。
 
-Runtime Grant 是签发时能力的上限而不是冻结授权。服务端每次验证都重新解析当前可见安装，
-核对 owner，并将令牌权限与当前角色、动态下放配置和安装授权取交集；角色/配置收紧后旧
-Grant 不能继续保留已撤销能力，安装 owner 改变则令牌失效并由宿主重新签发。
+Runtime Grant 是签发时能力的上限，每次使用都会再与当前角色、下放配置和批准集求交，
+不是签发后不再复核的授权。角色/配置收紧后旧 Grant 不能继续保留已撤销能力，安装
+owner 改变则令牌失效并由宿主重新签发。
 媒体控制与语音等宿主本地敏感动作在执行前还会调用 Runtime Grant authorize 路由实时复核；
-配置保存会同步有效权限并重建受影响的 Page、Widget 和 headless 沙箱。
+配置保存会同步授予权限并重建受影响的 Page、Widget 和 headless 沙箱。
 
 访客 Grant 只包含真实使用可选认证路由或纯宿主本地处理的能力。**guest-safe basic** 可进入
 签名游客 Grant：`storage:read`（负 id 私有命名空间）、`platform:read`（站点公开缓存）、
@@ -470,8 +494,10 @@ sequenceDiagram
   加载，并取消旧路由的迟到状态写回。
 - Manifest、最终权限和用户角色使用独立运行契约指纹；同 ID 更新声明或授权后必须重建 SDK、
   Bridge 与订阅 handler，不能因代码内容未变而继续运行旧权限面。
-- Widget 默认由 storage 变更或显式 `invalidate` 事件驱动刷新；可选 interval 仅在页面与
-  Widget 可见时计时。Page、Widget、headless core 间的同 Tapp storage 变更由宿主广播。
+- Widget 默认由 storage / shared 变更或显式 `invalidate` 驱动刷新（会重建 iframe）；
+  `Tapp.settings` 变更只广播 `onChanged`，不重建 iframe。可选 interval 仅在页面与
+  Widget 可见时额外计时。Page / headless 的定向 `invalidate({ widgetId })` 需要授予的
+  `storage:write`，并受 15s / 2 次/分限制。
 - Manifest 顶层 `settings` 是 Tapp 全局设置；`widgets[].settings` 保存到 Dashboard
   布局中的实例 `config`，同类 Widget 的多个实例互不覆盖。
 - Manifest Widget 是安装控制面注册：安装/更新时后端按 Manifest 完整 upsert，并删除旧

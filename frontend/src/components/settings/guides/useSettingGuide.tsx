@@ -6,9 +6,12 @@
 
 import type { ReactNode } from 'react'
 import type { SettingGuideEntry } from './types'
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
-import { getSettingGuidesCatalog } from './catalog'
+import {
+  getSettingGuidesCatalog,
+  loadSettingGuidesCatalog,
+} from './catalog'
 import { SettingGuideBody } from './SettingGuideBody'
 
 export interface GuideBinding {
@@ -19,8 +22,18 @@ export interface GuideBinding {
 
 export function useSettingGuide() {
   const { t, locale } = useI18n()
+  const [catalog, setCatalog] = useState(() => getSettingGuidesCatalog(locale))
 
-  const catalog = useMemo(() => getSettingGuidesCatalog(locale), [locale])
+  useEffect(() => {
+    let cancelled = false
+    setCatalog(getSettingGuidesCatalog(locale))
+    void loadSettingGuidesCatalog(locale).then((next) => {
+      if (!cancelled) setCatalog(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [locale])
 
   const labels = useMemo(
     () => ({

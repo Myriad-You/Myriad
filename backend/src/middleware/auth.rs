@@ -198,7 +198,7 @@ fn auth_cache_get(user_id: i32) -> Option<Option<AuthSnapshot>> {
     Some(entry.snapshot)
 }
 
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
+#[cfg(test)]
 fn auth_cache_put(user_id: i32, snapshot: Option<AuthSnapshot>) {
     let mut guard = match auth_cache().lock() {
         Ok(guard) => guard,
@@ -748,6 +748,21 @@ pub async fn authenticate_request(
     Ok(claims)
 }
 
+/// Revalidate claims already bound by authenticated server code to a short-lived
+/// capability. Never use this on claims supplied by an external request body.
+pub(crate) async fn revalidate_bound_claims(
+    claims: &Claims,
+    db: &DatabaseConnection,
+) -> Result<Claims, Box<Response>> {
+    if claims.exp <= chrono::Utc::now().timestamp() || claims.sub.parse::<i32>().unwrap_or(0) <= 0 {
+        return Err(unauthorized_session_response());
+    }
+    let snapshot = validated_auth_snapshot(claims, db)
+        .await?
+        .ok_or_else(unauthorized_session_response)?;
+    Ok(apply_current_roles(claims.clone(), snapshot))
+}
+
 /// Resolve a current subject when authentication is optional.
 ///
 /// This differs from [`authenticate_request`] only for the no-credential case.
@@ -1076,11 +1091,12 @@ mod tests {
         apply_current_roles, auth_cache_generation, auth_cache_get, auth_cache_put,
         auth_cache_put_if_generation, authenticate_optional_request, claim_auth_load_slot,
         encode_session_token, guest_id, invalidate_auth_cache_local, mint_session_claims,
-        optional_current_auth_middleware, session_epoch_matches, sign_guest_session,
-        verify_guest_session, verify_jwt_token, AuthLoadSlot, AuthSnapshot, AUTH_CACHE_CAPACITY,
-        AUTH_CACHE_TTL, AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
+        optional_current_auth_middleware, revalidate_bound_claims, session_epoch_matches,
+        sign_guest_session, verify_guest_session, verify_jwt_token, AuthLoadSlot, AuthSnapshot,
+        AUTH_CACHE_CAPACITY, AUTH_CACHE_TTL, AUTH_COOKIE_MAX_AGE_SECS, JWT_TTL_DAYS,
     };
     use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+    use sea_orm::DatabaseConnection;
     use std::sync::{Mutex, Once, OnceLock};
     use std::time::{Duration, Instant};
 
@@ -1518,5 +1534,15 @@ mod tests {
         let claims: super::Claims = serde_json::from_str(json).expect("deserialize");
         assert_eq!(claims.tv, 0);
         assert!(!claims.is_owner);
+    }
+
+    #[tokio::test]
+    async fn a_bound_realtime_capability_expires_before_database_access() {
+        let mut claims = mint_session_claims(7, "alice", false, false, 0);
+        claims.exp = chrono::Utc::now().timestamp() - 1;
+        let error = revalidate_bound_claims(&claims, &DatabaseConnection::default())
+            .await
+            .expect_err("expired binding must fail before a database query");
+        assert_eq!(error.status(), StatusCode::UNAUTHORIZED);
     }
 }

@@ -177,8 +177,8 @@ html.dark .field-select-panel {
 }
 
 .field-select-option.is-selected {
-  background: color-mix(in srgb, var(--cfg-accent, #6366f1) 14%, transparent);
-  color: color-mix(in srgb, var(--cfg-accent) 80%, var(--cfg-text-1));
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
   font-weight: 600;
 }
 
@@ -198,8 +198,8 @@ html.dark .field-select-option:focus-visible:not(:disabled) {
 }
 
 html.dark .field-select-option.is-selected {
-  background: color-mix(in srgb, var(--cfg-accent, #818cf8) 22%, transparent);
-  color: color-mix(in srgb, var(--cfg-accent, #93c5fd) 70%, var(--cfg-text-1));
+  background: var(--cfg-accent-fill);
+  color: var(--cfg-accent-ink);
 }
 
 /* 行内紧凑（联邦实例列表等） */

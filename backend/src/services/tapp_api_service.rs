@@ -586,15 +586,6 @@ impl TappApiService {
         crate::services::outbound_security::build_public_http_client(url, timeout, user_agent).await
     }
 
-    /// 执行 HTTP API
-    #[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-    async fn execute_http_api(
-        api_def: &TappApiDef,
-        context: &HashMap<String, Value>,
-    ) -> Result<Value, String> {
-        Self::execute_http_api_with_credential(api_def, context, None).await
-    }
-
     async fn execute_http_api_with_credential(
         api_def: &TappApiDef,
         context: &HashMap<String, Value>,
@@ -1575,9 +1566,10 @@ mod tests {
             api.body_mode = body_mode;
             api.body = Some(json!("payload"));
 
-            let error = TappApiService::execute_http_api(&api, &HashMap::new())
-                .await
-                .unwrap_err();
+            let error =
+                TappApiService::execute_http_api_with_credential(&api, &HashMap::new(), None)
+                    .await
+                    .unwrap_err();
 
             assert!(error.starts_with("HTTP bodyMode "));
             assert!(error.contains("requires one of: POST, PUT, PATCH, DELETE"));
@@ -1909,7 +1901,7 @@ mod tests {
         api.body = Some(json!("{{params.body}}"));
         let context = HashMap::from([("params.body".to_string(), json!(raw))]);
 
-        let result = TappApiService::execute_http_api(&api, &context).await;
+        let result = TappApiService::execute_http_api_with_credential(&api, &context, None).await;
 
         match previous_environment {
             Some(value) => std::env::set_var("ENVIRONMENT", value),

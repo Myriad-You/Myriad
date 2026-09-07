@@ -589,6 +589,9 @@ impl ConfigService {
         if let Some(v) = map.get("provider_gemini_api_key") {
             config.provider_gemini_api_key = v.as_str().map(|s| s.to_string());
         }
+        if let Some(v) = map.get("provider_tinyfish_api_key") {
+            config.provider_tinyfish_api_key = v.as_str().map(|s| s.to_string());
+        }
         if let Some(v) = map.get("provider_volcengine_api_key") {
             config.provider_volcengine_api_key = v.as_str().map(|s| s.to_string());
         }
@@ -742,6 +745,15 @@ impl ConfigService {
                 config.dashboard_layout = Some(v.to_string());
             }
         }
+        if let Some(v) = map.get("dashboard_layout_mode") {
+            if let Some(s) = v.as_str() {
+                config.dashboard_layout_mode = Some(if s.trim() == "free" {
+                    "free".to_string()
+                } else {
+                    "standard".to_string()
+                });
+            }
+        }
         if let Some(v) = map.get("dashboard_title") {
             if let Some(s) = v.as_str() {
                 config.dashboard_title = Some(s.to_string());
@@ -818,6 +830,9 @@ impl ConfigService {
         if let Some(v) = map.get("site_og_image") {
             config.site_og_image = v.as_str().map(|s| s.to_string());
         }
+        if let Some(v) = map.get("google_site_verification") {
+            config.google_site_verification = v.as_str().map(|s| s.to_string());
+        }
         if let Some(v) = map.get("site_noindex") {
             if let Some(b) = v.as_bool() {
                 config.site_noindex = b;
@@ -883,6 +898,42 @@ impl ConfigService {
             config.music_playlist_id = v.as_str().map(|s| s.to_string());
         }
 
+        if let Some(v) = map.get("island_show_greeting") {
+            if let Some(b) = v.as_bool() {
+                config.island_show_greeting = b;
+            } else if let Some(s) = v.as_str() {
+                config.island_show_greeting = s != "false" && s != "0";
+            }
+        }
+        if let Some(v) = map.get("island_show_weather") {
+            if let Some(b) = v.as_bool() {
+                config.island_show_weather = b;
+            } else if let Some(s) = v.as_str() {
+                config.island_show_weather = s != "false" && s != "0";
+            }
+        }
+        if let Some(v) = map.get("island_show_quote") {
+            if let Some(b) = v.as_bool() {
+                config.island_show_quote = b;
+            } else if let Some(s) = v.as_str() {
+                config.island_show_quote = s != "false" && s != "0";
+            }
+        }
+        if let Some(v) = map.get("island_show_music") {
+            if let Some(b) = v.as_bool() {
+                config.island_show_music = b;
+            } else if let Some(s) = v.as_str() {
+                config.island_show_music = s != "false" && s != "0";
+            }
+        }
+        if let Some(v) = map.get("island_show_tapp") {
+            if let Some(b) = v.as_bool() {
+                config.island_show_tapp = b;
+            } else if let Some(s) = v.as_str() {
+                config.island_show_tapp = s != "false" && s != "0";
+            }
+        }
+
         // Tapp 权限下放配置
         // 普通用户可下放的 elevated 权限
         if let Some(v) = map.get("user_perm_ai_generate") {
@@ -898,6 +949,11 @@ impl ConfigService {
         if let Some(v) = map.get("user_perm_ai_chat") {
             if let Some(b) = v.as_bool() {
                 config.user_perm_ai_chat = b;
+            }
+        }
+        if let Some(v) = map.get("user_perm_ai_search") {
+            if let Some(b) = v.as_bool() {
+                config.user_perm_ai_search = b;
             }
         }
         if let Some(v) = map.get("user_perm_ai_image") {
@@ -995,6 +1051,11 @@ impl ConfigService {
         if let Some(v) = map.get("guest_perm_ai_chat") {
             if let Some(b) = v.as_bool() {
                 config.guest_perm_ai_chat = b;
+            }
+        }
+        if let Some(v) = map.get("guest_perm_ai_search") {
+            if let Some(b) = v.as_bool() {
+                config.guest_perm_ai_search = b;
             }
         }
         if let Some(v) = map.get("guest_perm_ai_image") {
@@ -1288,6 +1349,29 @@ mod tests {
     }
 
     #[test]
+    fn parses_island_content_flags_from_database_config() {
+        let missing = ConfigService::parse_config(HashMap::new());
+        assert!(missing.island_show_greeting);
+        assert!(missing.island_show_weather);
+        assert!(missing.island_show_quote);
+        assert!(missing.island_show_music);
+        assert!(missing.island_show_tapp);
+
+        let mixed = ConfigService::parse_config(HashMap::from([
+            ("island_show_greeting".into(), json!(false)),
+            ("island_show_weather".into(), json!("false")),
+            ("island_show_quote".into(), json!(true)),
+            ("island_show_music".into(), json!("0")),
+            ("island_show_tapp".into(), json!("true")),
+        ]));
+        assert!(!mixed.island_show_greeting);
+        assert!(!mixed.island_show_weather);
+        assert!(mixed.island_show_quote);
+        assert!(!mixed.island_show_music);
+        assert!(mixed.island_show_tapp);
+    }
+
+    #[test]
     fn parses_agent_rig_asset_id_from_database_config() {
         let hex = "a".repeat(64);
         let on = ConfigService::parse_config(HashMap::from([(
@@ -1376,6 +1460,30 @@ mod tests {
     }
 
     #[test]
+    fn parses_tinyfish_api_key_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([(
+            "provider_tinyfish_api_key".into(),
+            json!("tf-test-key"),
+        )]));
+        assert_eq!(
+            configured.shared_tinyfish_api_key().as_deref(),
+            Some("tf-test-key")
+        );
+
+        let empty = ConfigService::parse_config(HashMap::from([(
+            "provider_tinyfish_api_key".into(),
+            json!(""),
+        )]));
+        assert_eq!(empty.shared_tinyfish_api_key(), None);
+
+        let cleared = ConfigService::parse_config(HashMap::from([(
+            "provider_tinyfish_api_key".into(),
+            json!(null),
+        )]));
+        assert_eq!(cleared.shared_tinyfish_api_key(), None);
+    }
+
+    #[test]
     fn merope_stays_off_without_required_models() {
         // Pro is required for onboarding. Lite is optional: without it,
         // Merope still runs, but Lite jobs must not fall back to Standard.
@@ -1449,6 +1557,24 @@ mod tests {
             ..DynamicConfig::default()
         };
         assert!(!no_pro.merope_speech_enabled_resolved());
+    }
+
+    #[test]
+    fn parses_dashboard_layout_mode_from_database_config() {
+        let free = ConfigService::parse_config(HashMap::from([(
+            "dashboard_layout_mode".into(),
+            json!("free"),
+        )]));
+        assert_eq!(free.dashboard_layout_mode.as_deref(), Some("free"));
+
+        let other = ConfigService::parse_config(HashMap::from([(
+            "dashboard_layout_mode".into(),
+            json!("  custom  "),
+        )]));
+        assert_eq!(other.dashboard_layout_mode.as_deref(), Some("standard"));
+
+        let missing = ConfigService::parse_config(HashMap::new());
+        assert_eq!(missing.dashboard_layout_mode, None);
     }
 
     #[test]

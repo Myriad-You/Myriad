@@ -5,13 +5,15 @@
 
 export const TURN_TRACE_SPANS = [
   'input_started',
+  'input_ended',
+  'asr_started',
+  'asr_completed',
   'input_final',
   'request_sent',
   'reaction_ready',
-  // A turn can act twice: the deterministic floor lands first, and the Lite
-  // refinement replaces it whenever it arrives at all. One span could not tell
-  // the two apart, so every plan looked like a reaction.
-  'performance_refined',
+  // Delivery readiness is a phase, not proof that a model director returned.
+  // Local sentence delivery can precede the optional model revision.
+  'delivery_ready',
   // Backend receipt is not proof of animation. This is stamped only after the
   // renderer accepts a semantic cue from the unified behavior plan.
   'performance_applied',
@@ -111,7 +113,10 @@ let turnId = ''
 const firsts = new Set<string>()
 const marks: TurnTraceMark[] = []
 let counters = emptyCounters()
-const pending = new Map<TurnTraceSpan, { t: number; extra?: TurnTraceExtra }>()
+const pending = new Map<
+  TurnTraceSpan,
+  { t: number; stagedAt: number; extra?: TurnTraceExtra }
+>()
 const PENDING_TTL_MS = 8_000
 const listeners = new Set<TurnTraceListener>()
 
@@ -137,12 +142,14 @@ function record(mark: TurnTraceMark): void {
   marks.push(mark)
   if (marks.length > RING) marks.shift()
   emit(mark)
-  if (mark.span === 'input_final') {
-    counters.asrMs = delayBetween('input_started', 'input_final') ?? counters.asrMs
+  if (mark.span === 'asr_completed') {
+    counters.asrMs =
+      delayBetween('asr_started', 'asr_completed') ?? counters.asrMs
   }
   if (mark.span === 'llm_first_token') {
     counters.llmFirstTokenMs =
-      delayBetween('request_sent', 'llm_first_token') ?? counters.llmFirstTokenMs
+      delayBetween('request_sent', 'llm_first_token') ??
+      counters.llmFirstTokenMs
   }
   if (mark.span === 'first_audio') {
     counters.firstAudioMs =
@@ -190,7 +197,7 @@ export function beginTurnTrace(id: string): void {
   for (const span of TURN_TRACE_SPANS) {
     const held = pending.get(span)
     if (!held) continue
-    if (attached - held.t > PENDING_TTL_MS) continue
+    if (attached - held.stagedAt > PENDING_TTL_MS) continue
     firsts.add(`${turnId}:${span}`)
     record({ span, t: held.t, turnId, extra: held.extra })
   }
@@ -198,12 +205,40 @@ export function beginTurnTrace(id: string): void {
 }
 
 /** Stamp a span before the owning turn exists (ASR start, VAD). Latest wins. */
-export function stampTurnTrace(span: TurnTraceSpan, extra?: TurnTraceExtra): void {
+export function stampTurnTrace(
+  span: TurnTraceSpan,
+  extra?: TurnTraceExtra,
+): void {
   if (turnId) {
     markTurnTraceOnce(span, extra)
     return
   }
-  pending.set(span, { t: now(), extra })
+  const t = now()
+  pending.set(span, { t, stagedAt: t, extra })
+}
+
+export interface VoiceInputTiming {
+  input_started: number
+  input_ended: number
+  asr_started: number
+  asr_completed: number
+}
+
+/**
+ * Attach this utterance to the NEXT submitted run, never the previous reply
+ * that happens to be playing while ASR runs. Stage only when committing text.
+ */
+export function stageVoiceInputTrace(timing: VoiceInputTiming): void {
+  const stagedAt = now()
+  for (const span of [
+    'input_started',
+    'input_ended',
+    'asr_started',
+    'asr_completed',
+  ] as const) {
+    pending.set(span, { t: timing[span], stagedAt })
+  }
+  pending.set('input_final', { t: stagedAt, stagedAt })
 }
 
 /** Drop pending input stamps from an abandoned recording. */

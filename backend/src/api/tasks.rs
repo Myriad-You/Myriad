@@ -193,7 +193,6 @@ async fn process_platform_task(task_id: String, platform: String) {
     let platform = platform.as_str();
     use crate::services::background_processor::TaskStatus;
     use std::fs;
-    use std::path::PathBuf;
 
     tracing::info!("🚀 Starting background task {} for {}", task_id, platform);
 
@@ -203,7 +202,7 @@ async fn process_platform_task(task_id: String, platform: String) {
         .await;
 
     // 尝试读取分平台的原始数据文件（优先）
-    let split_raw_path = PathBuf::from(format!("./cache/raw/{}.json", platform));
+    let split_raw_path = crate::services::data_paths::platform_raw_file(platform);
     let mut platform_data_value: Option<Value> = None;
 
     if split_raw_path.exists() {

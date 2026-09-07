@@ -29,6 +29,7 @@ import OAuthIconImage from '../OAuthIconImage'
 import {
   CheckboxCard,
   CollapseRegion,
+  guideDomProps,
   InputItem,
   SettingsButton,
   SettingSection,
@@ -435,9 +436,16 @@ function ProviderCard({
           ) : null}
 
           {callbackUrl && (
-            <div className="oidc-callback-row">
+            <div
+              className="oidc-callback-row has-guide-anchor"
+              {...guideDomProps('oauth.callback')}
+            >
               <span className="oidc-callback-label">
                 {t.config.currentCallbackUrl}
+                <SettingTitleGuideEntry
+                  title={t.config.currentCallbackUrl}
+                  guide={bindGuide('oauth.callback', g.oauth.callback).guide}
+                />
               </span>
               <code className="inline-code callback-url-code">{callbackUrl}</code>
               <button
@@ -478,6 +486,7 @@ function ProviderCard({
               itemKey={`provider-${entry.slug}-client-id`}
               label={t.config.oidcClientIdLabel}
               required
+              {...bindGuide('oauth.clientId', g.oauth.clientId)}
               value={entry.client_id}
               onChange={(value) => onChange({ client_id: value })}
               placeholder=""
@@ -487,6 +496,7 @@ function ProviderCard({
               itemKey={`provider-${entry.slug}-client-secret`}
               label={t.config.oidcClientSecretLabel}
               required
+              {...bindGuide('oauth.clientSecret', g.oauth.clientSecret)}
               value={entry.client_secret}
               onChange={(value) => onChange({ client_secret: value })}
               placeholder={t.config.oidcClientSecretPlaceholder}
@@ -501,6 +511,7 @@ function ProviderCard({
                   itemKey={`provider-${entry.slug}-discovery`}
                   label={t.config.oidcDiscoveryLabel}
                   required
+                  {...bindGuide('oauth.discovery', g.oauth.discovery)}
                   value={entry.discovery_url || ''}
                   onChange={(value) => onChange({ discovery_url: value })}
                   placeholder={t.config.oidcDiscoveryPlaceholder}
@@ -547,9 +558,14 @@ function AdvancedFields({
   onChange: (patch: Partial<OAuthProviderEntry>) => void
 }) {
   const { t } = useI18n()
+  const { catalog: g, bindGuide } = useSettingGuide()
   const [open, setOpen] = useState(false)
+  const advancedGuide = bindGuide('oauth.advanced', g.oauth.advanced)
   return (
-    <div className="full-width oidc-advanced">
+    <div
+      className="full-width oidc-advanced has-guide-anchor"
+      {...guideDomProps(advancedGuide.guidePath)}
+    >
       <button
         type="button"
         className="oidc-advanced-toggle"
@@ -568,6 +584,7 @@ function AdvancedFields({
           <InputItem
             itemKey={`provider-${entry.slug}-slug`}
             label={t.config.oidcSlugLabel}
+            {...advancedGuide}
             value={entry.slug}
             onChange={(value) => onChange({ slug: value })}
             placeholder={t.config.oidcSlugPlaceholder}

@@ -22,19 +22,20 @@ import { getCSRFToken } from '../../utils/csrf'
 import {
   emptyFooterCustomItem,
   FOOTER_CUSTOM_MAX,
-
   parseFooterCustomSlots,
   serializeFooterCustom,
 } from '../../utils/footerCustomLogic'
 import { httpStatusMessage, userFacingError } from '../../utils/userFacingError'
 import {
   CheckboxGroupItem,
+  guideDomProps,
   InputItem,
   SegmentedControl,
   SettingAnchoredPanel,
   SettingGroup,
   SettingsButton,
   SettingSection,
+  SettingTitleGuideEntry,
   SliderItem,
   SwitchItem,
   useSettingGuide,
@@ -72,9 +73,6 @@ interface ConfigField {
   placeholder: string
   required: boolean
 }
-
-/** @deprecated 从 uiBagOwnership 导入；此处 re-export 保持兼容 */
-export { UI_RESET_KEYS } from './uiBagOwnership'
 
 interface UiConfigSectionProps {
   /** UI 配置字段数组 */
@@ -125,6 +123,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
         site_favicon: t.config.fieldSiteFavicon,
         site_keywords: t.config.fieldSiteKeywords,
         site_og_image: t.config.fieldSiteOgImage,
+        google_site_verification: t.config.fieldGoogleSiteVerification,
         site_noindex: t.config.fieldSiteNoindex,
         site_visibility_policy: t.config.fieldSiteVisibilityPolicy,
         site_ai_intro: t.config.fieldSiteAiIntro,
@@ -143,6 +142,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
         site_favicon: t.config.placeholderSiteFavicon,
         site_keywords: t.config.placeholderSiteKeywords,
         site_og_image: t.config.placeholderSiteOgImage,
+        google_site_verification: t.config.placeholderGoogleSiteVerification,
       }
       return placeholders[fieldKey] || originalPlaceholder
     },
@@ -340,19 +340,28 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
           ariaLabel={t.config.siteAiGenerateDialogTitle}
           className="seo-ai-gen-tag-anchor"
           trigger={({ toggle }) => (
-            <SettingTitleTag
-              variant="muted"
-              icon={<FaMagic />}
-              disabled={anyBusy}
-              onClick={toggle}
-              title={
-                busy
-                  ? t.config.siteAiGenerating
-                  : t.config.siteAiGenerateTagHint
-              }
+            <span
+              className="has-guide-anchor"
+              {...guideDomProps('ui.siteAiGenerate')}
             >
-              {busy ? t.config.siteAiGenerating : t.config.siteAiGenerateTag}
-            </SettingTitleTag>
+              <SettingTitleGuideEntry
+                title={t.config.siteAiGenerateTag}
+                guide={bindGuide('ui.siteAiGenerate', g.ui.siteAiGenerate).guide}
+              />
+              <SettingTitleTag
+                variant="muted"
+                icon={<FaMagic />}
+                disabled={anyBusy}
+                onClick={toggle}
+                title={
+                  busy
+                    ? t.config.siteAiGenerating
+                    : t.config.siteAiGenerateTagHint
+                }
+              >
+                {busy ? t.config.siteAiGenerating : t.config.siteAiGenerateTag}
+              </SettingTitleTag>
+            </span>
           )}
         >
           <div className="setting-anchored-panel-title">
@@ -626,6 +635,15 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
           <p className="setting-hint" style={{ marginTop: '0.5rem' }}>
             {visibilityPolicyHint}
           </p>
+          {visibilityPolicy !== 'private' && !baseUrlValue.trim() ? (
+            <p
+              className="setting-error"
+              style={{ marginTop: '0.5rem' }}
+              role="status"
+            >
+              {t.config.seoOriginMissingHint}
+            </p>
+          ) : null}
         </SettingItemWrapper>
 
         <InputItem
@@ -670,6 +688,19 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
           inputType="url"
           hint={t.config.fieldSiteOgImageHint}
           {...bindGuide('ui.siteOgImage', g.ui.siteOgImage)}
+          layout="vertical"
+        />
+        <InputItem
+          itemKey="google_site_verification"
+          label={t.config.fieldGoogleSiteVerification}
+          value={getFieldValue('google_site_verification')}
+          onChange={(v) => updateValue('google_site_verification', v)}
+          placeholder={t.config.placeholderGoogleSiteVerification}
+          hint={t.config.fieldGoogleSiteVerificationHint}
+          {...bindGuide(
+            'ui.googleSiteVerification',
+            g.ui.googleSiteVerification,
+          )}
           layout="vertical"
         />
       </SettingGroup>
@@ -943,7 +974,10 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
           formatValue={(v) => `${Math.round(v)}%`}
           recommendedValue={85}
           recommendedLabel={t.config.sliderRecommended}
-          {...bindGuide('ui.evocativeRippleQuality', g.ui.evocativeRippleQuality)}
+          {...bindGuide(
+            'ui.evocativeRippleQuality',
+            g.ui.evocativeRippleQuality,
+          )}
           layout="vertical"
         />
       </SettingGroup>

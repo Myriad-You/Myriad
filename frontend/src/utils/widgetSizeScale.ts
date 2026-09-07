@@ -18,8 +18,34 @@ export type WidgetSizeKey =
   | '4x2'
   | '4x4'
 
+/** Extra home-sticker tiles (not catalog widget sizes). */
+export type StickerExtraSizeKey =
+  | '4x3'
+  | '8x6'
+  | '3x4'
+  | '6x8'
+  | '7x4'
+  | '9x5'
+  | '14x8'
+  | '4x7'
+
 /** Desktop 16-col design cell (library previews). */
 export const STANDARD_CELL_SIZE = 80
+
+/**
+ * WidgetGridItem wraps placed tiles in Tailwind `p-1` (4px × 2).
+ * Home dock previews omit that wrapper, so they look a bit large unless
+ * this inset is applied on top of the live cell / design-cell ratio.
+ */
+export const GRID_WIDGET_PAD_PX = 4
+/** 2×2 is the common catalog tile; 8 / 160. */
+export const LIBRARY_DOCK_PREVIEW_INSET_SCALE =
+  1 - (GRID_WIDGET_PAD_PX * 2) / (2 * STANDARD_CELL_SIZE)
+
+export function libraryDockPreviewDisplayScale(cellSize: number): number {
+  const cell = cellSize > 0 ? cellSize : STANDARD_CELL_SIZE
+  return (cell / STANDARD_CELL_SIZE) * LIBRARY_DOCK_PREVIEW_INSET_SCALE
+}
 
 /**
  * Resting cell size (px) per viewport band so scale≈1 on a typical layout.
@@ -43,6 +69,36 @@ const SIZE_SPANS: Record<WidgetSizeKey, { cols: number; rows: number }> = {
   '2x4': { cols: 2, rows: 4 },
   '4x2': { cols: 4, rows: 2 },
   '4x4': { cols: 4, rows: 4 },
+}
+
+export const WIDGET_SIZE_KEYS = Object.keys(SIZE_SPANS) as WidgetSizeKey[]
+
+const STICKER_EXTRA_SPANS: Record<StickerExtraSizeKey, { cols: number; rows: number }> =
+  {
+    '4x3': { cols: 4, rows: 3 },
+    '8x6': { cols: 8, rows: 6 },
+    '3x4': { cols: 3, rows: 4 },
+    '6x8': { cols: 6, rows: 8 },
+    '7x4': { cols: 7, rows: 4 },
+    '9x5': { cols: 9, rows: 5 },
+    '14x8': { cols: 14, rows: 8 },
+    '4x7': { cols: 4, rows: 7 },
+  }
+
+export const STICKER_EXTRA_SIZE_KEYS = Object.keys(
+  STICKER_EXTRA_SPANS,
+) as StickerExtraSizeKey[]
+
+export function widgetSizeSpan(size: string): { w: number; h: number } {
+  const span =
+    SIZE_SPANS[size as WidgetSizeKey] ??
+    STICKER_EXTRA_SPANS[size as StickerExtraSizeKey]
+  if (span) return { w: span.cols, h: span.rows }
+  const match = /^([1-9]\d*)x([1-9]\d*)$/.exec(size)
+  if (match) {
+    return { w: Number(match[1]), h: Number(match[2]) }
+  }
+  return { w: 2, h: 2 }
 }
 
 export const WIDGET_SCALE_MIN = 0.78

@@ -451,4 +451,36 @@ describe('TappBridge session token + inbound event allowlist', () => {
     assert.equal(payload.code, 'RATE_LIMITED')
     assert.equal(payload.retryAfter, 1234)
   })
+
+  it('previewMode missing host handlers return PREVIEW_UNAVAILABLE', async () => {
+    const responses = captureResponses()
+    ;(bridge as unknown as { tappInstance: TappInstance }).tappInstance = {
+      ...instance,
+      previewMode: true,
+    }
+    dispatchFromIframe({
+      type: 'request',
+      id: 'req-ai-preview',
+      action: 'ai.tasks.create',
+      payload: {
+        api: 'ai',
+        method: 'tasks.create',
+        args: [{ version: 2, operation: 'image', input: 'a cat' }],
+      },
+      timestamp: Date.now(),
+      _sessionToken: SESSION,
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    const last = responses[responses.length - 1]!
+    assert.equal(last.id, 'req-ai-preview')
+    const payload = last.payload as {
+      success?: boolean
+      code?: string
+      error?: string
+    }
+    assert.equal(payload.success, false)
+    assert.equal(payload.code, 'PREVIEW_UNAVAILABLE')
+    assert.match(String(payload.error), /ai\.tasks\.create/)
+    assert.match(String(payload.error), /temporary preview/)
+  })
 })

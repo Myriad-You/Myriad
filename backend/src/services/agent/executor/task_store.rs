@@ -6,7 +6,7 @@ use crate::models::entities::agent_tasks;
 use crate::services::agent::task_store_pure::{
     self, is_terminal_past_retention, is_waiting_input_timed_out, lane_id_from_user_session,
     status_counts_from_iter, task_status_from_db_str, task_status_to_db_str,
-    WAITING_INPUT_TIMEOUT_ERROR,
+    waiting_input_timeout_error,
 };
 use crate::services::agent::types::*;
 use chrono::Utc;
@@ -192,7 +192,7 @@ impl TaskStore {
                     "[TaskStore] Expiring abandoned WaitingForInput task"
                 );
                 task.status = TaskStatus::Failed;
-                task.error = Some(WAITING_INPUT_TIMEOUT_ERROR.to_string());
+                task.error = Some(waiting_input_timeout_error());
                 task.completed_at = Some(now);
                 if let Some(user_id) = self.user_tasks.iter().find_map(|(user_id, ids)| {
                     ids.iter().any(|task_id| task_id == id).then_some(*user_id)

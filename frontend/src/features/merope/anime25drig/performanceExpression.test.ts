@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { compilePerformanceBehaviorPlan } from '../motion/performanceBehaviorPlan'
 import { realizeAnime25DBehaviorPlan } from './behaviorRealizer'
+import { predictedControlTime } from './motionPrediction'
 import {
   applyPerformanceExpressionOffset,
   baselineExpressionOffset,
@@ -733,4 +734,76 @@ test('a beat that leaves the plan and returns is scheduled again', () => {
   assert.ok(
     poseMagnitude(controller.sample(unit.timing.strokePeakMs / 1_000)) > 0,
   )
+})
+
+test('a live beat quiets the idle layer, not only a focused bearing', () => {
+  const expression = new PerformanceExpressionController()
+  assert.equal(expression.getAmbientMotionScale(), 1)
+
+  playUnits(expression, [cue('greet')])
+  expression.sample(0.3)
+  const duringBeat = expression.getAmbientMotionScale()
+  // A sticker and a large random action each damp the idle drift underneath
+  // them, and the pose gate multiplies all three. Until this, the director's
+  // own beats were the one covering motion that left the drift at full size,
+  // because this scale answered only to the persistent bearing.
+  assert.ok(duringBeat < 1, `a live beat left ambient at ${duringBeat}`)
+  assert.ok(duringBeat >= 0.7)
+
+  expression.stop(0.3)
+  for (let frame = 1; frame <= 120; frame += 1) {
+    expression.sample(0.3 + frame / 60)
+  }
+  assert.ok(expression.getAmbientMotionScale() > 0.99)
+})
+
+test('bearing and a live beat compound instead of shadowing each other', () => {
+  const focused = new PerformanceExpressionController()
+  focused.setBearingAttention(1)
+  for (let frame = 1; frame <= 60; frame += 1) focused.sample(frame / 60)
+  const bearingOnly = focused.getAmbientMotionScale()
+
+  playUnits(focused, [cue('greet')], 1)
+  focused.sample(1.3)
+  assert.ok(focused.getAmbientMotionScale() < bearingOnly)
+})
+
+test('a released cue continues from the screen, not one lead into its fade', () => {
+  // `playUnits` schedules on the write clock, which is right: the read clock's
+  // lead is what makes a cue land on time. A release travels the other way —
+  // it continues from the value already drawn — and starting it on the write
+  // clock spent the whole lead before its first frame. A short `fadeOut` lost
+  // 79% of itself there, which is the pose snapping back to rest.
+  const expression = new PerformanceExpressionController()
+  // A short authored fade is where the lead actually hurts: it is most of the
+  // release. A long one absorbs the same 40ms and hides the defect entirely.
+  playUnits(expression, [{ ...cue('respond'), fadeOutMs: 60 }])
+  let at = 0
+  for (let frame = 0; frame < 12; frame += 1) {
+    at += 1 / 60
+    expression.sample(predictedControlTime(at))
+  }
+  const drawn = poseMagnitude(expression.sample(predictedControlTime(at)))
+  assert.ok(drawn > 0)
+
+  expression.playBehaviorUnits([], at, at * 1_000)
+  at += 1 / 60
+  const next = poseMagnitude(expression.sample(predictedControlTime(at)))
+  assert.ok(next > drawn * 0.75, `release opened at ${next} from ${drawn}`)
+  assert.ok(next < drawn)
+})
+
+test('stopping behaviors does not rewind the sampling clock either', () => {
+  const expression = new PerformanceExpressionController()
+  playUnits(expression, [{ ...cue('respond'), fadeOutMs: 60 }])
+  let at = 0
+  for (let frame = 0; frame < 12; frame += 1) {
+    at += 1 / 60
+    expression.sample(predictedControlTime(at))
+  }
+  const drawn = poseMagnitude(expression.sample(predictedControlTime(at)))
+  expression.stopBehaviors(at)
+  at += 1 / 60
+  const next = poseMagnitude(expression.sample(predictedControlTime(at)))
+  assert.ok(next > drawn * 0.75, `stop opened at ${next} from ${drawn}`)
 })

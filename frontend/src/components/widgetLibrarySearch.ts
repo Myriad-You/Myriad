@@ -6,6 +6,11 @@
  * (category, tappId, description…). No preset allowlist.
  */
 
+import {
+  normalizeTappCategory,
+  TAPP_CATEGORIES,
+} from '../tapp/utils/tappCategories'
+
 export interface WidgetLibrarySearchable {
   id: string
   name: string
@@ -60,4 +65,77 @@ export function widgetTypeMatchesLibrarySearch(
     query,
     collectWidgetLibrarySearchText(widget),
   )
+}
+
+export type WidgetLibraryKindFilter = 'all' | 'report' | `tapp:${string}`
+
+export interface WidgetLibraryKindSource {
+  id: string
+  isTappWidget?: boolean
+  category?: string
+}
+
+/** Host widgets join the same topic rows as Tapp categories. */
+const BUILTIN_TOPIC_BY_ID: Record<
+  string,
+  Exclude<WidgetLibraryKindFilter, 'all'>
+> = {
+  'agent-persona': 'tapp:ai',
+  'music-player': 'tapp:media',
+  'social-network': 'tapp:social',
+  'friend-links': 'tapp:social',
+  'game-presence': 'tapp:game',
+  'quick-stats': 'tapp:data',
+  'recent-activity': 'tapp:data',
+  'visitor-stats': 'tapp:data',
+  'github-repos': 'tapp:social',
+}
+
+export function classifyWidgetLibraryKind(
+  widget: WidgetLibraryKindSource,
+): Exclude<WidgetLibraryKindFilter, 'all'> {
+  if (widget.isTappWidget) {
+    return `tapp:${normalizeTappCategory(widget.category)}`
+  }
+  if (widget.id.startsWith('report-')) return 'report'
+  if (widget.id.startsWith('platform-')) return 'tapp:social'
+  return BUILTIN_TOPIC_BY_ID[widget.id] ?? 'tapp:utility'
+}
+
+export function widgetMatchesLibraryKind(
+  filter: WidgetLibraryKindFilter,
+  widget: WidgetLibraryKindSource,
+): boolean {
+  if (filter === 'all') return true
+  return classifyWidgetLibraryKind(widget) === filter
+}
+
+/**
+ * 全部, then only kinds that currently have a widget.
+ * Host builtins share Tapp topic rows (媒体 / 社交 / …) instead of a dump bucket.
+ */
+export function presentWidgetLibraryKindFilters(
+  widgets: WidgetLibraryKindSource[],
+): WidgetLibraryKindFilter[] {
+  const seen = new Set<Exclude<WidgetLibraryKindFilter, 'all'>>()
+  for (const widget of widgets) {
+    seen.add(classifyWidgetLibraryKind(widget))
+  }
+  const chips: WidgetLibraryKindFilter[] = ['all']
+  if (seen.has('report')) chips.push('report')
+  for (const category of TAPP_CATEGORIES) {
+    const kind = `tapp:${category}` as const
+    if (seen.has(kind)) chips.push(kind)
+  }
+  for (const kind of [...seen].sort()) {
+    if (kind.startsWith('tapp:') && !chips.includes(kind)) chips.push(kind)
+  }
+  return chips
+}
+
+export function tappCategoryFromKindFilter(
+  filter: WidgetLibraryKindFilter,
+): string | null {
+  if (!filter.startsWith('tapp:')) return null
+  return filter.slice('tapp:'.length) || null
 }

@@ -88,7 +88,7 @@ export default function CommentsListPanel({
             animate={enableAnimations ? { opacity: 1 } : undefined}
             exit={enableAnimations ? { opacity: 0 } : undefined}
             transition={enableAnimations ? { duration: 0.2 } : undefined}
-            className="fixed inset-0 z-59 bg-black/20 backdrop-blur-[1px]"
+            className="fixed inset-0 z-59 bg-black/20"
             onClick={() => setShowCommentsPanel(false)}
           />
           <motion.div

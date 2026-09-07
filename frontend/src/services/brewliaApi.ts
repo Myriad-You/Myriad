@@ -6,6 +6,7 @@
 
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
+import { withAiTimeoutSignal } from '../utils/aiRequestTimeout.mjs'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
 import { parseApiErrorBody } from './api'
@@ -128,11 +129,15 @@ async function request<T>(
     headers['X-CSRF-Token'] = csrfToken
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-    credentials: 'include',
-  })
+  const url = `${API_BASE}${endpoint}`
+  const response = await fetch(
+    url,
+    withAiTimeoutSignal(url, {
+      ...options,
+      headers,
+      credentials: 'include',
+    }),
+  )
 
   const data = await response.json()
 

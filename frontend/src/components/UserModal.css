@@ -18,7 +18,6 @@
 
 .user-info-button:hover {
   background: rgb(0 0 0 / 4%);
-  transform: translateX(2px);
 }
 
 html.dark .user-info-button:hover {
@@ -56,14 +55,13 @@ html.dark .user-info-button:hover {
   min-height: min(var(--user-modal-min-height), 85vh);
   max-height: 85vh;
   background: rgb(255 255 255 / 75%);
-  backdrop-filter: blur(24px) saturate(180%);
   border-radius: 1.75rem;
   border: 1px solid rgb(255 255 255 / 30%);
   box-shadow:
     0 25px 80px rgb(0 0 0 / 15%),
     0 10px 30px rgb(0 0 0 / 8%),
     inset 0 1px 0 rgb(255 255 255 / 50%);
-  z-index: 10001;
+  z-index: 10051;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -995,12 +993,11 @@ html.dark .user-modal-recent-empty {
   position: fixed;
   inset: 0;
   background: rgb(0 0 0 / 30%);
-  z-index: 10000;
+  z-index: 10050;
 
   /* 初始隐藏状态 */
   opacity: 0;
   visibility: hidden;
-  backdrop-filter: blur(0);
 
   /* 初始状态不设置 transition */
 }
@@ -1009,11 +1006,8 @@ html.dark .user-modal-recent-empty {
 .user-modal-overlay.animate-in {
   opacity: 1;
   visibility: visible;
-  backdrop-filter: blur(8px);
   transition:
     opacity 0.3s ease,
-    backdrop-filter 0.3s ease,
-    -webkit-backdrop-filter 0.3s ease,
     visibility 0s linear 0s;
 }
 
@@ -1021,23 +1015,13 @@ html.dark .user-modal-recent-empty {
 .user-modal-overlay.closing {
   opacity: 0;
   visibility: visible;
-  backdrop-filter: blur(0);
   transition:
     opacity 0.25s ease,
-    backdrop-filter 0.25s ease,
-    -webkit-backdrop-filter 0.25s ease,
     visibility 0s linear 0.25s;
 }
 
 html.dark .user-modal-overlay {
   background: rgb(0 0 0 / 50%);
-}
-
-/* 登录弹窗自己就是玻璃面，遮罩只负责压暗，不再叠一层 blur */
-.user-modal-overlay--plain,
-.user-modal-overlay--plain.animate-in,
-.user-modal-overlay--plain.closing {
-  backdrop-filter: none;
 }
 
 /* ==========================================
@@ -1052,7 +1036,7 @@ html.dark .user-modal-overlay {
   width: 90%;
   max-width: 400px;
   border-radius: 1.75rem;
-  z-index: 10001;
+  z-index: 10051;
 
   /* 比共用 1rem 宽一圈，表单别贴边；关闭钮跟着 inset 走，仍和标题同一行 */
   --user-modal-chrome-inset: 1.8rem;

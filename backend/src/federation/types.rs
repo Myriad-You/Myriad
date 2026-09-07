@@ -8,7 +8,7 @@
 //! 里逐个字符串挖字段，出站用 `json!` 直接拼——两边都不经过这些类型。
 //!
 //! **不要机械地把它们接到 handler 上**：抽查发现它们与真实线上格式已经对不上，
-//! 例如 `ChannelOpenObject` 缺了出站实际会发的 `id`（buffer_types_crud.rs 的
+//! 例如 `ChannelOpenObject` 缺了出站实际会发的 `id`（channel/crud.rs 的
 //! ChannelOpen 构造点），而已删掉的 `SyncDataRequest` 带着一个从没发过的
 //! `origin_peer`、却少了 handler 真正要读的 `ring` / `ringType`。按现状接上去
 //! 会丢字段或拒收当前能收的消息。
@@ -1489,7 +1489,7 @@ mod tests {
         assert_eq!(inbox_url(base, "u"), "https://a.example/users/u/inbox");
     }
 
-    /// 频道创建校验现在直接反序列化这两个枚举（buffer_types_crud.rs），
+    /// 频道创建校验现在直接反序列化这两个枚举（channel/crud.rs），
     /// 所以它们的 serde 表示就是 MFP 的线上取值表——钉死，改名即改协议。
     #[test]
     fn channel_enums_serialize_to_the_mfp_wire_values() {

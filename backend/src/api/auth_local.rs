@@ -44,9 +44,8 @@ fn auth_store_app(context: &'static str, error: impl std::fmt::Display) -> HttpE
 /// 503 after a short wait rather than queue forever. Login, register,
 /// change-password, set-password, setup create-admin, and admin create-user
 /// all share this single permit path via [`hash_password`] / [`verify_password`].
-/// Historical default concurrency (default memory profile). Saver uses 1 via memory_profile.
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-const PASSWORD_HASH_PERMITS: usize = 4;
+/// Concurrency comes from [`crate::services::memory_profile::argon2_permits`].
+///
 /// How long a request may wait for a hash/verify permit before 503.
 /// Acts as a short queue bound — waiters beyond this get 503, not harsher IP limits.
 const PASSWORD_HASH_ACQUIRE_TIMEOUT: StdDuration = StdDuration::from_secs(15);
@@ -1324,7 +1323,7 @@ mod tests {
         acquire_password_hash_permit_from, admin_already_exists_error, create_admin_gate,
         hash_password, map_create_admin_insert_error, verify_password, AuthResponse,
         CreateAdminRequest, UserInfo, CREATE_ADMIN_ADVISORY_LOCK_KEY,
-        PASSWORD_HASH_ACQUIRE_TIMEOUT, PASSWORD_HASH_PERMITS,
+        PASSWORD_HASH_ACQUIRE_TIMEOUT,
     };
     use crate::error::{app_error_response, HttpError};
     use axum::body::to_bytes;
@@ -1451,7 +1450,7 @@ mod tests {
     #[test]
     fn password_hash_permit_budget_is_modest() {
         // MYR-006: cap concurrency ~4; leave headroom — not a harsh multi-axis governor.
-        assert_eq!(PASSWORD_HASH_PERMITS, 4);
+        assert_eq!(crate::services::memory_profile::DEFAULT_ARGON2_PERMITS, 4);
         assert!(PASSWORD_HASH_ACQUIRE_TIMEOUT >= StdDuration::from_secs(5));
         assert!(PASSWORD_HASH_ACQUIRE_TIMEOUT <= StdDuration::from_secs(30));
     }
@@ -1460,9 +1459,10 @@ mod tests {
     async fn password_hash_permit_returns_503_when_saturated() {
         // Local semaphore mirrors production so we do not starve parallel Argon2 tests
         // that share the process-wide permit pool.
-        let sem = Arc::new(Semaphore::new(PASSWORD_HASH_PERMITS));
-        let mut held = Vec::with_capacity(PASSWORD_HASH_PERMITS);
-        for _ in 0..PASSWORD_HASH_PERMITS {
+        let permits = crate::services::memory_profile::DEFAULT_ARGON2_PERMITS;
+        let sem = Arc::new(Semaphore::new(permits));
+        let mut held = Vec::with_capacity(permits);
+        for _ in 0..permits {
             held.push(sem.clone().acquire_owned().await.expect("permit"));
         }
         assert_eq!(sem.available_permits(), 0);
@@ -1470,7 +1470,7 @@ mod tests {
         let err = acquire_password_hash_permit_from(
             Arc::clone(&sem),
             StdDuration::from_millis(40),
-            PASSWORD_HASH_PERMITS,
+            permits,
         )
         .await
         .expect_err("must 503 when all Argon2 permits are held");
@@ -1489,7 +1489,7 @@ mod tests {
         let permit = acquire_password_hash_permit_from(
             Arc::clone(&sem),
             StdDuration::from_millis(200),
-            PASSWORD_HASH_PERMITS,
+            permits,
         )
         .await
         .expect("permit available after release");

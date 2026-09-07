@@ -1,5 +1,5 @@
 /** Shared types for report card platform widgets. */
-import type { WidgetConfig } from '../../WidgetGrid'
+import type { WidgetConfig } from '../../widgetGridTypes'
 
 export interface LangSegment {
   name: string

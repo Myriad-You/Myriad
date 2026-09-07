@@ -10,13 +10,14 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
 import { rafThrottle } from '../utils/performance'
-import { VIEWPORT_MQ } from '../utils/viewportBands'
+import { VIEWPORT_DESKTOP_MIN, VIEWPORT_MQ } from '../utils/viewportBands'
 
 import { isPageVisible, onVisibility } from './animation/core'
 
@@ -259,37 +260,17 @@ export function useSharedScroll(
 }
 
 /**
- * 窗口尺寸 Hook - 使用共享监听器
- *
- * @example
- * ```tsx
- * const { width, height } = useWindowSize();
- * ```
- */
-export function useWindowSize(): { width: number; height: number } {
-  const [size, setSize] = useState({
-    width: typeof window !== 'undefined' ? window.innerWidth : 0,
-    height: typeof window !== 'undefined' ? window.innerHeight : 0,
-  })
-
-  useSharedResize(() => {
-    setSize({
-      width: window.innerWidth,
-      height: window.innerHeight,
-    })
-  })
-
-  return size
-}
-
-/**
  * 防抖的窗口尺寸 Hook
  * 适用于需要在 resize 结束后才执行操作的场景
  * 使用共享监听器，减少重复注册
  *
  * @param delay 防抖延迟（毫秒）
+ * @param enabled 为 false 时不订阅 resize（控制面板固定列数不需要）
  */
-export function useDebouncedWindowSize(delay = 150): {
+export function useDebouncedWindowSize(
+  delay = 150,
+  enabled = true,
+): {
   width: number
   height: number
 } {
@@ -312,10 +293,8 @@ export function useDebouncedWindowSize(delay = 150): {
     }, delay)
   }, [delay])
 
-  // 使用共享的 resize 监听器
-  useSharedResize(debouncedHandler)
+  useSharedResize(debouncedHandler, { enabled })
 
-  // 清理定时器
   useEffect(() => {
     return () => {
       if (timeoutRef.current) {
@@ -427,6 +406,28 @@ export function useBreakpoints() {
     }),
     [isMobile, isTablet, isDesktop, isLargeDesktop],
   )
+}
+
+function readDesktopLayoutBand(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.innerWidth >= VIEWPORT_DESKTOP_MIN
+}
+
+/**
+ * Desktop band for home free/standard layout.
+ * First paint reads innerWidth so it does not start as `false`
+ * (useSyncExternalStore server snapshot) and flash standard layout.
+ */
+export function useDesktopLayoutBand(): boolean {
+  const [isDesktop, setIsDesktop] = useState(readDesktopLayoutBand)
+  useLayoutEffect(() => {
+    const mq = window.matchMedia(VIEWPORT_MQ.desktop)
+    const sync = () => setIsDesktop(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  return isDesktop
 }
 
 /**

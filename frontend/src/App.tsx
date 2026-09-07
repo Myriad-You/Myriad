@@ -703,7 +703,7 @@ export function App() {
     }
   }, [])
 
-  // 预加载关键路由 - 在空闲时加载Library和Config
+  // 预加载关键路由 — 只预取资料库 / Tapp 入口，不预取 Config
   useEffect(() => {
     // 延迟6秒后预加载：低端设备上首屏渲染 + 小组件数据请求 + 入场动画
     // 可持续数秒，过早预取会与首屏抢主线程（preloadRoutes 内部还有

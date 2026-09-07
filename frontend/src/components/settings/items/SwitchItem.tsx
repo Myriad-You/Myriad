@@ -24,6 +24,7 @@ export const SwitchItem = React.memo<SwitchItemProps>(
     guidePath,
     description,
     hint,
+    preview,
     value,
     onChange,
     disabled = false,
@@ -97,6 +98,7 @@ export const SwitchItem = React.memo<SwitchItemProps>(
               onChange={handleChange}
               disabled={disabled || loading}
               aria-label={label}
+              preview={preview}
             />
           </div>
         </div>

@@ -216,6 +216,12 @@ fn shell_profile_is_valid(value: &Value, width: f64, height: f64) -> bool {
         || !number_in_range(torso.get("centerX"), 0.0, width)
         || !number_in_range(torso.get("radiusX"), 1.0, width)
         || !number_in_range(torso.get("radiusZ"), 1.0, width)
+        // Optional: manifests compiled before the torso follow became
+        // per-model carry no value, and the runtime reads those as a full
+        // follow. Present but out of range is still a rejection.
+        || torso
+            .get("yawFollowScale")
+            .is_some_and(|value| !number_in_range(Some(value), 0.0, 1.0))
     {
         return false;
     }
@@ -406,5 +412,27 @@ mod tests {
             .unwrap()
             .remove("garmentMotionScale");
         assert!(!playback_is_valid(&playback));
+    }
+
+    #[test]
+    fn accepts_an_absent_or_bounded_per_model_torso_follow() {
+        // Compiled before the follow became per-model: still live.
+        let playback = sample_playback();
+        assert!(playback["shellProfile"]["torso"]
+            .get("yawFollowScale")
+            .is_none());
+        assert!(playback_is_valid(&playback));
+
+        for scale in [0.0, 0.4, 1.0] {
+            let mut playback = sample_playback();
+            playback["shellProfile"]["torso"]["yawFollowScale"] = serde_json::json!(scale);
+            assert!(playback_is_valid(&playback), "{scale}");
+        }
+
+        for scale in [-0.1, 1.4] {
+            let mut playback = sample_playback();
+            playback["shellProfile"]["torso"]["yawFollowScale"] = serde_json::json!(scale);
+            assert!(!playback_is_valid(&playback), "{scale}");
+        }
     }
 }

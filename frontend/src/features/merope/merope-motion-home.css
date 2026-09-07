@@ -241,7 +241,7 @@ html.dark .merope-motion-page {
 }
 
 .merope-motion-rig__tabs {
-  margin: 0 0 12px;
+  margin: 0;
 }
 
 .merope-motion-rig__path,
@@ -470,16 +470,41 @@ html.dark .merope-motion-page {
 }
 
 .merope-character-home__credit {
-  margin: 0.35rem 0 0;
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
   color: var(--merope-muted, #667085);
-  font-size: 0.78rem;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
-.merope-character-home__credit a {
+.merope-character-home__credit-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.45rem 0.6rem;
+  margin: 0;
+}
+
+.merope-character-home__thanks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.45rem;
+  margin: 0.15rem 0 0;
+}
+
+.merope-character-home__thanks a,
+.merope-character-home__thanks a:link,
+.merope-character-home__thanks a:visited {
   color: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  font-weight: 620;
+  text-decoration: none;
+}
+
+.merope-character-home__thanks a:hover,
+.merope-character-home__thanks a:focus-visible {
+  color: var(--merope-ink, inherit);
 }
 
 .merope-motion-home--settings {
@@ -593,4 +618,371 @@ html.dark .merope-motion-page {
   .merope-motion-home__studio {
     min-height: 280px;
   }
+}
+
+.merope-wardrobe-page {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin: 0 0 22px;
+}
+
+.merope-wardrobe-page__head {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+.merope-wardrobe-page__portrait {
+  overflow: hidden;
+  width: min(100%, 240px);
+  aspect-ratio: 3 / 4.15;
+  border: 1px solid var(--ob-liq-border, var(--merope-line, #d8dbe6));
+  border-radius: 18px;
+  background: color-mix(
+    in srgb,
+    rgb(var(--merope-surface-rgb, 255 255 255) / 70%),
+    transparent
+  );
+}
+
+.merope-wardrobe-page__portrait img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 12%;
+}
+
+.merope-wardrobe {
+  --ob-liq-sheen: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 16%),
+    rgb(255 255 255 / 0%) 48%
+  );
+  --ob-liq-inset:
+    inset 0 1px 0 rgb(255 255 255 / 44%), inset 0 -1px 0 rgb(0 0 0 / 6%);
+
+  display: grid;
+  gap: 14px;
+  margin: 0 0 22px;
+}
+
+html.dark .merope-wardrobe {
+  --ob-liq-sheen: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 8%),
+    rgb(255 255 255 / 0%) 48%
+  );
+  --ob-liq-inset:
+    inset 0 1px 0 rgb(255 255 255 / 12%), inset 0 -1px 0 rgb(0 0 0 / 28%);
+}
+
+.merope-wardrobe__case {
+  position: relative;
+  overflow: hidden;
+  padding: 12px 10px 10px;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 18px;
+  background:
+    var(--ob-liq-sheen),
+    color-mix(in srgb, rgb(var(--merope-surface-rgb) / 48%), transparent);
+  box-shadow: var(--ob-liq-inset);
+}
+
+.merope-wardrobe__rack {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.merope-wardrobe__caption {
+  margin: 0;
+  color: var(--merope-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.merope-wardrobe__caption-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin: 0;
+}
+
+.merope-wardrobe__caption-row .merope-wardrobe__caption {
+  margin: 0;
+}
+
+.merope-wardrobe__fill {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--merope-accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.merope-wardrobe__fill:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.merope-wardrobe__garment--fold {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  min-height: 96px;
+  padding: 12px 10px;
+  background: color-mix(in srgb, rgb(var(--merope-surface-rgb) / 70%), transparent);
+}
+
+.merope-wardrobe__fold {
+  color: var(--merope-ink);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.merope-wardrobe__set {
+  flex: 0 0 108px;
+  display: grid;
+  justify-items: center;
+}
+
+.merope-wardrobe__garment {
+  appearance: none;
+  display: block;
+  width: 108px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ob-liq-border, var(--merope-line)) 80%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, rgb(var(--merope-surface-rgb) / 70%), transparent);
+  box-shadow: var(--ob-liq-inset);
+  cursor: pointer;
+}
+
+.merope-wardrobe__garment img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4.15;
+  object-fit: cover;
+  object-position: center 12%;
+  pointer-events: none;
+}
+
+.merope-wardrobe__garment:disabled {
+  cursor: default;
+}
+
+.merope-wardrobe__garment--empty {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 6px;
+  min-height: 146px;
+  color: var(--merope-muted);
+  background: color-mix(
+    in srgb,
+    var(--border-color, #d8dbe6) 22%,
+    rgb(var(--merope-surface-rgb))
+  );
+  border-style: dashed;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.merope-wardrobe__add-mark {
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 400;
+}
+
+.merope-wardrobe__set.is-on .merope-wardrobe__garment {
+  border-color: color-mix(in srgb, var(--merope-accent) 50%, transparent);
+}
+
+.merope-wardrobe__tag {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  justify-content: center;
+  max-width: 108px;
+  margin-top: 8px;
+  color: var(--merope-ink);
+  font-size: 12px;
+  font-weight: 680;
+  text-align: center;
+}
+
+.merope-wardrobe__wearing {
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--merope-accent);
+}
+
+.merope-wardrobe__remove {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--merope-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 550;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.merope-wardrobe__set:hover .merope-wardrobe__remove,
+.merope-wardrobe__set:focus-within .merope-wardrobe__remove {
+  opacity: 1;
+}
+
+.merope-wardrobe__remove:hover:not(:disabled) {
+  color: var(--merope-ink);
+}
+
+.merope-wardrobe__remove:disabled {
+  cursor: not-allowed;
+}
+
+.merope-wardrobe__drawer {
+  display: grid;
+  gap: 12px;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 18px;
+  background:
+    var(--ob-liq-sheen),
+    color-mix(in srgb, rgb(var(--merope-surface-rgb) / 48%), transparent);
+  box-shadow: var(--ob-liq-inset);
+}
+
+.merope-wardrobe__drawer-label {
+  margin: 0;
+  color: var(--merope-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.merope-wardrobe__families {
+  display: flex;
+  gap: 8px;
+  margin: 0 -4px;
+  padding: 2px 4px 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.merope-wardrobe__family {
+  appearance: none;
+  flex: 0 0 64px;
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0 0 4px;
+  overflow: hidden;
+  border: 1px solid var(--ob-liq-border, var(--merope-line));
+  border-radius: 12px;
+  color: var(--merope-muted);
+  background: color-mix(in srgb, rgb(var(--merope-surface-rgb) / 50%), transparent);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  text-align: center;
+  cursor: pointer;
+}
+
+.merope-wardrobe__family img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+}
+
+.merope-wardrobe__family.is-on {
+  color: var(--merope-ink);
+  border-color: color-mix(in srgb, var(--merope-accent) 50%, transparent);
+}
+
+.merope-wardrobe__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.merope-wardrobe__visual {
+  display: grid;
+  gap: 18px;
+}
+
+/* 贴纸头像与状态并排，各有标题。 */
+.merope-motion-avatar {
+  display: flex;
+  gap: 18px;
+  align-items: start;
+  min-width: 0;
+}
+
+.merope-motion-avatar__pane {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  justify-items: start;
+}
+
+.merope-motion-avatar__pane:last-child {
+  flex: 1 1 auto;
+  gap: 12px;
+}
+
+.merope-motion-avatar__field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.merope-motion-avatar__frame {
+  width: 96px;
+  height: 96px;
+  overflow: hidden;
+  border-radius: 16px;
+  /* 贴纸是透明底，衬一层浅色才看得清白色刀模边。 */
+  background: var(--color-surface-2, rgba(127, 127, 127, 0.12));
+}
+
+.merope-motion-avatar__preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.merope-motion-avatar__value {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--merope-ink, inherit);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }

@@ -24,6 +24,7 @@ const AGENT_PRESET_PERM_KEYS = [
   'ai_analyze',
   'ai_generate',
   'ai_image',
+  'ai_search',
   'network_fetch',
   'scheduler_register',
 ] as const
@@ -55,6 +56,7 @@ const AGENT_PRESET_FLAGS: Record<
     ai_analyze: false,
     ai_generate: false,
     ai_image: false,
+    ai_search: false,
     network_fetch: false,
     scheduler_register: false,
   },
@@ -63,6 +65,7 @@ const AGENT_PRESET_FLAGS: Record<
     ai_analyze: true,
     ai_generate: false,
     ai_image: false,
+    ai_search: false,
     network_fetch: false,
     scheduler_register: false,
   },
@@ -71,6 +74,7 @@ const AGENT_PRESET_FLAGS: Record<
     ai_analyze: true,
     ai_generate: true,
     ai_image: true,
+    ai_search: true,
     network_fetch: false,
     scheduler_register: false,
   },
@@ -79,6 +83,7 @@ const AGENT_PRESET_FLAGS: Record<
     ai_analyze: true,
     ai_generate: true,
     ai_image: true,
+    ai_search: true,
     network_fetch: true,
     scheduler_register: true,
   },
@@ -117,6 +122,7 @@ export interface PermissionConfigValues extends Record<
   user_perm_shortcut_register: boolean
   user_perm_event_publish: boolean
   user_perm_ai_image: boolean
+  user_perm_ai_search: boolean
   user_perm_3d_generate: boolean
   user_perm_scheduler_register: boolean
   user_perm_speech_tts: boolean
@@ -136,6 +142,7 @@ export interface PermissionConfigValues extends Record<
   guest_perm_shortcut_register: boolean
   guest_perm_event_publish: boolean
   guest_perm_ai_image: boolean
+  guest_perm_ai_search: boolean
   guest_perm_3d_generate: boolean
   guest_perm_scheduler_register: boolean
   guest_perm_speech_tts: boolean
@@ -207,6 +214,12 @@ export const PermissionsConfigSection: React.FC<
       code: 'ai:image',
       label: t.config.permAiImage,
       hint: t.config.permAiImageHint,
+    },
+    {
+      key: 'ai_search',
+      code: 'ai:search',
+      label: t.config.permAiSearch,
+      hint: t.config.permAiSearchHint,
     },
     {
       key: '3d_generate',
@@ -450,12 +463,20 @@ export const PermissionsConfigSection: React.FC<
           <SettingGroup
             title={t.config.agentUsageUser}
             description={t.config.agentPresetUserHint}
+            {...bindGuide(
+              'permissions.agentPresetUser',
+              g.permissions.agentPresetUser,
+            )}
           >
             {renderPresetButtons('user', userPreset)}
           </SettingGroup>
           <SettingGroup
             title={t.config.agentUsageGuest}
             description={t.config.agentPresetGuestHint}
+            {...bindGuide(
+              'permissions.agentPresetGuest',
+              g.permissions.agentPresetGuest,
+            )}
           >
             {renderPresetButtons('guest', guestPreset)}
           </SettingGroup>

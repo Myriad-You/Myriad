@@ -43,10 +43,31 @@ pub static MEDIA_FETCH_CLIENT: Lazy<Client> = Lazy::new(|| {
 
 /// 全局 HTTP 客户端（带代理支持）
 static GLOBAL_HTTP_CLIENT: Lazy<RwLock<Option<Client>>> = Lazy::new(|| RwLock::new(None));
+static TINYFISH_HTTP_CLIENT: Lazy<RwLock<Option<Client>>> = Lazy::new(|| RwLock::new(None));
+static GEMINI_GROUNDING_CLIENT: Lazy<RwLock<Option<Client>>> = Lazy::new(|| RwLock::new(None));
+
+const TINYFISH_CLIENT_TIMEOUT: Duration = Duration::from_secs(120);
+const GEMINI_GROUNDING_CLIENT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+fn cached_http_client(slot: &'static Lazy<RwLock<Option<Client>>>) -> Option<Client> {
+    slot.read().unwrap().clone()
+}
+
+fn store_http_client(slot: &'static Lazy<RwLock<Option<Client>>>, client: Client) -> Client {
+    let mut guard = slot.write().unwrap();
+    if let Some(existing) = guard.as_ref() {
+        return existing.clone();
+    }
+    *guard = Some(client.clone());
+    client
+}
+
+fn replace_http_client(slot: &'static Lazy<RwLock<Option<Client>>>, client: Client) {
+    *slot.write().unwrap() = Some(client);
+}
 
 /// 代理配置
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 pub struct ProxyConfig {
     /// 是否启用代理
     pub enabled: bool,
@@ -74,7 +95,6 @@ impl ProxyConfig {
     }
 
     /// 判断指定 URL 是否应该绕过代理
-    #[allow(dead_code)]
     pub fn should_bypass(&self, url: &str) -> bool {
         for domain in &self.bypass_list {
             if url.contains(domain) {
@@ -93,7 +113,8 @@ impl ProxyConfig {
 /// Apply dynamic proxy config (URL + NO_PROXY-style bypass) onto a client builder.
 ///
 /// Shared by the global client factory, long-running clients, AiAnalyzer,
-/// Gemini Grounding, and Tencent speech so bypass list behavior stays consistent.
+/// Gemini Grounding, TinyFish Search/Fetch, and Tencent speech so bypass list
+/// behavior stays consistent.
 ///
 /// **MYR-019 fail-closed:** when `should_use_proxy()` is true and the proxy URL
 /// cannot be built, returns `Err` — callers must not fall back to a silent
@@ -158,7 +179,6 @@ pub fn create_client_with_proxy(proxy_config: &ProxyConfig) -> Result<Client, re
 }
 
 /// 创建不使用代理的 HTTP 客户端
-#[allow(dead_code)]
 pub fn create_client_no_proxy() -> Result<Client, reqwest::Error> {
     Client::builder()
         .timeout(Duration::from_secs(30))
@@ -209,7 +229,6 @@ pub fn resolve_client_or_fail_closed(
 /// 获取或创建全局 HTTP 客户端
 ///
 /// 注意：这个客户端会在配置重载时更新
-#[allow(dead_code)]
 pub async fn get_global_client() -> Client {
     // 先尝试读取现有客户端
     {
@@ -284,45 +303,82 @@ pub async fn get_long_running_client() -> Client {
     }
 }
 
-/// Gemini Grounding outbound client: same proxy / fail-closed policy as
-/// [`crate::services::analyzer::AiAnalyzer`], 60s request timeout, no redirects.
-pub async fn get_gemini_grounding_client() -> Client {
-    let request_timeout = Duration::from_secs(60);
-    let proxy_config = ProxyConfig::from_dynamic_config().await;
+fn build_pooled_egress_client(
+    proxy_config: &ProxyConfig,
+    request_timeout: Duration,
+    context: &str,
+) -> Client {
     let builder = Client::builder()
+        .pool_max_idle_per_host(4)
+        .pool_idle_timeout(Duration::from_secs(90))
         .timeout(request_timeout)
         .connect_timeout(Duration::from_secs(30))
         .user_agent("Myriad/1.0")
         .redirect(reqwest::redirect::Policy::none());
-
-    match apply_proxy(builder, &proxy_config).and_then(|b| b.build()) {
+    match apply_proxy(builder, proxy_config).and_then(|b| b.build()) {
         Ok(client) => client,
-        Err(error) if proxy_is_required(&proxy_config) => {
+        Err(error) if proxy_is_required(proxy_config) => {
             tracing::error!(
                 %error,
+                context,
                 proxy_url = ?proxy_config.proxy_url.as_deref(),
-                "Gemini Grounding client: configured outbound proxy failed to build; \
+                "Configured outbound proxy failed to build; \
                  refusing silent direct-connect (MYR-019 fail-closed)"
             );
             panic!(
-                "Gemini Grounding HTTP client: configured outbound proxy failed to build \
+                "{context}: configured outbound proxy failed to build \
                  (fail-closed, no direct bypass): {error}"
             );
         }
         Err(error) => {
             tracing::error!(
                 %error,
-                "Gemini Grounding client build failed with proxy disabled; using direct client"
+                context,
+                "HTTP client build failed with proxy disabled; using direct client"
             );
             Client::builder()
+                .pool_max_idle_per_host(4)
+                .pool_idle_timeout(Duration::from_secs(90))
                 .timeout(request_timeout)
                 .connect_timeout(Duration::from_secs(30))
                 .user_agent("Myriad/1.0")
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
-                .expect("Failed to create direct Gemini Grounding HTTP client")
+                .unwrap_or_else(|fallback| {
+                    panic!("{context}: failed to create direct HTTP client: {fallback}")
+                })
         }
     }
+}
+
+/// TinyFish Search/Fetch outbound client. Pooled; rebuilt when proxy config reloads.
+/// Fetch pages can take over a minute; Search is much faster on the same pool.
+pub async fn get_tinyfish_client() -> Client {
+    if let Some(client) = cached_http_client(&TINYFISH_HTTP_CLIENT) {
+        return client;
+    }
+    let proxy_config = ProxyConfig::from_dynamic_config().await;
+    let client = build_pooled_egress_client(
+        &proxy_config,
+        TINYFISH_CLIENT_TIMEOUT,
+        "TinyFish HTTP client",
+    );
+    store_http_client(&TINYFISH_HTTP_CLIENT, client)
+}
+
+/// Gemini Grounding outbound client: same proxy / fail-closed policy as
+/// [`crate::services::analyzer::AiAnalyzer`], 5 min request timeout, no redirects.
+pub async fn get_gemini_grounding_client() -> Client {
+    if let Some(client) = cached_http_client(&GEMINI_GROUNDING_CLIENT) {
+        return client;
+    }
+    let proxy_config = ProxyConfig::from_dynamic_config().await;
+    let client = build_pooled_egress_client(
+        &proxy_config,
+        GEMINI_GROUNDING_CLIENT_TIMEOUT,
+        "Gemini Grounding HTTP client",
+    );
+    store_http_client(&GEMINI_GROUNDING_CLIENT, client)
 }
 
 /// 重新加载全局 HTTP 客户端（配置更新时调用）
@@ -334,8 +390,23 @@ pub async fn reload_global_client() {
 
     match create_client_with_proxy(&proxy_config) {
         Ok(client) => {
-            let mut guard = GLOBAL_HTTP_CLIENT.write().unwrap();
-            *guard = Some(client);
+            replace_http_client(&GLOBAL_HTTP_CLIENT, client);
+            replace_http_client(
+                &TINYFISH_HTTP_CLIENT,
+                build_pooled_egress_client(
+                    &proxy_config,
+                    TINYFISH_CLIENT_TIMEOUT,
+                    "TinyFish HTTP client",
+                ),
+            );
+            replace_http_client(
+                &GEMINI_GROUNDING_CLIENT,
+                build_pooled_egress_client(
+                    &proxy_config,
+                    GEMINI_GROUNDING_CLIENT_TIMEOUT,
+                    "Gemini Grounding HTTP client",
+                ),
+            );
             tracing::info!("✅ Global HTTP client reloaded with new proxy config");
         }
         Err(e) if proxy_is_required(&proxy_config) => {
@@ -353,10 +424,8 @@ pub async fn reload_global_client() {
 }
 
 /// GitHub API 相关的 URL 构建器
-#[allow(dead_code)]
 pub struct GitHubApiUrl;
 
-#[allow(dead_code)]
 impl GitHubApiUrl {
     /// 获取 GitHub API 基础 URL
     pub async fn get_api_base() -> String {
@@ -368,18 +437,6 @@ impl GitHubApiUrl {
             .clone()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "https://api.github.com".to_string())
-    }
-
-    /// 获取 GitHub OAuth 授权 URL
-    pub async fn get_oauth_authorize_url() -> String {
-        // GitHub OAuth 授权必须使用官方地址
-        "https://github.com/login/oauth/authorize".to_string()
-    }
-
-    /// 获取 GitHub OAuth Token URL
-    pub async fn get_oauth_token_url() -> String {
-        // GitHub OAuth Token 交换必须使用官方地址
-        "https://github.com/login/oauth/access_token".to_string()
     }
 
     /// 构建用户 API URL
@@ -396,13 +453,29 @@ impl GitHubApiUrl {
             page
         )
     }
+
+    /// `/repos/{owner}/{repo}` 路径（已编码）。
+    pub fn repo_api_path(owner: &str, repo: &str) -> String {
+        format!(
+            "/repos/{}/{}",
+            urlencoding::encode(owner),
+            urlencoding::encode(repo)
+        )
+    }
+
+    /// 构建单个仓库 API URL（star 数等）。
+    pub async fn repo_url(owner: &str, repo: &str) -> String {
+        format!(
+            "{}{}",
+            Self::get_api_base().await,
+            Self::repo_api_path(owner, repo)
+        )
+    }
 }
 
 /// Gemini API 相关的 URL 构建器
-#[allow(dead_code)]
 pub struct GeminiApiUrl;
 
-#[allow(dead_code)]
 impl GeminiApiUrl {
     /// 获取 Gemini API 基础 URL
     pub async fn get_base() -> String {
@@ -454,6 +527,18 @@ mod tests {
         assert!(config.should_bypass("http://127.0.0.1:8080"));
         assert!(!config.should_bypass("https://api.github.com"));
         assert!(!config.should_bypass("https://api.openai.com"));
+    }
+
+    #[test]
+    fn github_repo_api_path_encodes_owner_and_repo() {
+        assert_eq!(
+            GitHubApiUrl::repo_api_path("852wa", "Anime2.5DRig"),
+            "/repos/852wa/Anime2.5DRig"
+        );
+        assert_eq!(
+            GitHubApiUrl::repo_api_path("ollama", "ollama"),
+            "/repos/ollama/ollama"
+        );
     }
 
     #[test]

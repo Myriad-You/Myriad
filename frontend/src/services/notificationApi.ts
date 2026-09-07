@@ -1,3 +1,4 @@
+import type { MeropeStateEventDetail } from '../features/merope/performanceEvents'
 /**
  * 通知中心 API
  *
@@ -53,6 +54,15 @@ export interface TappNotificationRequest {
 }
 
 /** SSE 流事件均由后端按 user_id 过滤，只发给通知 owner。 */
+export interface LiveSpeechEvent {
+  id: string
+  body: string
+  event_key: string
+  performance?: unknown
+  merope_state?: unknown
+  intention_id?: string
+}
+
 export type NotificationStreamEvent =
   | { event: 'init'; unread_count: number }
   | { event: 'new_notification'; notification: AppNotification }
@@ -61,6 +71,10 @@ export type NotificationStreamEvent =
   | { event: 'notifications_cleared'; user_id: number }
   /** 订阅方落后丢消息：应重新 list() 补全 */
   | { event: 'resync'; lagged_by: number }
+  /** On-page persona speech. Not a notification-center item. */
+  | { event: 'live_speech'; user_id: number; speech: LiveSpeechEvent }
+  /** Persisted state update, never a notification-center item or a spoken line. */
+  | ({ event: 'merope_state_changed'; user_id: number } & MeropeStateEventDetail)
 
 const BASE = '/agent/notifications'
 

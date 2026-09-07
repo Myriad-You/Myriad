@@ -2,6 +2,7 @@
 pub mod activity_event_service;
 pub mod agent;
 pub mod agent_interaction; // Agent ↔ Tapp interaction create surface
+pub mod agora_chat; // Realtime transport bindings to shared Agent Chat runs
 pub mod agora_convo; // Shengwang Conversational AI join/leave
 pub mod agora_rtc_token; // Agora AccessToken2
 pub mod ai;
@@ -49,6 +50,7 @@ pub mod platform_cache; // Platform filtered-JSON cache
 pub mod platform_items; // Cache → uniform items[] projection
 pub mod platform_refresh; // Platform fetch/cache (profile HTTP + scheduler)
 pub mod profile_text; // 名称/简介文案来源（与 avatar 独立）
+pub mod retired_configuration; // Backup denylist + startup purge of dead config rows
 pub mod see_through; // Remote See-through layered-PSD decomposition
 pub mod server_location; // Egress location dual-source probe
 pub mod site_owner;
@@ -56,6 +58,7 @@ pub mod smart_filter;
 pub mod speech_runtime; // Provider resolve + test/status
 pub mod spoof_utils; // Region IP/UA spoofing helpers
 pub mod standalone_tts; // Standalone TTS (cache + Tencent) for HTTP + agent
+pub mod sticker_cutout; // Local alpha fallback for home stickers
 pub mod store_stats_beacon; // Official store install/update edge stats beacon
 pub mod tapp_agent_interaction; // Agent interaction registry + state machine
 pub mod tapp_api_service; // Declared-API execution (public/protected)

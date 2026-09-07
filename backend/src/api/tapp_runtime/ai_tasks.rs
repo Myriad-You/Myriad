@@ -384,18 +384,27 @@ pub async fn create_ai_task(
         .clone()
         .unwrap_or_else(|| default_output(request.operation));
     validate_output(&declaration, request.operation, &output).map_err(logic_api_error)?;
-    if request.delivery == AiTaskDelivery::Stream && request.operation == TappAiOperation::Image {
+    if request.delivery == AiTaskDelivery::Stream
+        && matches!(
+            request.operation,
+            TappAiOperation::Image | TappAiOperation::Search
+        )
+    {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
             "INVALID_AI_TASK_DELIVERY",
-            "Image tasks expose progress events but do not support token streaming",
+            "Image and search tasks do not support token streaming",
         ));
     }
-    if request.operation == TappAiOperation::Image && !request.context.is_empty() {
+    if matches!(
+        request.operation,
+        TappAiOperation::Image | TappAiOperation::Search
+    ) && !request.context.is_empty()
+    {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
-            "UNSUPPORTED_AI_IMAGE_CONTEXT",
-            "Image tasks do not currently accept context references",
+            "UNSUPPORTED_AI_TASK_CONTEXT",
+            "Image and search tasks do not currently accept context references",
         ));
     }
 
@@ -482,22 +491,24 @@ pub async fn create_ai_task(
         TappAiModelTier::Standard => crate::config::ModelTier::Standard,
         TappAiModelTier::Pro => crate::config::ModelTier::Pro,
     };
-    let model = if request.operation == TappAiOperation::Image {
-        PreparedModel::Image(get_ai_image_config().await.map_err(|error| {
+    let model = match request.operation {
+        TappAiOperation::Image => {
+            PreparedModel::Image(get_ai_image_config().await.map_err(|error| {
+                api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "AI_NOT_CONFIGURED",
+                    error.message(),
+                )
+            })?)
+        }
+        TappAiOperation::Search => PreparedModel::Search,
+        _ => PreparedModel::Text(get_ai_config_for_tier(tier).await.map_err(|error| {
             api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "AI_NOT_CONFIGURED",
                 error.message(),
             )
-        })?)
-    } else {
-        PreparedModel::Text(get_ai_config_for_tier(tier).await.map_err(|error| {
-            api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "AI_NOT_CONFIGURED",
-                error.message(),
-            )
-        })?)
+        })?),
     };
 
     check_rate_limit(&db, user_id, runtime.tapp_id(), "ai.task").await?;
@@ -510,7 +521,10 @@ pub async fn create_ai_task(
     if role == UserRole::Guest {
         check_anonymous_rate_limit(&db, client_ip.as_deref(), runtime.tapp_id()).await?;
     }
-    let estimated_tokens = if request.operation == TappAiOperation::Image {
+    let estimated_tokens = if matches!(
+        request.operation,
+        TappAiOperation::Image | TappAiOperation::Search
+    ) {
         0
     } else {
         prepared.prompt.len() / 4 + 1_000
@@ -801,6 +815,7 @@ pub async fn ai_usage(
         TappPermission::AiAnalyze,
         TappPermission::AiChat,
         TappPermission::AiImage,
+        TappPermission::AiSearch,
     ]
     .into_iter()
     .any(|permission| runtime.has(permission))

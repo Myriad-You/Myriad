@@ -8,16 +8,21 @@
  * - Bilibili 嵌入/链接 → 视频卡片
  * - GitHub 链接 → 仓库卡片
  *
- * 样式与资料库卡片风格一致
+ * GitHub 仓库卡跟设置控件同一套信息层级；其它嵌入仍走各自卡片。
  */
 
 import { currentCopy } from '../i18n/localeCopy'
+import {
+  fetchGithubRepoCard,
+  formatGithubCount,
+  githubLanguageColor,
+} from './githubRepo'
 import { getNeteaseAudioUrlImmediate } from './musicPlayer'
 import { proxyImageUrlOr } from './proxyImageUrl'
 import { isTrustedIframeHost } from './rssContentProcessor'
 
 // 缓存系统
-// 简单的内存缓存，避免重复请求相同资源（尤其是 GitHub API 有速率限制）
+// 简单的内存缓存，避免同一篇文章里重复打卡片接口
 const CACHE_TTL = 5 * 60 * 1000 // 5分钟缓存
 
 interface CacheEntry<T> {
@@ -281,87 +286,82 @@ function generateBilibiliIframe(videoId: {
 }
 
 /**
- * 生成 GitHub 仓库卡片 HTML - 简洁风格
- * 显示仓库基本信息，与阅读器风格统一
- * margin 由 BrewReader 统一控制
+ * 生成 GitHub 仓库卡片 HTML。
+ * 表面跟设置控件同一套微透边框；仓库名主、owner / 描述 / 语言次。
  */
 function generateGithubRepoCard(
   repo: { owner: string; repo: string },
   _isDark: boolean,
 ): string {
   const repoUrl = `https://github.com/${repo.owner}/${repo.repo}`
-  const ownerAvatar = `https://github.com/${repo.owner}.png?size=32`
+  const ownerAvatar = `https://github.com/${repo.owner}.png?size=48`
 
-  // 使用与 Steam 卡片一致的结构：外层 div 作为 brew-embed-card，内部包含可视样式和链接
   return `
-    <div class="brew-embed-card brew-github-repo brew-embed-exempt not-prose block group"
+    <div class="brew-embed-card brew-github-repo brew-embed-exempt not-prose block"
          data-embed-type="github-repo"
          data-owner="${repo.owner}"
          data-repo="${repo.repo}"
-         data-embed-exempt="true"
-         style="max-width: 28rem;">
+         data-embed-exempt="true">
       <a href="${repoUrl}"
          target="_blank"
          rel="noopener noreferrer"
-         class="block no-underline">
-        <div class="relative w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm hover:shadow-lg transition-all duration-300 transform hover:-translate-y-0.5">
-
-          <!-- GitHub 图标 -->
-          <div class="absolute top-4 right-4">
-            <svg viewBox="0 0 24 24" class="w-5 h-5 text-gray-300 dark:text-gray-600 group-hover:text-gray-400 dark:group-hover:text-gray-500 transition-colors">
-              <path fill="currentColor" d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+         class="brew-github-card">
+        <div class="brew-github-card-header">
+          <span class="brew-github-card-avatar" aria-hidden="true">
+            <img src="${ownerAvatar}" alt="" loading="lazy" />
+          </span>
+          <span class="brew-github-card-text">
+            <span class="brew-github-card-title brew-embed-title">${repo.repo}</span>
+            <span class="brew-github-card-owner brew-embed-owner">${repo.owner}</span>
+          </span>
+          <span class="brew-github-card-stars brew-embed-stars">
+            <svg fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/>
             </svg>
-          </div>
-
-          <!-- 所有者信息 -->
-          <div class="flex items-center gap-2 mb-2">
-            <img src="${ownerAvatar}"
-                 alt="${repo.owner}"
-                 class="w-5 h-5 rounded-full"
-                 loading="lazy"/>
-            <span class="brew-embed-owner text-sm text-gray-500 dark:text-gray-400">
-              ${repo.owner}
-            </span>
-          </div>
-
-          <!-- 仓库名称 -->
-          <h3 class="brew-embed-title text-base font-semibold text-gray-900 dark:text-white mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-            ${repo.repo}
-          </h3>
-
-          <!-- 仓库描述 -->
-          <p class="brew-embed-desc text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">
-            加载中...
-          </p>
-
-          <!-- 统计信息 -->
-          <div class="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-            <!-- Stars -->
-            <span class="brew-embed-stars flex items-center gap-1">
-              <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
-                <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/>
-              </svg>
-              <span>-</span>
-            </span>
-
-            <!-- Forks -->
-            <span class="brew-embed-forks flex items-center gap-1">
-              <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
-                <path d="M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z"/>
-              </svg>
-              <span>-</span>
-            </span>
-
-            <!-- 编程语言 -->
-            <span class="brew-embed-lang flex items-center gap-1">
-              <span class="inline-block w-2.5 h-2.5 rounded-full bg-gray-300 dark:bg-gray-600"></span>
-              <span>-</span>
-            </span>
-          </div>
+            <span>-</span>
+          </span>
         </div>
+        <p class="brew-github-card-desc brew-embed-desc"></p>
+        <div class="brew-github-card-meta">
+          <span class="brew-embed-lang">
+            <span class="brew-embed-lang-dot"></span>
+            <span>-</span>
+          </span>
+          <span class="brew-embed-forks">
+            <svg fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z"/>
+            </svg>
+            <span>-</span>
+          </span>
+        </div>
+        <span class="brew-github-card-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path fill="currentColor" d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+        </span>
       </a>
     </div>
   `
+}
+
+/** 同一仓库第二次起：设置页小标签，作者头像 + 仓库名。 */
+function generateGithubRepoChip(repo: { owner: string; repo: string }): string {
+  const repoUrl = `https://github.com/${repo.owner}/${repo.repo}`
+  const ownerAvatar = `https://github.com/${repo.owner}.png?size=48`
+  return `<a class="github-project-badge brew-github-chip brew-embed-exempt"
+       href="${repoUrl}"
+       target="_blank"
+       rel="noopener noreferrer"
+       data-embed-type="github-repo"
+       data-owner="${repo.owner}"
+       data-repo="${repo.repo}"
+       data-embed-exempt="true"
+       title="${repo.repo} · GitHub">
+    <span class="github-project-badge-mark brew-github-chip-avatar" aria-hidden="true">
+      <img src="${ownerAvatar}" alt="" loading="lazy" />
+    </span>
+    <span class="github-project-badge-name">${repo.repo}</span>
+  </a>`
 }
 
 /**
@@ -448,6 +448,8 @@ export function processEmbeds(content: string, isDark: boolean): string {
   })
 
   // 4. 处理 GitHub 仓库链接（仅处理指向仓库首页的链接）
+  // 同一仓库第一次出完整卡，后文再用设置页小标签。
+  const seenGithubRepos = new Set<string>()
   const githubLinkRegex =
     /<a[^>]*href=["'](https?:\/\/github\.com\/[^/]+\/[^/?#"']+)["'][^>]*>[\s\S]*?<\/a>/gi
   result = result.replace(githubLinkRegex, (match, url) => {
@@ -457,6 +459,11 @@ export function processEmbeds(content: string, isDark: boolean): string {
     if (parts.length === 2 && parts[0] && parts[1]) {
       const repo = extractGithubRepo(url)
       if (repo) {
+        const key = `${repo.owner}/${repo.repo}`.toLowerCase()
+        if (seenGithubRepos.has(key)) {
+          return generateGithubRepoChip(repo)
+        }
+        seenGithubRepos.add(key)
         return generateGithubRepoCard(repo, isDark)
       }
     }
@@ -697,8 +704,7 @@ async function loadSteamGameData(container: HTMLElement): Promise<void> {
 
 /**
  * 加载 GitHub 仓库卡片数据
- * 使用 GitHub API 获取仓库信息（star、fork、描述、语言）
- * 使用并行加载 + 缓存提升性能（GitHub API 有 60次/小时 的速率限制）
+ * 走站点 `/api/github/repo`（数据平台同一条出站：代理 / token / 基址）。
  */
 async function loadGithubRepoData(container: HTMLElement): Promise<void> {
   const cards = Array.from(
@@ -725,51 +731,42 @@ async function loadGithubRepoData(container: HTMLElement): Promise<void> {
       card.setAttribute('data-loaded', 'loading')
 
       try {
-        // 检查缓存（GitHub API 有速率限制，缓存很重要）
-        const cacheKey = `github:${owner}/${repo}`
-        let repoData = getCached<any>(cacheKey)
+        const repoData = await fetchGithubRepoCard({ owner, repo })
 
-        if (!repoData) {
-          // 使用 GitHub API（无需认证的公开接口，有速率限制）
-          const response = await fetch(
-            `https://api.github.com/repos/${owner}/${repo}`,
-          )
-          if (!response.ok) {
-            card.setAttribute('data-loaded', 'true')
-            return
-          }
-
-          repoData = await response.json()
-          setCache(cacheKey, repoData)
-        }
-
-        // 更新仓库描述
         const descEl = card.querySelector('.brew-embed-desc')
         if (descEl) {
-          descEl.textContent =
-            repoData.description || currentCopy().common.noDescription
+          const text = repoData.description
+          descEl.textContent = text || ''
         }
 
-        // 更新 Star 数
-        const starsEl = card.querySelector('.brew-embed-stars span')
-        if (starsEl) {
-          const stars = repoData.stargazers_count || 0
-          starsEl.textContent = formatCount(stars)
+        const starsWrap = card.querySelector(
+          '.brew-embed-stars',
+        ) as HTMLElement | null
+        const starsEl = starsWrap?.querySelector('span')
+        if (starsWrap && repoData.stars != null) {
+          if (starsEl) starsEl.textContent = formatGithubCount(repoData.stars)
+          starsWrap.hidden = false
+        } else if (starsWrap) {
+          starsWrap.hidden = true
         }
 
-        // 更新 Fork 数
-        const forksEl = card.querySelector('.brew-embed-forks span')
-        if (forksEl) {
-          const forks = repoData.forks_count || 0
-          forksEl.textContent = formatCount(forks)
+        const forksWrap = card.querySelector(
+          '.brew-embed-forks',
+        ) as HTMLElement | null
+        const forksEl = forksWrap?.querySelector('span:last-child')
+        if (forksWrap && repoData.forks != null) {
+          if (forksEl) forksEl.textContent = formatGithubCount(repoData.forks)
+        } else if (forksWrap) {
+          forksWrap.hidden = true
         }
 
-        // 更新语言
-        const langEl = card.querySelector('.brew-embed-lang')
+        const langEl = card.querySelector(
+          '.brew-embed-lang',
+        ) as HTMLElement | null
         if (langEl && repoData.language) {
-          const langColor = getLanguageColor(repoData.language)
+          const langColor = githubLanguageColor(repoData.language)
           const colorDot = langEl.querySelector(
-            'span:first-child',
+            '.brew-embed-lang-dot',
           ) as HTMLElement
           const langText = langEl.querySelector('span:last-child')
           if (colorDot) {
@@ -779,11 +776,19 @@ async function loadGithubRepoData(container: HTMLElement): Promise<void> {
             langText.textContent = repoData.language
           }
         } else if (langEl) {
-          // 没有语言信息，隐藏该元素
-          ;(langEl as HTMLElement).style.display = 'none'
+          langEl.hidden = true
         }
 
-        // 标记已加载
+        const meta = card.querySelector(
+          '.brew-github-card-meta',
+        ) as HTMLElement | null
+        if (meta) {
+          const visible = Array.from(meta.children).some(
+            (el) => el instanceof HTMLElement && !el.hidden,
+          )
+          meta.hidden = !visible
+        }
+
         card.setAttribute('data-loaded', 'true')
       } catch (error) {
         console.warn(
@@ -791,56 +796,22 @@ async function loadGithubRepoData(container: HTMLElement): Promise<void> {
           error,
         )
 
-        // 即使失败也标记，避免重复请求
         const descEl = card.querySelector('.brew-embed-desc')
         if (descEl) {
           descEl.textContent = currentCopy().brew.repoLoadFailed
         }
+        const stars = card.querySelector(
+          '.brew-embed-stars',
+        ) as HTMLElement | null
+        const meta = card.querySelector(
+          '.brew-github-card-meta',
+        ) as HTMLElement | null
+        if (stars) stars.hidden = true
+        if (meta) meta.hidden = true
         card.setAttribute('data-loaded', 'true')
       }
     }),
   )
-}
-
-/**
- * 获取编程语言对应的颜色
- */
-function getLanguageColor(language: string): string {
-  const colors: Record<string, string> = {
-    JavaScript: '#f1e05a',
-    TypeScript: '#3178c6',
-    Python: '#3572A5',
-    Java: '#b07219',
-    Go: '#00ADD8',
-    Rust: '#dea584',
-    C: '#555555',
-    'C++': '#f34b7d',
-    'C#': '#178600',
-    PHP: '#4F5D95',
-    Ruby: '#701516',
-    Swift: '#F05138',
-    Kotlin: '#A97BFF',
-    Dart: '#00B4AB',
-    Vue: '#41b883',
-    HTML: '#e34c26',
-    CSS: '#563d7c',
-    Shell: '#89e051',
-    Lua: '#000080',
-  }
-  return colors[language] || '#6b7280'
-}
-
-/**
- * 格式化数字显示（如 1.2k, 3.5M）
- */
-function formatCount(count: number): string {
-  if (count >= 1000000) {
-    return `${(count / 1000000).toFixed(1).replace(/\.0$/, '')}M`
-  }
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`
-  }
-  return count.toString()
 }
 
 /**

@@ -110,18 +110,17 @@ export function buildCenterOutCanvasLayout<T extends { id: string }>(
   return layouts
 }
 
-export function getLibraryCanvasFocusScale(
-  layout: LibraryCanvasLayout,
+export function getLibraryCanvasFocusScaleAt(
+  centerX: number,
+  centerY: number,
   transform: LibraryCanvasTransform,
   viewport: LibraryCanvasViewport,
 ) {
   if (viewport.width <= 0 || viewport.height <= 0) {
     return LIBRARY_CANVAS_FOCUS_MAX_SCALE
   }
-  const screenX =
-    (layout.left + layout.width / 2) * transform.scale + transform.x
-  const screenY =
-    (layout.top + layout.height / 2) * transform.scale + transform.y
+  const screenX = centerX * transform.scale + transform.x
+  const screenY = centerY * transform.scale + transform.y
   const normalizedDistance = Math.hypot(
     screenX / (viewport.width / 2),
     screenY / (viewport.height / 2),
@@ -132,6 +131,19 @@ export function getLibraryCanvasFocusScale(
     LIBRARY_CANVAS_FOCUS_MAX_SCALE -
     (LIBRARY_CANVAS_FOCUS_MAX_SCALE - LIBRARY_CANVAS_FOCUS_MIN_SCALE) *
       easedProgress
+  )
+}
+
+export function getLibraryCanvasFocusScale(
+  layout: LibraryCanvasLayout,
+  transform: LibraryCanvasTransform,
+  viewport: LibraryCanvasViewport,
+) {
+  return getLibraryCanvasFocusScaleAt(
+    layout.left + layout.width / 2,
+    layout.top + layout.height / 2,
+    transform,
+    viewport,
   )
 }
 

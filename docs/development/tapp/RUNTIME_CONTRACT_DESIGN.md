@@ -2,7 +2,7 @@
 
 状态：**当前主路径已实现，多副本与编排闭环已完成**。Runtime Grant、One-shot Data
 Exchange、Server-governed AI Task、Scoped Event Broker 和 Agent Interaction 均已有代码与
-SDK；共享 registry/mailbox、Agent 任务暂停/恢复和 intent 执行 adapter 已接入。当前行为以
+SDK；共享 registry/mailbox、Agent 任务中断后恢复和 intent 执行 adapter 已接入。当前行为以
 [架构文档](ARCHITECTURE.md) 和 [SDK API](API_REFERENCE.md) 为准。
 
 ## 设计目标
@@ -324,19 +324,25 @@ sequenceDiagram
 
 ### 新模型
 
-文本生成、分析、对话和图片生成统一成为服务端任务。Tapp 选择“操作与输入”，服务端选择
+文本生成、分析、对话、图片生成和联网搜索统一成为服务端任务。Tapp 选择“操作与输入”，服务端选择
 供应商、模型、实际参数上限和预算；任何未实现字段都返回校验错误，不再接受后忽略。
+
+当前实现（以 [API_REFERENCE · AI API](API_REFERENCE.md#ai-api) 为准）：`operation` 为
+`generate` \| `analyze` \| `chat` \| `image` \| `search`；`search` 需要授予权限
+`ai:search`。`chat` 的 `input` 是 `{ messages: [{ role, content }] }`。`image` 可带
+`referenceImages`。完成态输出是 `{ format, value, contextProvenance }` 信封。
 
 ```typescript
 interface AITaskRequest {
   version: 2;
-  operation: "generate" | "analyze" | "chat" | "image";
+  operation: "generate" | "analyze" | "chat" | "image" | "search";
   /**
    * operation 决定 shape：
    * - generate: string | { prompt: string }
    * - analyze: { data: unknown; instruction?: string }
-   * - chat: { message: string }（或等价消息字段）
-   * - image: string | { prompt: string; width?: number; height?: number }
+   * - chat: { messages: [{ role: "system"|"user"|"assistant"; content: string }] }
+   * - search: string | { query: string; searchType?; maxResults?; searchPrompt? }
+   * - image: string | { prompt: string; width?: number; height?: number; referenceImages?: string[] }
    *   width/height 为像素，省略默认 1024，服务端 clamp 到 256–2048；
    *   分辨率由调用方决定，无全局配置兜底。
    */

@@ -78,6 +78,41 @@ const NEUTRAL_FRAME: RandomActionFrame = {
 const RELEASE_DURATION = 0.38
 const RESUME_DELAY_MIN = 0.24
 const RESUME_DELAY_MAX = 0.42
+/**
+ * Automation switching back on wants life immediately; being displaced by
+ * something that owns the body does not. Sharing the toggle's delay let a beat
+ * manufacture idle motion rather than merely yield to it: every displacement
+ * short-circuited the ordinary 2.8-7.5s gap, so the layer fired more often
+ * during a conversation than during silence. Still short enough not to read
+ * as a freeze — that is the other failure, and the reason this is not the
+ * full idle gap either.
+ */
+const DISPLACED_RESUME_MIN = 0.9
+const DISPLACED_RESUME_MAX = 1.8
+
+/**
+ * Cue envelope at which the idle layer stops competing for the body.
+ *
+ * Occupancy already thins idle motion while speaking or singing, because
+ * those run alongside a gesture by design. The director's discrete beats have
+ * no such term: they were only ever attenuated, never rescheduled, so a
+ * `shoulderEase` could begin on the frame an `emphasize` landed and the two
+ * wrote the same `body` at once.
+ */
+export const DIRECTED_BODY_BLOCK_LEVEL = 0.15
+
+/**
+ * Handoff between two clips, in seconds of real time.
+ *
+ * This used to be a fraction of the incoming clip's own duration, which made
+ * the window 0.45s after a `softBlink` and 1.29s after a `shoulderEase` — the
+ * length was set by whoever arrived, when what has to be shed is whatever the
+ * outgoing clip left behind.
+ */
+export const HANDOFF_MIN = 0.28
+export const HANDOFF_MAX = 0.62
+/** Largest offset an idle clip authors, so residue reads as a 0-1 share. */
+const HANDOFF_FULL_RESIDUE = 0.45
 
 /**
  * Plays complete, low-frequency idle action clips independently from ambient
@@ -98,6 +133,8 @@ export class RandomActionController {
   private nextActionAt = Number.POSITIVE_INFINITY
   private releaseStartedAt = 0
   private releasing = false
+  private displaced = false
+  private handoffDuration = HANDOFF_MIN
 
   constructor(private readonly random: RandomSource = Math.random) {}
 
@@ -119,6 +156,9 @@ export class RandomActionController {
         this.resolveAction(now)
         this.beginRelease(now)
       }
+      // Being displaced by a live beat is not the same as automation going
+      // away, and the two earn different waits on the way back.
+      if (enabled) this.displaced = true
       this.available = false
       this.nextActionAt = Number.POSITIVE_INFINITY
       return this.resolveRelease(now)
@@ -126,8 +166,10 @@ export class RandomActionController {
 
     if (!this.available) {
       this.available = true
-      this.scheduleResumeAction(now)
+      if (this.displaced) this.scheduleDisplacedAction(now)
+      else this.scheduleResumeAction(now)
     }
+    this.displaced = false
 
     if (this.releasing) this.resolveRelease(now)
     if (this.activeIndex >= 0) {
@@ -164,6 +206,11 @@ export class RandomActionController {
       now + this.randomRange(RESUME_DELAY_MIN, RESUME_DELAY_MAX)
   }
 
+  private scheduleDisplacedAction(now: number): void {
+    this.nextActionAt =
+      now + this.randomRange(DISPLACED_RESUME_MIN, DISPLACED_RESUME_MAX)
+  }
+
   private beginAction(now: number): void {
     this.releasing = false
     this.activeIndex = this.nextActionIndex()
@@ -179,6 +226,7 @@ export class RandomActionController {
     this.actionIntensity = this.randomRange(0.75, 1.25)
     this.nextActionAt = now + this.actionDuration + this.randomRange(2.8, 7.5)
     copyFrame(this.actionFrom, this.output)
+    this.handoffDuration = idleHandoffSeconds(this.actionFrom)
   }
 
   private nextActionIndex(): number {
@@ -249,7 +297,9 @@ export class RandomActionController {
         this.output.ambientScale = 1 - 0.3 * motion
         break
     }
-    this.blendFromPrevious(smootherstep(progress / 0.28))
+    this.blendFromPrevious(
+      smootherstep((now - this.actionStartedAt) / this.handoffDuration),
+    )
     return this.output
   }
 
@@ -299,6 +349,19 @@ export class RandomActionController {
     const value = this.random()
     return Number.isFinite(value) ? clamp(value, 0, 1) : 0.5
   }
+}
+
+/** A larger leftover pose needs longer to shed; a faint one is gone at once. */
+export function idleHandoffSeconds(
+  residue: Readonly<RandomActionFrame>,
+): number {
+  let peak = 0
+  for (const key of ACTION_OFFSET_KEYS) {
+    const amount = Math.abs(finiteOrZero(residue[key]))
+    if (amount > peak) peak = amount
+  }
+  const share = clamp(peak / HANDOFF_FULL_RESIDUE, 0, 1)
+  return mix(HANDOFF_MIN, HANDOFF_MAX, share)
 }
 
 function actionWeight(action: ActionDefinition): number {

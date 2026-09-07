@@ -169,8 +169,9 @@ fn get_memory_info() -> Value {
     }
 }
 
-/// Validate a candidate commit SHA (for unit tests and callers).
-pub fn is_valid_commit_sha(sha: &str) -> bool {
+/// Validate a candidate commit SHA (unit tests).
+#[cfg(test)]
+fn is_valid_commit_sha(sha: &str) -> bool {
     let sha = sha.trim();
     sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit())
 }

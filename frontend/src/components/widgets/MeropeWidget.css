@@ -70,8 +70,12 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 1;
+  opacity: 0;
   pointer-events: auto;
+}
+
+.merope-widget__rig .merope-rig.is-ready canvas {
+  opacity: 1;
 }
 
 .merope-widget__rig--idle:has(.merope-rig[data-rig-quality='static']) {
@@ -84,6 +88,33 @@
 
 .merope-widget__rig--talking:has(.merope-rig[data-rig-quality='static']) {
   animation: merope-widget-talk 0.58s ease-in-out infinite alternate;
+}
+
+.merope-widget__rig--idle:has(
+    .face-presence:is(
+      [data-phase='enter'],
+      [data-phase='exit'],
+      [data-phase='pending'],
+      [data-phase='rest']
+    )
+  ),
+.merope-widget__rig--thinking:has(
+    .face-presence:is(
+      [data-phase='enter'],
+      [data-phase='exit'],
+      [data-phase='pending'],
+      [data-phase='rest']
+    )
+  ),
+.merope-widget__rig--talking:has(
+    .face-presence:is(
+      [data-phase='enter'],
+      [data-phase='exit'],
+      [data-phase='pending'],
+      [data-phase='rest']
+    )
+  ) {
+  animation: none;
 }
 
 /*
@@ -110,6 +141,26 @@
   pointer-events: none;
 }
 
+.merope-widget:has(.face-presence) .merope-widget__identity {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.merope-widget:has(.face-presence[data-phase='enter']) .merope-widget__identity {
+  opacity: 1;
+  transition-delay: 160ms;
+}
+
+.merope-widget:has(.face-presence[data-phase='shown']) .merope-widget__identity {
+  opacity: 1;
+}
+
+.merope-widget:has(.face-presence[data-phase='exit']) .merope-widget__identity {
+  opacity: 0;
+  transition-duration: 160ms;
+  transition-delay: 0s;
+}
+
 .merope-widget__identity strong {
   min-width: 0;
   overflow: hidden;
@@ -120,24 +171,24 @@
   white-space: nowrap;
 }
 
-/* 心情：档位词 + 4 格电平，电平贴基线立在词后面。
-   格数 = 档位（很低/偏低/平常/轻松），词说清是什么，格子一眼看出高低。 */
+/* 心情：档位词退到铭牌次要位，4 格电平承担高低。
+   格数 = 档位（很低/偏低/平常/轻松）；词只点明档位，不跟名字抢视觉。 */
 .merope-widget__mood {
   flex: 0 1 auto;
   display: flex;
   gap: 5px;
   align-items: baseline;
   min-width: 0;
-  color: var(--text-secondary, #74788d);
-  font-size: clamp(9px, 0.75vw, 10.5px);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  color: var(--text-muted, #9ca3af);
   line-height: 1.2;
 }
 
-.merope-widget__mood > span {
+.merope-widget__mood-text {
   min-width: 0;
   overflow: hidden;
+  font-size: clamp(9px, 0.7vw, 10px);
+  font-weight: 400;
+  letter-spacing: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -228,5 +279,17 @@
 @media (prefers-reduced-motion: reduce) {
   .merope-widget__rig {
     animation: none !important;
+  }
+
+  .merope-widget:has(.face-presence) .merope-widget__identity {
+    transition: none;
+  }
+
+  .merope-widget:has(
+      .face-presence:is([data-phase='enter'], [data-phase='shown'])
+    )
+    .merope-widget__identity {
+    opacity: 1;
+    transition-delay: 0s;
   }
 }

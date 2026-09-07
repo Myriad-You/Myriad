@@ -387,6 +387,25 @@ html.dark #bg-container.wallpaper-awaiting #wallpaper-awaiting-fx::after {
     inset 0 1px 0 rgb(255 255 255 / 28%),
     inset 0 -1px 0 rgb(0 0 0 / 4%),
     0 8px 28px 0 rgb(31 38 135 / 10%);
+
+  /* Chrome 流体令牌（导航岛 / 控制面板）：默认玻璃也吃。
+     透明度 / 投影对齐设置页 frost + subtle，不加 blur / 噪点 / 滤镜。 */
+  --chrome-sheen: var(--surface-sheen);
+  --chrome-shine: inset 0 1px 0 rgb(255 255 255 / 52%);
+  --chrome-hairline: inset 0 -1px 0 rgb(0 0 0 / 5%);
+  --chrome-fill: rgb(255 255 255 / 78%);
+  --chrome-fill-hover: rgb(255 255 255 / 86%);
+  --chrome-elevated: rgb(255 255 255 / 92%);
+  --chrome-stroke: rgb(255 255 255 / 50%);
+  --chrome-shadow:
+    0 10px 40px -10px rgb(0 0 0 / 8%), 0 4px 12px -4px rgb(0 0 0 / 5%);
+  --chrome-shadow-raised:
+    0 14px 48px -12px rgb(0 0 0 / 12%), 0 6px 16px -6px rgb(0 0 0 / 8%);
+  --chrome-inner: rgb(255 255 255 / 42%);
+  --chrome-inner-hover: rgb(255 255 255 / 58%);
+  --chrome-inner-stroke: rgb(229 231 235 / 55%);
+  --chrome-inner-stroke-hover: rgb(229 231 235 / 75%);
+  --chrome-chip-shadow: 0 1px 2px rgb(0 0 0 / 3%);
 }
 
 html.dark {
@@ -403,6 +422,22 @@ html.dark {
     inset 0 1px 0 rgb(255 255 255 / 6%),
     inset 0 -1px 0 rgb(0 0 0 / 18%),
     0 8px 28px 0 rgb(0 0 0 / 45%);
+
+  --chrome-shine: inset 0 1px 0 rgb(255 255 255 / 10%);
+  --chrome-hairline: inset 0 -1px 0 rgb(0 0 0 / 28%);
+  --chrome-fill: rgb(16 16 16 / 70%);
+  --chrome-fill-hover: rgb(16 16 16 / 80%);
+  --chrome-elevated: rgb(255 255 255 / 12%);
+  --chrome-stroke: rgb(255 255 255 / 12%);
+  --chrome-shadow:
+    0 10px 40px -10px rgb(0 0 0 / 55%), 0 4px 12px -4px rgb(0 0 0 / 40%);
+  --chrome-shadow-raised:
+    0 14px 48px -12px rgb(0 0 0 / 65%), 0 6px 16px -6px rgb(0 0 0 / 48%);
+  --chrome-inner: rgb(255 255 255 / 5%);
+  --chrome-inner-hover: rgb(255 255 255 / 8.5%);
+  --chrome-inner-stroke: rgb(255 255 255 / 10%);
+  --chrome-inner-stroke-hover: rgb(255 255 255 / 16%);
+  --chrome-chip-shadow: 0 1px 2px rgb(0 0 0 / 18%);
 }
 
 /* 表面模式只调「透明度 + 滤镜（+ 边框/阴影）」，基色与各组件 alpha 保持解耦 */
@@ -680,14 +715,12 @@ html.dark[data-surface='liquid']
 /* 高不透明 chrome（84% tint，见下方覆盖）底下折射几乎不可见，
    纯付位移/合成成本 —— 退回普通磨砂链 */
 html.surface-lens[data-surface='liquid'] .control-bar-trigger,
-html.surface-lens[data-surface='liquid'] .surface-dialog,
-html.surface-lens[data-surface='liquid'] .agent-panel-overlay {
+html.surface-lens[data-surface='liquid'] .surface-dialog {
   --surface-filter: blur(10px) saturate(200%) brightness(1.06);
 }
 
 html.dark.surface-lens[data-surface='liquid'] .control-bar-trigger,
-html.dark.surface-lens[data-surface='liquid'] .surface-dialog,
-html.dark.surface-lens[data-surface='liquid'] .agent-panel-overlay {
+html.dark.surface-lens[data-surface='liquid'] .surface-dialog {
   --surface-filter: blur(10px) saturate(150%) brightness(0.88);
 }
 
@@ -751,11 +784,22 @@ html.dark .glass:where(:not(.glass-elev-free)) {
    在「声明处」（根）即被替换烘焙后才继承，元素级只改 --surface-tint
    动不了已烘焙的 --surface-bg（此前仅覆盖 tint 的写法即因此失效） */
 :root[data-surface='liquid'] .control-bar-trigger,
-:root[data-surface='liquid'] .surface-dialog,
-:root[data-surface='liquid'] .agent-panel-overlay {
+:root[data-surface='liquid'] .surface-dialog {
   --surface-tint: color-mix(
     in srgb,
     rgb(var(--surface-rgb) / 80%),
+    var(--color-primary) 4%
+  );
+  --surface-bg:
+    var(--surface-noise) repeat, var(--surface-sheen), var(--surface-streak),
+    var(--surface-bounce), var(--surface-tint);
+}
+
+:root[data-surface='liquid'] .agent-panel-overlay-anchor {
+  --surface-filter: none;
+  --surface-tint: color-mix(
+    in srgb,
+    rgb(var(--surface-rgb) / 94%),
     var(--color-primary) 4%
   );
   --surface-bg:
@@ -767,7 +811,7 @@ html.dark .glass:where(:not(.glass-elev-free)) {
    钉回原烟熏基色。对话框另见：全屏黑 scrim 上叠 near-black glass 会双倍压暗 */
 html.dark[data-surface='liquid'] .control-bar-trigger,
 html.dark[data-surface='liquid'] .surface-dialog,
-html.dark[data-surface='liquid'] .agent-panel-overlay {
+html.dark[data-surface='liquid'] .agent-panel-overlay-anchor {
   --surface-rgb: 26 26 26;
 }
 

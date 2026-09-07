@@ -3,6 +3,36 @@
 use serde_json::Value;
 
 /// Extract a JSON array from free-form AI text (raw, markdown fences).
+/// 从模型回复里取出一个 JSON 对象：优先 ```json 围栏，其次整段本身是对象，
+/// 最后退到第一个 `{` 到最后一个 `}` 的跨度。
+///
+/// **围栏必须闭合才算围栏。** 之前的实现在只有开围栏、没有闭围栏时会算出一个
+/// 反向区间并 panic——模型输出被 max_tokens 截断就会走到那条路。现在这种情况
+/// 直接落到花括号兜底。
+pub fn extract_json_object_from_ai_response(response: &str) -> Option<String> {
+    const FENCE: &str = "```json";
+    if let Some(start) = response.find(FENCE) {
+        let rest = &response[start + FENCE.len()..];
+        // 开围栏之后的第一个 ``` 就是闭围栏。找不到就是被截断了，不当围栏处理。
+        if let Some(end) = rest.find("```") {
+            let fenced = rest[..end].trim();
+            if !fenced.is_empty() {
+                return Some(fenced.to_string());
+            }
+        }
+    }
+
+    let trimmed = response.trim();
+    if trimmed.starts_with('{') {
+        return Some(trimmed.to_string());
+    }
+
+    match (response.find('{'), response.rfind('}')) {
+        (Some(start), Some(end)) if end > start => Some(response[start..=end].to_string()),
+        _ => None,
+    }
+}
+
 pub fn extract_json_array_from_ai_response(text: &str) -> Vec<Value> {
     let json_start = text.find('[');
     let json_end = text.rfind(']');
@@ -260,5 +290,33 @@ mod radar_tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+}
+
+#[cfg(test)]
+mod json_object_tests {
+    use super::extract_json_object_from_ai_response as extract;
+
+    #[test]
+    fn reads_a_fenced_object() {
+        assert_eq!(
+            extract("好的，计划如下：\n```json\n{\"a\":1}\n```").as_deref(),
+            Some("{\"a\":1}")
+        );
+    }
+
+    /// 回归：只有开围栏没有闭围栏（被 max_tokens 截断）曾经 panic。
+    #[test]
+    fn an_unclosed_fence_falls_back_instead_of_panicking() {
+        assert_eq!(extract("```json\n{\"a\":1}").as_deref(), Some("{\"a\":1}"));
+        assert_eq!(extract("```json\n没写完").as_deref(), None);
+        assert_eq!(extract("```json").as_deref(), None);
+    }
+
+    #[test]
+    fn falls_back_to_the_brace_span_and_gives_up_cleanly() {
+        assert_eq!(extract("前言 {\"a\":1} 后记").as_deref(), Some("{\"a\":1}"));
+        assert_eq!(extract("完全没有对象").as_deref(), None);
+        assert_eq!(extract("} 顺序反了 {").as_deref(), None);
     }
 }

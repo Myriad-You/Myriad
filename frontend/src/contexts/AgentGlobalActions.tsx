@@ -255,6 +255,19 @@ export function AgentGlobalActions() {
   const location = useLocation()
   const musicPlayer = useMusicPlayerControl()
   const isNavigatingRef = useRef(false)
+  const playAudioRef = useRef<{ audio: HTMLAudioElement; url: string } | null>(
+    null,
+  )
+
+  const releasePlayAudio = useCallback(() => {
+    const current = playAudioRef.current
+    if (!current) return
+    playAudioRef.current = null
+    current.audio.pause()
+    current.audio.removeAttribute('src')
+    current.audio.load()
+    URL.revokeObjectURL(current.url)
+  }, [])
 
   // 路由导航处理器
   const handleNavigate = useCallback(
@@ -750,11 +763,16 @@ export function AgentGlobalActions() {
       const mime =
         codec === 'wav' || codec === 'pcm' ? 'audio/wav' : 'audio/mpeg'
       const { base64ToAudioUrl } = await import('../services/speechApi')
+      releasePlayAudio()
       const url = base64ToAudioUrl(audioBase64, mime)
       const audio = new Audio(url)
-      const release = () => URL.revokeObjectURL(url)
-      audio.addEventListener('ended', release)
-      audio.addEventListener('error', release)
+      playAudioRef.current = { audio, url }
+      const release = () => {
+        if (playAudioRef.current?.url !== url) return
+        releasePlayAudio()
+      }
+      audio.addEventListener('ended', release, { once: true })
+      audio.addEventListener('error', release, { once: true })
       try {
         await audio.play()
       } catch (error) {
@@ -764,7 +782,7 @@ export function AgentGlobalActions() {
       }
       return true
     },
-    [],
+    [releasePlayAudio],
   )
 
   const handleShowData = useCallback(
@@ -875,6 +893,7 @@ export function AgentGlobalActions() {
 
     return () => {
       console.log('[AgentGlobalActions] Unregistering global action handlers')
+      releasePlayAudio()
       unregisterActionHandler('navigate')
       unregisterActionHandler('page_interact')
       unregisterActionHandler('brew_open_article')
@@ -903,6 +922,7 @@ export function AgentGlobalActions() {
     handleShowData,
     handleDownloadFile,
     handleShowReport,
+    releasePlayAudio,
   ])
 
   // 这个组件不渲染任何 UI

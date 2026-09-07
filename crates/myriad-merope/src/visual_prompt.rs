@@ -1,7 +1,9 @@
 use serde_json::Value;
 
 use crate::rig_contract::{PORTRAIT_ASPECT_HEIGHT, PORTRAIT_ASPECT_WIDTH};
-use crate::visual_design::UPPER_BODY_VISUAL_IDENTITY_FIELDS;
+use crate::visual_design::{
+    VisualProfileIssue, VisualProfileReason, UPPER_BODY_VISUAL_IDENTITY_FIELDS,
+};
 
 const MAX_CHARACTER_VISUAL_PROMPT_CHARS: usize = 12_000;
 
@@ -12,7 +14,7 @@ pub const MEROPE_VISUAL_SCHOOL_VERSION: &str = "mihoyo-rpg-reference-v4";
 pub const MEROPE_STYLE_REFERENCE_SHA256: &str =
     "fbeb294a1ec260274d7c562adf746c17bd349847f4fe3ece0b2f3f300106eb67";
 
-const MASTER_PORTRAIT_INSTRUCTION: &str = "One polished upper-body portrait on a vertical 3:4 canvas. Use a strict centered eye-level frontal reference view with zero head yaw, roll, and pitch: the face plane and torso are square to the camera; nose bridge, philtrum, chin, neck, and sternum share one vertical centerline; both eyes sit level at equal perspective scale; both cheeks have balanced frontal projection; and the anatomical shoulders are level with equal foreshortening. Preserve confirmed asymmetric lid acting as eye expression, while hairstyle, costume, and accessory asymmetry remain decorative around the square frontal anatomy. Preserve the confirmed apparent maturity, gaze direction, lid acting, stable brow design and tension, pupil focus, catchlights, and default mouth. Fill the canvas with a large readable head and shoulders almost the full width. Keep the complete head and hair silhouette inside the frame with a slim near-white top gutter and equal one-sixteenth-width side clearance. The neck from jaw to collarbone stays fully visible and unobstructed by fabric. Crop through lower chest or high waist with both sleeves, cuffs, or short arm fragments visible; hands are optional. Use a seamless near-white studio backdrop and an opaque finished illustration.";
+const MASTER_PORTRAIT_INSTRUCTION: &str = "One polished upper-body portrait on a vertical 3:4 canvas. Use a strict centered eye-level frontal reference view with zero head yaw, roll, and pitch: the face plane and torso are square to the camera; nose bridge, philtrum, chin, neck, and sternum share one vertical centerline; both eyes sit level at equal perspective scale; both cheeks have balanced frontal projection; and the anatomical shoulders are level with equal foreshortening. Preserve confirmed asymmetric lid acting as eye expression, while hairstyle, costume, and accessory asymmetry remain decorative around the square frontal anatomy. Preserve the confirmed apparent maturity, gaze direction, lid acting, stable brow design and tension, pupil focus, catchlights, and default mouth. Fill the canvas with a large readable head and shoulders almost the full width. Keep the complete head and hair silhouette inside the frame with a slim near-white top gutter and equal one-sixteenth-width side clearance. The neck from jaw to collarbone stays fully visible and unobstructed by fabric. Place the anatomical shoulder line in the lower third of the canvas so the band from shoulder to the bottom edge is only lower chest—a short crop, not a long torso. Do not pull the camera back, shrink the head, or drop the crop to waist, midriff, belt, or skirt to show more costume. Crop through lower chest with both sleeves, cuffs, or short arm fragments visible; hands are optional. Use a seamless near-white studio backdrop and an opaque finished illustration.";
 
 /// Shared character-construction and rendering lock for design sheets and image prompts.
 /// Identity fields still own the actual hair, costume family, palette, and ornaments.
@@ -949,7 +951,7 @@ pub fn build_character_visual_prompt(
 pub fn build_character_visual_edit_prompt(notes: &str) -> String {
     let notes = neutralize_style_overrides(&bounded_text(notes, 2_000));
     format!(
-        "Edit this existing upper-body master portrait with the source image as the immutable identity anchor. Preserve the same person, apparent maturity, gender presentation, face and eye geometry, hair identity, costume, palette, materials, ornaments, strict frontal viewing angle, and locked 2D anime-game finish. Apply the exact bounded lighting, small expression, or tighter frame-occupancy adjustment requested below while preserving every other identity and design feature. Maintain the 3:4 fill, near-white studio backdrop, complete head and hair silhouette, both visible sleeve or arm fragments, equal one-sixteenth-width side clearance, and lower-chest or high-waist crop. Apply these adjustments: {notes}."
+        "Edit this existing upper-body master portrait with the source image as the immutable identity anchor. Preserve the same person, apparent maturity, gender presentation, face and eye geometry, hair identity, costume, palette, materials, ornaments, strict frontal viewing angle, and locked 2D anime-game finish. Apply the exact bounded lighting, small expression, or tighter frame-occupancy adjustment requested below while preserving every other identity and design feature. Maintain the 3:4 fill, near-white studio backdrop, complete head and hair silhouette, both visible sleeve or arm fragments, equal one-sixteenth-width side clearance, and lower-chest crop. Apply these adjustments: {notes}."
     )
 }
 
@@ -1106,7 +1108,13 @@ fn ascii_phrase_matches(text: &str, phrase: &str) -> bool {
 /// Generated designs already satisfy these locks; this also repairs legacy or
 /// manually edited fields before they can reintroduce an obsolete art direction.
 pub fn normalize_visual_identity_for_prompt(value: &Value) -> Option<Value> {
-    let mut identity = crate::visual_design::sanitize_upper_body_visual_identity(value)?;
+    normalize_visual_identity_for_prompt_checked(value).ok()
+}
+
+pub fn normalize_visual_identity_for_prompt_checked(
+    value: &Value,
+) -> Result<Value, VisualProfileIssue> {
+    let mut identity = crate::visual_design::sanitize_upper_body_visual_identity_checked(value)?;
     for (module, fields) in [
         (
             "character",
@@ -1117,9 +1125,16 @@ pub fn normalize_visual_identity_for_prompt(value: &Value) -> Option<Value> {
             crate::visual_design::OUTFIT_VISUAL_FIELDS.as_slice(),
         ),
     ] {
-        let target = identity.get_mut(module)?.as_object_mut()?;
+        let target = identity
+            .get_mut(module)
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| VisualProfileIssue::new(module, VisualProfileReason::NotObject))?;
         for (key, _) in fields {
-            let raw = target.get(*key)?.as_str()?;
+            let field = format!("{module}.{key}");
+            let raw = target
+                .get(*key)
+                .and_then(Value::as_str)
+                .ok_or_else(|| VisualProfileIssue::new(&field, VisualProfileReason::Empty))?;
             let normalized = if matches!(*key, "faceDesign" | "eyeDesign") {
                 normalize_identity_field(&normalize_facial_identity_cue(raw))
             } else if *key == "upperBodySilhouette" {
@@ -1135,12 +1150,15 @@ pub fn normalize_visual_identity_for_prompt(value: &Value) -> Option<Value> {
                 normalize_identity_field(raw)
             };
             if normalized.is_empty() {
-                return None;
+                return Err(VisualProfileIssue::new(
+                    field,
+                    VisualProfileReason::NeutralizedEmpty,
+                ));
             }
             target.insert((*key).to_string(), Value::String(normalized));
         }
     }
-    Some(identity)
+    Ok(identity)
 }
 
 fn normalize_identity_field(text: &str) -> String {
@@ -1204,6 +1222,44 @@ pub fn visual_identity_matches_gender_presentation(value: &Value, gender: &str) 
                 && !phrase_list_matches(&relevant, ANDROGYNOUS_GENDER_CONFLICTS)
         }
         _ => false,
+    }
+}
+
+/// Observed portraits often omit the explicit gender-read words that generation
+/// requires. Prefix `faceDesign` when the rest of the identity does not already
+/// state the owner's chosen presentation.
+pub fn ensure_visual_identity_states_gender(
+    value: &Value,
+    gender: &str,
+    language: &str,
+) -> Option<Value> {
+    let mut identity = crate::visual_design::sanitize_upper_body_visual_identity(value)?;
+    if visual_identity_matches_gender_presentation(&identity, gender) {
+        return Some(identity);
+    }
+    let face = visual_identity_field(&identity, "faceDesign")?.to_string();
+    let prefix = gender_face_prefix(gender, language);
+    if face.starts_with(prefix) {
+        return Some(identity);
+    }
+    identity.get_mut("character")?.as_object_mut()?.insert(
+        "faceDesign".into(),
+        Value::String(format!("{prefix}{face}")),
+    );
+    Some(identity)
+}
+
+fn gender_face_prefix(gender: &str, language: &str) -> &'static str {
+    match (gender, language) {
+        ("female", "en-US") => "feminine young-adult read. ",
+        ("female", "ja-JP") => "女性的。",
+        ("female", _) => "女性化。",
+        ("male", "en-US") => "masculine young-adult read. ",
+        ("male", "ja-JP") => "男性的。",
+        ("male", _) => "男性化。",
+        (_, "en-US") => "androgynous read. ",
+        (_, "ja-JP") => "中性的。",
+        _ => "中性。",
     }
 }
 
@@ -1508,6 +1564,8 @@ mod tests {
             "near-white studio backdrop",
             "slim near-white top gutter",
             "one-sixteenth-width side clearance",
+            "lower third of the canvas",
+            "short crop, not a long torso",
             "Fill the canvas",
             "strict centered eye-level frontal reference view",
             "zero head yaw",
@@ -1699,6 +1757,38 @@ mod tests {
                 "likes": ["夜里听雨", "把桌面重新排好"]
             }
         })));
+    }
+
+    #[test]
+    fn observed_faces_without_a_gender_read_can_be_stamped() {
+        let identity = json!({
+            "character": {
+                "faceDesign": "柔和的鹅蛋脸，鼻唇简洁，面部比例成熟而非幼态",
+                "eyeDesign": "紫蓝宝石感大眼，深色上睫与多层虹膜高光",
+                "hairShape": "粉色齐颌短发，空气刘海，侧发包住脸颊",
+                "hairLayerPlan": "后发形成完整轮廓，前刘海、左右侧发和顶部呆毛可分层"
+            },
+            "outfit": {
+                "upperBodySilhouette": "窄肩与清晰领口，胸像轮廓紧凑，左右袖片伸入画面",
+                "outfitConstruction": "水手领内搭叠短外套，领巾形成胸前主形，结构止于高腰",
+                "sleeveArmDesign": "宽松袖口包住局部前臂，左右形状不完全对称，手可以不出现",
+                "materialPlan": "哑光布料为主，丝带带柔和光泽，金属与宝石只用于小面积焦点",
+                "heroAccessory": "左侧星形发夹与胸前星形扣形成一次呼应",
+                "paletteHint": "粉色头发，淡紫与白为主体，深紫压边，少量金色点缀",
+                "motif": "星轨与小型鸟笼，集中在发饰和胸前，不铺满服装"
+            }
+        });
+        assert!(!visual_identity_matches_gender_presentation(
+            &identity, "female"
+        ));
+        let stamped = ensure_visual_identity_states_gender(&identity, "female", "zh-CN").unwrap();
+        assert!(visual_identity_matches_gender_presentation(
+            &stamped, "female"
+        ));
+        assert!(stamped["character"]["faceDesign"]
+            .as_str()
+            .unwrap()
+            .starts_with("女性化。"));
     }
 
     #[test]

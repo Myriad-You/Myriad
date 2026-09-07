@@ -3,11 +3,24 @@
 use crate::config::ModelTier;
 use crate::services::agent::capability::get_registry;
 use crate::services::agent::types::*;
+use myriad_agent_rules::{extract_json_array_from_ai_response, untrusted_block};
 use serde_json::Value;
 use std::collections::HashMap;
 
 use super::summarize_output;
 use super::Executor;
+
+fn walk_dot_path(root: &Value, parts: &[&str]) -> Option<Value> {
+    let mut current = root.clone();
+    for part in parts {
+        current = if let Ok(idx) = part.parse::<usize>() {
+            current.as_array().and_then(|arr| arr.get(idx).cloned())?
+        } else {
+            current.get(*part).cloned()?
+        };
+    }
+    Some(current)
+}
 
 impl Executor {
     /// 解析 dot-path 从步骤输出中取值
@@ -38,19 +51,13 @@ impl Executor {
             (current_output, 0)
         };
 
-        // 逐层取值
-        let mut current = root.clone();
-        for part in &parts[field_start..] {
-            current = if let Ok(idx) = part.parse::<usize>() {
-                current
-                    .as_array()
-                    .and_then(|arr| arr.get(idx).cloned())
-                    .unwrap_or(Value::Null)
-            } else {
-                current.get(part).cloned().unwrap_or(Value::Null)
-            };
-        }
-        current
+        walk_dot_path(root, &parts[field_start..]).unwrap_or_else(|| {
+            walk_dot_path(
+                crate::services::agent::ai_process_pure::task_inner_value(root),
+                &parts[field_start..],
+            )
+            .unwrap_or(Value::Null)
+        })
     }
 
     /// 判断 JSON 值的真值
@@ -96,15 +103,19 @@ impl Executor {
         };
 
         // 构建上下文摘要（按 step id 排序，保证 AI 每次看到一致的上下文顺序）
+        // 这些输出里有 ai.webSearch / web.scrape / brew.article 抓回来的正文，
+        // 是别人能写的内容；而这个提示词的产物是**要被执行的步骤**。所以必须
+        // 划边界，否则正文里一句「忽略以上」就直通执行层。
         let outputs_summary: String = {
             let mut pairs: Vec<_> = context.step_outputs.iter().collect();
             pairs.sort_by_key(|(id, _)| *id);
-            pairs
+            let body = pairs
                 .iter()
                 .take(5)
                 .map(|(id, val)| format!("- {}: {}", id, summarize_output(val).unwrap_or_default()))
                 .collect::<Vec<_>>()
-                .join("\n")
+                .join("\n");
+            untrusted_block("step_output", &body)
         };
 
         let prompt = format!(
@@ -141,70 +152,58 @@ impl Executor {
         let result = analyzer.analyze(&prompt).await;
         match result {
             Ok(response) => {
-                let text = response.trim();
-                // 提取 JSON 数组
-                let json_str = if let Some(start) = text.find('[') {
-                    if let Some(end) = text.rfind(']') {
-                        &text[start..=end]
-                    } else {
-                        text
-                    }
-                } else {
-                    text
-                };
-
-                match serde_json::from_str::<Vec<Value>>(json_str) {
-                    Ok(items) => items
-                        .into_iter()
-                        .take(3)
-                        .enumerate()
-                        .filter_map(|(i, item)| {
-                            let id = item
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let cap_id = item
-                                .get("capability_id")
-                                .and_then(|v| v.as_str())?
-                                .to_string();
-                            let action = item
-                                .get("action")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("process")
-                                .to_string();
-                            let params: HashMap<String, Value> = item
-                                .get("params")
-                                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                                .unwrap_or_default();
-
-                            Some(RecipeStep {
-                                id: if id.is_empty() {
-                                    format!("{}_ai_{}", parent_step.id, i)
-                                } else {
-                                    id
-                                },
-                                order: parent_step.order + 1 + i as u32,
-                                capability_id: cap_id,
-                                action,
-                                params,
-                                depends_on: vec![parent_step.id.clone()],
-                                on_failure: FailureStrategy::Skip,
-                                retry: None,
-                                timeout_ms: Some(30_000),
-                                model_tier: None,
-                                generator: None,
-                            })
-                        })
-                        .collect(),
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            "[Generator] Failed to parse AI-generated steps"
-                        );
-                        vec![]
-                    }
+                // 数组提取走共享实现：它带区间校验，也认 ```json 围栏；
+                // 解析不出来时返回空数组，等价于「这一轮不追加步骤」。
+                let items = extract_json_array_from_ai_response(response.trim());
+                if items.is_empty() {
+                    tracing::warn!(
+                        response_preview = %response.chars().take(200).collect::<String>(),
+                        "[Generator] AI-generated steps were unparseable or empty"
+                    );
                 }
+                items
+                    .into_iter()
+                    .take(3)
+                    .enumerate()
+                    .filter_map(|(i, item)| {
+                        let id = item
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let cap_id = item
+                            .get("capability_id")
+                            .and_then(|v| v.as_str())?
+                            .to_string();
+                        let action = item
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("process")
+                            .to_string();
+                        let params: HashMap<String, Value> = item
+                            .get("params")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok())
+                            .unwrap_or_default();
+
+                        Some(RecipeStep {
+                            id: if id.is_empty() {
+                                format!("{}_ai_{}", parent_step.id, i)
+                            } else {
+                                id
+                            },
+                            order: parent_step.order + 1 + i as u32,
+                            capability_id: cap_id,
+                            action,
+                            params,
+                            depends_on: vec![parent_step.id.clone()],
+                            on_failure: FailureStrategy::Skip,
+                            retry: None,
+                            timeout_ms: Some(300_000),
+                            model_tier: None,
+                            generator: None,
+                        })
+                    })
+                    .collect()
             }
             Err(e) => {
                 tracing::warn!(error = %e, "[Generator] AI call failed");

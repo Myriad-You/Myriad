@@ -116,15 +116,17 @@ export function AgentPresence({
   open,
   kind = 'row',
   from = 'composer',
+  durationMs = AGENT_ROW_MS,
   children,
 }: {
   open: boolean
   kind?: AgentPresenceKind
   from?: AgentPresenceFrom
+  durationMs?: number
   children: ReactNode
 }) {
   const items = open ? [{ id: 'on' as const, children }] : []
-  const entries = useKeyedPresence(items, (item) => item.id, AGENT_ROW_MS)
+  const entries = useKeyedPresence(items, (item) => item.id, durationMs)
   if (entries.length === 0) return null
   return (
     <>

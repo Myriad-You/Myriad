@@ -22,11 +22,11 @@ import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { agentFace } from '../features/merope/agentFaceChannel'
 import {
-  deliverWorkNotificationFace,
+  deliverProactiveFace,
   faceSpeechGate,
-  notificationCarriesMeropeSpeech,
 } from '../features/merope/faceSpeechArbitration'
 import { setForegroundSurface } from '../features/merope/perception/surface'
+import { resetMeropeState } from '../features/merope/performanceEvents'
 import { batchRead, batchWrite, observeResize } from '../hooks/animation'
 import {
   isReducedAnimation,
@@ -37,12 +37,24 @@ import { useNotificationCenter } from '../hooks/useNotificationCenter'
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { useWallpaper } from '../hooks/useWallpaper'
+import {
+  getTourSnapshot,
+  subscribeTour,
+} from './tour/tourEngine'
+import { homeBrowseTourPanelPose } from './tour/tourLogic'
 import { getDynamicContentProvider } from '../services/DynamicContentProvider'
+import {
+  allowsIslandType,
+  DEFAULT_ISLAND_CONTENT,
+  ISLAND_CONTENT_CHANGED_EVENT,
+  islandContentFromPublicUi,
+} from '../utils/islandContent'
+import { CONTROL_PANEL_HEIGHT_COMPENSATION } from '../utils/libraryDockStage'
 import {
   notificationSourceFor,
   notificationToastType,
-  shouldDeliverNotification,
   shouldEmitNotificationToast,
+  shouldSurfaceNotification,
 } from '../services/notificationDelivery'
 import {
   getGreeting,
@@ -60,10 +72,15 @@ import {
   notificationFacingBody,
   notificationFacingTitle,
 } from '../utils/notificationFacing'
+import { getUIConfigDeduped } from '../utils/requestDedup'
 import { loadResource } from '../utils/resourceLoader'
 import { useThemeMode } from '../utils/themeSubscriber'
 import { showToast } from '../utils/toastManager'
-import { getAgentPanelVisible } from './agent-panel/agentPanelVisible'
+import {
+  isLookingAtAgentPanel,
+  subscribeLookingAtAgentPanel,
+} from './agent-panel/agentPanelVisible'
+import { ADDRESSEE_UPDATED_EVENT } from './agent/meropeVitals'
 import {
   initialPanelState,
   isPanelMorphing,
@@ -74,7 +91,6 @@ import {
   settleTimeoutMs,
   showsDynamicContent,
   showsOverlay,
-  showsOverlayBlur,
   showsPanelContent,
   showsProgressUi,
 } from './ControlPanel/panelTransition'
@@ -87,6 +103,11 @@ import {
 } from './notifications/NotificationIcons'
 import { WeatherAssetIcon } from './weather/WeatherAssetIcon'
 import './GlobalControlPanel.css'
+
+function readHomeBrowseTourPanelPose() {
+  const snapshot = getTourSnapshot()
+  return homeBrowseTourPanelPose(snapshot.tourId, snapshot.step?.id ?? null)
+}
 
 // 懒加载展开面板子组件 — 仅在用户展开面板时加载
 const ControlPanelWidgets = lazy(() =>
@@ -173,11 +194,17 @@ interface DynamicContent {
 const GlobalControlPanel: React.FC = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
+  useLayoutEffect(() => { resetMeropeState() }, [user?.id])
   const { locale, setLocale, t } = useI18n()
   const navLayout = useSyncExternalStore(
     subscribeNavLayout,
     getNavLayoutSnapshot,
     getServerNavLayoutSnapshot,
+  )
+  const lookingAtAgent = useSyncExternalStore(
+    subscribeLookingAtAgentPanel,
+    isLookingAtAgentPanel,
+    () => false,
   )
   // Mobile / touch-tablet: skip control-panel widget grid (weather/quote etc.)
   // to save vertical space and memory; music player + settings remain.
@@ -186,7 +213,7 @@ const GlobalControlPanel: React.FC = () => {
     user?.id,
   )
   // 展开/收起的唯一状态所有者（issue #320）。
-  // 遮罩、收缩内容、展开内容、进度 UI、动画类名全部从 phase 派生，
+  // 收缩内容、展开内容、进度 UI、动画类名全部从 phase 派生，
   // 不再由若干独立 boolean + 固定 setTimeout 各自维护。
   const [panel, dispatchPanel] = useReducer(panelReducer, initialPanelState)
   const isExpanded = isPanelOpen(panel)
@@ -223,6 +250,7 @@ const GlobalControlPanel: React.FC = () => {
   const [isTransitioning, setIsTransitioning] = useState(false)
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null)
   const [quoteData, setQuoteData] = useState<QuoteData | null>(null)
+  const [islandContent, setIslandContent] = useState(DEFAULT_ISLAND_CONTENT)
 
   // 安全的动态内容更新函数 - 页面隐藏时暂存更新
   const safeSetDynamicContents = useCallback(
@@ -278,20 +306,6 @@ const GlobalControlPanel: React.FC = () => {
   /** 新通知到达：按统一投递策略分发到面板之外的展示位置。 */
   const handleNewNotification = useCallback(
     (n: AppNotification) => {
-      const metadata = n.metadata
-      if (
-        notificationCarriesMeropeSpeech(metadata) &&
-        (shouldDeliverNotification(notificationPreferences, n, 'island') ||
-          shouldDeliverNotification(notificationPreferences, n, 'toast') ||
-          shouldDeliverNotification(notificationPreferences, n, 'panel'))
-      ) {
-        deliverWorkNotificationFace(agentFace, faceSpeechGate, {
-          id: n.id,
-          body: n.body,
-          performance: metadata.performance,
-          meropeState: metadata.merope_state,
-        })
-      }
       const source = notificationSourceFor(n)
       const icon = (
         <NotificationSourceIcon source={source} className="h-4 w-4" />
@@ -301,7 +315,14 @@ const GlobalControlPanel: React.FC = () => {
       const snippet = body.length > 60 ? `${body.slice(0, 60)}…` : body
 
       // 1. 接入智能岛轮播（置顶展示，20 秒后自动撤下）
-      if (shouldDeliverNotification(notificationPreferences, n, 'island')) {
+      if (
+        shouldSurfaceNotification(
+          notificationPreferences,
+          n,
+          'island',
+          lookingAtAgent,
+        )
+      ) {
         safeSetDynamicContents((prev) => [
           {
             type: 'notification',
@@ -329,13 +350,14 @@ const GlobalControlPanel: React.FC = () => {
         shouldEmitNotificationToast(
           notificationPreferences,
           n,
-          getAgentPanelVisible(),
+          lookingAtAgent,
         )
       ) {
-        const showInPanel = shouldDeliverNotification(
+        const showInPanel = shouldSurfaceNotification(
           notificationPreferences,
           n,
           'panel',
+          lookingAtAgent,
         )
         showToast({
           title,
@@ -360,7 +382,12 @@ const GlobalControlPanel: React.FC = () => {
       // 3. 页面在后台时推浏览器系统通知
       if (
         document.hidden &&
-        shouldDeliverNotification(notificationPreferences, n, 'browser') &&
+        shouldSurfaceNotification(
+          notificationPreferences,
+          n,
+          'browser',
+          lookingAtAgent,
+        ) &&
         typeof Notification !== 'undefined' &&
         Notification.permission === 'granted'
       ) {
@@ -376,19 +403,44 @@ const GlobalControlPanel: React.FC = () => {
         }
       }
     },
-    [notificationPreferences, safeSetDynamicContents],
+    [lookingAtAgent, notificationPreferences, safeSetDynamicContents],
   )
 
   const includeNotificationInPanel = useCallback(
     (notification: AppNotification) =>
-      shouldDeliverNotification(notificationPreferences, notification, 'panel'),
-    [notificationPreferences],
+      shouldSurfaceNotification(
+        notificationPreferences,
+        notification,
+        'panel',
+        lookingAtAgent,
+      ),
+    [lookingAtAgent, notificationPreferences],
+  )
+
+  const handleLiveSpeech = useCallback(
+    (speech: {
+      id: string
+      body: string
+      performance?: unknown
+      merope_state?: unknown
+    }) => {
+      deliverProactiveFace(agentFace, faceSpeechGate, {
+        id: speech.id,
+        body: speech.body,
+        performance: speech.performance,
+        meropeState: speech.merope_state,
+      })
+    },
+    [],
   )
 
   const notifCenter = useNotificationCenter({
     enabled: !!user,
     userId: user?.id,
     onNew: handleNewNotification,
+    onLiveSpeech: handleLiveSpeech,
+    onMeropeState: (state) => agentFace.updateState(state),
+    onMeropeResync: () => window.dispatchEvent(new Event(ADDRESSEE_UPDATED_EVENT)),
     includeInPanel: includeNotificationInPanel,
   })
   const { loaded: notifLoaded, loadHistory: loadNotifHistory } = notifCenter
@@ -412,9 +464,10 @@ const GlobalControlPanel: React.FC = () => {
       if (!c.icon || !c.text) return false
       // 文本不能是空字符串或只有空白
       if (typeof c.text === 'string' && c.text.trim().length === 0) return false
+      if (!allowsIslandType(islandContent, String(c.type))) return false
       return true
     })
-  }, [dynamicContents])
+  }, [dynamicContents, islandContent])
 
   // 文本引用，用于检测是否需要滚动
   const textRef = useRef<HTMLSpanElement>(null)
@@ -455,9 +508,8 @@ const GlobalControlPanel: React.FC = () => {
       resolvePanelMotion({
         level: anim.level,
         reduceMotion: perf.reduceMotion,
-        isMobile: perf.isMobile,
       }),
-    [anim.level, perf.reduceMotion, perf.isMobile],
+    [anim.level, perf.reduceMotion],
   )
   /**
    * morph 一旦开始就用开始时的档位跑完 —— JS 与 CSS 两条线都要冻结。
@@ -534,6 +586,26 @@ const GlobalControlPanel: React.FC = () => {
   useEffect(() => {
     dynamicContentProvider.setLocale(locale)
   }, [locale, dynamicContentProvider])
+
+  const loadIslandContent = useCallback(async () => {
+    try {
+      const cfg = (await getUIConfigDeduped()) as Record<string, unknown>
+      setIslandContent(islandContentFromPublicUi(cfg))
+    } catch {
+      setIslandContent(DEFAULT_ISLAND_CONTENT)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadIslandContent()
+    const onChanged = () => {
+      void loadIslandContent()
+    }
+    window.addEventListener(ISLAND_CONTENT_CHANGED_EVENT, onChanged)
+    return () => {
+      window.removeEventListener(ISLAND_CONTENT_CHANGED_EVENT, onChanged)
+    }
+  }, [loadIslandContent])
 
   // 订阅 Tapp 动态内容更新
   useEffect(() => {
@@ -1033,7 +1105,7 @@ const GlobalControlPanel: React.FC = () => {
       const raw = contentEl.scrollHeight
 
       // 适当补偿 (考虑内边距 + 过渡)
-      const compensated = Math.ceil(raw * 1.08)
+      const compensated = Math.ceil(raw * CONTROL_PANEL_HEIGHT_COMPENSATION)
 
       if (Math.abs(compensated - lastHeight) > 4) {
         lastHeight = compensated
@@ -1166,7 +1238,7 @@ const GlobalControlPanel: React.FC = () => {
   }, [themePreference])
 
   // 相位推进：由外壳真实的过渡结束事件驱动，定时器只作兜底。
-  // 收缩内容淡出 → 外壳 morph → 展开内容淡入 → 遮罩，共用同一条时间线，
+  // 收缩内容淡出 → 外壳 morph → 展开内容淡入，共用同一条时间线，
   // 不再有「先出空壳、400ms 后内容突然加入」的固定猜测。
   useEffect(() => {
     if (!isPanelMorphing(panel)) return
@@ -1374,6 +1446,37 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [handleTogglePanel])
 
+  const tourPanelPose = useSyncExternalStore(
+    subscribeTour,
+    readHomeBrowseTourPanelPose,
+    readHomeBrowseTourPanelPose,
+  )
+  const tourDrovePanel = useRef(false)
+
+  useLayoutEffect(() => {
+    if (tourPanelPose === 'expanded') {
+      tourDrovePanel.current = true
+      if (!isExpandedRef.current) {
+        expandPanel('control')
+        setForegroundSurface('control_panel')
+        return
+      }
+      if (panelTab !== 'control') {
+        dispatchPanel({ type: 'selectTab', tab: 'control' })
+      }
+      return
+    }
+    if (tourPanelPose === 'collapsed') {
+      if (isExpandedRef.current) handleClosePanel()
+      tourDrovePanel.current = false
+      return
+    }
+    if (tourDrovePanel.current) {
+      if (isExpandedRef.current) handleClosePanel()
+      tourDrovePanel.current = false
+    }
+  }, [expandPanel, handleClosePanel, panelTab, tourPanelPose])
+
   // 音乐错误兜底提示：面板收起时 MusicPlayer 的内联错误不可见
   // （典型场景：Agent 触发歌单加载失败），用全局 toast 兜底；
   // 面板展开时已有内联提示，不重复弹
@@ -1543,7 +1646,7 @@ const GlobalControlPanel: React.FC = () => {
 
   // 检测文本是否超出2行，需要垂直滚动 - 使用统一动画调度器优化性能
   useEffect(() => {
-    if (!textRef.current || !currentContent) {
+    if (!textRef.current || !currentContent || isExpanded) {
       setNeedsScroll(false)
       return
     }
@@ -1627,6 +1730,7 @@ const GlobalControlPanel: React.FC = () => {
       unobserve()
     }
   }, [
+    isExpanded,
     currentContent?.text,
     currentContent?.type,
     currentContent?.lyricDuration,
@@ -1689,14 +1793,14 @@ const GlobalControlPanel: React.FC = () => {
         <div className="control-bar-content">
           <div
             ref={triggerRef}
+            data-tour="control-island"
             className={[
               'control-bar-trigger',
               isExpanded ? 'expanded' : '',
-              // morph 进行中：冻结 hover/active 变换，按档位决定是否停背景模糊
+              // morph 进行中：冻结 hover/active 变换
               isPanelMorphing(panel) ? 'gcp-animating' : '',
               panel.phase === 'closing' ? 'gcp-closing' : '',
               activeMotion.spatial ? '' : 'gcp-no-morph',
-              activeMotion.blurDuringMorph ? '' : 'gcp-freeze-blur',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -1756,6 +1860,7 @@ const GlobalControlPanel: React.FC = () => {
             <div
               ref={expandedContentRef}
               className={`expanded-panel-content ${showPanelContent ? 'visible' : ''}`}
+              data-tour="control-panel"
             >
               {/* 头部 - 用户信息按钮 */}
               <div className="control-panel-header">
@@ -1775,23 +1880,27 @@ const GlobalControlPanel: React.FC = () => {
                   aria-label={t.common.close}
                 >
                   <svg
-                    className="w-5 h-5"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
+                    aria-hidden
                   >
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
+                      strokeWidth={2.25}
+                      d="M5 15l7-7 7 7"
                     />
                   </svg>
                 </button>
               </div>
 
               {/* Tab 切换：控制面板 / 通知 */}
-              <div className="notif-tab-bar" role="tablist">
+              <div
+                className="notif-tab-bar"
+                role="tablist"
+                data-tab={panelTab}
+              >
                 <button
                   type="button"
                   role="tab"
@@ -2114,19 +2223,14 @@ const GlobalControlPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 遮罩层 - 始终存在，通过 CSS 控制显示。
-          defer-blur 档位（移动端 / 低性能 / reduced-motion）把全屏 backdrop-filter
-          移出 morph 热路径，稳定展开后再淡入模糊；桌面标准档观感不变 */}
+      {/* 透明点击层：无视觉遮罩，点空白收起 */}
       <div
         className={[
           'control-panel-overlay',
           showOverlay ? 'visible' : '',
-          activeMotion.blurDuringMorph ? '' : 'defer-blur',
-          showsOverlayBlur(panel, activeMotion) ? 'blurred' : '',
         ]
           .filter(Boolean)
           .join(' ')}
-        style={motionVars}
         onClick={handleClosePanel}
       />
     </React.Fragment>

@@ -35,6 +35,7 @@ export interface AgentPanelMessageProps {
   onRetry?: () => void
   onAnswer: (messageId: string, answer: string) => void
   onSuggest: (text: string) => void
+  onWorkOffer?: (input: string) => void
   onZoomImage: (url: string) => void
 }
 
@@ -207,10 +208,11 @@ function useBubbleHeight(open: boolean): {
 }
 
 export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
-  ({ message, onRetry, onAnswer, onSuggest, onZoomImage }) => {
+  ({ message, onRetry, onAnswer, onSuggest, onWorkOffer, onZoomImage }) => {
     const { t, locale } = useI18n()
     const mode = useAgentPanelMode()
     const [copied, setCopied] = useState(false)
+    const [workOfferSent, setWorkOfferSent] = useState(false)
 
     const copy = useCallback(() => {
       void navigator.clipboard
@@ -377,6 +379,29 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
                           ))}
                         </div>
                       ) : null}
+                    </div>
+                  ) : null}
+
+                  {message.workOffer && onWorkOffer ? (
+                    <div className="agent-panel-work-offer">
+                      <div className="agent-panel-work-offer-copy">
+                        <span>{t.agentPanel.workOffer.kicker}</span>
+                        <small>{t.agentPanel.workOffer.hint}</small>
+                      </div>
+                      <button
+                        type="button"
+                        className="agent-panel-work-offer-accept"
+                        disabled={workOfferSent}
+                        onClick={() => {
+                          if (workOfferSent) return
+                          setWorkOfferSent(true)
+                          onWorkOffer(message.workOffer!.input)
+                        }}
+                      >
+                        {workOfferSent
+                          ? t.agentPanel.workOffer.sent
+                          : t.agentPanel.workOffer.accept}
+                      </button>
                     </div>
                   ) : null}
 

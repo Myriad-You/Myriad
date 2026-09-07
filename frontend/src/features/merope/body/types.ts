@@ -1,6 +1,7 @@
 import type { PageContent } from '../../../contexts/PageContentContext'
 import type { PerformanceDirective } from '../../../services/agent/types'
 import type { PerceptionSnapshot } from '../perception/registry'
+import type { MeropePerformanceEventDetail } from '../performanceEvents'
 
 /**
  * Body is the live face the site actually has. Semantic only — no drivers.
@@ -11,6 +12,8 @@ export interface BodyCapabilities {
 }
 
 export interface BodyIntent {
+  runId?: string
+  source?: MeropePerformanceEventDetail['source']
   speechText?: string
   messageId?: string
   performance?: PerformanceDirective

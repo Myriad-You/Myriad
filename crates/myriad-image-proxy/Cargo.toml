@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "Image proxy URL rewrite helpers + shared hotlink host list (profile/export/library)."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 once_cell = "1"

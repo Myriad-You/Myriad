@@ -153,12 +153,17 @@ Generated editor assets under `src/generated/`:
 reference so editors understand `Tapp.*` without a full npm SDK package. Those local
 editor files are not packed into `.tapp`.
 
-Image tasks have typed input through `TappAITaskRequest` and `TappAIImageInput`.
-Pass ordered references in `input.referenceImages`: up to four PNG/JPEG/WebP
-base64 data URLs or local `/api/brew/image-cache/...` paths, with at most 10 MiB
-of decoded image data in total. Runtime validation enforces these limits;
-editor types do not verify file contents or provider capabilities. See the
-[AI Task examples](../../docs/development/tapp/API_REFERENCE.md#ai-api).
+`Tapp.ai.tasks.create` is typed per operation: `generate` (`string | { prompt }`),
+`analyze` (`{ data, instruction? }`), `chat` (`{ messages }`), `search`
+(`string | { query, searchType?, maxResults?, searchPrompt? }`), and `image`
+(`string | TappAIImageInput`). `create` / `get` resolve to `TappAITaskSnapshot`;
+`usage` to `TappAIUsageSnapshot`.
+
+Image tasks accept ordered references in `input.referenceImages`: up to four
+PNG/JPEG/WebP base64 data URLs or local `/api/brew/image-cache/...` paths, with
+at most 10 MiB of decoded image data in total. Runtime validation enforces these
+limits; editor types do not verify file contents or provider capabilities. See
+the [AI Task examples](../../docs/development/tapp/API_REFERENCE.md#ai-api).
 
 ## Generated contract
 
@@ -206,3 +211,10 @@ npm publish
 
 Publishing requires an authenticated npm account with access to the `@myriad-you`
 scope. The package declares public scoped access in `publishConfig`.
+
+## License
+
+Apache-2.0. The Tapp contract this CLI ships is the same Apache-2.0 crate the
+host uses to validate installs. The Myriad host itself is AGPL-3.0; a Tapp that
+only uses the documented Bridge does not have to be AGPL. See the repository
+root `LICENSE`.

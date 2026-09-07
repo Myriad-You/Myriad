@@ -14,7 +14,7 @@
   top: 1.5rem;
   left: 50%;
   transform: translate(-50%, 0);
-  z-index: 9999;
+  z-index: 10050;
   pointer-events: auto;
   animation: toastSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -38,7 +38,6 @@
 
   /* Glass Morphism 效果 - 更高不透明度 */
   background: rgb(255 255 255 / 95%);
-  backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgb(200 200 200 / 50%);
   box-shadow:
     0 8px 32px -8px rgb(0 0 0 / 20%),
@@ -363,7 +362,7 @@ html.dark .toast-close-btn:hover {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 9999;
+  z-index: 10050;
   pointer-events: none;
   display: flex;
   flex-direction: column;

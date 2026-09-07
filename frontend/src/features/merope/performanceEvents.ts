@@ -5,12 +5,14 @@ import type {
   PerformanceDirective,
   RigMotionStyle,
 } from '../../services/agent/types'
+import { moodBand } from '../../components/agent/meropeVitals'
 import {
   PERFORMANCE_BASELINE_EXPRESSIONS,
   PERFORMANCE_CUE_INTENTS,
   PERFORMANCE_INTERRUPT_MODES,
   PERFORMANCE_POSTURES,
 } from './performanceContract'
+import { sanitizeSpeechPhrases } from './speech/phrasePlan'
 
 export const MEROPE_PERFORMANCE_EVENT = 'merope-performance'
 export const MEROPE_STATE_EVENT = 'merope-state'
@@ -19,6 +21,7 @@ export interface MeropePerformanceEventDetail {
   text: string
   source: 'reply' | 'proactive' | 'interaction' | 'preview'
   messageId?: string
+  runId?: string
   generation?: number
   motionIntentId?: string
   performance?: PerformanceDirective
@@ -27,6 +30,51 @@ export interface MeropePerformanceEventDetail {
 export interface MeropeStateEventDetail {
   mood: MoodTransition
   activity: string
+}
+
+// One ordered snapshot for the current authenticated addressee. Both the run
+// stream and the long-lived notification stream feed this same state outlet.
+let currentState: MeropeStateEventDetail | null = null
+
+export function currentMeropeState(): MeropeStateEventDetail | null {
+  return currentState
+}
+
+export function resetMeropeState(): void {
+  currentState = null
+}
+
+/** A slow GET must not undo a newer live event; a fresh GET repairs a missed event. */
+export function resolveLoadedMeropeAffect(snapshot: {
+  mood?: number
+  arousal?: number
+  moodRevision?: number
+  activity?: string
+}): { mood: number; arousal: number } {
+  const mood = snapshot.mood ?? 70
+  const arousal = snapshot.arousal ?? 48
+  const revision = snapshot.moodRevision ?? 0
+  dispatchMeropeState({
+    mood: {
+      before: mood,
+      after: mood,
+      arousalBefore: arousal,
+      arousalAfter: arousal,
+      bandBefore: moodBand(mood, arousal),
+      bandAfter: moodBand(mood, arousal),
+      delta: 0,
+      cause: 'state_snapshot',
+      revision,
+    },
+    activity: snapshot.activity ?? 'idle',
+  })
+  if (currentState && currentState.mood.revision > revision) {
+    return {
+      mood: currentState.mood.after,
+      arousal: currentState.mood.arousalAfter ?? arousal,
+    }
+  }
+  return { mood, arousal }
 }
 
 export function dispatchMeropePerformance(detail: unknown): void {
@@ -62,6 +110,8 @@ export function meropePerformanceEventDetail(
     value.generation > 0
       ? Math.min(1_000_000_000, Math.trunc(value.generation))
       : 0
+  const runId =
+    typeof value.runId === 'string' ? value.runId.trim().slice(0, 160) : ''
   const motionIntentId =
     typeof value.motionIntentId === 'string'
       ? value.motionIntentId.trim().slice(0, 160)
@@ -70,6 +120,7 @@ export function meropePerformanceEventDetail(
     text,
     source,
     ...(messageId ? { messageId } : {}),
+    ...(runId ? { runId } : {}),
     ...(generation ? { generation } : {}),
     ...(motionIntentId ? { motionIntentId } : {}),
     ...(performance ? { performance } : {}),
@@ -78,7 +129,14 @@ export function meropePerformanceEventDetail(
 
 export function dispatchMeropeState(value: unknown): void {
   const detail = meropeStateEventDetail(value)
-  if (!detail || typeof window === 'undefined') return
+  if (
+    !detail ||
+    (currentState && detail.mood.revision <= currentState.mood.revision)
+  ) {
+    return
+  }
+  currentState = detail
+  if (typeof window === 'undefined') return
   window.dispatchEvent(
     new CustomEvent<MeropeStateEventDetail>(MEROPE_STATE_EVENT, {
       detail,
@@ -175,12 +233,14 @@ export function sanitizePerformanceDirective(
         .map(sanitizeCue)
         .filter((cue): cue is PerformanceCue => cue !== null)
     : []
-  if (!baseline && cues.length === 0) return null
+  const phrases = sanitizeSpeechPhrases(value.phrases)
+  if (!baseline && cues.length === 0 && phrases.length === 0) return null
   return {
     phase: value.phase as PerformanceDirective['phase'],
     moodRevision: Math.max(0, Math.trunc(value.moodRevision)),
     motionStyle,
     plan: { ...(baseline ? { baseline } : {}), cues },
+    ...(phrases.length ? { phrases } : {}),
   }
 }
 

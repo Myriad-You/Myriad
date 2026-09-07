@@ -14,6 +14,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
@@ -33,6 +34,7 @@ interface Props {
   mood: number
   manualControl?: boolean
   onPlaybackError?: (error: unknown) => void
+  onPlaybackReady?: () => void
 }
 
 export interface RigCharacterHandle
@@ -47,6 +49,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
       mood,
       manualControl = false,
       onPlaybackError,
+      onPlaybackReady,
     },
     ref,
   ) => {
@@ -222,6 +225,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
           mood={mood}
           manualControl={manualControl}
           onPlaybackError={handlePlaybackError}
+          onPlaybackReady={onPlaybackReady}
         />
       )
     }
@@ -229,12 +233,27 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
     if (!fallbackUrl) return null
 
     return (
-      <span className="merope-rig is-ready" data-rig-quality="static">
-        <img src={fallbackUrl} alt="" draggable={false} />
-      </span>
+      <StaticFaceImage src={fallbackUrl} onPlaybackReady={onPlaybackReady} />
     )
   },
 )
+
+function StaticFaceImage({
+  src,
+  onPlaybackReady,
+}: {
+  src: string
+  onPlaybackReady?: () => void
+}) {
+  useLayoutEffect(() => {
+    onPlaybackReady?.()
+  }, [onPlaybackReady, src])
+  return (
+    <span className="merope-rig is-ready" data-rig-quality="static">
+      <img src={src} alt="" draggable={false} />
+    </span>
+  )
+}
 
 function currentNow(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now()

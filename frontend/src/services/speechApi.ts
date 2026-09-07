@@ -4,8 +4,14 @@
  * 提供腾讯云 TTS/ASR 服务的前端接口
  */
 
+import type { VoiceRunNotice } from '../features/merope/speech/realtimeChat'
 import { API_URL } from '../config'
+import {
+  parseVoiceRunNotice,
+
+} from '../features/merope/speech/realtimeChat'
 import { currentCopy } from '../i18n/localeCopy'
+import { withAiTimeoutSignal } from '../utils/aiRequestTimeout.mjs'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
 import { userFacingError } from '../utils/userFacingError'
@@ -182,8 +188,10 @@ export interface ConvoSession {
   app_id: string
   channel: string
   uid: number
+  agent_uid: number
   token: string
   agent_id: string
+  session_id: string
   error?: string
 }
 
@@ -195,6 +203,7 @@ async function request<T>(
   options: RequestInit = {},
   retryOnCSRFError: boolean = true,
 ): Promise<T> {
+  options.signal?.throwIfAborted()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
@@ -209,13 +218,17 @@ async function request<T>(
   }
 
   const url = `${API_BASE}${endpoint}`
+  options.signal?.throwIfAborted()
   console.log(`[SpeechAPI] ${options.method || 'GET'} ${url}`)
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-    credentials: 'include',
-  })
+  const response = await fetch(
+    url,
+    withAiTimeoutSignal(url, {
+      ...options,
+      headers,
+      credentials: 'include',
+    }),
+  )
 
   console.log(`[SpeechAPI] Response status: ${response.status}`)
 
@@ -361,22 +374,70 @@ export interface ASRResponse {
 export async function speechToText(
   req: ASRRequest,
   attributionHeaders?: SpeechAttributionHeaders,
+  signal?: AbortSignal,
 ): Promise<ASRResponse> {
   return request<ASRResponse>('/asr', {
     method: 'POST',
     body: JSON.stringify(req),
     headers: attributionHeaders,
+    signal,
   })
 }
 
-export async function startConvoSession(language?: string): Promise<ConvoSession> {
+export async function startConvoSession(
+  language?: string,
+  sessionId?: string | null,
+): Promise<ConvoSession> {
   return request<ConvoSession>('/convo/start', {
     method: 'POST',
-    body: JSON.stringify({ language }),
+    body: JSON.stringify({ language, session_id: sessionId }),
   })
 }
 
-export async function stopConvoSession(agentId: string): Promise<{ success: boolean }> {
+/** Cookie-authenticated notices contain run IDs, never the cloud callback key. */
+export function subscribeConvoRuns(
+  agentId: string,
+  onRun: (notice: VoiceRunNotice) => void,
+  onClosed: () => void,
+): () => void {
+  const events = new EventSource(
+    `${API_BASE}/convo/events?agent_id=${encodeURIComponent(agentId)}`,
+    { withCredentials: true },
+  )
+  let after = 0
+  let closed = false
+  const close = () => {
+    if (closed) return
+    closed = true
+    events.close()
+    onClosed()
+  }
+  events.addEventListener('closed', close)
+  events.onerror = () => {
+    if (events.readyState === EventSource.CLOSED) close()
+  }
+  events.onmessage = (event) => {
+    if (closed) return
+    let value: unknown
+    try {
+      value = JSON.parse(event.data)
+    } catch {
+      return
+    }
+    const notice = parseVoiceRunNotice(value)
+    if (!notice || notice.sequence <= after) return
+    after = notice.sequence
+    onRun(notice)
+  }
+  return () => {
+    closed = true
+    events.close()
+  }
+}
+
+export async function stopConvoSession(
+  agentId: string,
+): Promise<{ success: boolean }> {
   return request<{ success: boolean }>('/convo/stop', {
     method: 'POST',
     body: JSON.stringify({ agent_id: agentId }),
@@ -417,11 +478,13 @@ export function audioToBase64(blob: Blob): Promise<string> {
 export async function textToSpeech(
   req: TTSRequest,
   attributionHeaders?: SpeechAttributionHeaders,
+  signal?: AbortSignal,
 ): Promise<TTSResponse> {
   return request<TTSResponse>('/tts', {
     method: 'POST',
     body: JSON.stringify(req),
     headers: attributionHeaders,
+    signal,
   })
 }
 

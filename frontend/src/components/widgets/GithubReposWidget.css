@@ -1,0 +1,237 @@
+/**
+ * 阅读器仓库卡的同一套层级，用小组件自己的节点画出来。
+ *
+ * 头像 | 仓库名 + owner | star
+ * 简介两行
+ * 语言 · fork          GitHub 角标
+ */
+
+.github-repos-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.github-repos-card.is-tile {
+  gap: 0.35rem;
+}
+
+.github-repos-card.is-compact {
+  gap: 0.28rem;
+  justify-content: center;
+}
+
+.github-repos-card.is-compact .github-repos-meta {
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  padding-right: 0;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.github-repos-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.github-repos-card.is-compact .github-repos-header {
+  align-items: center;
+}
+
+.github-repos-avatar {
+  display: block;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.github-repos-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.github-repos-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.github-repos-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+}
+
+.github-repos-owner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.github-repos-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.16rem;
+  flex: 0 0 auto;
+  margin-left: 0.15rem;
+  padding: 0.12rem 0.42rem 0.12rem 0.34rem;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 6%);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: rgb(55 65 81);
+}
+
+.github-repos-stars svg {
+  width: 0.72em;
+  height: 0.72em;
+}
+
+.github-repos-desc {
+  margin: 0;
+  padding-right: 1.35rem;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.github-repos-card.is-tile .github-repos-desc {
+  flex: 0 1 auto;
+  -webkit-line-clamp: 4;
+}
+
+.github-repos-card.is-wide .github-repos-desc {
+  flex: 0 1 auto;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  max-height: 4.2em;
+}
+
+.github-repos-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding-right: 1.35rem;
+  margin-top: auto;
+  flex: 0 0 auto;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.github-repos-card.is-tile .github-repos-meta {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  padding-right: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.github-repos-card.is-tile .github-repos-meta > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.github-repos-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.github-repos-meta svg {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.github-repos-lang {
+  width: 0.45em;
+  height: 0.45em;
+  border-radius: 50%;
+}
+
+.github-repos-mark {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 0.95rem;
+  height: 0.95rem;
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+.github-repos-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  height: 100%;
+  padding: 0.5rem;
+  text-align: center;
+  border: 1px dashed color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: 0.5rem;
+  color: color-mix(in srgb, currentColor 48%, transparent);
+}
+
+.github-repos-empty strong {
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+}
+
+.github-repos-empty span {
+  font-size: 0.65rem;
+  line-height: 1.35;
+}
+
+html.dark .github-repos-avatar {
+  background: rgb(255 255 255 / 10%);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 8%);
+}
+
+html.dark .github-repos-stars {
+  background: rgb(255 255 255 / 12%);
+  color: rgb(229 231 235);
+}
+
+html.dark .github-repos-mark {
+  color: #fff;
+  opacity: 0.4;
+}
+
+html.dark .github-repos-empty {
+  border-color: rgb(255 255 255 / 14%);
+  color: rgb(156 163 175);
+}
+
+html.dark .github-repos-empty strong {
+  color: rgb(209 213 219);
+}

@@ -1,9 +1,9 @@
 // SmartFilter process/save pipeline for platform raw payloads.
 
+use crate::services::data_paths;
 use serde_json::Value;
 use std::cmp::Reverse;
 use std::fs;
-use std::path::Path;
 
 use crate::services::content_databases::{AnimeDatabase, ArtistDatabase, GameDatabase};
 
@@ -17,7 +17,7 @@ impl SmartFilter {
         const MAX_VIDEOS_FOR_FILTER: usize = 200;
         const MAX_SONGS_FOR_FILTER: usize = 3000;
 
-        let cache_dir = Path::new("cache/platforms");
+        let cache_dir = data_paths::platforms_cache_dir();
         fs::create_dir_all(cache_dir)?;
 
         let mut processed_count = 0;
@@ -244,7 +244,7 @@ impl SmartFilter {
         platform: &str,
         data: &SmartFilteredData,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let cache_dir = Path::new("cache/platforms");
+        let cache_dir = data_paths::platforms_cache_dir();
         fs::create_dir_all(cache_dir)?;
 
         let cache_file = cache_dir.join(format!("{}_filtered.json", platform));

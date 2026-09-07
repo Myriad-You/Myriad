@@ -95,7 +95,7 @@ fn enrich_items_from_raw_cache(platform: &str, items: &mut [Value]) {
         "netease_music" => "netease",
         other => other,
     };
-    let raw_path = format!("cache/raw/{raw_slug}.json");
+    let raw_path = crate::services::data_paths::platform_raw_file(raw_slug);
     let Ok(content) = std::fs::read_to_string(&raw_path) else {
         return;
     };
@@ -1300,7 +1300,6 @@ fn promote_entry_fields(item: &mut Value, entry: &Map<String, Value>) {
 ///
 /// Prefers legacy raw top-level arrays (`games`, `videos`, …) when present, then
 /// falls back to [`extract_platform_items`] for filtered-cache shapes.
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
 pub fn extract_platform_items_for_random(platform: &str, data: &Value) -> Vec<Value> {
     let platform = platform.to_ascii_lowercase();
     match platform.as_str() {

@@ -4,184 +4,556 @@
 
 # Myriad
 
-### 让每一个你，被看见
+<em>A myriad of lights, in one place.</em>
 
-*A myriad of lights, in one place.*
+<p>
+<strong>English</strong>
+&nbsp;·&nbsp;
+<a href="README.zh-CN.md">中文</a>
+&nbsp;·&nbsp;
+<a href="README.ja.md">日本語</a>
+</p>
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/myriad-you/Myriad)](https://github.com/myriad-you/Myriad/releases)
-[![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](backend/Cargo.toml)
-[![Astro](https://img.shields.io/badge/Astro-7-blueviolet.svg)](frontend/package.json)
-[![React 19](https://img.shields.io/badge/React-19-61dafb.svg)](frontend/package.json)
+[![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://github.com/rust-lang/rust)
+[![Astro](https://img.shields.io/badge/Astro-7-blueviolet.svg)](https://github.com/withastro/astro)
+[![React 19](https://img.shields.io/badge/React-19-61dafb.svg)](https://github.com/facebook/react)
 
-[快速开始](docs/QUICKSTART.md) · [文档](docs/INDEX.md) · [反馈](https://github.com/myriad-you/Myriad/issues)
+[Quick start](docs/QUICKSTART.md) · [Docs](docs/INDEX.md) · [Issues](https://github.com/myriad-you/Myriad/issues)
 
 </div>
 
 ---
 
-## 关于 Myriad
+## What it is
 
-我们在 GitHub 写代码、在 Bilibili 看视频、在 Steam 游玩、在网易云听歌——
-每一处都留下了一点自己，但它们彼此不相往来。
+**Myriad is a self-hosted homepage and creative studio.** Aggregate your platforms, show a library, and run a site-wide persona, a 2.5D face, and Tapp apps you own.
 
-**Myriad 是个人在互联网的数字生活展示入口。**
-它把散落在各处的你，重新聚合到一个地方：让你自己看见，也让别人看见。
+Single-tenant. Public or private. PostgreSQL. UI: English · Chinese · Japanese.
 
-> 既可以作为公开的个人门户对外展示，也可以作为私有的数字仓库自己使用。
-
----
-
-## 你可以用它做什么
+```mermaid
+flowchart LR
+  subgraph homepage ["Homepage"]
+    direction TB
+    W[Widgets]
+    L[Library]
+    P[Platforms]
+  end
+  subgraph studio ["Studio"]
+    direction TB
+    A[Persona]
+    F["2.5D face"]
+    T[Tapp]
+  end
+  homepage -.-> studio
+```
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-### 把多平台汇成一处
-连接 GitHub、Bilibili、Steam、网易云、YouTube、Bangumi、Discord、X、MAL、Xbox、PlayStation 等平台；
-数据落入自有 PostgreSQL，由你完全拥有。
+### Homepage
+`/`
+
+- Standard 16×4 · free 16×8
+- Music, weather, report cards, persona widget
+- Stickers on free layout — not widget cells
 
 </td>
 <td width="50%" valign="top">
 
-### 首页小组件与资料库
-欢迎语、音乐、天气、访客、游戏 Presence、社交网络、Report Card 等可编排小组件；
-资料库整理游戏、番剧、音乐与活动轨迹。
+### Library
+`/library`
+
+- Games, anime, shows, books, music
+- Synced from connected platforms
+- List or infinite canvas
 
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-### Brew 订阅与 Agent
-**Brew** 聚合 RSS / Notion / RSSHub 等阅读源。
-**Agent**（计划、执行、记忆、MCP）持续阅读你的数据，整理报告与洞察。
+### Persona · 2.5D
+site-wide
+
+- From reports, or import a write-up + portrait
+- Layered live face: breath, blink, lip-sync
+- Sticker avatar from the master portrait
 
 </td>
 <td width="50%" valign="top">
 
-### Tapp 扩展与联邦
-**Tapp** 沙箱让你像写小程序一样挂载 Page / Widget。
-内置 **ActivityPub / MFP** 联邦，可被其他实例关注、建频道或加入环网。
+### Tapp
+`/tapp`
+
+- Page, homepage Widget, or both
+- Store · Playground · CLI
+- Sandbox; host secrets never enter
 
 </td>
 </tr>
 </table>
 
-生产环境通过 **proxy + updater** 自更新：只有 proxy 对外暴露端口，版本切换与回滚走管理员「更新管理」，无需手动覆盖 `:latest`。
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**Agent**  
+Chat / Work · panel
+
+</td>
+<td width="33%" valign="top">
+
+**Brew** `/brew`  
+RSS · Notion · RSSHub
+
+</td>
+<td width="33%" valign="top">
+
+**Federation**  
+ActivityPub · MFP
+
+</td>
+</tr>
+</table>
+
+`/config` is admin-only. Library, Brew, Reports, Tapp, Agent: everyone / signed-in / admins.
 
 ---
 
-## 快速开始
+## Contents
 
-### Docker（推荐）
+**Product** — [Homepage](#homepage) · [Platforms](#platforms) · [Library](#library-and-reports) · [Persona](#persona-and-25d-face) · [Tapp](#tapp) · [Agent](#agent) · [Brew](#brew) · [Federation](#federation) · [Accounts](#accounts-and-visibility)
+
+**Run** — [Requirements](#requirements) · [Deploy](#deploy) · [Dev](#local-development) · [Operations](#operations)
+
+**Reference** — [Architecture](#architecture) · [Repository](#repository) · [Stack](#stack) · [Docs](#docs) · [License](#license)
+
+---
+
+## Homepage
+
+**Standard** 16×4 (centered, compact on narrow screens) or **free** 16×8 (same cell size). Coordinates stored per layout. Free layout stickers are not widgets and do not occupy widget cells.
+
+<details>
+<summary>Built-in widgets</summary>
+
+| | |
+| --- | --- |
+| Welcome | Agent persona (live 2.5D; one playback at a time) |
+| Quick stats · recent activity · visitors | Weather · daily quote · music |
+| Friend links (Brew) · social · Tapp shortcuts | miHoYo game presence · per-platform report cards |
+
+Installed Tapps may register homepage widgets.
+
+</details>
+
+---
+
+## Platforms
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**GitHub** — repos, stars, contributions  
+**Steam** — library, wishlist, play stats  
+**YouTube** — public channel stats, recent uploads  
+**Discord** — profile, servers, linked accounts  
+**MyAnimeList** — anime / manga lists and scores  
+**PlayStation** — trophies, trophy level, recent games
+
+</td>
+<td width="50%" valign="top">
+
+**Bilibili** — favorites, anime, viewing history  
+**NetEase Cloud Music** — liked songs and taste  
+**Bangumi** — collections, ratings, watching status  
+**X** — profile and posts  
+**Xbox** — achievements, Gamerscore, recent games
+
+</td>
+</tr>
+</table>
+
+Stored in PostgreSQL. Report cards, Library, and Reports read the same data.
+
+---
+
+## Library and reports
+
+**Library** lists games, anime, shows, books, and music from connected platforms, filtered by type. Layout: list or infinite canvas; low-end devices fall back to the list. Per-category sources are configurable.
+
+**Reports** are per-platform portraits. Guided persona setup reads them. A write-up plus an uploaded portrait is the other path.
+
+---
+
+## Persona and 2.5D face
+
+One site-wide speaking personality and one upper-body 2.5D face (**Agent persona**). On: Agent speaks as that persona. Off: Agent still provides Chat and Work.
+
+```text
+reports → persona → visual profile → master portrait → layered PSD
+          or import write-up + portrait
+```
+
+Visual profile stores person and outfit separately. Master portrait is 3:4, upper body. A layered PSD enables live breath, blink, and lip-sync.
+
+Head and torso follow speech and song. Outfit changes keep the live player. A **sticker avatar** (head only) can be derived for profile slots and Agent notifications; replacing the master portrait invalidates it.
+
+One live face at a time. Browser 2.5D ([Anime2.5DRig](https://github.com/852wa/Anime2.5DRig)). The Myriad server does not GPU-infer that playback.
+
+---
+
+## Tapp
+
+**Page**, homepage **Widget**, or both. Sandboxed. Permissions approved at install. Host secrets and app credentials never enter the sandbox, including error payloads.
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**Store**  
+[tapp-store](https://github.com/Myriad-You/tapp-store)  
+`/tapp/store`
+
+</td>
+<td width="33%" valign="top">
+
+**Playground**  
+desktop admin  
+`/tapp/playground`
+
+Natural-language Page, Widget-only, or both. Preview in the production sandbox; install or export `.tapp`. Hidden on mobile.
+
+</td>
+<td width="33%" valign="top">
+
+**CLI**  
+[`tapp-cli`](tools/tapp-cli/README.md)  
+`myriad-tapp init / check / pack`
+
+</td>
+</tr>
+</table>
+
+Page: Canvas / WebGL, pack-local assets, audio, optional host-injected [Three.js](https://github.com/mrdoob/three.js). Widgets are not for heavy 3D. [Tapp development](docs/development/TAPP_DEVELOPMENT.md).
+
+---
+
+## Agent
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Chat**
+
+Persona on: speaks only as that persona. No search, booking, generation, or planning. Outfit change and current-player play / pause / skip are allowed.
+
+</td>
+<td width="50%" valign="top">
+
+**Work**
+
+Plan, confirm, execute. Memory, skills, scheduled jobs, MCP. Scope is granted permissions.
+
+</td>
+</tr>
+</table>
+
+May propose handing a noticed item to Work; accepting is not autonomy. Optional TTS, listening, and long-press live conversation when speech / realtime talk is configured.
+
+MCP servers: admin AI settings; hot-reload on save.
+
+---
+
+## Brew
+
+RSS, Notion, RSSHub. Default: anyone can read. Signed-in users mark read and save. Admins manage sources. Friend links can appear on the homepage.
+
+Own articles: `/brew/item/...`. Crawlers receive an HTML shell; browsers receive the app.
+
+---
+
+## Federation
+
+ActivityPub + **MFP**. Discovery uses `BASE_URL`.
+
+Follow via Actor URL (`https://your.domain/users/<name>`) or `@name@your.domain`. Channels and rings are supported. WebFinger, NodeInfo, inboxes, and federation media: **proxy → backend**, not the SPA.
+
+Notes: [Federation](docs/development/FEDERATION.md). Federated domain move ≠ ordinary domain change.
+
+---
+
+## Accounts and visibility
+
+- **Local accounts** after owner creation. Registration on/off. Per-user password login can be disabled after OAuth is linked.
+- **OAuth:** built-in GitHub plus arbitrary OIDC (Authentik, Keycloak, Google, Microsoft, GitLab, Discord, …). Identities bind explicitly; the same email on two issuers is not merged.
+- **Module visibility:** Library, Brew, Reports, Tapp, Agent — everyone / signed-in / admins.
+- **Search & AI:** private (noindex, empty sitemap, no `/llms.txt`), search engines only, AI citations, or fully open.
+- **Site identity:** name, blurb, icon, optional PWA, wallpaper and theme, first-party visitor stats, optional Google Analytics / Umami.
+
+---
+
+## Operations
+
+Production: **proxy + updater**. Only **proxy** publishes a host port. Backend, frontend, Postgres, updater, and docker-guard stay on internal networks.
+
+Version switch and rollback: `/config` → About → Update management. The browser never receives `UPDATE_TOKEN`. Do not overwrite `:latest`.
+
+Bundled Postgres: updater snapshots `./pgdata`; rollback restores data directory and image tags. External Postgres: `MYRIAD_DB_MODE=external`; rollback restores image tags only. [External PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md).
+
+Memory-saver profile for ~1 GiB hosts. `/config` diagnostics run live checks (database, storage, version, egress) and emit a credential-free report.
+
+---
+
+## Requirements
+
+**Production (Docker)**
+
+- Docker + Compose
+- Host port (`HTTP_PORT`, default 80)
+- linux/amd64 or linux/arm64
+
+**From source**
+
+- Rust 1.94+
+- Node.js 24 LTS
+- PostgreSQL 18 (Compose default; floor: release `min_pg_version`)
+
+---
+
+## Deploy
+
+### Docker
 
 ```bash
 git clone https://github.com/myriad-you/Myriad.git
 cd Myriad
 
 cp .env.production.example .env
-# 至少设置：POSTGRES_PASSWORD / JWT_SECRET / CORS_ORIGINS
-# BASE_URL / FRONTEND_URL 填你的公网域名（联邦发现依赖 BASE_URL）
-# UPDATE_TOKEN / UPDATER_GATEWAY_SECRET 留空时由 deploy 脚本生成
+# Required: POSTGRES_PASSWORD / JWT_SECRET / CORS_ORIGINS
+# BASE_URL / FRONTEND_URL = public origin (federation discovery uses BASE_URL)
+# Empty UPDATE_TOKEN / UPDATER_GATEWAY_SECRET → generated by deploy.sh
 
 bash scripts/extra/deploy.sh up
 ```
 
-打开 `http://localhost`（或 `.env` 中的 `HTTP_PORT`），按引导完成初始化。
+Open `http://localhost` (or `HTTP_PORT`) and complete the wizard: database, owner, site name.
+
+Official Compose sets `DATABASE_URL`, so startup requires `MYRIAD_SETUP_SECRET` (`deploy.sh up` generates it). Wizard-entered databases do not use that secret. [Setup secret](docs/deployment/SETUP_BOOTSTRAP.md).
 
 ```text
 host HTTP_PORT → proxy → frontend:1102
                       → backend:1103 → postgres:5432
-                      → updater（仅内网；经 updater-gateway）
+                      → updater (internal; via updater-gateway)
 ```
 
-更完整的部署、备份与排错见 [快速开始](docs/QUICKSTART.md)。
+```bash
+bash scripts/extra/deploy.sh status
+bash scripts/extra/deploy.sh logs
+bash scripts/extra/deploy.sh restart
+bash scripts/extra/deploy.sh down
+```
 
-### 本地开发
+Updates: `/config` → About → Update management. Manual tag bump: `MYRIAD_TAG` / `PROXY_TAG` in `.env`, then `bash scripts/extra/deploy.sh upgrade`.
+
+Bundled Postgres backup:
 
 ```bash
-./scripts/dev.sh                   # 实时 TUI：启动菜单 + 进程 / 数据库 / 日志
-./scripts/dev.sh start             # 本机 PostgreSQL，日志打在当前终端
-./scripts/dev.sh start --docker    # Docker postgres + 新开终端
+mkdir -p backups
+docker compose exec -T postgres pg_dump -U myriad -d myriad > "backups/backup_$(date +%Y%m%d_%H%M%S).sql"
+```
+
+[Quick start](docs/QUICKSTART.md) · [Docker](docs/deployment/DOCKER_DEPLOYMENT.md) · [Ports](docs/deployment/PORTS.md) · [Native](docs/deployment/NATIVE_DEPLOYMENT.md)
+
+---
+
+## Local development
+
+```bash
+./scripts/dev.sh                   # TUI: menu, processes, database, logs
+./scripts/dev.sh start             # local PostgreSQL; logs in this terminal
+./scripts/dev.sh start --docker    # Docker postgres + new terminal
+./scripts/dev.sh doctor            # toolchain, ports, database
+./scripts/dev.sh status            # snapshot
 .\scripts\dev.ps1 start            # Windows
 ```
 
-后端 `:1103`，前端 `:1102`。没有本机库时先 `./scripts/dev.sh db-setup`。
-`./scripts/dev.sh status` 看快照，`monitor` / 无参数进入可管理的 TUI。
-需要在开发 UI 里测「更新管理」时：`./scripts/dev.sh start all-updater`。
-更多细节见 [快速开始](docs/QUICKSTART.md)。
+Backend `:1103`, frontend `:1102`. Without a local database: `./scripts/dev.sh db-setup`.
+
+The frontend dev server proxies `/api/*`, `/health`, and public federation paths to the backend.
+
+Update management in the dev UI: `./scripts/dev.sh start all-updater`. Image replace, maintenance mode, and `pgdata` snapshots: production stack (`scripts/extra/deploy.sh`).
 
 ---
 
-## 技术构成
+## Architecture
 
-| | |
-| --- | --- |
-| **前端** | Astro 7 · React 19 · Tailwind 4 · TypeScript |
-| **后端** | Rust · Axum 0.8 · SeaORM · Tokio |
-| **边缘** | proxy（反向代理 / 维护页）· updater（自更新 / 快照） |
-| **数据** | PostgreSQL 18（Compose 默认镜像） |
-| **扩展** | Agent · Tapp 沙箱 · MCP · ActivityPub / MFP |
-| **部署** | Docker Compose · linux/amd64 + arm64 镜像 |
+```mermaid
+flowchart LR
+  Browser --> Proxy["proxy :HTTP_PORT"]
+  Proxy --> FE["frontend :1102"]
+  Proxy --> BE["backend :1103"]
+  BE --> PG[("postgres :5432")]
+  BE --> GW[updater-gateway]
+  GW --> UP[updater]
+  UP --> Guard[docker-guard]
+```
+
+<details>
+<summary>Development / production topology</summary>
+
+**Development**
+
+```text
+browser → Astro dev (:1102)
+            └─ /api/*, /health, federation public paths → backend (:1103) → postgres
+```
+
+**Production**
+
+```text
+host HTTP_PORT
+  → proxy
+       ├─► frontend (:1102)          [myriad-net]
+       ├─► backend (:1103) → postgres
+       │       └─► updater-gateway → updater   [myriad-admin-net]
+       │                                 └─► docker-guard → Docker sock
+       └─ (rescue) updater when PROXY_ALLOW_DIRECT_UPDATER=true
+```
+
+</details>
+
+Crawler / in-app-share user-agents receive an SEO HTML shell for Home, Library, Brew, Reports, and Tapp; browsers receive the SPA. [Architecture](docs/development/ARCHITECTURE.md).
 
 ---
 
-## 仓库结构
+## Repository
 
 ```
 Myriad/
-├── backend/          Rust API、SeaORM、migrations
-├── frontend/         Astro + React UI、Tapp 运行时、i18n（中/英/日）
-├── proxy/            生产入口反向代理（独立 Cargo 树）
-├── updater/          自更新守护进程（独立 Cargo 树）
-├── crates/           工作区共享库（error、outbound、image-proxy、tapp-…）
-├── shared/           跨组件静态配置（如图片代理域名名单）
-├── docker/           backend / frontend Dockerfile
-├── docs/             开发、部署与功能文档
-├── scripts/          dev.sh / dev.ps1 开发入口；extra/ 部署与手工回归
-├── release/          release.json 契约与覆盖
-├── tools/            tapp-cli 等工具
+├── backend/          Rust API, SeaORM, migrations
+├── frontend/         Astro + React UI, Tapp runtime, i18n (en / zh / ja)
+├── proxy/            production reverse proxy (own Cargo tree)
+├── updater/          self-update daemon (own Cargo tree)
+├── crates/           workspace libraries
+├── shared/           cross-component static config
+├── docker/           backend / frontend Dockerfiles
+├── docs/             development, deploy, features (Chinese)
+├── scripts/          dev.sh / dev.ps1; extra/ deploy
+├── release/          release.json contract
+├── tools/            tapp-cli, contract export
 └── docker-compose*.yml
 ```
 
----
-
-## 文档
-
-| | |
-| --- | --- |
-| [文档门户](docs/INDEX.md) | 总索引 |
-| [快速开始](docs/QUICKSTART.md) | 部署与本地开发 |
-| [架构总览](docs/development/ARCHITECTURE.md) | 系统结构 |
-| [构建说明](docs/development/BUILD.md) | 从源码构建 |
-| [API](docs/API.md) | HTTP API |
-| [Tapp 开发](docs/development/TAPP_DEVELOPMENT.md) | 扩展应用 |
-| [联邦](docs/development/FEDERATION.md) | ActivityPub / MFP |
-| [OAuth / 登录](docs/development/OAUTH.md) | 本地账号与 OIDC |
-| [资料库](docs/features/LIBRARY.md) | Library 功能 |
-| [Docker 部署](docs/deployment/DOCKER_DEPLOYMENT.md) | 生产编排细节 |
-| [端口清单](docs/deployment/PORTS.md) | 端口与暴露面 |
-| [Updater 运维](docs/deployment/UPDATER_QUICKSTART.md) | 自更新通道 |
-| [外部 PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md) | 自带库以外的 PG |
-| [无 Docker 部署](docs/deployment/NATIVE_DEPLOYMENT.md) | 本机 PostgreSQL + 二进制 |
-| [Setup 安装暗号](docs/deployment/SETUP_BOOTSTRAP.md) | 编排安装时的安装暗号 |
+`proxy` and `updater` are independent Cargo trees.
 
 ---
 
-## 贡献
+## Stack
 
-Issue 与 PR 都欢迎。UI 文案改动请同步更新中 / 英 / 日三语 i18n（`zh-CN` / `en-US` / `ja-JP`）。
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Frontend**  
+[Astro](https://github.com/withastro/astro) 7 · [React](https://github.com/facebook/react) 19 · [React Router](https://github.com/remix-run/react-router) 7  
+[Tailwind](https://github.com/tailwindlabs/tailwindcss) 4 · [Vite](https://github.com/vitejs/vite) 8 · [TypeScript](https://github.com/microsoft/TypeScript) 6 · [Motion](https://github.com/motiondivision/motion) · [pnpm](https://github.com/pnpm/pnpm)  
+en / zh / ja
+
+**Live face**  
+[Anime2.5DRig](https://github.com/852wa/Anime2.5DRig) · WebGL2
+
+**Voice**  
+Agora RTC / RTM (optional)
+
+</td>
+<td width="50%" valign="top">
+
+**Backend**  
+[Rust](https://github.com/rust-lang/rust) 1.94 · [Axum](https://github.com/tokio-rs/axum) 0.8 · [Tokio](https://github.com/tokio-rs/tokio)  
+[SeaORM](https://github.com/SeaQL/sea-orm) 2 / [SQLx](https://github.com/launchbadge/sqlx) · [reqwest](https://github.com/seanmonstar/reqwest) 0.13
+
+**Data**  
+[PostgreSQL](https://github.com/postgres/postgres) 18
+
+**Edge**  
+proxy · updater
+
+**Apps**  
+Tapp sandbox · [MCP](https://github.com/modelcontextprotocol/modelcontextprotocol) · ActivityPub / MFP
+
+**Deploy**  
+[Docker Compose](https://github.com/docker/compose) · linux/amd64 + arm64
+
+</td>
+</tr>
+</table>
+
+---
+
+## Docs
+
+Currently Chinese. [Index](docs/INDEX.md).
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**Start**  
+[Quick start](docs/QUICKSTART.md)  
+[Architecture](docs/development/ARCHITECTURE.md)  
+[Build](docs/development/BUILD.md)  
+[API](docs/API.md)
+
+</td>
+<td width="33%" valign="top">
+
+**Product**  
+[Tapp](docs/development/TAPP_DEVELOPMENT.md)  
+[Library](docs/features/LIBRARY.md)  
+[OAuth](docs/development/OAUTH.md)  
+[Federation](docs/development/FEDERATION.md)
+
+</td>
+<td width="33%" valign="top">
+
+**Deploy**  
+[Docker](docs/deployment/DOCKER_DEPLOYMENT.md)  
+[Ports](docs/deployment/PORTS.md)  
+[Updater](docs/deployment/UPDATER_QUICKSTART.md)  
+[External PG](docs/deployment/EXTERNAL_POSTGRES.md)  
+[Native](docs/deployment/NATIVE_DEPLOYMENT.md)  
+[Setup secret](docs/deployment/SETUP_BOOTSTRAP.md)
+
+</td>
+</tr>
+</table>
+
+---
+
+## Contributing
+
+Issues and PRs welcome. UI copy: `en-US` / `zh-CN` / `ja-JP`.
 
 ## License
 
-根仓库与主应用为 [GPL-3.0](LICENSE)。`proxy` / `updater` 组件另行声明为 AGPL-3.0。
+The host (`backend`, `frontend`, and workspace crates) and `proxy` / `updater` are [AGPL-3.0](LICENSE). A Tapp that talks to the host only through the documented Bridge is an independent work; its license is the author's (see the AGPL section 7 additional permission in `LICENSE`).
+
+The Tapp contract and tooling (`crates/tapp-contract`, `tools/tapp-cli`, `tools/tapp-contract-export`) are [Apache-2.0](LICENSES/Apache-2.0.txt).
+
+2.5D playback: [Anime2.5DRig](https://github.com/852wa/Anime2.5DRig) (MIT).
 
 <br/>
 
 <div align="center">
-<sub><i>让每一个你，被看见</i> · <i>A myriad of lights, in one place.</i></sub>
+<sub><i>A myriad of lights, in one place.</i></sub>
+<br/>
+<sub><strong>English</strong> · <a href="README.zh-CN.md">中文</a> · <a href="README.ja.md">日本語</a></sub>
 <br/>
 <sub>Maintained by <a href="https://github.com/myriad-you">@myriad-you</a></sub>
 </div>

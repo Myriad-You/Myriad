@@ -32,16 +32,13 @@ pub struct RegisterComponentRequest {
 fn component_http_error(err: ComponentRegistryError) -> (StatusCode, Json<Value>) {
     let status =
         StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    match &err {
-        ComponentRegistryError::InvalidConfig { .. } => (
-            status,
-            Json(json!({
-                "error": err.message(),
-                "code": err.code(),
-            })),
-        ),
-        _ => (status, Json(json!({ "error": err.message() }))),
-    }
+    (
+        status,
+        Json(json!({
+            "error": err.message(),
+            "code": err.code(),
+        })),
+    )
 }
 
 fn installation_owner(

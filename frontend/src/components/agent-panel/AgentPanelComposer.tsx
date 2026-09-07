@@ -50,6 +50,7 @@ import {
   cycleAgentPanelMode,
   useAgentPanelMode,
 } from './agentPanelMode'
+import { AGENT_SWAP_MS } from './agentPresenceState'
 import { agentStatusForLane } from './agentStatus'
 import {
   setAgentStatusRecording,
@@ -83,7 +84,11 @@ function fitComposerField(el: HTMLTextAreaElement | null): void {
 }
 
 export interface AgentPanelComposerProps {
-  onSubmit: (text: string, attachments?: AgentAttachment[]) => void
+  onSubmit: (
+    text: string,
+    attachments?: AgentAttachment[],
+    mode?: AgentPanelMode,
+  ) => void
   /** 展开动画期间就聚焦，用户一开口就能打字 */
   autoFocus?: boolean
   /** 跟在上下文后面的操作：撤销 */
@@ -233,7 +238,12 @@ function ComposerAction({
       : actionLabel
 
   return (
-    <AgentPresence open={!!kind} kind="chip" from="self">
+    <AgentPresence
+      open={!!kind}
+      kind="chip"
+      from="self"
+      durationMs={AGENT_SWAP_MS}
+    >
       {kind ? (
         <button
           type="button"
@@ -658,8 +668,16 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
                 <button
                   type="button"
                   className="agent-panel-tag"
-                  onClick={() => onSubmit(t.agentPanel.prompts.summarize)}
+                  data-tone={chatting ? 'primary' : undefined}
+                  onClick={() =>
+                    onSubmit(t.agentPanel.prompts.summarize, undefined, 'work')
+                  }
                 >
+                  {chatting ? (
+                    <span className="agent-panel-tag-kicker">
+                      {t.agentPanel.mode.work}
+                    </span>
+                  ) : null}
                   <span className="agent-panel-tag-text">
                     {t.agentPanel.actions.summarize}
                   </span>
@@ -673,8 +691,16 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
                 <button
                   type="button"
                   className="agent-panel-tag"
-                  onClick={() => onSubmit(t.agentPanel.prompts.translate)}
+                  data-tone={chatting ? 'primary' : undefined}
+                  onClick={() =>
+                    onSubmit(t.agentPanel.prompts.translate, undefined, 'work')
+                  }
                 >
+                  {chatting ? (
+                    <span className="agent-panel-tag-kicker">
+                      {t.agentPanel.mode.work}
+                    </span>
+                  ) : null}
                   <span className="agent-panel-tag-text">
                     {t.agentPanel.actions.translate}
                   </span>
@@ -797,7 +823,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
           aria-hidden={!chatting}
           inert={!chatting}
         >
-          <AgentPanelFace />
+          <AgentPanelFace playbackEnabled={chatting} />
         </div>
         <div className="agent-panel-field-stage">
           <div

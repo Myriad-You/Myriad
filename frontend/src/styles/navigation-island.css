@@ -136,13 +136,15 @@ html[data-perf-mode='exlight'] .nav-container[data-nav-switch='in'] {
 
 /* Dynamic Island - 主岛 */
 .dynamic-island {
-  background: rgb(255 255 255 / 50%);
+  background: var(--chrome-sheen), var(--chrome-fill);
   backdrop-filter: blur(20px);
   border-radius: 30px;
   padding: 10px;
-  border: 2px solid rgb(99 102 241 / 15%);
   border: 2px solid color-mix(in srgb, var(--color-primary) 15%, transparent);
-  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 80%);
+  box-shadow:
+    var(--chrome-shine),
+    var(--chrome-hairline),
+    var(--chrome-shadow);
   transition:
     height 0.45s cubic-bezier(0.25, 1.3, 0.5, 1),
     width 0.45s cubic-bezier(0.25, 1.3, 0.5, 1),
@@ -154,10 +156,14 @@ html[data-perf-mode='exlight'] .nav-container[data-nav-switch='in'] {
 }
 
 html.dark .dynamic-island {
-  background: rgb(26 26 26 / 50%);
-  border: 2px solid rgb(99 102 241 / 20%);
-  border: 2px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
-  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 10%);
+  border-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+html[data-perf-mode='light'] .dynamic-island,
+html[data-perf-mode='exlight'] .dynamic-island {
+  /* stylelint-disable-next-line property-no-vendor-prefix -- Safari < 16.4 */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* 流动渐变边框（自 astro 页面级样式迁移，原双份声明已删） */
@@ -179,9 +185,10 @@ html.dark .dynamic-island {
     linear-gradient(#fff 0 0);
   mask-composite: exclude;
   animation: border-flow 8s linear infinite;
+  animation-play-state: paused;
   background-size: 300% 300%;
   pointer-events: none;
-  opacity: 0.8;
+  opacity: 0.55;
   transition: opacity 0.3s ease;
 }
 
@@ -191,19 +198,17 @@ html.dark .dynamic-island {
  */
 @media (hover: hover) {
   .dynamic-island:hover {
-    background: rgb(255 255 255 / 60%);
-    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 90%);
-    border-color: rgb(99 102 241 / 25%);
+    background: var(--chrome-sheen), var(--chrome-fill-hover);
+    box-shadow:
+      var(--chrome-shine),
+      var(--chrome-hairline),
+      var(--chrome-shadow-raised);
     border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
   }
 
-  html.dark .dynamic-island:hover {
-    background: rgb(26 26 26 / 60%);
-    box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 15%);
-  }
-
   .dynamic-island:hover::before {
-    opacity: 1;
+    opacity: 0.9;
+    animation-play-state: running;
   }
 }
 
@@ -215,6 +220,12 @@ html.dark .dynamic-island {
 
   50% {
     background-position: 100% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dynamic-island::before {
+    animation: none;
   }
 }
 
@@ -267,7 +278,11 @@ html[data-nav-layout='mobile'] .dynamic-island {
   color: var(--text-tertiary);
   -webkit-tap-highlight-color: transparent;
   user-select: none;
-  transition: all 0.2s ease;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
   min-width: 44px;
   min-height: 44px;
   display: flex;
@@ -491,7 +506,15 @@ html[data-nav-layout='desktop'] .dynamic-island {
 
 html[data-nav-layout='desktop'] .dynamic-island::before {
   animation: border-flow 8s linear infinite;
-  opacity: 0.8;
+  animation-play-state: paused;
+  opacity: 0.55;
+}
+
+@media (hover: hover) {
+  html[data-nav-layout='desktop'] .dynamic-island:hover::before {
+    animation-play-state: running;
+    opacity: 0.9;
+  }
 }
 
 /* 小屏收紧（自 astro 迁移） */
@@ -563,3 +586,16 @@ html[data-nav-layout='desktop'] .dynamic-island::before {
   pointer-events: none !important;
   transition: opacity 0.3s ease !important;
 }
+
+/*
+ * Opacity:0 still composites backdrop-filter. Idle-hide / immersive would
+ * keep sampling #wallpaper and freeze its mouse-follow blur + parallax.
+ */
+.nav-container[data-nav-idle='hidden'] .dynamic-island,
+.nav-container.immersive .dynamic-island {
+  /* stylelint-disable-next-line property-no-vendor-prefix -- Safari < 16.4 */
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* 教程不得把沉浸态导航岛拉回来：首页编辑会藏岛，编辑教程也不讲导航。 */

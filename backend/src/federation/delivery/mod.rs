@@ -1,11 +1,15 @@
 //! Outbound federation delivery queue, user observability APIs, and dispatch helpers.
 //!
-//! Real module: [`queue_and_query`]. Classification/retry unit tests live in
-//! [`dispatch_helpers`].
+//! Real modules: [`queue`], [`query`], [`dispatch`]. Classification/retry unit
+//! tests live in [`dispatch_helpers`].
 
-mod queue_and_query;
+mod dispatch;
+mod query;
+mod queue;
 
-pub use queue_and_query::*;
+pub use dispatch::*;
+pub use query::*;
+pub use queue::*;
 
 #[cfg(test)]
 mod dispatch_helpers;

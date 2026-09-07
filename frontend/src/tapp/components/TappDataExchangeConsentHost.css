@@ -7,7 +7,6 @@
   justify-content: center;
   padding: 24px;
   background: rgb(7 10 18 / 58%);
-  backdrop-filter: blur(12px);
   animation: tapp-data-consent-fade 160ms ease-out;
 }
 

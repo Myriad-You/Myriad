@@ -63,27 +63,6 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// 创建 RSSHub 实例的请求
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct CreateInstanceRequest {
-    pub name: String,
-    pub url: String,
-    pub access_key: Option<String>,
-    pub priority: Option<i32>,
-}
-
-/// 更新 RSSHub 实例的请求
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct UpdateInstanceRequest {
-    pub name: Option<String>,
-    pub url: Option<String>,
-    pub access_key: Option<String>,
-    pub priority: Option<i32>,
-    pub enabled: Option<bool>,
-}
-
 /// RSSHub 实例响应
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InstanceResponse {
@@ -131,15 +110,6 @@ impl From<Model> for InstanceResponse {
             created_at: m.created_at.timestamp_millis(),
         }
     }
-}
-
-/// 用于选择最佳实例的扩展信息
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct InstanceWithScore {
-    pub instance: Model,
-    /// 综合评分（越高越好）
-    pub score: f64,
 }
 
 impl Model {

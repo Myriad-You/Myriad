@@ -11,7 +11,7 @@
  * - 动画级别自适应
  */
 
-import type { WidgetComponentProps } from '../WidgetGrid'
+import type { WidgetComponentProps } from '../widgetGridTypes'
 import {
   FaGithub,
   FaSteam,
@@ -50,6 +50,7 @@ import { Spinner } from '../Spinner'
 import { parseCustomPlatforms } from './parseCustomPlatforms'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
+import { WidgetSettingsSection, WidgetSettingsTip } from './shared/WidgetSettingsTip'
 import { WidgetShell } from './shared/WidgetShell'
 
 // 使用内联 SVG 图标，避免 react-icons 全量导入
@@ -328,6 +329,7 @@ const platformInfoCache = new Map<
   { info: PlatformInfo; timestamp: number }
 >()
 const PLATFORM_INFO_CACHE_TTL = 60 * 1000 // 1分钟缓存
+const MAX_PLATFORM_INFO_CACHE = 50
 
 // 自定义平台存储管理
 let customPlatformsData: CustomPlatformData[] = []
@@ -451,6 +453,7 @@ function customPlatformToPlatformInfo(
   if (cached && now - cached.timestamp < PLATFORM_INFO_CACHE_TTL) {
     return cached.info
   }
+  if (cached) platformInfoCache.delete(custom.id)
 
   // 创建图标元素 - 支持 react-icons 名称映射和 URL
   let icon: React.ReactNode
@@ -503,7 +506,13 @@ function customPlatformToPlatformInfo(
   }
 
   // 存入缓存
+  platformInfoCache.delete(custom.id)
   platformInfoCache.set(custom.id, { info, timestamp: now })
+  while (platformInfoCache.size > MAX_PLATFORM_INFO_CACHE) {
+    const oldest = platformInfoCache.keys().next().value
+    if (oldest === undefined) break
+    platformInfoCache.delete(oldest)
+  }
 
   return info
 }
@@ -689,7 +698,7 @@ const CustomPlatformForm = memo(
   }) => {
     const { t } = useI18n()
     return (
-      <div className="p-4 space-y-4 max-h-96 overflow-y-auto">
+      <div className="space-y-4 max-h-96 overflow-y-auto">
         {/* 平台名称 */}
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
@@ -1037,61 +1046,6 @@ const GlobalSettingsModal = memo(() => {
   }, [])
 
   const { isOpen, selectedPlatformId, anchorRect, onSelect } = globalModalState
-  const modalRef = useRef<HTMLDivElement>(null)
-
-  // 使用 useMemo 计算位置，避免重复计算
-  const position = useMemo(() => {
-    if (!anchorRect) return { top: 0, left: 0 }
-
-    const modalWidth = 280
-    const modalHeight = 280
-    const padding = 16
-
-    let top = anchorRect.bottom + 8
-    let left = anchorRect.left + (anchorRect.width - modalWidth) / 2
-
-    if (left + modalWidth > window.innerWidth - padding) {
-      left = window.innerWidth - modalWidth - padding
-    }
-    if (left < padding) left = padding
-    if (top + modalHeight > window.innerHeight - padding) {
-      top = anchorRect.top - modalHeight - 8
-    }
-    if (top < padding) top = padding
-
-    return { top, left }
-  }, [anchorRect])
-
-  // 优化事件监听器 - 分离 mousedown 和 keydown 处理
-  useEffect(() => {
-    if (!isOpen) return
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        closeSettingsModal()
-      }
-    }
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        closeSettingsModal()
-      }
-    }
-
-    // 延迟添加事件监听，避免立即触发
-    const timer = setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside, {
-        passive: true,
-      })
-      document.addEventListener('keydown', handleKeyDown)
-    }, 100)
-
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen])
 
   // 处理平台选择
   const handleSelect = useCallback(
@@ -1274,52 +1228,19 @@ const GlobalSettingsModal = memo(() => {
     [t],
   )
 
-  // 提前返回，不渲染任何东西
-  if (!isOpen) return null
-
-  return createPortal(
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-10000"
-      style={{ pointerEvents: 'none' }}
+  return (
+    <WidgetSettingsTip
+      open={isOpen}
+      anchor={anchorRect ?? null}
+      title={t.widgets.socialNetwork}
+      width={300}
+      height={420}
+      onClose={closeSettingsModal}
     >
-      <motion.div
-        ref={modalRef}
-        initial={{ opacity: 0, scale: 0.95, y: -5 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: -5 }}
-        transition={{ duration: 0.15 }}
-        className="absolute glass rounded-2xl shadow-2xl overflow-hidden border border-white/20 dark:border-white/10"
-        style={{
-          top: position.top,
-          left: position.left,
-          width: 280,
-          pointerEvents: 'auto',
-        }}
-      >
-        {/* 标题栏 */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/50 dark:border-white/10">
-          <span className="font-bold text-sm text-gray-800 dark:text-gray-200">
-            {t.socialNetwork.selectPlatform}
-          </span>
-          <button
-            type="button"
-            onClick={closeSettingsModal}
-            className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-            title={t.socialNetworkWidget.close}
-            aria-label={t.socialNetworkWidget.close}
-          >
-            <FaTimes size={12} className="text-gray-500 dark:text-gray-400" />
-          </button>
-        </div>
-
-        {/* 平台列表或自定义表单 */}
-        {!showCustomForm ? (
-          <>
-            {/* 平台列表 - 使用优化后的 PlatformButton */}
-            <div className="p-3 space-y-1.5 max-h-80 overflow-y-auto">
+      {!showCustomForm ? (
+        <>
+          <WidgetSettingsSection label={t.socialNetwork.selectPlatform}>
+            <div className="widget-settings-tip__body space-y-1.5">
               {allPlatforms.map((platform) => (
                 <PlatformButton
                   key={platform.id}
@@ -1333,52 +1254,36 @@ const GlobalSettingsModal = memo(() => {
                 />
               ))}
             </div>
-
-            {/* 添加自定义平台按钮 */}
-            <div className="p-3 pt-0">
-              <button
-                type="button"
-                onClick={() => setShowCustomForm(true)}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--color-primary)] hover:opacity-90 text-white font-medium transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98]"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                {t.socialNetwork.create}
-              </button>
-            </div>
-          </>
-        ) : (
-          <CustomPlatformForm
-            formData={customFormData}
-            onChange={setCustomFormData}
-            onSubmit={handleCustomFormSubmit}
-            onCancel={() => {
-              setShowCustomForm(false)
-              setCustomFormData({
-                name: '',
-                username: '',
-                linkType: 'url',
-                linkPattern: '',
-                popupText: '',
-              })
-            }}
-            isGenerating={isGeneratingIcon}
-          />
-        )}
-      </motion.div>
-    </motion.div>,
-    document.body,
+          </WidgetSettingsSection>
+          <WidgetSettingsSection>
+            <button
+              type="button"
+              onClick={() => setShowCustomForm(true)}
+              className="widget-settings-tip__save"
+            >
+              {t.socialNetwork.create}
+            </button>
+          </WidgetSettingsSection>
+        </>
+      ) : (
+        <CustomPlatformForm
+          formData={customFormData}
+          onChange={setCustomFormData}
+          onSubmit={handleCustomFormSubmit}
+          onCancel={() => {
+            setShowCustomForm(false)
+            setCustomFormData({
+              name: '',
+              username: '',
+              linkType: 'url',
+              linkPattern: '',
+              popupText: '',
+            })
+          }}
+          isGenerating={isGeneratingIcon}
+        />
+      )}
+    </WidgetSettingsTip>
   )
 })
 
@@ -2114,6 +2019,7 @@ export const SocialNetworkWidget = memo(
           <WidgetLongPressHint
             visible={isEditMode}
             title={t.socialNetwork.longPressToEdit}
+            onClick={openSettings}
           />
         </WidgetShell>
 

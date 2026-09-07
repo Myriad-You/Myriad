@@ -6,6 +6,7 @@
  * - 账号：`users.avatar_url`
  * - 每个已绑定 OAuth 身份
  * - 站长的每个平台画像（B站 / GitHub / YouTube / Steam）
+ * - 站点人设的 Q 版贴纸头像（生成过才出现，人设关掉就收回）
  *
  * 同站合并由后端 `list_avatar_sources` 完成（如 GitHub OAuth + 站长 GitHub
  * 抓取 → 一行 `kind=platform`）；本组件只消费列表，不二次去重。
@@ -136,11 +137,13 @@ export function AvatarSourcePicker({
       key: sourceKey(source.kind, source.ref || null),
       kind: source.kind,
       ref: source.ref || null,
-      // account 的 label 由后端固定返回 'account'，文案在前端本地化
+      // account / persona 的 label 由后端固定返回标识串，文案在前端本地化
       label:
         source.kind === 'account'
           ? t.userModal.profileSourceAccount
-          : source.label,
+          : source.kind === 'persona'
+            ? t.userModal.profileSourcePersona
+            : source.label,
       sublabel: source.sublabel,
       avatarUrl: source.avatar_url,
     })),

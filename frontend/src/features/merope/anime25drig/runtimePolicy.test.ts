@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   anime25DRuntimeKey,
+  intersectionKeepsAnime25DVisible,
   resolveAnime25DRenderSurface,
   shouldAnimateAnime25D,
+  shouldApplyAnime25DResize,
   shouldUseAnime25DRuntime,
 } from './runtimePolicy'
 
@@ -27,6 +29,37 @@ test('falls back only for the exact runtime asset that failed', () => {
       atlasUrl: '/atlas-b.png',
       runtimeKey: replacement,
       failedRuntimeKey: first,
+    }),
+    true,
+  )
+})
+
+test('zero-size boxes do not resize the WebGL canvas', () => {
+  assert.equal(shouldApplyAnime25DResize(0, 160), false)
+  assert.equal(shouldApplyAnime25DResize(120, 0), false)
+  assert.equal(shouldApplyAnime25DResize(Number.NaN, 160), false)
+  assert.equal(shouldApplyAnime25DResize(120, 160), true)
+})
+
+test('zero-size intersection stays visible until layout has a box', () => {
+  assert.equal(
+    intersectionKeepsAnime25DVisible({
+      isIntersecting: false,
+      boundingClientRect: { width: 0, height: 0 },
+    }),
+    true,
+  )
+  assert.equal(
+    intersectionKeepsAnime25DVisible({
+      isIntersecting: false,
+      boundingClientRect: { width: 120, height: 160 },
+    }),
+    false,
+  )
+  assert.equal(
+    intersectionKeepsAnime25DVisible({
+      isIntersecting: true,
+      boundingClientRect: { width: 120, height: 160 },
     }),
     true,
   )

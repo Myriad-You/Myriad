@@ -1,0 +1,51 @@
+diff --git a/dist/cjs/index-6W16WHlG.js b/dist/cjs/index-6W16WHlG.js
+index c4a6c6f69082f7d0573b99e6d7021cab6bffc6bd..7916d051bd696e16dff71b46261bf2eba993742d 100644
+--- a/dist/cjs/index-6W16WHlG.js
++++ b/dist/cjs/index-6W16WHlG.js
+@@ -737,7 +737,8 @@ function createMotionComponent(Component, { forwardMotionProps = false, type } =
+          * The mount order and hierarchy is specific to ensure our element ref
+          * is hydrated by the time features fire their effects.
+          */
+-        return (jsxRuntime.jsxs(MotionContext.Provider, { value: context, children: [MeasureLayout && context.visualElement ? (jsxRuntime.jsx(MeasureLayout, { visualElement: context.visualElement, ...configAndProps })) : null, useRender(Component, props, useMotionRef(visualState, context.visualElement, externalRef), visualState, isStatic, forwardMotionProps, isSVG)] }));
++        const rendered = useRender(Component, props, useMotionRef(visualState, context.visualElement, externalRef), visualState, isStatic, forwardMotionProps, isSVG);
++        return (jsxRuntime.jsxs(MotionContext.Provider, { value: context, children: [MeasureLayout && context.visualElement ? (jsxRuntime.jsx(MeasureLayout, { key: "measure-layout", visualElement: context.visualElement, ...configAndProps })) : null, React.isValidElement(rendered) ? React.cloneElement(rendered, { key: "html" }) : rendered] }));
+     }
+     MotionDOMComponent.displayName = `motion.${typeof Component === "string"
+         ? Component
+diff --git a/dist/es/motion/index.mjs b/dist/es/motion/index.mjs
+index a3485d2a7d1a2099ad95a4c3e42933cca5e186dc..b598802bc8bb9f7191e1ca420a455c3769f6ffdb 100644
+--- a/dist/es/motion/index.mjs
++++ b/dist/es/motion/index.mjs
+@@ -1,7 +1,7 @@
+ "use client";
+ import { jsxs, jsx } from 'react/jsx-runtime';
+ import { warning, invariant } from 'motion-utils';
+-import { forwardRef, useContext } from 'react';
++import { cloneElement, forwardRef, isValidElement, useContext } from 'react';
+ import { LayoutGroupContext } from '../context/LayoutGroupContext.mjs';
+ import { LazyContext } from '../context/LazyContext.mjs';
+ import { MotionConfigContext } from '../context/MotionConfigContext.mjs';
+@@ -65,7 +65,8 @@ function createMotionComponent(Component, { forwardMotionProps = false, type } =
+          * The mount order and hierarchy is specific to ensure our element ref
+          * is hydrated by the time features fire their effects.
+          */
+-        return (jsxs(MotionContext.Provider, { value: context, children: [MeasureLayout && context.visualElement ? (jsx(MeasureLayout, { visualElement: context.visualElement, ...configAndProps })) : null, useRender(Component, props, useMotionRef(visualState, context.visualElement, externalRef), visualState, isStatic, forwardMotionProps, isSVG)] }));
++        const rendered = useRender(Component, props, useMotionRef(visualState, context.visualElement, externalRef), visualState, isStatic, forwardMotionProps, isSVG);
++        return (jsxs(MotionContext.Provider, { value: context, children: [MeasureLayout && context.visualElement ? (jsx(MeasureLayout, { key: "measure-layout", visualElement: context.visualElement, ...configAndProps })) : null, isValidElement(rendered) ? cloneElement(rendered, { key: "html" }) : rendered] }));
+     }
+     MotionDOMComponent.displayName = `motion.${typeof Component === "string"
+         ? Component
+diff --git a/dist/framer-motion.dev.js b/dist/framer-motion.dev.js
+index 1033b1c009e539180629f08fdcb910aaec353887..a2abfcce6d640b10822910e3e9b0497d56e22a1d 100644
+--- a/dist/framer-motion.dev.js
++++ b/dist/framer-motion.dev.js
+@@ -12501,7 +12501,8 @@
+              * The mount order and hierarchy is specific to ensure our element ref
+              * is hydrated by the time features fire their effects.
+              */
+-            return (jsxs(MotionContext.Provider, { value: context, children: [MeasureLayout && context.visualElement ? (jsx(MeasureLayout, { visualElement: context.visualElement, ...configAndProps })) : null, useRender(Component, props, useMotionRef(visualState, context.visualElement, externalRef), visualState, isStatic, forwardMotionProps, isSVG)] }));
++            const rendered = useRender(Component, props, useMotionRef(visualState, context.visualElement, externalRef), visualState, isStatic, forwardMotionProps, isSVG);
++            return (jsxs(MotionContext.Provider, { value: context, children: [MeasureLayout && context.visualElement ? (jsx(MeasureLayout, { key: "measure-layout", visualElement: context.visualElement, ...configAndProps })) : null, React$1.isValidElement(rendered) ? React$1.cloneElement(rendered, { key: "html" }) : rendered] }));
+         }
+         MotionDOMComponent.displayName = `motion.${typeof Component === "string"
+         ? Component

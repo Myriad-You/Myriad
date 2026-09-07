@@ -10,7 +10,7 @@
 
 **症状**：控制台显示此错误，但 Tapp 功能正常。
 
-**原因**：浏览器在 iframe 沙箱中清理 blob URL 时的正常行为。当 Tapp 页面卸载或刷新时触发。
+**原因**：浏览器在 iframe 沙箱中清理 blob URL 时的正常行为。当该沙箱被销毁或刷新时触发。
 
 **解决方案**：无需处理，这是预期行为，不影响功能。沙箱已配置全局错误处理器来抑制此类错误。
 
@@ -469,7 +469,10 @@ HTTP 声明式 API 都需要，不只是 `protected`）：
 
 `Tapp.ai.tasks.create` 使用 `operation: "image"`，参考图放在 `input.referenceImages`，
 例如 `{ prompt: "保留第一张图的人物，采用第二张图的画风", referenceImages: [subjectDataUrl, styleDataUrl] }`。
-Manifest 必须声明 `ai:image`、AI `image` operation 和 `image` output；实际调用由授予权限决定。
+Manifest 必须同时声明 `ai:image` **和** `manifest.ai`（`protocolVersion: 2`、`operations`
+含 `"image"`、`outputFormats` 含 `"image"`）；缺 `ai` 块会返回 `AI_V2_NOT_DECLARED`。
+`create()` 返回 `queued`，要 `get` / `subscribe` 等到 `completed` 再读
+`task.result.value.url`。实际调用由授予权限决定。Playground 临时预览不执行 AI。
 
 | 症状 / 错误码 | 检查与处理 |
 | ------------- | ---------- |
@@ -506,7 +509,7 @@ Manifest 必须声明 `ai:image`、AI `image` operation 和 `image` output；实
 1. 上传前按类型检查 `file.size`（图片 ≤10 MiB，视频 ≤50 MiB）。
 2. 压缩图片或降低视频码率后再 `uploadMedia`。
 3. 不要对非 media action 塞大 base64（会撞默认 1 MiB）。
-4. `file.download` 内容上限 10 MiB，与 storage 单值 1 MiB 不同。
+4. `file.download` 文本 / base64 / 宿主代取生图·3D 上限 32 MiB，与 storage 单值 1 MiB 不同。
 
 ### ❌ 附件 URL 被拒绝 / `Attachment URL must look like /media/federation/...`
 

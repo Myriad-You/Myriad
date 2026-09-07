@@ -20,7 +20,7 @@ import type {
   TappCodeStructure,
   TappInstance,
 } from '../../tapp/types'
-import type { WidgetComponentProps } from '../WidgetGrid'
+import type { WidgetComponentProps } from '../widgetGridTypes'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useNavigate } from 'react-router-dom'
@@ -31,6 +31,7 @@ import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { loadWidgetResources } from '../../tapp/runtime/sandbox/resourceLoader'
 import { getTappRuntime } from '../../tapp/runtime/TappRuntime'
 import { TappWidgetSandbox } from '../../tapp/runtime/TappWidgetSandbox'
+import { onTappWidgetInvalidate } from '../../tapp/runtime/WidgetRuntimeSignals'
 import { widgetPerfMark } from '../../tapp/runtime/WidgetLoadPerf'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
 import { getTappIconStyle } from '../../tapp/utils/tappColors'
@@ -43,6 +44,11 @@ import {
   WidgetSkeleton,
   WidgetSkeletonCover,
 } from './shared/WidgetSkeleton'
+import {
+  intersectionKeepsTappWidgetMounted,
+  TAPP_WIDGET_VIEWPORT_OFFSCREEN_RECHECKS,
+  TAPP_WIDGET_VIEWPORT_RECHECK_MS,
+} from './tappWidgetViewport'
 
 export interface TappWidgetProps extends WidgetComponentProps {
   /** Tapp Widget 完整 ID (tapp.{tappId}.{widgetId}) */
@@ -433,10 +439,10 @@ function TappWidgetRuntime({
   // 默认 true 避免首屏闪烁；observer 首次回调会立即校正离屏项。
   //
   // 防误判（issue #72）：刷新后页面可能处于入场动画（transform 位移）、浏览器
-  // 滚动位置恢复或布局未完成的窗口期，此时首次回调可能把视口内的 widget 误报
-  // 为离屏，且此后没有滚动/重排事件触发重估，widget 会永久卡在 hold 状态
-  // （仅切 Tab / 调窗 / 改布局等人工操作才恢复）。因此非交叉回调不立即采纳：
-  // 延迟 ~400ms 后重新观察一次，用稳定后的几何重新判定（最多复查一次）。
+  // 滚动位置恢复或布局未完成的窗口期。0×0 或未撑开的盒子不能当离屏——
+  // 缓存命中时宿主挂得更早，首次回调更容易是空盒子；此后没有滚动/重排
+  // 就不会再估，widget 会永久卡在 hold。非交叉且已有真实盒子时也不立即
+  // 采纳：入场 spring/tween 约 480ms，复查几次再用稳定几何判定。
   const [inViewport, setInViewport] = useState(true)
   const viewportObserverRef = useRef<IntersectionObserver | null>(null)
   const viewportNodeRef = useRef<HTMLDivElement | null>(null)
@@ -460,7 +466,7 @@ function TappWidgetRuntime({
       (entries) => {
         const entry = entries[0]
         if (!entry) return
-        if (entry.isIntersecting) {
+        if (intersectionKeepsTappWidgetMounted(entry)) {
           viewportRecheckCountRef.current = 0
           viewportRecheckPendingRef.current = false
           setInViewport(true)
@@ -468,9 +474,12 @@ function TappWidgetRuntime({
         }
         // 复查等待中：忽略后续非交叉回调，等待 re-observe 的稳定结果。
         if (viewportRecheckPendingRef.current) return
-        // 已复查过一次（re-observe 后仍非交叉）才采纳离屏，
+        // 已复查足够次数（re-observe 后仍非交叉）才采纳离屏，
         // 保持屏外省电设计。
-        if (viewportRecheckCountRef.current >= 1) {
+        if (
+          viewportRecheckCountRef.current >=
+          TAPP_WIDGET_VIEWPORT_OFFSCREEN_RECHECKS
+        ) {
           setInViewport(false)
           return
         }
@@ -485,7 +494,7 @@ function TappWidgetRuntime({
           if (!host || !obs || !host.isConnected) return
           obs.unobserve(host)
           obs.observe(host)
-        }, 400)
+        }, TAPP_WIDGET_VIEWPORT_RECHECK_MS)
       },
       { rootMargin: '300px' },
     )
@@ -523,6 +532,18 @@ function TappWidgetRuntime({
     },
     [],
   )
+
+  useEffect(() => {
+    if (!tappInstance || !widget) return
+    const localWidgetId =
+      widget.config.id || widget.id.split('.').pop() || ''
+    if (!localWidgetId) return
+    return onTappWidgetInvalidate((event) => {
+      if (event.tappId !== tappInstance.id) return
+      if (event.widgetId !== localWidgetId) return
+      requestRefresh()
+    })
+  }, [tappInstance, widget, requestRefresh])
 
   // ⚡ 监听尺寸变化，重新加载资源
   useEffect(() => {

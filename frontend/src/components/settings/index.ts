@@ -14,6 +14,7 @@ export type {
 } from './DateRangePopover'
 export {
   getSettingGuidesCatalog,
+  loadSettingGuidesCatalog,
   getTappPermissionGuide,
   getTappPermissionGuides,
   guideAnchorId,
@@ -72,6 +73,8 @@ export { SliderItem } from './items/SliderItem'
 // 具体设置项组件
 export { SwitchItem } from './items/SwitchItem'
 export { ToggleSwitch } from './items/ToggleSwitch'
+export type { ToggleSwitchProps } from './items/ToggleSwitch'
+export type { ToggleSwitchPreview } from './items/toggleSwitchPreview'
 export { ManagedList } from './ManagedList'
 export type {
   ManagedListAction,
@@ -169,6 +172,16 @@ export type {
   SettingTitleTagProps,
   SettingTitleTagVariant,
 } from './SettingTitleTag'
+export { GitHubProjectBadge } from './GitHubProjectBadge'
+export type { GitHubProjectBadgeProps } from './GitHubProjectBadge'
+export {
+  fetchGithubStarCount,
+  formatStarCount,
+  githubRepoUrl,
+  isGithubRepoUrl,
+  parseGithubRepoUrl,
+} from './githubProject'
+export type { GithubRepoRef } from './githubProject'
 export { SetupFlow } from './SetupFlow'
 
 export type { SetupFlowProps, SetupFlowStep } from './SetupFlow'

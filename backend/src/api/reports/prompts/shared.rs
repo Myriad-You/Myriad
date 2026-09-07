@@ -25,9 +25,10 @@ pub const VIBE: &str = "\
 vibe：≤20 汉字，一行。禁换行、引号、客套。\
 禁：待观察、内容创作者、很有想法、有趣的灵魂、持续输出。";
 
-/// News / chain / support accounts are not taste. X graphs.
+/// X graphs: keep only identifiable taste; drop leftovers instead of a catch-all.
 pub const MASS_ACCOUNTS: &str = "\
-禁把新闻媒体、连锁品牌、便利店、官方客服、抽奖羊毛号当品味。\
+圈层只收 name/description 能看出兴趣的账号。看不清就丢弃，禁止收容圈层。\
+不同圈层覆盖不同切面，禁止多数挤进同一圈。\
 禁圈层名写成游戏、科技、娱乐这种大类。";
 
 /// Bangumi and MAL. taste_profile is the badge hook.

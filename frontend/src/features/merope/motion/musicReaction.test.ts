@@ -55,3 +55,54 @@ test('humming alternates with listening in reproducible non-fixed bouts', () => 
     ).size > 3,
   )
 })
+
+test('music riding the participation line is not a decision twice a bar', () => {
+  const planner = new MusicReactionPlanner()
+  planner.reset('threshold-track')
+  const modes: string[] = []
+  // Plenty of tracks sit right at this level. Their energy dips under it on
+  // the off-beat and back over it on the beat, which is the music playing,
+  // not the character changing its mind about joining in.
+  for (let frame = 0; frame < 120; frame += 1) {
+    const beat = ((frame % 30) / 30) * Math.PI * 2
+    modes.push(
+      planner.sample(
+        musicSignalAt(frame / 60, {
+          audio: {
+            energy: 0.12 + 0.02 * Math.sin(beat),
+            bass: 0.4,
+            pulse: 0.4,
+            presence: 0.4,
+          },
+        }),
+        frame * 16.7,
+        false,
+        false,
+      ),
+    )
+  }
+  const flips = modes.filter(
+    (mode, index) => index > 0 && mode !== modes[index - 1],
+  ).length
+  assert.equal(flips, 0, `participation changed ${flips} times in two seconds`)
+})
+
+test('a sustained drop still becomes listening', () => {
+  const planner = new MusicReactionPlanner()
+  planner.reset('fading-track')
+  for (let frame = 0; frame < 40; frame += 1) {
+    planner.sample(musicSignalAt(frame / 60), frame * 16.7, false, false)
+  }
+  const quiet = { energy: 0.06, bass: 0.1, pulse: 0.1, presence: 0.1 }
+  // Held under the line rather than crossing it, this is a real change and
+  // the hold must not swallow it.
+  const held = Array.from({ length: 90 }, (_, frame) =>
+    planner.sample(
+      musicSignalAt(1 + frame / 60, { audio: quiet }),
+      (40 + frame) * 16.7,
+      false,
+      false,
+    ),
+  )
+  assert.equal(held.at(-1), 'listen')
+})

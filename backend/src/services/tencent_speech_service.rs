@@ -401,7 +401,7 @@ impl TencentSpeechService {
     /// 创建HTTP客户端（含 proxy + NoProxy bypass，与全局 HTTP 客户端一致）
     pub(crate) fn create_client(proxy_config: &ProxyConfig) -> Result<Client, TencentSpeechError> {
         let builder = Client::builder()
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs(5 * 60))
             .connect_timeout(Duration::from_secs(30))
             .user_agent("Myriad/1.0");
 
@@ -818,11 +818,11 @@ mod tests {
 
     #[test]
     fn analyzer_and_tencent_source_wire_apply_proxy() {
-        assert!(include_str!("analyzer.rs").contains("apply_proxy"));
+        assert!(include_str!("analyzer/transport.rs").contains("apply_proxy"));
         assert!(include_str!("tencent_speech_service.rs").contains("apply_proxy"));
         // MYR-019: analyzer must fail closed, not silently direct-connect.
-        assert!(include_str!("analyzer.rs").contains("proxy_is_required"));
-        assert!(include_str!("analyzer.rs").contains("fail-closed"));
+        assert!(include_str!("analyzer/client.rs").contains("proxy_is_required"));
+        assert!(include_str!("analyzer/client.rs").contains("fail-closed"));
         assert!(include_str!("http_client.rs").contains("resolve_client_or_fail_closed"));
     }
 

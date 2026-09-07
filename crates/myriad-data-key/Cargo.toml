@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "AES-GCM data encryption key for Myriad config secrets and federation key envelopes."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 aes-gcm = "0.11"

@@ -2,13 +2,14 @@
 //!
 //! ## 为什么集中在这里
 //!
-//! 头像有四类来源，且都要保留：
+//! 头像有五类来源，且都要保留：
 //!
 //! | 来源 | 存放 | 写入方 |
 //! |------|------|--------|
 //! | 账号 | `users.avatar_url` | 本地注册播种 / OAuth 登录同步 |
 //! | OAuth 身份 | `user_identities.avatar_url` | 登录时 upsert（每个 provider 一份快照） |
 //! | 平台画像 | `platform_metadata` | 站长抓取 B站 / GitHub / YouTube / Steam |
+//! | 人设贴纸头像 | `agent_persona.avatar_asset_id` | 站长在人设页生成的 Q 版贴纸 |
 //! | 生成兜底 | 无 | 前端 `localFallback`（不再依赖 ui-avatars.com 外链） |
 //!
 //! 选择器列表里，OAuth 与同站平台抓取会**合并为一行**（见
@@ -146,6 +147,8 @@ pub enum AvatarSourceKind {
     Account,
     Identity,
     Platform,
+    /// 站点人设的 Q 版贴纸头像。全站一份，谁选谁用同一张。
+    Persona,
 }
 
 impl AvatarSourceKind {
@@ -155,6 +158,7 @@ impl AvatarSourceKind {
             Self::Account => "account",
             Self::Identity => "identity",
             Self::Platform => "platform",
+            Self::Persona => "persona",
         }
     }
 
@@ -164,6 +168,7 @@ impl AvatarSourceKind {
             "account" => Self::Account,
             "identity" => Self::Identity,
             "platform" => Self::Platform,
+            "persona" => Self::Persona,
             _ => Self::Auto,
         }
     }
@@ -389,6 +394,19 @@ pub async fn owner_platform_profiles(
     owner_platform_snapshot(db, owner_id).await.0
 }
 
+/// 站点人设的 Q 版贴纸头像。人设关掉时当作没有——关掉之后对外连名字都收回
+/// 了，头像不能还挂在别人脸上。
+async fn persona_sticker_avatar(db: &DatabaseConnection) -> Option<String> {
+    if !crate::GLOBAL_DYNAMIC_CONFIG
+        .read()
+        .await
+        .merope_enabled_resolved()
+    {
+        return None;
+    }
+    crate::services::agent::merope::sticker_avatar_asset_id(db).await
+}
+
 struct UserAvatarRow {
     kind: AvatarSourceKind,
     source_ref: Option<String>,
@@ -497,7 +515,7 @@ async fn resolve_detail<C: ConnectionTrait>(
             return ResolvedAvatar {
                 url: None,
                 from_sql_ladder: true,
-            }
+            };
         }
         Err(e) => {
             tracing::warn!("Avatar resolve failed for user {user_id}: {e}");
@@ -537,6 +555,7 @@ async fn resolve_detail<C: ConnectionTrait>(
             }
         }
         AvatarSourceKind::Platform => owner_platform_avatar(row.source_ref.clone()).await,
+        AvatarSourceKind::Persona => persona_sticker_avatar(platform_db).await,
     };
 
     // 选中的源失效时（平台数据被清、identity 解绑）回落隐式阶梯，而不是变成
@@ -610,6 +629,35 @@ pub async fn refresh_avatar_snapshot_on<C: ConnectionTrait>(
         })?;
 
     Ok(proxied_avatar(resolved.url))
+}
+
+/// 人设贴纸头像换了或没了：选它当画像源的人，快照要一起动。
+///
+/// 快照是"改一处、处处同步"的落点，人设那张脸却不在 `users` 里，谁也不会因为
+/// 改自己的资料而触发刷新。所以由写入贴纸头像的那几处主动调这里；传 `None`
+/// 表示头像已作废，快照清成 NULL 后 [`avatar_snapshot_expr`] 自动退回隐式阶梯。
+///
+/// 存原始地址而不是代理地址，与 [`refresh_avatar_snapshot_on`] 同规矩。
+pub async fn resync_persona_avatar_snapshots<C: ConnectionTrait>(
+    db: &C,
+    avatar: Option<&str>,
+) -> Result<(), String> {
+    let value = match avatar.map(str::trim).filter(|url| !url.is_empty()) {
+        Some(url) => SeaValue::String(Some(url.to_string())),
+        None => SeaValue::String(None),
+    };
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE users SET avatar_resolved_url = $1, avatar_updated_at = NOW() \
+         WHERE avatar_source_kind = 'persona'",
+        vec![value],
+    ))
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "failed to resync persona avatar snapshots");
+        "Failed to save avatar source".to_string()
+    })?;
+    Ok(())
 }
 
 /// OAuth provider slug → `platform_metadata` 平台键（仅 1:1 同站映射）。
@@ -860,6 +908,27 @@ pub async fn list_avatar_sources(
         &current_ref,
     ));
 
+    // 人设贴纸头像不属于任何一个账号，所以不参与同站合并，单独挂在末尾。
+    // 它是站点对外那张脸，不是私有资料：谁都能选，但谁都不会被默认套上。
+    if let Some(avatar) = persona_sticker_avatar(db).await {
+        let name = crate::services::agent::merope::get_persona(db)
+            .await
+            .ok()
+            .flatten()
+            .map(|persona| persona.name);
+        sources.push(AvatarSource {
+            kind: AvatarSourceKind::Persona,
+            source_ref: String::new(),
+            label: "persona".to_string(),
+            sublabel: Some(crate::services::agent::merope::public_persona_name(
+                true,
+                name.as_deref(),
+            )),
+            avatar_url: proxied_avatar(Some(avatar)),
+            is_current: row.kind == AvatarSourceKind::Persona,
+        });
+    }
+
     Ok(sources)
 }
 
@@ -947,6 +1016,12 @@ async fn set_avatar_source_txn(
                 return Err("Platform profile is not available for this user".to_string());
             }
             Some(platform.to_string())
+        }
+        AvatarSourceKind::Persona => {
+            if persona_sticker_avatar(db).await.is_none() {
+                return Err("Persona avatar is not available".to_string());
+            }
+            None
         }
     };
 

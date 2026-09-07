@@ -247,7 +247,7 @@ jobs:
           target: export
           outputs: type=local,dest=frontend-export
           build-args: |
-            PNPM_VERSION=10.34.5
+            PNPM_VERSION=11.25.0
             MYRIAD_VERSION=dev-${{ github.sha }}
             MYRIAD_COMMIT_SHA=${{ github.sha }}
           cache-from: type=gha,scope=frontend-assets
@@ -339,7 +339,7 @@ jobs:
           target: runtime
           build-contexts: ${{ matrix.component == 'frontend' && 'assets=./frontend-export' || '' }}
           build-args: |
-            PNPM_VERSION=10.34.5
+            PNPM_VERSION=11.25.0
             MYRIAD_VERSION=dev-${{ github.sha }}
             MYRIAD_COMMIT_SHA=${{ github.sha }}
             CARGO_PROFILE=ci-release

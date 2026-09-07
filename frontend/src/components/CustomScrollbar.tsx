@@ -254,6 +254,7 @@ function CustomScrollbarInner() {
 
     let updateDelay: ReturnType<typeof setTimeout> | null = null
     let transitionTimer: ReturnType<typeof setTimeout> | null = null
+    let thumbRaf = 0
 
     // 记录路由切换时间
     routeTransitionTimeRef.current = Date.now()
@@ -275,7 +276,8 @@ function CustomScrollbarInner() {
         isRouteTransitioningRef.current = false
         // 路由变化时重置高度缓存
         cachedDocumentHeightRef.current = 0
-        requestAnimationFrame(() => {
+        thumbRaf = requestAnimationFrame(() => {
+          thumbRaf = 0
           updateThumb()
         })
       }, 150) // 再延迟 150ms 确保过渡已经设置好
@@ -292,6 +294,7 @@ function CustomScrollbarInner() {
       clearTimeout(initialDelay)
       if (updateDelay !== null) clearTimeout(updateDelay)
       if (transitionTimer !== null) clearTimeout(transitionTimer)
+      if (thumbRaf) cancelAnimationFrame(thumbRaf)
       // 清理时也要恢复标志
       isRouteTransitioningRef.current = false
     }
@@ -544,13 +547,6 @@ function CustomScrollbarInner() {
                     ? '12%'
                     : '8%'
             }, transparent)`,
-            backdropFilter:
-              typeof document !== 'undefined' &&
-              document.documentElement.dataset.perfMode === 'exlight'
-                ? 'none'
-                : isDragging || isScrolling
-                  ? 'blur(10px)'
-                  : 'blur(6px)',
             boxShadow: isDragging
               ? `inset 0 0 24px color-mix(in srgb, var(--color-primary) 15%, transparent)`
               : isScrolling
@@ -579,11 +575,6 @@ function CustomScrollbarInner() {
             boxShadow: `0 0 14px color-mix(in srgb, var(--color-primary) 65%, transparent),
                        0 3px 10px color-mix(in srgb, var(--color-primary) 45%, transparent)`,
             transition: 'none',
-            backdropFilter:
-              typeof document !== 'undefined' &&
-              document.documentElement.dataset.perfMode === 'exlight'
-                ? 'none'
-                : 'blur(4px)',
             willChange: isDragging ? 'top' : 'auto',
           }}
         />

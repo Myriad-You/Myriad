@@ -158,6 +158,7 @@ export class AgentFaceChannel {
    */
   deliver(line: {
     messageId: string
+    runId?: string
     text?: string
     source?: MeropeSpeechSource
     locale?: string
@@ -173,6 +174,7 @@ export class AgentFaceChannel {
             text,
             source,
             messageId: line.messageId,
+            ...(line.runId ? { runId: line.runId } : {}),
             ...(line.performance
               ? {
                   performance: line.performance,

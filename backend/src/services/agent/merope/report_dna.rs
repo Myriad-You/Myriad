@@ -8,6 +8,7 @@
 //! structured labels. Pro writes spoken temperament tags via
 //! `onboarding_prompts::TAGS_SYSTEM_PROMPT`. Visual assets stay out.
 
+use myriad_agent_rules::extract_json_object_from_ai_response;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -921,13 +922,10 @@ fn infer_seed_keys(evidence: &[ReportDnaEvidence]) -> Vec<String> {
 }
 
 fn parse_ai_tags(raw: &str) -> Vec<String> {
-    let Some(start) = raw.find('{') else {
+    let Some(json) = extract_json_object_from_ai_response(raw) else {
         return Vec::new();
     };
-    let Some(end) = raw.rfind('}') else {
-        return Vec::new();
-    };
-    let Ok(value) = serde_json::from_str::<Value>(&raw[start..=end]) else {
+    let Ok(value) = serde_json::from_str::<Value>(&json) else {
         return Vec::new();
     };
     let Some(items) = value

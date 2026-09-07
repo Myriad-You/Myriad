@@ -34,16 +34,6 @@ pub fn parse_game_message_type(message_type: &str) -> Option<GameMessageType<'_>
     Some(GameMessageType { tapp_id, protocol })
 }
 
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-pub fn format_share_room_id(room_id: &str, home_server: &str) -> String {
-    let home = home_server.trim().trim_end_matches('/');
-    if home.is_empty() || room_id.contains('@') {
-        room_id.to_string()
-    } else {
-        format!("{room_id}@{home}")
-    }
-}
-
 pub fn parse_room_game_config(shared: Option<&Value>) -> Option<RoomGameConfig> {
     let game = shared?.get("game")?;
     let config: RoomGameConfig = serde_json::from_value(game.clone()).ok()?;
@@ -327,12 +317,22 @@ mod tests {
 
     #[test]
     fn share_id_joins_home_server() {
+        // Production parse lives in members.rs (`room_id@home`). This is the
+        // join rule the share UI is documented to emit.
+        let join = |room_id: &str, home_server: &str| {
+            let home = home_server.trim().trim_end_matches('/');
+            if home.is_empty() || room_id.contains('@') {
+                room_id.to_string()
+            } else {
+                format!("{room_id}@{home}")
+            }
+        };
         assert_eq!(
-            format_share_room_id("rm_abc", "peer.example:8443"),
+            join("rm_abc", "peer.example:8443"),
             "rm_abc@peer.example:8443"
         );
         assert_eq!(
-            format_share_room_id("rm_abc@peer.example", "ignored"),
+            join("rm_abc@peer.example", "ignored"),
             "rm_abc@peer.example"
         );
     }

@@ -76,7 +76,7 @@ use uninstall::{cleanup_temporary_tapps, uninstall_tapp};
 pub(crate) use validation::*;
 #[cfg(test)]
 use widgets::runtime_widget_belongs_to_installation;
-#[allow(dead_code)]
+#[cfg(test)]
 pub type RegisterWidgetRequest = widgets::RegisterWidgetRequest;
 use widgets::{list_all_widgets, reconcile_manifest_widgets, register_widget, unregister_widget};
 

@@ -34,6 +34,7 @@ const PHASES: WidgetPerfPhase[] = [
 ]
 
 const records = new Map<string, WidgetPerfRecord>()
+const MAX_RECORDS = 80
 
 function now(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -100,6 +101,14 @@ export function widgetPerfMark(
       marks: {},
       measures: {},
     }
+    records.set(instanceKey, record)
+    while (records.size > MAX_RECORDS) {
+      const oldest = records.keys().next().value
+      if (oldest === undefined || oldest === instanceKey) break
+      records.delete(oldest)
+    }
+  } else {
+    records.delete(instanceKey)
     records.set(instanceKey, record)
   }
   const t = now()

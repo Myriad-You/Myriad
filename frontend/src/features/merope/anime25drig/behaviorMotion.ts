@@ -1,6 +1,13 @@
 import type { BehaviorKind, BehaviorQuality } from '../motion/behavior'
 import type { MusicMode } from '../singing/musicSignal'
+import {
+  MAX_RECOVERY_MS,
+  MIN_RECOVERY_MS,
+  NOMINAL_RECOVERY_MS,
+} from '../motion/behaviorScheduler'
 import { isMusicMode } from '../singing/musicSignal'
+import { SPEECH_GESTURES } from '../speech/phraseGestures'
+import { SpeechFormTransition } from './speechFormTransition'
 
 export interface Anime25DMotionUnit {
   behaviorId: string
@@ -21,6 +28,7 @@ export interface Anime25DMotionUnit {
 }
 
 export interface Anime25DBehaviorMotionSample {
+  coSpeechGesture: Readonly<CoSpeechGestureMix>
   coSpeech: number
   coSpeechPower: number
   coSpeechQuality: Readonly<BehaviorQuality>
@@ -31,6 +39,7 @@ export interface Anime25DBehaviorMotionSample {
 }
 
 interface MutableBehaviorMotionSample {
+  coSpeechGesture: CoSpeechGestureMix
   coSpeech: number
   coSpeechPower: number
   coSpeechQuality: BehaviorQuality
@@ -38,6 +47,24 @@ interface MutableBehaviorMotionSample {
   musicPower: number
   musicQuality: BehaviorQuality
   musicMode: MusicMode
+}
+
+/** Relative shares; the common co-speech gate applies the envelope once. */
+export interface CoSpeechGestureMix {
+  hesitate: number
+  tease: number
+  'check-in': number
+  question: number
+  contrast: number
+  laugh: number
+  laughPulse: number
+}
+
+interface UnitRelease {
+  /** Envelope level the unit was last drawn at. */
+  from: number
+  startedAt: number
+  duration: number
 }
 
 interface LocalMotionUnit extends Omit<Anime25DMotionUnit, 'timing'> {
@@ -50,6 +77,11 @@ interface LocalMotionUnit extends Omit<Anime25DMotionUnit, 'timing'> {
     relax: number | null
     end: number | null
   }
+  /** Last sampled envelope, so a retreat can start from what was drawn. */
+  envelope: number
+  /** Set once the unit leaves the plan; a second restatement never restarts it. */
+  release: UnitRelease | null
+  speechForm: SpeechFormTransition | null
 }
 
 const DEFAULT_QUALITY: BehaviorQuality = {
@@ -72,7 +104,24 @@ const DEFAULT_QUALITY: BehaviorQuality = {
  */
 export class Anime25DBehaviorMotionController {
   private units: LocalMotionUnit[] = []
+  /**
+   * The player writes on its own clock and reads one `predictedControlTime`
+   * ahead of it. A retreat that starts on the write clock is therefore already
+   * a whole lead into itself on its first frame — 42% of a short one — which
+   * is a snap toward rest, not a retreat. The drawn value belongs to the read
+   * clock, so the retreat away from it starts there too.
+   */
+  private lastSampledAt = Number.NaN
   private readonly output: MutableBehaviorMotionSample = {
+    coSpeechGesture: {
+      question: 0,
+      contrast: 0,
+      laugh: 0,
+      laughPulse: 0,
+      hesitate: 0,
+      tease: 0,
+      'check-in': 0,
+    },
     coSpeech: 0,
     coSpeechPower: 0,
     coSpeechQuality: { ...DEFAULT_QUALITY },
@@ -89,7 +138,8 @@ export class Anime25DBehaviorMotionController {
   ): void {
     const localOrigin = finite(playerTimeSeconds)
     const wallNow = finite(nowMs)
-    this.units = units
+    const previous = new Map(this.units.map((unit) => [unit.behaviorId, unit]))
+    const next: LocalMotionUnit[] = units
       .filter((unit) => unit.family === 'co-speech' || unit.family === 'music')
       .map((unit) => ({
         ...unit,
@@ -112,16 +162,71 @@ export class Anime25DBehaviorMotionController {
               ? null
               : localTime(unit.timing.endMs, wallNow, localOrigin),
         },
+        envelope: 0,
+        release: null,
+        speechForm: null,
       }))
+    for (const unit of next) {
+      const old = previous.get(unit.behaviorId)
+      // A second event can cancel before the next sample. Retain the level
+      // actually drawn, even though this publish has not been sampled yet.
+      if (old?.family === unit.family) unit.envelope = old.envelope
+      if (unit.family !== 'co-speech') continue
+      if (old?.speechForm && !old.release && old.envelope > 0) {
+        unit.speechForm = old.speechForm
+        unit.speechForm.revise(
+          unit.form,
+          this.releaseOrigin(localOrigin),
+          unit.timing.strokePeak,
+        )
+      } else {
+        unit.speechForm = new SpeechFormTransition(unit.form)
+      }
+    }
+    const restated = new Set(next.map((unit) => unit.behaviorId))
+    for (const unit of this.units) {
+      if (restated.has(unit.behaviorId)) continue
+      if (unit.release) {
+        // Already retreating. Restating the plan is one release, not
+        // permission to start the retreat over from the top.
+        next.push(unit)
+      } else if (unit.envelope > 0) {
+        next.push(releasingUnit(unit, this.releaseOrigin(localOrigin)))
+      }
+    }
+    this.units = next
   }
 
-  clear(): void {
-    this.units = []
+  /**
+   * Retires every live unit through the same retreat a plan revision uses.
+   *
+   * This is the stop command, not teardown: the expression controller it is
+   * called beside releases its cues rather than erasing them, and a body whose
+   * head snapped straight while its face eased out was the visible half of
+   * that disagreement.
+   */
+  clear(playerTimeSeconds: number): void {
+    const now = finite(playerTimeSeconds)
+    const releasing: LocalMotionUnit[] = []
+    for (const unit of this.units) {
+      const origin = this.releaseOrigin(now)
+      if (unit.release) releasing.push(unit)
+      else if (unit.envelope > 0) releasing.push(releasingUnit(unit, origin))
+    }
+    this.units = releasing
+  }
+
+  private releaseOrigin(fallback: number): number {
+    return Number.isFinite(this.lastSampledAt) ? this.lastSampledAt : fallback
   }
 
   sample(timeSeconds: number): Readonly<Anime25DBehaviorMotionSample> {
     const now = finite(timeSeconds)
+    this.lastSampledAt = now
     this.output.coSpeech = 0
+    const gesture = this.output.coSpeechGesture
+    gesture.question = gesture.contrast = gesture.laugh = gesture.laughPulse = 0
+    gesture.hesitate = gesture.tease = gesture['check-in'] = 0
     this.output.coSpeechPower = 0
     this.output.music = 0
     this.output.musicPower = 0
@@ -130,10 +235,27 @@ export class Anime25DBehaviorMotionController {
     copyQuality(this.output.musicQuality, DEFAULT_QUALITY)
     let write = 0
     for (const unit of this.units) {
-      if (unit.timing.end !== null && now >= unit.timing.end) continue
+      if (unit.release) {
+        if (now >= unit.release.startedAt + unit.release.duration) {
+          unit.envelope = 0
+          continue
+        }
+      } else if (unit.timing.end !== null && now >= unit.timing.end) {
+        unit.envelope = 0
+        continue
+      }
       this.units[write] = unit
       write += 1
-      const envelope = unitEnvelope(unit.timing, now, unit.quality)
+      const envelope = unit.release
+        ? unit.release.from *
+          (1 -
+            smoothProgress(
+              unit.release.startedAt,
+              unit.release.startedAt + unit.release.duration,
+              now,
+            ))
+        : unitEnvelope(unit.timing, now, unit.quality)
+      unit.envelope = envelope
       if (envelope <= 0) continue
       const density = scaleAroundDefault(unit.quality.density, 0.8, 0.18)
       const extent =
@@ -143,6 +265,19 @@ export class Anime25DBehaviorMotionController {
         density
       const power = envelope * clamp(unit.quality.power, 0.35, 1.4)
       if (unit.family === 'co-speech') {
+        const formShares = unit.speechForm?.sample(now)
+        if (formShares) {
+          for (const form of SPEECH_GESTURES)
+            gesture[form] += extent * formShares[form]
+          if (formShares.laugh > 0) {
+            // A short chuckle follows this behavior's resolved clock. Never
+            // restart an oscillator on a new frame or a plan restatement.
+            gesture.laughPulse +=
+              extent *
+              formShares.laugh *
+              Math.sin((now - unit.timing.strokePeak) * Math.PI * 4)
+          }
+        }
         if (extent >= this.output.coSpeech) {
           this.output.coSpeech = extent
           copyQuality(this.output.coSpeechQuality, unit.quality)
@@ -158,6 +293,24 @@ export class Anime25DBehaviorMotionController {
       }
     }
     this.units.length = write
+    const denominator = Math.max(
+      this.output.coSpeech,
+      gesture.question +
+        gesture.contrast +
+        gesture.laugh +
+        gesture.hesitate +
+        gesture.tease +
+        gesture['check-in'],
+    )
+    if (denominator > 0) {
+      gesture.question /= denominator
+      gesture.contrast /= denominator
+      gesture.laugh /= denominator
+      gesture.laughPulse /= denominator
+      gesture.hesitate /= denominator
+      gesture.tease /= denominator
+      gesture['check-in'] /= denominator
+    }
     return this.output
   }
 }
@@ -174,6 +327,37 @@ export function completeBehaviorQuality(
     rebound: clamp(finiteOr(quality?.rebound, 0.35), 0, 1.4),
     asymmetry: clamp(finiteOr(quality?.asymmetry, 0.2), 0, 1.4),
     density: clamp(finiteOr(quality?.density, 0.8), 0.2, 1.5),
+  }
+}
+
+/**
+ * A unit that left the plan retreats from the level it was last drawn at.
+ *
+ * Without this the extent stepped straight to zero on the frame the plan
+ * changed — the body dropped a half-finished gesture while the face, which
+ * has always released its cues from their current value, eased out of the
+ * same beat. The retreat is shaped like the scheduler's own: further out and
+ * slower delivery take longer to put away, inside the same bounds.
+ */
+function releasingUnit(
+  unit: LocalMotionUnit,
+  startedAt: number,
+): LocalMotionUnit {
+  unit.speechForm?.freeze(startedAt)
+  const level = clamp(unit.envelope, 0, 1)
+  const tempo = clamp(unit.quality.tempo, 0.45, 1.7)
+  const durationMs = clamp(
+    (NOMINAL_RECOVERY_MS *
+      (0.45 + 0.55 * level) *
+      clamp(unit.quality.extent, 0.2, 1.6)) /
+      tempo,
+    MIN_RECOVERY_MS,
+    MAX_RECOVERY_MS,
+  )
+  return {
+    ...unit,
+    envelope: level,
+    release: { from: level, startedAt, duration: durationMs / 1_000 },
   }
 }
 

@@ -243,16 +243,25 @@ pub enum TappAiOperation {
     Analyze,
     Chat,
     Image,
+    Search,
 }
 
 impl TappAiOperation {
-    pub fn permission(self) -> &'static str {
+    /// Granted-layer catalog permission for this operation.
+    /// Exhaustive: a new variant must map here.
+    pub fn catalog_permission(self) -> crate::permission::TappPermission {
+        use crate::permission::TappPermission;
         match self {
-            Self::Generate => "ai:generate",
-            Self::Analyze => "ai:analyze",
-            Self::Chat => "ai:chat",
-            Self::Image => "ai:image",
+            Self::Generate => TappPermission::AiGenerate,
+            Self::Analyze => TappPermission::AiAnalyze,
+            Self::Chat => TappPermission::AiChat,
+            Self::Image => TappPermission::AiImage,
+            Self::Search => TappPermission::AiSearch,
         }
+    }
+
+    pub fn permission(self) -> &'static str {
+        self.catalog_permission().as_str()
     }
 }
 
@@ -922,6 +931,38 @@ pub struct TappSettingOption {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn ai_operations_map_to_catalog_permissions() {
+        use crate::permission::TappPermission;
+        let cases = [
+            (
+                TappAiOperation::Generate,
+                TappPermission::AiGenerate,
+                "ai:generate",
+            ),
+            (
+                TappAiOperation::Analyze,
+                TappPermission::AiAnalyze,
+                "ai:analyze",
+            ),
+            (TappAiOperation::Chat, TappPermission::AiChat, "ai:chat"),
+            (TappAiOperation::Image, TappPermission::AiImage, "ai:image"),
+            (
+                TappAiOperation::Search,
+                TappPermission::AiSearch,
+                "ai:search",
+            ),
+        ];
+        for (operation, permission, name) in cases {
+            assert_eq!(operation.catalog_permission(), permission);
+            assert_eq!(operation.permission(), name);
+            assert_eq!(
+                TappPermission::from_str(operation.permission()),
+                Some(permission)
+            );
+        }
+    }
 
     #[test]
     fn inbound_verify_header_rejects_proxy_and_session_names() {

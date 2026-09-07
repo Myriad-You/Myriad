@@ -5,7 +5,7 @@
 //! presence rules live here so they are free of Axum/`StatusCode`.
 
 pub use myriad_tapp_rules::{
-    check_manifest_byte_size, nonempty_content, parse_manifest_json, resolved_style_content,
+    check_manifest_byte_size, nonempty_content, parse_manifest_json,
     validate_widget_template_contents, widget_template_path, PackageLoadError,
     PackageValidateError, PreparedTappPackage, PreparedTappResources, WidgetTemplateContents,
 };
@@ -256,21 +256,6 @@ mod tests {
             .message();
         assert!(msg.contains("widgets[].styles"));
         assert!(msg.contains("widget-card.css"));
-    }
-
-    #[test]
-    fn resolved_style_content_prefers_primary_then_generated() {
-        let primary = "a".to_string();
-        let generated = "b".to_string();
-        assert_eq!(
-            resolved_style_content(Some(&primary), Some(&generated)),
-            Some("a")
-        );
-        assert_eq!(
-            resolved_style_content(Some(&String::new()), Some(&generated)),
-            Some("b")
-        );
-        assert_eq!(resolved_style_content(None, Some(&String::new())), None);
     }
 
     #[test]

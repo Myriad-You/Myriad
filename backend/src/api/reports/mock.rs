@@ -309,16 +309,41 @@ pub(crate) fn generate_mock_report(
                 .genre_analysis
                 .first()
                 .map(|g| g.genre.as_str());
-            const MOOD_COLORS: [&str; 3] = ["#5B6ABF", "#3D4A7A", "#9AA4C2"];
-            let mood_keywords: Vec<Value> = [genre, region, artist]
+            const MOOD_COLORS: [&str; 6] = [
+                "#5B6ABF", "#3D4A7A", "#9AA4C2", "#7B68EE", "#FF6B9D", "#4ECDC4",
+            ];
+            let mut mood_tags: Vec<String> = Vec::new();
+            let mut push_tag = |tag: &str| {
+                if !tag.is_empty() && !mood_tags.iter().any(|existing| existing == tag) {
+                    mood_tags.push(tag.to_string());
+                }
+            };
+            for item in &analysis.artist_analysis.genre_analysis {
+                push_tag(item.genre.as_str());
+            }
+            let mut regions: Vec<_> = analysis
+                .artist_analysis
+                .region_distribution
+                .iter()
+                .collect();
+            regions.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+            for (name, _) in regions {
+                push_tag(name.as_str());
+            }
+            for name in &analysis.artist_analysis.favorite_artists {
+                push_tag(name.as_str());
+            }
+            for song in &analysis.recent_songs {
+                push_tag(song.artist.as_str());
+            }
+            if let Some(tag) = artist {
+                push_tag(tag);
+            }
+            let mood_keywords: Vec<Value> = mood_tags
                 .into_iter()
-                .flatten()
-                .take(3)
+                .take(6)
                 .enumerate()
-                .map(|(i, tag)| {
-                    let color = MOOD_COLORS[i];
-                    json!({ "tag": tag, "color": color })
-                })
+                .map(|(i, tag)| json!({ "tag": tag, "color": MOOD_COLORS[i] }))
                 .collect();
             (
                 t(

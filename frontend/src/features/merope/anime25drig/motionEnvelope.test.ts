@@ -145,3 +145,31 @@ test('all reproducible boundary probes stay inside a restrictive asset envelope'
     }
   }
 })
+
+test('clipped energy changes sides continuously instead of snapping across', () => {
+  const profile = deriveAnime25DMotionEnvelopeProfile({
+    layers: [{ role: 'collar-front' }, { role: 'collar-back' }],
+  })
+  const result = { clippedEnergy: 0, transferredEnergy: 0 }
+  const step = 0.002
+  let previous: number | null = null
+  let worst = 0
+  // Roll drifts through upright constantly while idle. Choosing the side with
+  // a hard sign flipped the entire lateral redistribution at that crossing:
+  // one 0.002 step of roll moved yaw by 0.105, which reads as the head being
+  // yanked the other way for no reason anyone asked for.
+  for (let index = -30; index <= 30; index += 1) {
+    const target = {
+      ...IDENTITY_DRIVER,
+      angleY: 0.95,
+      angleZ: index * step,
+      angleX: 0,
+    }
+    projectAnime25DMotionEnvelope(target, profile, result)
+    if (previous !== null) {
+      worst = Math.max(worst, Math.abs(target.angleX - previous))
+    }
+    previous = target.angleX
+  }
+  assert.ok(worst <= step, `yaw moved ${worst} for a roll step of ${step}`)
+})

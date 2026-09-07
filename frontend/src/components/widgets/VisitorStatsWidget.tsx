@@ -13,7 +13,7 @@
  *   （批处理最长 4s + sendBeacon 只保证入队），等 flush 事件再取一次
  */
 
-import type { WidgetComponentProps } from '../WidgetGrid'
+import type { WidgetComponentProps } from '../widgetGridTypes'
 
 import { LuEye, LuUsers } from '@lib/icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'

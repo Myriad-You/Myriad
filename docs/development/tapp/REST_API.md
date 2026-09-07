@@ -230,8 +230,9 @@ PUT body 只写调用者个人行：`{ "sizes": { "<tappId>": "1x1"|"2x1" }, "or
 }
 ```
 
-`permissions` 是用户同意的申请子集，不是当前有效授权；后端先与 Manifest 求交集并保存为
-`approved_permissions`，再按当前实时角色和动态权限配置生成对调用者可见的有效权限。
+`permissions` 是用户同意的申请子集（批准权限的来源），不是当前授予权限；后端先与
+Manifest 声明权限求交集并保存为 `approved_permissions`，再按当前实时角色和动态下放
+配置生成**授予权限**。
 
 安装/更新资源先进入 staging，校验后原子替换在线目录；数据库失败恢复旧目录。卸载把文件
 移入隔离目录后，在一个事务中清理安装记录、Manifest/动态 Widget、调度任务及执行历史；
@@ -386,7 +387,7 @@ Widget 注册 body 除 `id`、`name`、`default_size`、`sizes` 等元数据外�
 ## 运行时 `/api/tapp`
 
 这些端点主要由 Bridge handler 经 `TappApiService` 调用。除了路由中间件，handler 还应
-校验 Tapp ID、owner、安装批准集与当前动态有效权限。
+校验 Tapp ID、owner、安装批准集与当前授予权限。
 
 人设名片走 SDK `Tapp.persona.get`，由宿主合成公开配置、心情带和同源立绘路径；
 没有 `/api/tapp/persona`。沙箱不要自己打 `/api/agent/persona` 或立绘 URL。
@@ -670,7 +671,9 @@ WebSocket 位于不同后端副本时仍可投递，每个标签页都能按自�
 时间窗外 401 `ROUTE_VERIFY_EXPIRED`；nonce 重放 401 `ROUTE_VERIFY_REPLAY`（这两码只在 HMAC 已经通过之后出现）。
 限流：匿名 IP 每分钟 60 次；HMAC 通过后同一凭据每分钟 60 次、每小时 180 次。
 拉黑：10 分钟内对同一 Tapp 验签失败 25 次会自动封该调用方指纹 1 小时；全站 10 分钟失败 80 次会封全站入站 1 小时。不保存原始 IP。
-owner 可在 Tapp 详情里暂停**该安装**的 `/tapi`，或解除该安装下已列出的指纹。暂停/拉黑按安装 owner 隔离，私有副本不能冻结或解封公开安装。解除只清本安装拉黑，不清全站自动封禁。暂停返回 403 `ROUTE_PAUSED`，拉黑返回 403 `ROUTE_BLOCKED`。
+owner 可在 Tapp 详情里停用**该安装**的 `/tapi`（响应 403 `ROUTE_PAUSED`，这是入站路由开关，
+不是沙箱隐藏），或解除该安装下已列出的指纹。停用/拉黑按安装 owner 隔离，私有副本不能
+停用或解封公开安装。解除只清本安装拉黑，不清全站自动封禁。拉黑返回 403 `ROUTE_BLOCKED`。
 `/tapi` 验签替代 CSRF；带站点 Cookie 的 POST 也不要求 `X-CSRF-Token`。
 请求体超过 1 MiB 返回 413 `ROUTE_BODY_TOO_LARGE`。入站密钥泄露后应立刻在详情页轮换。
 

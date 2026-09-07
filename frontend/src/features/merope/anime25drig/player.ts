@@ -44,9 +44,11 @@ import type {
 import type { Anime25DPlayback, Anime25DShellProfile } from './types'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { allowsPointerGaze, IDLE_MOTION_POLICY } from '../motion/policy'
+import { resolveAnime25DLayerSemantics } from '../rig/anime25dLayerSemantics'
 import { SingingGrooveController } from '../singing/singingGroove'
 import { noteTurnTraceFrame } from '../turnTrace'
 import { AmbientMotionController } from './ambientMotion'
+import { ArmFollowController } from './armFollow'
 import { Anime25DBehaviorMotionController } from './behaviorMotion'
 import {
   buildChestWeightField,
@@ -67,6 +69,7 @@ import {
 import {
   BODY_HEAD_FOLLOW,
   deformCollarClipMesh,
+  disposeCollarClipMesh,
   uploadCollarClipMesh,
 } from './collarRuntime'
 import { cryTearHorizontalOffset, cryTearVerticalOffset } from './cryMotion'
@@ -105,6 +108,7 @@ import {
   jawTravelPixels,
   stepJawMotion,
 } from './jawMotion'
+import { writeAnime25DAttachmentTransform } from './layerAttachment'
 import { deformAnime25DUpstreamFeaturePoint } from './layerDeformation'
 import { compileAnime25DGpuLayers } from './layerGpuBinding'
 import { writeAnime25DLayerGlobalTransform } from './layerTransform'
@@ -112,7 +116,7 @@ import {
   deriveAnime25DMotionEnvelopeProfile,
   projectAnime25DMotionEnvelope,
 } from './motionEnvelope'
-import { predictedControlTime } from './motionPrediction'
+import { monotonicControlTime } from './motionPrediction'
 import {
   deformAnime25DFaceJawPoint,
   deformAnime25DMouthPoint,
@@ -143,10 +147,19 @@ import {
 } from './poseArbitration'
 import { zeroOccupancyOffset } from './poseCompositor'
 import { PoseOccupancyController } from './poseOccupancy'
-import { PoseResponseController } from './poseResponse'
-import { RandomActionController } from './randomAction'
+import {
+  PoseResponseController,
+  resolvePoseResponseScale,
+} from './poseResponse'
+import {
+  DIRECTED_BODY_BLOCK_LEVEL,
+  RandomActionController,
+} from './randomAction'
 import { createAnime25DRendererBindings, drawAnime25DFrame } from './renderer'
-import { resolveAnime25DRenderSurface } from './runtimePolicy'
+import {
+  resolveAnime25DRenderSurface,
+  shouldApplyAnime25DResize,
+} from './runtimePolicy'
 import {
   deformAnime25DHairPoint,
   deformAnime25DSecondaryPoint,
@@ -157,10 +170,21 @@ import { AutoSpeechController } from './speechMotion'
 import { StylizedExpressionMotionController } from './stylizedExpressionMotion'
 import { ThinkingMotionController } from './thinkingMotion'
 import {
+  anime25DTorsoYawFollow,
   resolveAnime25DTorsoChestShape,
   stepAnime25DTorsoShellRotation,
 } from './torsoDeformation'
 import { compileProgram, createAtlasTexture, loadImage } from './webglRuntime'
+
+/**
+ * How fast the pointer gains and gives up the head.
+ *
+ * Asymmetric on purpose, and in the same direction as every other handoff in
+ * this rig: the character should look over promptly, and should not drop your
+ * gaze the instant the cursor clips the edge of its bounding box.
+ */
+const POINTER_ATTACK_RATE = 16
+const POINTER_RELEASE_RATE = 5.5
 
 interface SecondaryMotionPose {
   angleX: number
@@ -206,10 +230,27 @@ export interface Anime25DDebugSnapshot {
   current: Anime25DDriver
 }
 
+function releaseCompiledGpu(
+  gl: WebGL2RenderingContext,
+  layers: readonly Anime25DGpuLayer[],
+  collarClip: CollarClipMesh | null,
+  texture: WebGLTexture | null,
+): void {
+  for (const layer of layers) {
+    if (layer.vertexBuffer) gl.deleteBuffer(layer.vertexBuffer)
+    if (layer.uvBuffer) gl.deleteBuffer(layer.uvBuffer)
+    if (layer.indexBuffer) gl.deleteBuffer(layer.indexBuffer)
+    if (layer.vao) gl.deleteVertexArray(layer.vao)
+  }
+  if (collarClip) disposeCollarClipMesh(gl, collarClip)
+  if (texture) gl.deleteTexture(texture)
+}
+
 export class Anime25DPlayer {
   private readonly gl: WebGL2RenderingContext
-  private readonly playback: Anime25DPlayback
-  private readonly shellProfile: Anime25DShellProfile
+  private playback!: Anime25DPlayback
+  private rigManifest: MeropeRigManifest | undefined
+  private shellProfile!: Anime25DShellProfile
   private readonly program: WebGLProgram
   private readonly rendererBindings: Anime25DRendererBindings
   private readonly renderFrame: Anime25DRenderFrame = {
@@ -249,7 +290,7 @@ export class Anime25DPlayer {
     narrow: 0,
   }
 
-  private readonly mouthMorphSources: Anime25DMouthMorphSources
+  private mouthMorphSources!: Anime25DMouthMorphSources
   private readonly opacityFrame: Anime25DOpacityFrame =
     createAnime25DOpacityFrame()
 
@@ -257,10 +298,10 @@ export class Anime25DPlayer {
     createAnime25DDeformationChangeState()
 
   private readonly deformationPoint = { x: 0, y: 0 }
-  private readonly deformationFrame: Anime25DMouthDeformationFrame &
+  private deformationFrame!: Anime25DMouthDeformationFrame &
     Anime25DExpressionDeformationFrame
 
-  private readonly secondaryDeformationFrame: Anime25DSecondaryDeformationFrame
+  private secondaryDeformationFrame!: Anime25DSecondaryDeformationFrame
 
   private readonly shellRotation: Anime25DShellRotation = {
     active: false,
@@ -272,6 +313,11 @@ export class Anime25DPlayer {
 
   private readonly torsoYaw: Anime25DTorsoYawState = { value: 0 }
 
+  /** Passive sleeve response to the torso, derived rather than authored. */
+  private readonly armFollow = new ArmFollowController()
+
+  private armSwing = 0
+
   private readonly torsoShellRotation: Anime25DTorsoShellRotation = {
     active: false,
     yawCosine: 1,
@@ -279,10 +325,10 @@ export class Anime25DPlayer {
   }
 
   private shellActivation = 0
-  private readonly collarMotion: CollarMotionPose
-  private readonly hairSpringFrame: Anime25DHairSpringFrame
+  private collarMotion!: CollarMotionPose
+  private hairSpringFrame!: Anime25DHairSpringFrame
 
-  private readonly mouthTransition: MouthTransitionController
+  private mouthTransition!: MouthTransitionController
   private activeMouthMaterial: SpeechMouthMaterial = 'mouthClose'
   private sillyMouthShare = 1
 
@@ -294,6 +340,10 @@ export class Anime25DPlayer {
 
   private readonly ambientMotion = new AmbientMotionController()
   private readonly behaviorMotion = new Anime25DBehaviorMotionController()
+  /** Manner of the last composed frame; feeds both the lead and the filter. */
+  private responseScale = 1
+  /** Monotonic read clock for scheduled controllers. */
+  private controlTime = 0
   private readonly occupancy = new PoseOccupancyController()
   private readonly poseGate = new PoseGateController()
   private readonly randomAction = new RandomActionController()
@@ -329,25 +379,28 @@ export class Anime25DPlayer {
   private readonly chestTarget = { x: 0, y: 0 }
   private readonly chestSpringTarget = { x: 0, y: 0 }
   private readonly chestParentTarget = { x: 0, y: 0 }
-  private readonly chestDynamics: ChestDynamicsTuning
-  private readonly chestField: ChestSpatialField
-  private readonly chestGeometry: ChestMotionGeometry
-  private readonly chestRegion: ChestDeformationRegion
-  private readonly chestWeightField: ChestWeightField | null
+  private chestDynamics!: ChestDynamicsTuning
+  private chestField!: ChestSpatialField
+  private chestGeometry!: ChestMotionGeometry
+  private chestRegion!: ChestDeformationRegion
+  private chestWeightField: ChestWeightField | null = null
   private readonly jaw = createJawMotionState()
-  private readonly jawTravel: number
-  private readonly motionEnvelopeProfile: Anime25DMotionEnvelopeProfile
+  private jawTravel = 0
+  private motionEnvelopeProfile!: Anime25DMotionEnvelopeProfile
   private readonly motionEnvelopeResult = {
     clippedEnergy: 0,
     transferredEnergy: 0,
   }
 
-  private readonly neckDepth: number
+  private neckDepth = 0
   private collarClip: CollarClipMesh | null = null
   private jawEmphasis = 0
   private readonly mouse = { x: 0, y: 0, inside: false }
+  /** How much of the head the pointer currently owns, 0-1. */
+  private pointerAuthority = 0
   private policy: MotionChannelPolicy = { ...IDLE_MOTION_POLICY }
   private disposed = false
+  private atlasAbort: AbortController | null = null
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -359,10 +412,77 @@ export class Anime25DPlayer {
       premultipliedAlpha: true,
       stencil: true,
       antialias: true,
+      // Default false: the browser may discard the back buffer as soon as
+      // requestAnimationFrame stops (tab hidden, IO says off-screen). The
+      // canvas then goes transparent — the live face "vanishes after a while".
+      preserveDrawingBuffer: true,
+      powerPreference: 'low-power',
     })
     if (!gl) throw new Error(currentCopy().merope.anime25dWebglFailed)
     this.gl = gl
+    this.program = compileProgram(gl)
+    this.rendererBindings = createAnime25DRendererBindings(gl, this.program)
+    this.applyPackage(playback, rigManifest)
+  }
+
+  /**
+   * Swap the authored package on the live WebGL context.
+   * The last outfit keeps drawing until the next atlas is bound.
+   */
+  async replaceLivePackage(
+    playback: Anime25DPlayback,
+    rigManifest: MeropeRigManifest | undefined,
+    atlasUrl: string,
+  ): Promise<void> {
+    this.atlasAbort?.abort()
+    const atlasAbort = new AbortController()
+    this.atlasAbort = atlasAbort
+    const image = await loadImage(atlasUrl, atlasAbort.signal)
+    if (this.disposed || atlasAbort.signal.aborted) return
+    const resolved: Anime25DPlayback = {
+      ...playback,
+      layers: playback.layers.map(resolveAnime25DLayerSemantics),
+    }
+    const chestWeightField = chestProfileUsesGeometryWeights(
+      resolved.chestProfile,
+    )
+      ? buildChestWeightField(rigManifest)
+      : null
+    const compiled = compileAnime25DGpuLayers(
+      this.gl,
+      this.program,
+      resolved,
+      resolved.shellProfile,
+      this.current,
+      chestWeightField,
+      image,
+    )
+    const nextTexture = createAtlasTexture(this.gl, image)
+    if (this.disposed || atlasAbort.signal.aborted) {
+      releaseCompiledGpu(this.gl, compiled.layers, compiled.collarClip, nextTexture)
+      return
+    }
+    this.applyPackage(playback, rigManifest)
+    releaseCompiledGpu(this.gl, this.layers, this.collarClip, this.atlasTexture)
+    this.atlasTexture = nextTexture
+    this.layers = compiled.layers
+    this.collarClip = compiled.collarClip
+  }
+
+  async loadAtlas(url: string): Promise<void> {
+    await this.replaceLivePackage(this.playback, this.rigManifest, url)
+  }
+
+  private applyPackage(
+    playback: Anime25DPlayback,
+    rigManifest?: MeropeRigManifest,
+  ): void {
+    playback = {
+      ...playback,
+      layers: playback.layers.map(resolveAnime25DLayerSemantics),
+    }
     this.playback = playback
+    this.rigManifest = rigManifest
     this.shellProfile = playback.shellProfile
     this.motionEnvelopeProfile = deriveAnime25DMotionEnvelopeProfile(
       playback,
@@ -436,6 +556,7 @@ export class Anime25DPlayer {
       specialHeadOffset: 0,
       highCollar: this.motionEnvelopeProfile.highCollar,
       breath: 0,
+      armSwing: 0,
       chestCenterX: this.chestRegion.centerX,
       chestRegionCenterY: this.chestRegion.centerY,
       chestMotionCenterY: this.chestRegion.centerY,
@@ -478,24 +599,6 @@ export class Anime25DPlayer {
       faceCenterY: anchors.face.cy,
       time: 0,
     }
-    this.program = compileProgram(gl)
-    this.rendererBindings = createAnime25DRendererBindings(gl, this.program)
-  }
-
-  async loadAtlas(url: string): Promise<void> {
-    const image = await loadImage(url)
-    this.atlasTexture = createAtlasTexture(this.gl, image)
-    const compiled = compileAnime25DGpuLayers(
-      this.gl,
-      this.program,
-      this.playback,
-      this.shellProfile,
-      this.current,
-      this.chestWeightField,
-      image,
-    )
-    this.layers = compiled.layers
-    this.collarClip = compiled.collarClip
   }
 
   setTarget(partial: Partial<Anime25DDriver>): void {
@@ -520,9 +623,13 @@ export class Anime25DPlayer {
   }
 
   setMouse(x: number, y: number, inside: boolean): void {
+    this.mouse.inside = inside
+    // A pointer that has left has no position. Keeping the last one lets the
+    // head ease away from where the cursor actually was; taking the zero the
+    // leave handler sends would make the release a move to centre instead.
+    if (!inside) return
     this.mouse.x = x
     this.mouse.y = y
-    this.mouse.inside = inside
   }
 
   setMotionPolicy(policy: MotionChannelPolicy): void {
@@ -578,7 +685,7 @@ export class Anime25DPlayer {
   }
 
   clearBehaviorMotionUnits(): void {
-    this.behaviorMotion.clear()
+    this.behaviorMotion.clear(this.time)
     this.performanceExpression.stopBehaviors(this.time)
   }
 
@@ -654,6 +761,7 @@ export class Anime25DPlayer {
   }
 
   resize(cssWidth: number, cssHeight: number, devicePixelRatio: number): void {
+    if (!shouldApplyAnime25DResize(cssWidth, cssHeight)) return
     const { width: pixelWidth, height: pixelHeight } = this.playback.pixelCanvas
     const surface = resolveAnime25DRenderSurface({
       sourceWidth: pixelWidth,
@@ -668,8 +776,10 @@ export class Anime25DPlayer {
         canvas.width = surface.bufferWidth
       if (canvas.height !== surface.bufferHeight)
         canvas.height = surface.bufferHeight
-      canvas.style.width = `${surface.displayWidth}px`
-      canvas.style.height = `${surface.displayHeight}px`
+      const nextWidth = `${surface.displayWidth}px`
+      const nextHeight = `${surface.displayHeight}px`
+      if (canvas.style.width !== nextWidth) canvas.style.width = nextWidth
+      if (canvas.style.height !== nextHeight) canvas.style.height = nextHeight
     }
     this.renderFrame.viewWidth = pixelWidth
     this.renderFrame.viewHeight = pixelHeight
@@ -733,25 +843,25 @@ export class Anime25DPlayer {
   }
 
   dispose(): void {
+    if (this.disposed) return
     this.disposed = true
-    const { gl } = this
-    for (const layer of this.layers) {
-      gl.deleteBuffer(layer.vertexBuffer)
-      gl.deleteBuffer(layer.uvBuffer)
-      gl.deleteBuffer(layer.indexBuffer)
-      gl.deleteVertexArray(layer.vao)
-    }
-    if (this.atlasTexture) gl.deleteTexture(this.atlasTexture)
-    this.atlasTexture = null
-    if (this.collarClip) {
-      gl.deleteBuffer(this.collarClip.vertexBuffer)
-      gl.deleteBuffer(this.collarClip.uvBuffer)
-      gl.deleteBuffer(this.collarClip.indexBuffer)
-      gl.deleteVertexArray(this.collarClip.vao)
-      this.collarClip = null
-    }
-    gl.deleteProgram(this.program)
+    this.atlasAbort?.abort()
+    this.atlasAbort = null
+    releaseCompiledGpu(this.gl, this.layers, this.collarClip, this.atlasTexture)
     this.layers = []
+    this.collarClip = null
+    this.atlasTexture = null
+    this.gl.deleteProgram(this.program)
+    // Chrome keeps a detached canvas's drawing buffer until loseContext.
+    // A canvas still in the document must keep the context: getContext('webgl2')
+    // returns the lost one, so Strict Mode's effect replay would then fail.
+    try {
+      const surface = this.gl.canvas
+      if (surface instanceof HTMLCanvasElement && surface.isConnected) return
+      this.gl.getExtension('WEBGL_lose_context')?.loseContext()
+    } catch {
+      /* ignore */
+    }
   }
 
   private smoothDriver(dt: number): void {
@@ -761,15 +871,40 @@ export class Anime25DPlayer {
       this.target.mouse && allowsPointerGaze(this.policy.gaze)
         ? this.mouse
         : { x: 0, y: 0, inside: false }
+    // Look over promptly, let go unhurriedly — the same asymmetry the pose
+    // gate and occupancy already use when a source gains or loses a channel.
+    const pointerWanted = pointer.inside ? 1 : 0
+    this.pointerAuthority +=
+      (pointerWanted - this.pointerAuthority) *
+      (1 -
+        Math.exp(
+          -(pointerWanted > this.pointerAuthority
+            ? POINTER_ATTACK_RATE
+            : POINTER_RELEASE_RATE) * dt,
+        ))
     const tgt = prepareAnime25DWorkingTarget(
       this.workingTarget,
       this.target,
       pointer,
-      t,
+      this.pointerAuthority,
     )
     // Known cues and prosody are sampled slightly ahead to compensate the
     // display plus driver response. Observed input and physics remain at `t`.
-    const controlTime = predictedControlTime(t)
+    // The lead uses the previous frame's manner: the scale is derived from
+    // controllers that are themselves sampled at `controlTime`, so reading it
+    // here would be circular. It varies slowly, and one frame of lag on a
+    // compensation term is far cheaper than sampling everything twice.
+    //
+    // Clamped forward because the lead is no longer constant. A shrinking lead
+    // subtracts from the clock every scheduled controller reads on, and a frame
+    // shorter than the shrink would hand them a time earlier than the last one
+    // — every envelope would step backwards at once.
+    const controlTime = monotonicControlTime(
+      this.controlTime,
+      t,
+      this.responseScale,
+    )
+    this.controlTime = controlTime
     const behaviorMotion = this.behaviorMotion.sample(controlTime)
     const semanticExpression = this.performanceExpression.sample(controlTime)
     const stylizedTargets = resolveAnime25DStylizedTargets(
@@ -803,6 +938,7 @@ export class Anime25DPlayer {
       speech.browAccent,
       speech.headAccent,
       behaviorMotion.coSpeechQuality,
+      behaviorMotion.coSpeechGesture,
     )
     const singing = this.target.singing
     const vocalizing =
@@ -817,6 +953,11 @@ export class Anime25DPlayer {
       behaviorMotion.musicQuality,
       behaviorMotion.musicMode,
     )
+    // How much of the mouth is not currently carrying a voice. A sticker face
+    // only takes the mouth once the character has stopped talking; a cue
+    // landing mid-delivery would otherwise freeze the lip sync.
+    this.sillyMouthShare +=
+      ((vocalizing ? 0 : 1) - this.sillyMouthShare) * (1 - Math.exp(-7 * dt))
     const sticker = Math.max(
       stylizedTargets.anger,
       stylizedTargets.speechless,
@@ -832,7 +973,13 @@ export class Anime25DPlayer {
       automation: this.target.rand,
       sticker,
     })
-    const randomAction = this.randomAction.sample(t, this.target.rand, false)
+    // A live directed beat owns the body; the idle layer steps aside instead
+    // of writing the same channels underneath it.
+    const randomAction = this.randomAction.sample(
+      t,
+      this.target.rand,
+      this.performanceExpression.getActiveLevel() >= DIRECTED_BODY_BLOCK_LEVEL,
+    )
     const ambient = this.ambientMotion.sample(t, this.target.rand)
     const thinking = this.thinkingMotion.sample(t, this.target.thinking)
     const breath = idleBreathOffset(t, this.breathPose)
@@ -871,7 +1018,7 @@ export class Anime25DPlayer {
       tgt,
       semanticExpression,
       stylized,
-      vocalizing,
+      this.sillyMouthShare,
       gate.performance.expression,
       gate.stylized.expression,
     )
@@ -885,14 +1032,19 @@ export class Anime25DPlayer {
       gatedSpeechExpression,
     )
     applyAnime25DSpeechExtras(tgt, speech, gatedSpeechExpression)
-    // The omega mouth only takes over once the character has stopped talking;
-    // a cue landing mid-delivery would otherwise freeze the lip sync.
-    this.sillyMouthShare +=
-      ((vocalizing ? 0 : 1) - this.sillyMouthShare) * (1 - Math.exp(-7 * dt))
     applyAnime25DSillyMouthOwnership(
       tgt,
       smoothAnime25DUnit(stylizedTargets.silly) * this.sillyMouthShare,
     )
+    // The sleeves answer the torso the frame after it actually moved, then
+    // spend the same rigid-arm allowance every authored gesture spends.
+    const armFollow = this.armFollow.step(
+      this.torsoYaw.value,
+      dt,
+      this.motionEnvelopeProfile.rigidArm.limit,
+    )
+    tgt.armY += armFollow.lift
+    this.armSwing = armFollow.swing
     projectAnime25DMotionEnvelope(
       tgt,
       this.motionEnvelopeProfile,
@@ -906,12 +1058,33 @@ export class Anime25DPlayer {
       this.target.blink,
       stylizedTargets.maniac > 0.03 || stylizedTargets.silly > 0.03,
     )
+    // The director's manner reaches the one filter that decides how a pose
+    // becomes the next one. Everything above this line spends quality on how
+    // big and how paced a motion is; without this the delivery's speed was
+    // the rig's constant, whatever the plan asked for.
+    this.responseScale = resolvePoseResponseScale([
+      {
+        weight:
+          this.performanceExpression.getActiveLevel() *
+          gate.performance.headBody,
+        quality: this.performanceExpression.getActiveQuality(),
+      },
+      {
+        weight: behaviorMotion.coSpeech * gate.coSpeech.headBody,
+        quality: behaviorMotion.coSpeechQuality,
+      },
+      {
+        weight: behaviorMotion.music * gate.groove.headBody,
+        quality: behaviorMotion.musicQuality,
+      },
+    ])
     stepAnime25DDriverResponse(
       this.current,
       this.target,
       tgt,
       this.poseResponse,
       dt,
+      this.responseScale,
     )
     // Physics follows the actual continuous pose, not a separately filtered
     // copy of the desired pose that can disagree during a handoff.
@@ -922,6 +1095,7 @@ export class Anime25DPlayer {
       this.current.body,
       dt,
       this.torsoShellRotation,
+      anime25DTorsoYawFollow(this.shellProfile.torso, this.current.bodyYaw),
     )
   }
 
@@ -1043,6 +1217,7 @@ export class Anime25DPlayer {
     secondaryDeformationFrame.headBreathOffset = breathHead * 1.6
     secondaryDeformationFrame.specialHeadOffset = specialHeadOffset
     secondaryDeformationFrame.breath = breath
+    secondaryDeformationFrame.armSwing = this.armSwing
     secondaryDeformationFrame.chestMotionCenterY = chestCenterY
     if (secondaryDeformationFrame.torsoChestShape) {
       secondaryDeformationFrame.torsoChestShape.centerY = chestCenterY
@@ -1110,7 +1285,13 @@ export class Anime25DPlayer {
       const source = layer.source
       const bn = layer.baseRole
       const isHead = source.group === 'head'
-      if (layer.shaderGlobalTransform) {
+      if (layer.attachment) {
+        writeAnime25DAttachmentTransform(
+          layer.attachment,
+          secondaryDeformationFrame,
+          layer.layerTransform,
+        )
+      } else if (layer.shaderGlobalTransform) {
         writeAnime25DLayerGlobalTransform(
           {
             headFollow: isHead

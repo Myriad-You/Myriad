@@ -137,6 +137,10 @@ export function buildSearchableContent(
       '开关',
       '启用',
       'analytics_enabled',
+      'opt-out',
+      'optout',
+      '退出',
+      '隐私',
     ],
   })
 

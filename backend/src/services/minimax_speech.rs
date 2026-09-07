@@ -13,7 +13,7 @@ pub const DEFAULT_MINIMAX_HOST: &str = "https://api.minimaxi.com";
 pub const DEFAULT_MINIMAX_TTS_MODEL: &str = "speech-2.8-turbo";
 pub const DEFAULT_MINIMAX_VOICE: &str = "female-shaonv";
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]

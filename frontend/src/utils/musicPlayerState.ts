@@ -58,7 +58,15 @@ export interface MusicPlayerSnapshotInput {
 
 export type MusicPlayerSnapshot = Record<string, unknown>
 
-const DEFAULT_MUSIC_COLOR = '#ef4444'
+export const DEFAULT_MUSIC_COLOR = '#ef4444'
+
+/** 优先当前 palette，否则沿用上一首；都没有才 null（调用方再 fallback 默认色）。 */
+export function resolveMusicPalette(
+  preferred: MusicColorPalette | null | undefined,
+  previous: MusicColorPalette | null | undefined,
+): MusicColorPalette | null {
+  return preferred ?? previous ?? null
+}
 
 /**
  * 从 audio 元素读取实时进度（切歌热路径外使用，避免 React state 滞后）。

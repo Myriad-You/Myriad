@@ -14,13 +14,16 @@ import { useI18n } from '../../contexts/I18nContext'
 import {
   CheckboxCard,
   CollapseRegion,
+  GitHubProjectBadge,
   InputItem,
+  isGithubRepoUrl,
   SelectItem,
   SettingsButton,
   SettingTitleGuideEntry,
   SettingTitleTag,
   SetupFlow,
   ToggleSwitch,
+  useSettingGuide,
 } from '../settings'
 import {
   AI_VENDOR_PRESETS,
@@ -362,6 +365,7 @@ function VendorCard({
   onRemove: () => void
 }) {
   const { t } = useI18n()
+  const { catalog: g, bindGuide } = useSettingGuide()
   const preset = findVendorPreset(source)
   const configured = hasVendorCredential(source)
   const title = source.display_name || source.slug
@@ -421,16 +425,27 @@ function VendorCard({
             ) : null}
             {preset?.docs_url ? (
               <span className="ai-vendor-card-control">
-                <SettingTitleTag
-                  variant="muted"
-                  icon={<LuBookOpen />}
-                  title={t.config.aiVendorDocs}
-                  onClick={() =>
-                    window.open(preset.docs_url, '_blank', 'noopener,noreferrer')
-                  }
-                >
-                  {t.config.aiVendorDocs}
-                </SettingTitleTag>
+                {isGithubRepoUrl(preset.docs_url) ? (
+                  <GitHubProjectBadge
+                    url={preset.docs_url}
+                    name={preset.display_name}
+                  />
+                ) : (
+                  <SettingTitleTag
+                    variant="muted"
+                    icon={<LuBookOpen />}
+                    title={t.config.aiVendorDocs}
+                    onClick={() =>
+                      window.open(
+                        preset.docs_url,
+                        '_blank',
+                        'noopener,noreferrer',
+                      )
+                    }
+                  >
+                    {t.config.aiVendorDocs}
+                  </SettingTitleTag>
+                )}
               </span>
             ) : null}
             <SettingTitleTag variant="muted">
@@ -474,6 +489,7 @@ function VendorCard({
               <InputItem
                 itemKey={`${source.slug}-sid`}
                 label={t.config.tencentSecretId}
+                {...bindGuide('ai.apiKey', g.ai.apiKey)}
                 value={source.secret_id || ''}
                 onChange={(value) => onChange({ secret_id: value })}
                 placeholder={t.config.tencentSecretIdPlaceholder}
@@ -484,6 +500,7 @@ function VendorCard({
               <InputItem
                 itemKey={`${source.slug}-skey`}
                 label={t.config.tencentSecretKey}
+                {...bindGuide('ai.apiKey', g.ai.apiKey)}
                 value={source.secret_key || ''}
                 onChange={(value) => onChange({ secret_key: value })}
                 placeholder={t.config.tencentSecretKeyPlaceholder}
@@ -514,6 +531,7 @@ function VendorCard({
               <InputItem
                 itemKey={`${source.slug}-cert`}
                 label={t.config.agoraAppCertificate}
+                {...bindGuide('ai.apiKey', g.ai.apiKey)}
                 value={source.api_key || ''}
                 onChange={(value) => onChange({ api_key: value })}
                 placeholder=""
@@ -524,6 +542,7 @@ function VendorCard({
               <InputItem
                 itemKey={`${source.slug}-cid`}
                 label={t.config.agoraCustomerId}
+                {...bindGuide('ai.apiKey', g.ai.apiKey)}
                 value={source.secret_id || ''}
                 onChange={(value) => onChange({ secret_id: value })}
                 placeholder=""
@@ -534,6 +553,7 @@ function VendorCard({
               <InputItem
                 itemKey={`${source.slug}-csec`}
                 label={t.config.agoraCustomerSecret}
+                {...bindGuide('ai.apiKey', g.ai.apiKey)}
                 value={source.secret_key || ''}
                 onChange={(value) => onChange({ secret_key: value })}
                 placeholder=""
@@ -544,6 +564,7 @@ function VendorCard({
               <InputItem
                 itemKey={`${source.slug}-base`}
                 label={t.config.agoraApiBase}
+                {...bindGuide('ai.baseUrl', g.ai.baseUrl)}
                 value={source.base_url || ''}
                 onChange={(value) => onChange({ base_url: value })}
                 placeholder="https://api.agora.io/cn"
@@ -557,6 +578,7 @@ function VendorCard({
               <InputItem
                 itemKey={`${source.slug}-key`}
                 label={t.config.aiVendorApiKey}
+                {...bindGuide('ai.apiKey', g.ai.apiKey)}
                 value={source.api_key || ''}
                 onChange={(value) => onChange({ api_key: value })}
                 placeholder={
@@ -575,6 +597,7 @@ function VendorCard({
                 <InputItem
                   itemKey={`${source.slug}-base`}
                   label={t.config.openaiBaseUrlLabel}
+                  {...bindGuide('ai.baseUrl', g.ai.baseUrl)}
                   value={source.base_url || ''}
                   onChange={(value) => onChange({ base_url: value })}
                   placeholder={

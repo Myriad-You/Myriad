@@ -2,6 +2,31 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { meropeSpeechEventDetail } from './speechEvents'
 
+test('keeps bounded textual anchor identities across the speech event boundary', () => {
+  const parsed = meropeSpeechEventDetail({
+    phase: 'prosody',
+    source: 'reply',
+    messageId: 'message',
+    utteranceId: 'utterance',
+    prosody: {
+      startedAtMs: 1_000,
+      durationMs: 5_000,
+      accents: [
+        { textOffset: 12, offsetMs: 500, intensity: 0.8 },
+        { textOffset: -1, offsetMs: 1_000, intensity: 0.8 },
+        { textOffset: 2_001, offsetMs: 2_000, intensity: 0.8 },
+        { textOffset: 1.5, offsetMs: 3_000, intensity: 0.8 },
+      ],
+    },
+  })
+  assert.equal(parsed?.phase, 'prosody')
+  if (parsed?.phase !== 'prosody') return
+  assert.deepEqual(
+    parsed.prosody.accents.map((accent) => accent.textOffset),
+    [12, undefined, undefined, undefined],
+  )
+})
+
 test('sanitizes streamed speech lifecycle events', () => {
   assert.deepEqual(
     meropeSpeechEventDetail({

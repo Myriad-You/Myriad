@@ -18,8 +18,9 @@ Tapp Playground 是 Myriad 内置的临时 Tapp 开发环境。它把 Pro AI、�
 [`PLAYGROUND_GENERATION_CONTEXT.md`](./PLAYGROUND_GENERATION_CONTEXT.md)。
 
 注入模型的文档目录由 `backend/src/services/tapp_playground_knowledge.rs` 的
-`include_str!` 列表决定（含 STORE、MANIFEST、API_REFERENCE 等）；`DESIGN_SPEC.md`
-无条件注入。重新编译 backend 后才会带上文档改动。
+`include_str!` 列表决定（含 STORE、MANIFEST、API_REFERENCE 等）。`DESIGN_SPEC.md`
+与 `PLAYGROUND_GENERATION_CONTEXT.md` 无条件注入生成 prompt。重新编译 backend
+后才会带上文档改动。
 
 ## 为什么不是直接运行 Grok Build
 
@@ -51,7 +52,7 @@ Playground 是桌面管理员工具，不是访客或普通用户功能。
 | 模式 | 判定 | 资源期望 |
 | --- | --- | --- |
 | **Page 模式** | 声明了 `manifest.page` | 非空 `code.page` + `code.pageHtml`；`page.template: "page.html"`；可附带 widgets |
-| **Widget-only** | 未声明 `page` 且 `manifest.widgets` 非空 | 非空 `code.widget` + `code.widgetHtml`；**不强制**生成 stub Page / `page.html`；声明 `widget:register` |
+| **Widget-only** | 未声明 `page` 且 `manifest.widgets` 非空 | 非空 `code.widget` + `code.widgetHtml`；**不强制**生成 stub Page / `page.html`；声明权限含 `widget:register`（安装校验；不等于授予动态注册） |
 | **Page + Widget** | 有可用 Page 且有 widgets | 预览拆成独立 Page / Widget 窗格 |
 
 前端判定「可用 Page」：声明了 `page` 层且 `pageHtml` 非空。仅有 Widget 时
@@ -59,11 +60,13 @@ Playground 是桌面管理员工具，不是访客或普通用户功能。
 `TappPageSandbox`。
 
 Playground 打包到固定三文件布局：`core.js`、`page/index.js`、`widget/index.js`。一层一个
-文件；再拆文件只在导出之后。交接：导出 `.tapp` → 解压 → `myriad-tapp check`。完整项目
+文件；再拆文件只在导出之后。Widget 入口必须赋值 `Tapp.widgets[<id>] = { render }`，
+不要写 `Tapp.widget.register`。交接：导出 `.tapp` → 解压 → `myriad-tapp check`。完整项目
 仍可包含：`manifest.json`、三个层入口、`styles.css`、`i18n`、package assets、
 background / APIs / AI / events / agent / dataExchange 等 Manifest 扩展（见
 [MANIFEST](./MANIFEST.md)、[WIDGET](./WIDGET.md)、[CLI](../../../tools/tapp-cli/README.md)）。
-没有 `backgroundRequirements` 时，安装契约不强制 core；声明后台常驻才必须有 core。
+Playground 生成/打包始终落 `core.js` 与 `styles.css`。安装契约本身：没有
+`backgroundRequirements` 时不强制 core；声明**常驻**才必须有 core。
 
 ### 目录文案：`manifest.locales` ≠ 应用内 `code.i18n`
 
@@ -145,33 +148,45 @@ HTML 中的脚本、inline handler、直接 fetch / XHR / WebSocket、`eval`、�
 
 ## 知识检索
 
-Agent 不会声称把所有文档永久放进模型上下文。每轮先从仓库文档规划并检索相关
-章节，例如：`TAPP_DEVELOPMENT`、`QUICKSTART`、`ARCHITECTURE`、`MANIFEST`、
-`API_REFERENCE`、`PAGE`、`WIDGET`、`SANDBOX`、`STYLING`、`GRAPHICS`、
-`REST_API`、`RUNTIME_CONTRACT_DESIGN`、`TROUBLESHOOTING`、`TAPP_FILE_FORMAT`、
-`PLAYGROUND_GENERATION_CONTEXT`。
+Agent 不会声称把所有文档永久放进模型上下文。
+
+无条件注入（不依赖检索命中）：
+
+- `DESIGN_SPEC.md` — 设计语言
+- `PLAYGROUND_GENERATION_CONTEXT.md` — 预览边界与调用契约（含 `Tapp.ai.tasks`
+  的 `generate` / `analyze` / `chat` / `image` / `search`、`manifest.ai`、
+  `create` 返回 queued 后须 `get`/`subscribe`，以及 `{ format, value,
+  contextProvenance }` 信封）
+
+每轮再从仓库文档规划并检索相关章节，例如：`TAPP_DEVELOPMENT`、`QUICKSTART`、
+`ARCHITECTURE`、`MANIFEST`、`API_REFERENCE`、`WIDGET`、`SANDBOX`、
+`STYLING`、`GRAPHICS`、`REST_API`、`RUNTIME_CONTRACT_DESIGN`、`TROUBLESHOOTING`、
+`STORE`、`TAPP_FILE_FORMAT`。`PLAYGROUND_GENERATION_CONTEXT` 仍出现在检索目录里
+给规划器点名，但生成时跳过重复摘录。`PAGE.md` 是宿主 React 页面 chrome（`AnimatedView`、
+`sm:`/`md:`），不是沙箱契约，生成检索会跳过；沙箱样式以 `DESIGN_SPEC` / `STYLING` 为准。
 检索结果总量受限，并随响应返回来源名称和章节，便于人工审计。
 
 权威文档由后端 `tapp_playground_knowledge.rs` 以 `include_str!` 编译进二进制；
-改 markdown 后需重新编译 backend 才会进入检索目录。`PLAYGROUND_GENERATION_CONTEXT.md`
-作为安全预览契约进入 catalog（并常被检索）；生成侧另有精简契约注入策略，以代码为准。
-
-`DESIGN_SPEC.md` 会**无条件注入**生成 prompt（设计语言），不依赖检索命中。
+改 markdown 后需重新编译 backend 才会进入注入文本与检索目录。
 
 ## 临时预览与正式运行
 
 | 能力 | 临时预览 | 安装后运行 |
 | --- | --- | --- |
-| Page iframe / CSP / SDK | 有可用 Page 时与正式沙箱同构（`previewMode`） | 正式沙箱 |
-| Widget 沙箱 | 有 Widget 时挂载；Playground 使用 `isPreview: false`（可交互） | 主页 / 运行态按宿主策略 |
+| Page iframe / CSP / SDK | 有可用 Page 时与正式沙箱同构 | 正式沙箱 |
+| Widget 沙箱 | 有 Widget 时挂载（可交互） | 主页 / 运行态按宿主策略 |
 | Runtime Grant | **不签发** | 按可见安装与当前角色签发 |
-| `Tapp.storage` | 当前**标签页内存**；预览需声明 `storage:read` / `storage:write` | 当前用户私有存储 |
-| 主题、语言、确认、全屏 | 可用（受限 preview handlers） | 按 Manifest 权限 |
+| `Tapp.storage` / `settings` / `shared` | 当前**标签页内存**；预览需声明 `storage:read` / `storage:write`；三种 KV 都有 `onChanged`（settings 不拆卡） | 正式命名空间 |
+| 主题、语言、`openUrl` | Page / Widget 预览可用（通知禁用；`openUrl` 需声明 `ui:openUrl` + `openUrls`） | 按授予权限 |
+| 标题、确认、全屏 | **仅 Page 预览**（Widget SDK 没有这些方法） | 按授予权限；仍仅 Page |
+| `Tapp.assets` | 工作区 `code.assets` 内存；与安装后同一 `list` / `get` / `getUrlMap` | 安装包资源 |
+| Tailwind 工具类 | 预览按 HTML/JS 按需编译，与安装后同一套宿主编译 | 安装时写入 page/widget CSS |
+| `Tapp.context` / `Tapp.user` / `file.download` | 预览桩 / 与正式相同的宿主下载（public） | 正式上下文与下载 |
 | `Tapp.persona.get` | 固定样例名片，不打真实 API | 站点公开名片 |
-| 平台、网络、AI、宿主媒体、事件 Broker | 禁用或返回明确错误 | 按 Manifest / 角色 / 后端策略 |
+| 平台、网络、AI、宿主媒体、事件 Broker | 禁用；未注册的宿主 API 返回 `PREVIEW_UNAVAILABLE`（不是安装后的结果） | 按声明权限、角色与授予权限 |
 | **Federation**（Feed、Note/媒体、Channel/Room/Ring 等） | **不可用**（无 Grant、无 FederationBridge） | 按 `federation:*` + Runtime Grant |
 | 对访客可见 | 否 | 仅管理员公开安装可见 |
-| Page 运行时自动修复 | 有可用 Page 时最多 **2** 轮 | 不适用 |
+| Page 运行时自动修复 | 有可用 Page 时最多 **2** 轮；**预览预期失败**（AI / 联邦 / 未授予权限等）不触发修复 | 不适用 |
 | Widget-only | **不**挂载 Page 沙箱；**无** Page 自动修复；Widget 错误仅状态展示 | 安装后按正式 Widget 路径 |
 
 这条边界保证「能预览」不等于「已安装」，也不会绕过 Tapp 权限、存储命名空间或

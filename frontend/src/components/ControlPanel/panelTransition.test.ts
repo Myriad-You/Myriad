@@ -21,7 +21,6 @@ import {
   settleTimeoutMs,
   showsDynamicContent,
   showsOverlay,
-  showsOverlayBlur,
   showsPanelContent,
   showsProgressUi,
 } from './panelTransition.ts'
@@ -274,72 +273,40 @@ describe('动效档位', () => {
   const standard = resolvePanelMotion({
     level: 'standard',
     reduceMotion: false,
-    isMobile: false,
   })
 
-  it('桌面标准档保持既有 700ms 观感并保留 morph 期间模糊', () => {
+  it('标准档保持既有 700ms 空间 morph', () => {
     assert.equal(standard.morphMs, PANEL_MORPH_BASE_MS)
     assert.equal(standard.spatial, true)
-    assert.equal(standard.blurDuringMorph, true)
-  })
-
-  it('移动端标准档不在 morph 热路径上做全屏模糊', () => {
-    const mobile = resolvePanelMotion({
-      level: 'standard',
-      reduceMotion: false,
-      isMobile: true,
-    })
-    assert.equal(mobile.morphMs, PANEL_MORPH_BASE_MS)
-    assert.equal(mobile.blurDuringMorph, false)
   })
 
   it('prefers-reduced-motion 得到短促的非空间过渡', () => {
     const reduced = resolvePanelMotion({
       level: 'standard',
       reduceMotion: true,
-      isMobile: false,
     })
     assert.equal(reduced.spatial, false)
-    assert.equal(reduced.blurDuringMorph, false)
     assert.ok(reduced.morphMs <= 150, `morphMs=${reduced.morphMs}`)
   })
 
-  it('低性能档缩短 morph 且不做昂贵模糊', () => {
+  it('低性能档缩短 morph', () => {
     const light = resolvePanelMotion({
       level: 'light',
       reduceMotion: false,
-      isMobile: false,
     })
     assert.ok(light.morphMs < standard.morphMs)
     assert.equal(light.spatial, true)
-    assert.equal(light.blurDuringMorph, false)
 
     const exlight = resolvePanelMotion({
       level: 'exlight',
       reduceMotion: false,
-      isMobile: false,
     })
     assert.equal(exlight.spatial, false)
-    assert.equal(exlight.blurDuringMorph, false)
-  })
-
-  it('遮罩模糊在非标准档推迟到稳定展开态', () => {
-    const opening = panelReducer(initialPanelState, { type: 'open' })
-    const expanded = settle(opening)
-    const mobile = resolvePanelMotion({
-      level: 'standard',
-      reduceMotion: false,
-      isMobile: true,
-    })
-    assert.equal(showsOverlayBlur(opening, mobile), false)
-    assert.equal(showsOverlayBlur(expanded, mobile), true)
-    // 桌面标准档与既有观感一致：随遮罩一起出现
-    assert.equal(showsOverlayBlur(opening, standard), true)
   })
 
   it('兜底超时始终晚于 morph 本身', () => {
     for (const level of ['standard', 'light', 'exlight'] as const) {
-      const m = resolvePanelMotion({ level, reduceMotion: false, isMobile: false })
+      const m = resolvePanelMotion({ level, reduceMotion: false })
       assert.ok(settleTimeoutMs(m) > m.morphMs, level)
     }
   })

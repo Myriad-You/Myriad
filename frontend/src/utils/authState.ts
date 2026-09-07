@@ -22,8 +22,6 @@ export type KnownAuthState = boolean | null
 
 let knownAuthState: KnownAuthState = null
 
-const listeners = new Set<(state: KnownAuthState) => void>()
-
 /** 是否**确定**为未登录访客（`null` 一律返回 false，即不确定就不算访客） */
 export function isKnownGuest(): boolean {
   return knownAuthState === false
@@ -32,18 +30,9 @@ export function isKnownGuest(): boolean {
 /**
  * 由 AuthContext 在 /api/auth/me 给出确定结论时写入。
  *
- * 网络错误 / 5xx 不要调用本函数——那些情况应保持未知，
- * 用 {@link resetKnownAuthState} 或干脆不动。
+ * 网络错误 / 5xx 不要调用本函数——那些情况应保持未知（干脆不动）。
+ * 登出写入 `false`（确定访客），不要回到 `null`。
  */
 export function setKnownAuthState(state: boolean): void {
-  if (knownAuthState === state) return
   knownAuthState = state
-  for (const listener of listeners) listener(state)
-}
-
-/** 回到「未知」（登出流程开始、会话作废待重探等） */
-export function resetKnownAuthState(): void {
-  if (knownAuthState === null) return
-  knownAuthState = null
-  for (const listener of listeners) listener(null)
 }

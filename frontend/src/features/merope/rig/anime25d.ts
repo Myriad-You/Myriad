@@ -13,6 +13,12 @@ export const ANIME25D_LAYER_DESCRIPTORS = {
   topwear: { depth: 0.9, fade: null },
   handwear: { depth: 0.86, fade: null },
   earwear: { depth: 0.97, fade: null },
+  neckwear: { depth: 1, fade: null },
+  eyewear: { depth: 1.16, fade: null },
+  // Recognized upstream drawings, not articulated wings/tail/object bones.
+  wings: { depth: 1, fade: null },
+  tail: { depth: 1, fade: null },
+  objects: { depth: 1, fade: null },
   ears: { depth: 0.96, fade: null },
   face: { depth: 1, fade: null },
   facedetail: { depth: 1.02, fade: null },

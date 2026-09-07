@@ -38,6 +38,7 @@ export const zhCN: TranslationKeys = {
     durationSeconds: '{sec} 秒',
     durationMinutes: '{min} 分',
     durationMinutesSeconds: '{min} 分 {sec} 秒',
+    editMode: '编辑模式',
   },
 
   // 导航
@@ -132,16 +133,27 @@ export const zhCN: TranslationKeys = {
     visualGenerating: '正在生成，可继续调整其它设置。',
     visualDownload: '下载主立绘',
     visualFailed: '主立绘生成失败',
+    avatarTitle: '贴纸头像',
+    avatarHint:
+      '照主立绘做一张 Q 版贴纸，可以在「头像来源」里选它当自己的头像，Agent 通知也会用它。换主立绘会清掉，需要重做。',
+    avatarGenerate: '生成贴纸头像',
+    avatarRegenerate: '重新生成',
+    avatarGenerating: '正在生成…',
+    avatarNeedsPortrait: '先做出主立绘，头像照着它画。',
+    avatarConfirm: '图片模型可能产生费用。确认开始生成贴纸头像吗？',
+    avatarFailed: '贴纸头像生成失败',
     motionPsdUpload: '上传分层 PSD',
     motionPsdUploading: '正在读取 PSD…',
 
     visualConfirm:
       '图片模型可能产生费用。确认开始生成主立绘吗？重新生成会清掉已导入的骨骼。',
-    anime25dRuntimeCredit:
-      'See-through 拆层之后，动作运行时复刻 Anime2.5DRig（MIT）。',
+    anime25dSeeThroughCredit: '把立绘拆成头发、五官、衣服等图层。',
+    anime25dRuntimeCredit: '驱动这些图层眨眼、说话、转头。',
+    anime25dProjectThanks: '人设功能基于上述项目改进完善，感谢',
     anime25dDebug: '动作调整',
     overviewGroup: '概览',
-    overviewGroupDescription: '名字、心情、当前状态，以及立绘和骨骼是否就绪。',
+    overviewGroupDescription: '衣柜各套立绘和骨骼，以及勿扰。',
+    statusGroup: '状态',
     overviewName: '名字',
     overviewMood: '心情',
     overviewActivity: '当前状态',
@@ -158,6 +170,16 @@ export const zhCN: TranslationKeys = {
     overviewRig: '分层骨骼',
     overviewRigReady: '已激活',
     overviewRigEmpty: '还没有',
+    overviewOutfitPortrait: '立绘',
+    overviewOutfitRig: '骨骼',
+    overviewWardrobeWearing: '正在穿{name}',
+    overviewWardrobeCount: '一共 {n} 套',
+    overviewWardrobeNoneReady: '还没有立绘，也还没有骨骼',
+    overviewWardrobeAllPortraits: '每套都有立绘，但还没有骨骼',
+    overviewWardrobeAllRigs: '每套都有骨骼，但还没有立绘',
+    overviewWardrobeMixed: '有立绘的 {portrait} 套，有骨骼的 {rig} 套',
+    overviewWardrobeOnePortrait: '这套有立绘，还没有骨骼',
+    overviewWardrobeOneRig: '这套有骨骼，还没有立绘',
     overviewSummary: '性格摘要',
     overviewEmpty: '还没有角色概览。',
     personaGroup: '人格',
@@ -165,11 +187,38 @@ export const zhCN: TranslationKeys = {
     personaEmpty: '还没有人格设定。',
     portraitGroup: '立绘',
     portraitGroupDescription:
-      '生成并预览主立绘。光线和构图可在这里微调，发型服装仍由视觉契约锁定。',
+      '生成并预览主立绘。衣柜在这里换装；光线和构图可微调。',
     visualSourceTitle: '角色视觉',
     visualSourceEmpty: '还没有确认过的上半身视觉设计。',
+    wardrobeTitle: '衣柜',
+    wardrobeHint:
+      '换一套衣服。脸和发型不动。换完后重新生成主立绘才会画到图上。',
+    wardrobeGroupDescription:
+      '点开一套衣服，管理这套的立绘。要换上时在套装页里切换。脸和发型固定。',
+    visualOutfitTitle: '这套衣服',
+    visualFixedTitle: '脸与发型',
+    wardrobeEmpty: '还没有收进衣柜的衣服。',
+    wardrobeNeedCharacter: '先有确认过的视觉设计，才能做新衣服。',
+    wardrobeReading: '正在从主立绘读出视觉特征…',
+    wardrobeFillFromPortrait: '从主立绘补上视觉',
+    wardrobeFillFailed: '没能从主立绘读出视觉',
+    wardrobeNew: '做一套新衣服',
+    wardrobeGenerate: '生成这套衣服',
+    wardrobeWearing: '穿着',
+    wardrobeWear: '切换',
+    wardrobeDefault: '默认服装',
+    wardrobeFull: '衣柜已满',
+    wardrobeName: '名称',
+    wardrobeNamePlaceholder: '例如：冬日大衣',
+    wardrobeRenameFailed: '没能改这套衣服的名称',
+    wardrobeRequirements: '服装补充',
+    wardrobeRequirementsHint: '只写这套衣服要的颜色、层次或饰品。',
+    wardrobeRequirementsPlaceholder: '例如：深红短外套、金色扣',
+    wardrobeApplyFailed: '没能换上这套衣服',
+    wardrobeDeleteFailed: '没能从衣柜里拿掉',
     assetGroup: '立绘与骨骼',
     assetEmpty: '还没有主立绘。先生成一张。',
+    widgetFaceSlotTaken: '形象一次只在一处播放。',
     assetNeedsPortrait: '先有主立绘，才能拆层或上传分层 PSD。',
     rigGroup: '分层骨骼',
     rigGroupDescription:
@@ -211,6 +260,7 @@ export const zhCN: TranslationKeys = {
     anime25dBust: '胸的摇晃',
     anime25dBustY: '胸位置上下',
     anime25dLean: '身体倾斜',
+    anime25dBodyYaw: '身体跟随转头',
     anime25dBrow: '眉（上下）',
     anime25dBrowAngSym: '眉角度对称',
     anime25dBrowL: '眉角度左',
@@ -276,9 +326,7 @@ export const zhCN: TranslationKeys = {
     anime25dInspectEmpty:
       '还没有骨骼数据。先完成分层骨骼，才能检查图层是否对上播放器。',
     rigPathUpload: '上传 PSD',
-    rigPathUploadHint: '用自己分层好的 PSD 做骨骼。',
     rigPathSeeThrough: 'See-through 拆层',
-    rigPathSeeThroughHint: '从当前主立绘远端拆层，再走本地预检。',
     rigTokenReady: 'Token 已保存',
     rigPreflightTitle: '预检结果',
     rigPreflightSummary: '已识别 {parts} 个可动部件 · 质量评分 {score}/100',
@@ -381,6 +429,234 @@ export const zhCN: TranslationKeys = {
     wallpaperSwitch: '壁纸切换',
     language: '语言',
     languageSwitch: '语言切换',
+  },
+
+  tour: {
+    start: '导览',
+    startHint: '本页控件说明',
+    next: '下一步',
+    back: '上一步',
+    done: '完成',
+    skip: '跳过',
+    skipHold: '长按跳过',
+    stepOf: '第 {current} 步，共 {total} 步',
+    hint: '页面导览',
+    hintBody: '说明本页的主要控件。',
+    hintTitle: '说明「{page}」的主要控件。',
+    hintWelcome: '欢迎访问 {site}',
+    begin: '开始',
+    noTourOnThisPage: '本页没有导览',
+    couldNotStart: '未找到本页导览的目标控件',
+    steps: {
+      nav: {
+        title: '导航',
+        body: '切换首页、资料库、Brew 阅读、平台报告与 Tapp 应用。',
+      },
+      'home-grid': {
+        title: '宫格',
+        body: '站点打开后首先显示的小组件看板。',
+      },
+      'home-edit': {
+        title: '编辑',
+        body: '进入编辑模式，以调整布局并增减小组件。',
+      },
+      'home-edit-grid': {
+        title: '宫格',
+        body: '拖动以移动或缩放。长按打开设置。角上可删除。',
+      },
+      'home-widget-library': {
+        title: '小组件库',
+        body: '将小组件拖入宫格以添加。',
+      },
+      'home-free-layout': {
+        title: '自由布局',
+        body: '在标准布局与自由布局之间切换。格子大小相同。自由画布为 16×8，两套位置分别保存。',
+      },
+      'home-sticker': {
+        title: '贴纸',
+        body: '选择空位后生成或上传。不计入小组件格子配额。',
+      },
+      'control-island': {
+        title: '控制岛',
+        body: '收缩态轮播站点信息。点开后展开控制面板。',
+      },
+      'control-island-owner': {
+        title: '控制岛',
+        body: '收缩态轮播站点信息。点开后展开控制面板。',
+      },
+      'control-panel': {
+        title: '控制面板',
+        body: '外观、动效与语言。可登录。可播放站内音乐。可切换「控制」与通知。',
+      },
+      'control-panel-owner': {
+        title: '控制面板',
+        body: '外观、动效与语言。可进入系统配置。可播放站内音乐。可切换「控制」与通知。',
+      },
+      'library-filters': {
+        title: '分类',
+        body: '按全部、游戏、视频、音乐、追番、追剧、书籍筛选。收起后再次点击资料库即可展开。',
+      },
+      'library-grid': {
+        title: '收藏',
+        body: '已同步的条目。向下滚动加载更多。',
+      },
+      'library-grid-canvas': {
+        title: '收藏',
+        body: '已同步的条目从中心向外铺开。拖拽平移画布。',
+      },
+      'library-card': {
+        title: '卡片',
+        body: '打开卡片进入来源平台。网易云在站内播放。角标显示来源与评分。',
+      },
+      'library-canvas': {
+        title: '画布',
+        body: '缩放无限画布，或重置到中心。',
+      },
+      'reports-status': {
+        title: '状态条',
+        body: '轮播本页各平台与播放状态。',
+      },
+      'reports-play': {
+        title: '播放',
+        body: '按顺序播放已有报告。',
+      },
+      'reports-cards': {
+        title: '平台卡',
+        body: '每个平台一张。打开已有报告。',
+      },
+      'reports-cards-owner': {
+        title: '平台卡',
+        body: '每个平台一张。打开已有报告，或在此生成。',
+      },
+      'tapp-store-entry': {
+        title: '商店',
+        body: '前往商店浏览并安装应用。',
+      },
+      'tapp-scope': {
+        title: '范围',
+        body: '在「我的应用」与「站点应用」之间切换。',
+      },
+      'tapp-open-playground': {
+        title: '游乐场',
+        body: '用自然语言生成应用。运行于临时沙箱，无授予权限。',
+      },
+      'tapp-install': {
+        title: '安装',
+        body: '上传 .tapp 文件以安装。',
+      },
+      'tapp-grid': {
+        title: '已装应用',
+        body: '打开卡片以运行应用。',
+      },
+      'tapp-grid-owner': {
+        title: '已装应用',
+        body: '打开卡片以运行。可启动、停止、打开设置或卸载。可调整排列与尺寸。',
+      },
+      'config-search': {
+        title: '搜索',
+        body: '按名称或指南正文查找设置。',
+      },
+      'config-sidebar': {
+        title: '分组',
+        body: '设置按组排列。',
+      },
+      'config-content': {
+        title: '设置',
+        body: '修改后需保存。',
+      },
+      'config-ai-persona-toggle': {
+        title: '人设',
+        body: '打开后 Agent 用这份设定说话。写设定需要 Pro。',
+      },
+      'config-ai-persona-card': {
+        title: '形象',
+        body: '未设定时开始设定。已有形象时打开人物设定或删除。',
+      },
+      'config-ai-persona-speech': {
+        title: '说话',
+        body: '朗读聊天回复。人设关闭时不可用。',
+      },
+      'config-persona-tabs': {
+        title: '分页',
+        body: '在概览、人格、衣柜与动作调整之间切换。',
+      },
+      'config-persona-portrait': {
+        title: '主立绘',
+        body: '当前形象预览。有骨骼时在此播放。',
+      },
+      'config-persona-overview': {
+        title: '概览',
+        body: '名字、心情与活动、贴纸头像、勿扰。',
+      },
+      'config-persona-identity': {
+        title: '人格',
+        body: '气质、喜好、驱动力、社交与表达。可导入或逐项编辑。仅站长可写。',
+      },
+      'config-persona-wardrobe': {
+        title: '衣柜',
+        body: '点一套衣服可管理该套立绘。脸和发型固定。可做新衣服。',
+      },
+      'config-persona-motion': {
+        title: '动作调整',
+        body: '导入骨骼后可预览并调整动作。',
+      },
+      'tapp-detail-overview': {
+        title: '概览',
+        body: '应用信息。可导出。有权限时可启动、停止或卸载。',
+      },
+      'tapp-detail-settings': {
+        title: '应用设置',
+        body: '本次安装的配置。已登录可见。可见性仅站长可改。',
+      },
+      'tapp-detail-permissions': {
+        title: '权限',
+        body: '只读列出本次安装的授予权限。',
+      },
+      'tapp-playground-toolbar': {
+        title: '工具条',
+        body: '返回应用列表。此处为无授予权限的临时沙箱。',
+      },
+      'tapp-playground-preview': {
+        title: '页面预览',
+        body: '未生成时为占位。生成后在临时沙箱中运行。',
+      },
+      'tapp-playground-widget': {
+        title: '小组件预览',
+        body: '按声明的尺寸渲染。',
+      },
+      'tapp-playground-code': {
+        title: '源码',
+        body: '生成的源码。可切换文件并直接编辑。有多个版本时可对比。',
+      },
+      'tapp-playground-prompt': {
+        title: '指令',
+        body: '用自然语言描述要生成或修改的内容。空会话时可点示例填入。Enter 发送，Shift+Enter 换行。',
+      },
+      'tapp-playground-generate': {
+        title: '生成',
+        body: '提交后生成或应用修改，并在临时沙箱中运行。',
+      },
+      'tapp-playground-history': {
+        title: '历史',
+        body: '查看本会话的修改记录。可切换、新建或删除会话。',
+      },
+      'tapp-playground-revisions': {
+        title: '版本',
+        body: '在已生成的版本之间前后移动。',
+      },
+      'tapp-playground-clear': {
+        title: '清空会话',
+        body: '清空当前会话。',
+      },
+      'tapp-playground-export': {
+        title: '导出',
+        body: '下载 .tapp 包。',
+      },
+      'tapp-playground-install': {
+        title: '安装',
+        body: '安装到本站。安装后才有授予权限。',
+      },
+    },
   },
 
   // 登录
@@ -586,7 +862,14 @@ export const zhCN: TranslationKeys = {
       visitorDesc:
         '第一方埋点（批处理 / 空闲上报）。管理员与站长登录后不计入；访客 ID 在本机，服务端只存哈希；经 proxy 取真实 IP。',
       enableAria: '启用访客统计',
+      enablePreviewOn: '会开始记录新访问；管理员和站长登录不计入',
+      enablePreviewOff: '不再记录新访问，历史还可以看',
       disabledBanner: '采集已关闭：不再记录新访问，历史数据仍可查看',
+      optOutLabel: '本机退出采集',
+      optOutDesc:
+        '只影响这台浏览器，不改上面的全站开关。退出后不再上报，也不再生成访客 ID。',
+      optOutPreviewOn: '这台浏览器将不再计入访客统计',
+      optOutPreviewOff: '这台浏览器会按全站开关计入',
       pagesTitle: '页面访问分析',
       pagesDesc: '选定范围内各页面的浏览量、去重访客与平均停留',
       eventsTitle: '事件埋点',
@@ -1412,6 +1695,14 @@ export const zhCN: TranslationKeys = {
     musicPlatform: '音乐平台',
     playlistId: '歌单ID',
     clearMusicCache: '清空音乐缓存',
+    islandContentTitle: '智能岛显示',
+    islandContentDesc: '选择右上角控制岛轮播哪些内容。通知仍由通知设置单独控制。',
+    islandContentLocations: '显示内容',
+    islandGreeting: '问候',
+    islandWeather: '天气',
+    islandQuote: '一言',
+    islandMusic: '音乐',
+    islandTapp: 'Tapp',
     siteMetadata: '网站元数据',
     siteMetadataDesc: '站点标题、简介与图标（favicon）',
     siteIdentity: '站点名片与应用',
@@ -1456,12 +1747,17 @@ export const zhCN: TranslationKeys = {
     fieldSiteOgImage: '分享预览图',
     fieldSiteOgImageHint:
       '公开可访问的 https 图片 URL（爬虫无法使用 data: 或本地上传）。建议 ≥1200×630，PNG/JPEG/WebP',
+    fieldGoogleSiteVerification: 'Google Search Console 验证',
+    fieldGoogleSiteVerificationHint:
+      '在 Search Console 用「HTML 标签」验证时，把 content 值或整段 meta 贴到这里。保存后写入页面 google-site-verification。网站地址配好后可到 /sitemap.xml 提交站点地图。',
     fieldSiteNoindex: '搜索引擎收录',
     fieldSiteNoindexHint:
       '开启时允许搜索引擎收录；关闭后页面带上 noindex, nofollow，适合内网或未准备公开的实例',
     fieldSiteVisibilityPolicy: '搜索与 AI 可见性',
     fieldSiteVisibilityPolicyHint:
       '决定搜索引擎与 AI（ChatGPT、Perplexity 等）能否发现并引用本站。推荐公开站点选择「允许 AI 引用」。',
+    seoOriginMissingHint:
+      '当前未设置网站地址。sitemap 会是空的，分享卡片也没有绝对链接。请先在上方填写网站地址。',
     visibilityPrivate: '不公开',
     visibilityPrivateHint: '写入 noindex，不进 sitemap，不提供 /llms.txt',
     visibilityPrivateHintBefore: '写入 ',
@@ -1544,7 +1840,7 @@ export const zhCN: TranslationKeys = {
     memorySaverHint:
       '在均衡档之上再收一档：分块并发、进程内缓存、连接池、密码哈希并发，以及视频/音频峰值。日常消息仍可用；大媒体请走分块传输，无损音频可能更早拒收。可用 MYRIAD_MEMORY_PROFILE 覆盖。连接池需重启后端后完全生效。',
     agentOptions: 'Agent',
-    agentOptionsDesc: '人设、定时任务、技能和记忆。',
+    agentOptionsDesc: '人设、说话、定时任务、技能和记忆。',
     agentHeartbeatTitle: '定时任务',
     agentHeartbeatDesc: '到点让它自己去做一件事。',
     agentSkillsTitle: '技能',
@@ -1556,7 +1852,7 @@ export const zhCN: TranslationKeys = {
     agentPersonaHint:
       '打开后 Agent 会用设定说话，记住跟每个人的心情和日记，并在有名单上的事时自己开口。关上则只聊天办事。',
     agentPersonaNeedsLite:
-      '没开 Lite：聊天开口会退回标准模型；主动开口仍是短句，心情微调不跑。',
+      '没开 Lite：聊天开口和随机起名都不会跑。主动开口仍是短句，心情微调不跑。',
     agentPersonaNeedsPro: '写设定需要先启用上面的 Pro 模型。',
     agentPersonaEmpty: '还没有形象',
     agentPersonaEmptyLead:
@@ -1568,8 +1864,7 @@ export const zhCN: TranslationKeys = {
       '确定删除现在的性格设定？心情和日记也会一起清掉。',
     agentPersonaDeleteFailed: '删除人设失败',
     agentPersonaSpeech: '说话',
-    agentPersonaSpeechHint:
-      '打开后聊天回复会读出来。关上只动嘴、不播语音。默认关。',
+    agentPersonaSpeechHint: '朗读聊天回复。关闭后仅保留口型。',
     enableProxy: '启用网络代理',
     enableProxyHint: '开启后将使用代理访问外部API',
     proxyUrl: '代理地址',
@@ -1721,6 +2016,7 @@ export const zhCN: TranslationKeys = {
     placeholderSiteTitle: 'Myriad - A myriad of lights, in one place.',
     placeholderSiteDescription: 'A myriad of lights, in one place.',
     placeholderSiteKeywords: '个人主页, 博客, 数字生活',
+    placeholderGoogleSiteVerification: '粘贴验证码或整段 meta 标签',
     placeholderSiteOgImage: 'https://example.com/og.png',
     placeholderGaMeasurementId: 'G-XXXXXXXXXX',
     placeholderUmamiWebsiteId: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
@@ -1769,6 +2065,13 @@ export const zhCN: TranslationKeys = {
     aiVendorsTitle: '服务商',
     aiVendorsDesc:
       '像登录方式一样添加源；同一家可以有多个。下面的模型和语音都从这里选。',
+    webSearchTitle: '联网搜索',
+    webSearchDesc:
+      '办事档联网搜索用。填了 TinyFish 就走它；没填则回退已配置的 Gemini。访客不用填。',
+    tinyfishApiKey: 'TinyFish API Key',
+    tinyfishApiKeyHint:
+      '搜索本身免费，但必须有一把 key。到 agent.tinyfish.ai 注册即可，不用绑卡。清空后保存即删除；掩码原样保存不会改。',
+    tinyfishApiKeyPlaceholder: '在 agent.tinyfish.ai/api-keys 创建',
     aiVendorAdd: '添加服务商',
     aiVendorAddDesc: '从预设添加',
     aiVendorEmpty: '还没有服务商',
@@ -1826,9 +2129,11 @@ export const zhCN: TranslationKeys = {
     aiVendorSetupAgoraPortalTitle: '打开声网 / Agora 控制台',
     aiVendorSetupAgoraPortalDesc: '进入项目与 Conversational AI。',
     aiVendorSetupAgoraCreateTitle: '复制凭证',
-    aiVendorSetupAgoraCreateDesc: '复制 App ID、证书，以及 REST 的 Customer ID / Secret。',
+    aiVendorSetupAgoraCreateDesc:
+      '复制 App ID、证书，以及 REST 的 Customer ID / Secret。',
     aiVendorSetupAgoraFillTitle: '回到本页填写',
-    aiVendorSetupAgoraFillDesc: '填 App ID、证书、Customer ID 和 Secret。朗读走已配置的 MiniMax。',
+    aiVendorSetupAgoraFillDesc:
+      '填 App ID、证书、Customer ID 和 Secret。朗读走已配置的 MiniMax。',
     // 图片生成模型配置
     aiImageTitle: '图片生成模型',
     aiImageDesc: '生成图片；分辨率由请求参数指定',
@@ -2150,6 +2455,8 @@ export const zhCN: TranslationKeys = {
     permEventPublishHint: '允许 Tapp 向其他 Tapp 发布事件',
     permAiImage: 'AI 图片生成',
     permAiImageHint: '允许 Tapp 使用 AI 生成图片',
+    permAiSearch: 'AI 联网搜索',
+    permAiSearchHint: '允许 Tapp 联网搜索（TinyFish，未配置时回退 Gemini）',
     perm3dGenerate: '3D 模型生成',
     perm3dGenerateHint: '允许 Tapp 使用 Tripo 生成、绑定或重定向 3D 模型',
     permSchedulerRegister: '注册定时任务',
@@ -2240,8 +2547,14 @@ export const zhCN: TranslationKeys = {
     aiCooldownSeconds: '调用冷却时间',
     aiCooldownSecondsHint: '两次 AI 调用之间的最小间隔（秒）',
     unitSeconds: '秒',
+    switchPreviewOnKicker: '开启后',
+    switchPreviewOffKicker: '关闭后',
     platformHelpAria: '{name} 说明',
     platformEnableAria: '在报告页显示 {name} 卡片',
+    platformEnablePreviewOn:
+      '会在报告页显示「{name}」卡片，顺序跟现在的拖拽一致',
+    platformEnablePreviewOff: '报告页不再显示这张卡片，已经同步的数据还在',
+    platformEnablePreviewNeedConfig: '先点开卡片填好凭证，才能打开这个开关',
     platformOpenDetailAria: '打开 {name} 配置',
     // 站点备案和云赞助商
     siteFooterTitle: '站点底部信息',
@@ -2303,6 +2616,9 @@ export const zhCN: TranslationKeys = {
     brewSource: '订阅源磁贴',
     brewTopic: '主题聚合',
     brewFeatured: 'Brew 精选',
+    githubRepos: 'GitHub 仓库',
+    githubReposField: '仓库',
+    githubReposFieldHint: 'GitHub 地址或 owner/repo',
     library: '资料库',
     dataReport: '平台报告',
     multiPlatformAggregation: '多平台内容聚合',
@@ -2375,6 +2691,52 @@ export const zhCN: TranslationKeys = {
   // 首页
   home: {
     defaultBio: '欢迎访问我的个人仪表盘',
+    switchToFreeLayout: '切换到自由布局',
+    switchToStandardLayout: '切换到标准布局',
+    freeLayout: '自由布局',
+    standardLayout: '标准布局',
+    createSticker: '创建贴纸',
+    stickerPromptPlaceholder: '描述贴纸，例如：一只戴墨镜的猫',
+    stickerSizeHint: '尺寸 {size}',
+    stickerGenerating: '生成中…',
+    stickerFailed: '贴纸生成失败',
+    stickerNoSpace: '没有空位放置贴纸',
+    stickerPickHint: '拖出任意格子，生成按最接近的比例出图，多出来的裁掉',
+    stickerGenerateCropHint: '按 {aspect} 构图，主体靠中间，裁切时少切到内容',
+    stickerAddReference: '添加参考图',
+    stickerReferenceLimit: '最多 4 张',
+    stickerModeGenerate: '生成',
+    stickerModeUpload: '上传',
+    stickerUploadImage: '选择图片',
+    stickerUploading: '上传中…',
+    stickerUploadFailed: '贴纸上传失败',
+    stickerCropHint: '可以拖拽图片调整显示区域',
+    stickerLongPressEdit: '长按调整显示区域',
+    stickerSettings: '贴纸',
+    stickerFloat: '浮动',
+    stickerFloatLoop: '始终浮动',
+    stickerFloatHover: '悬停时浮动',
+    stickerFloatOff: '不浮动',
+    stickerFloatLoopHint: '持续轻轻晃动',
+    stickerFloatHoverHint: '鼠标移上才晃动',
+    stickerFloatOffHint: '保持静止',
+    stickerDownload: '下载图片',
+    stickerDownloadHint: '保存生成或上传的原图',
+    stickerFile: '图片',
+    exportLayout: '导出',
+    importLayout: '导入',
+    exportLayoutSuccess: '已导出首页布局',
+    exportLayoutFailed: '首页布局没能导出',
+    exportLayoutPartial: '已导出首页布局，但有 {count} 张贴纸原图没带上',
+    importLayoutSuccess: '已导入首页布局',
+    importLayoutFailed: '首页布局没能导入',
+    importLayoutPartial: '已导入首页布局，但有 {count} 张贴纸原图没能写入',
+    importLayoutConfirm:
+      '导入会替换当前的标准布局和自由布局。带上的贴纸原图会重新写入本站。确定导入？',
+    importLayoutInvalid: '这不是首页布局文件',
+    importLayoutSettingsBackup: '这是站点设置备份，请到系统配置里导入',
+    importLayoutTooLarge: '布局文件太大',
+    importLayoutTooMany: '布局文件里的格子太多',
   },
 
   // 资料库
@@ -2481,6 +2843,12 @@ export const zhCN: TranslationKeys = {
       dismiss: '不用',
       failed: '刚才没有处理成功，请再试一次。',
     },
+    workOffer: {
+      kicker: '做事',
+      hint: '这件事要动工具',
+      accept: '去办',
+      sent: '在办',
+    },
     mood: {
       kicker: '心情',
     },
@@ -2551,7 +2919,8 @@ export const zhCN: TranslationKeys = {
       turnTraceTitle: '这一轮',
       turnTraceIdle: '还没有开口',
       turnTraceExport: '导出这一轮',
-      turnTraceTiming: '听清 {asr} · 开口 {llm} · 合成 {tts} · 出声 {audio} · 端到端 {e2e}',
+      turnTraceTiming:
+        '听清 {asr} · 开口 {llm} · 合成 {tts} · 出声 {audio} · 端到端 {e2e}',
       lastRun: '上次运行：{time}',
       neverRun: '还没运行过',
       remove: '删除',
@@ -2679,7 +3048,8 @@ export const zhCN: TranslationKeys = {
       saveFirst: '先保存设置。',
       nameLabel: '称呼',
       nameHint:
-        '留空则对外仍叫 Arael。先选名字风格，再点随机；用 Standard 模型生成。',
+        '留空则对外仍叫 Arael。选风格后点随机。只走 Lite，不会改用标准模型。',
+      importNameHint: '留空则对外仍叫 Arael。导入请自己填写称呼。',
       namePlaceholder: '输入名称',
       randomName: '随机',
       randomNameBusy: '生成中',
@@ -2754,7 +3124,8 @@ export const zhCN: TranslationKeys = {
       importTitle: '导入',
       importLead: '人设和主立绘都是现成的，填个名字就能落地。',
       importPersonaReady: '人设已就位。',
-      importPortraitHint: '上传现成的主立绘。不走出图，所以不需要先定视觉设定。',
+      importPortraitHint: '上传现成的主立绘。收尾时会按这张图补上视觉特征。',
+      importVisualFailed: '没能从主立绘读出视觉特征，请重试',
       importFinish: '下一步：让她动起来',
       personaFieldGenerating: '生成中',
       editPersona: '编辑',
@@ -2773,6 +3144,8 @@ export const zhCN: TranslationKeys = {
       personaIncompleteHint: '还缺 {fields}。补全后再继续，或点换一批。',
       proUnavailable: 'Pro 模型不可用，请先在配置里启用。',
       standardUnavailable: 'Standard 模型不可用，请先在配置里检查。',
+      liteUnavailable:
+        'Lite 模型不可用。起名只走 Lite：请启用它，并填上 Lite 自己的模型，不要留空。',
       visualRequirements: '视觉补充要求',
       visualRequirementsHint:
         '这里写的颜色、衣装、饰品和母题会优先进设计。画风、性别、露脖子和服装大类仍不能改。',
@@ -2799,6 +3172,10 @@ export const zhCN: TranslationKeys = {
       visualDesignFailed: '角色视觉设计失败，请重试',
       visualDesignLanguageFailed: '设计稿语言和界面语言不一致，请再生成一次。',
       visualDesignRequired: '请先确认上半身视觉设计，再生成主立绘。',
+      visualGenderMismatch:
+        '上半身视觉的性别呈现和当前设定对不上，没法生成主立绘。',
+      visualIdentityUnusableForPortrait:
+        '上半身视觉没法用于出图：有字段被画风锁清掉了。',
       visualDesignSaveFailed: '保存角色视觉失败',
       portraitTalkLead: '直接说要改的地方',
       portraitLoading: '正在读取已有立绘',
@@ -3289,6 +3666,7 @@ export const zhCN: TranslationKeys = {
     profileSourceAuto: '自动',
     profileSourceAutoDesc: '优先使用平台画像，没有则用账号头像',
     profileSourceAccount: '账号头像',
+    profileSourcePersona: '人设贴纸头像',
     profileTextSourceTitle: '名称与简介来源',
     profileTextSourceHint: '仅影响名称与简介，与头像来源相互独立。',
     profileTextSourceEmpty: '还没有可选择的名称/简介来源。',
@@ -3302,8 +3680,12 @@ export const zhCN: TranslationKeys = {
   // 小组件网格
   widgetGrid: {
     widgetLibrary: '小组件库',
+    restoreWidgetLibrary: '返回小组件库',
     searchWidgets: '搜索小组件…',
     clearSearch: '清除搜索',
+    filterWidgets: '筛选小组件',
+    filterAll: '全部',
+    filterReports: '报告',
     noSearchResults: '没有匹配的小组件',
     deleteWidget: '删除小组件',
     positionConflict: '✖ 位置冲突',
@@ -3311,6 +3693,8 @@ export const zhCN: TranslationKeys = {
     prevPage: '上一页',
     nextPage: '下一页',
     widgetSettings: '小组件设置',
+    longPressToEdit: '长按小组件进行设置',
+    createSticker: '创建贴纸',
   },
 
   // 社交网络小组件
@@ -3589,6 +3973,16 @@ export const zhCN: TranslationKeys = {
     unavailable: '一言不可用',
   },
 
+  githubReposWidget: {
+    empty: '还没有仓库',
+    emptyHint: '编辑小组件，填入 owner/repo',
+    loadFailed: '仓库信息暂时不可用',
+    sampleRepo: 'hello-world',
+    sampleRepoAlt: 'toolkit',
+    sampleDesc: '示例仓库简介',
+    sampleDescAlt: '另一份示例简介',
+  },
+
   // 音乐播放器小组件
   musicPlayer: {
     sampleSong: '示例歌曲',
@@ -3722,6 +4116,13 @@ export const zhCN: TranslationKeys = {
     notConfigured: '未配置',
     fetchFailed: '获取失败',
     showcaseEmpty: '展柜未公开或为空',
+    customFont: '自定义字体',
+    customFontHint: '请使用你有权在网页中嵌入的字体。可不填。',
+    customFontChoose: '选择字体',
+    customFontClear: '使用系统字体',
+    customFontUploading: '上传中…',
+    customFontFailed: '字体上传失败',
+    customFontInUse: '正在使用自定义字体',
   },
 
   // Tapp 快捷方式小组件
@@ -3832,6 +4233,7 @@ export const zhCN: TranslationKeys = {
     permPublishEvent: '发布事件',
     permSubscribeEvent: '订阅事件',
     permAiImage: 'AI 图片生成',
+    permAiSearch: 'AI 联网搜索',
     perm3dGenerate: '3D 模型生成',
     permSchedulerRegister: '注册定时任务',
     permSpeechTts: '文本转语音',
@@ -3884,6 +4286,7 @@ export const zhCN: TranslationKeys = {
     permPublishEventDesc: '允许发布系统事件',
     permSubscribeEventDesc: '允许订阅系统事件',
     permAiImageDesc: '允许调用 AI 生成图片',
+    permAiSearchDesc: '允许调用联网搜索（TinyFish / Gemini grounding）',
     perm3dGenerateDesc: '允许调用 Tripo 生成、绑定或重定向 3D 模型',
     permSchedulerRegisterDesc: '允许注册和管理定时任务',
     permSpeechTtsDesc: '允许使用文本转语音服务',
@@ -4978,7 +5381,7 @@ export const zhCN: TranslationKeys = {
     empty: '暂无通知',
     loadFailed: '通知没能加载。',
     clearAll: '清空',
-    clearConfirm: '确认清空？',
+    clearConfirm: '确认清除',
     enableSystemNotif: '开启系统通知',
     justNow: '刚刚',
     minutesAgo: '{n} 分钟前',

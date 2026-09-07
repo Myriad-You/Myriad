@@ -37,7 +37,6 @@ html.dark .modal-overlay-portal {
 .modal-content {
   position: relative;
   background-color: rgb(255 255 255 / 98%);
-  backdrop-filter: blur(40px);
   border-radius: 1.5rem;
   max-width: 56rem;
   width: 100%;

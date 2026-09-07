@@ -3,7 +3,7 @@
  *
  * 设计约束（见 issue #320）：
  * - 一条时间线、一个状态机：collapsed → opening → expanded → closing → collapsed。
- *   遮罩、内容可见性、进度 UI、动画类名、哨兵历史全部从 phase 派生，
+ *   内容可见性、进度 UI、动画类名、哨兵历史全部从 phase 派生，
  *   不再由若干互相独立的 boolean + setTimeout 各自维护。
  * - 相位推进由真实的 transitionend 驱动（组件侧），本模块只负责用
  *   generation 作废过期回调：快速连点时旧动画的 settle 不会打断新动画。
@@ -139,17 +139,9 @@ export function showsDynamicContent(state: PanelState): boolean {
   return state.phase === 'collapsed' || state.phase === 'closing'
 }
 
-/** 遮罩可见。 */
+/** 透明点击层可见（无视觉遮罩，仅点空白收起）。 */
 export function showsOverlay(state: PanelState): boolean {
   return isPanelOpen(state)
-}
-
-/** 遮罩是否上模糊：仅在稳定展开态，morph 热路径不做全屏 backdrop-filter。 */
-export function showsOverlayBlur(
-  state: PanelState,
-  motion: PanelMotionProfile,
-): boolean {
-  return motion.blurDuringMorph ? showsOverlay(state) : state.phase === 'expanded'
 }
 
 /** 音乐进度 UI（每秒 tick）只在控制页可见时开。 */
@@ -173,8 +165,6 @@ export interface PanelMotionProfile {
   tabMs: number
   /** 是否做空间 morph；false = 仅 opacity 直切（reduced-motion / 最低档）。 */
   spatial: boolean
-  /** morph 期间是否保留背景模糊（智能岛自身 + 全屏遮罩）。 */
-  blurDuringMorph: boolean
 }
 
 /** 标准档 morph 时长；与 CSS 中的历史取值保持一致，勿随意改动观感。 */
@@ -186,21 +176,18 @@ export const PANEL_SETTLE_SLACK_MS = 150
 export function resolvePanelMotion(input: {
   level: PanelAnimationLevel
   reduceMotion: boolean
-  isMobile: boolean
 }): PanelMotionProfile {
   // reduced-motion / 最低档：不做空间 morph，只留一次短促的 opacity 交接
   if (input.reduceMotion || input.level === 'exlight') {
-    return { morphMs: 120, tabMs: 80, spatial: false, blurDuringMorph: false }
+    return { morphMs: 120, tabMs: 80, spatial: false }
   }
   if (input.level === 'light') {
-    return { morphMs: 420, tabMs: 140, spatial: true, blurDuringMorph: false }
+    return { morphMs: 420, tabMs: 140, spatial: true }
   }
   return {
     morphMs: PANEL_MORPH_BASE_MS,
     tabMs: 180,
     spatial: true,
-    // 桌面标准档保持既有观感；移动端 GPU 不承担 morph 期间的全屏模糊
-    blurDuringMorph: !input.isMobile,
   }
 }
 

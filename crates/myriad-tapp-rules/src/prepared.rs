@@ -139,15 +139,6 @@ pub fn nonempty_content(value: Option<&String>) -> Option<&str> {
         .filter(|content| !content.is_empty())
 }
 
-/// Prefer primary style channel; fall back to generated channel when non-empty.
-#[allow(dead_code)] // 仅测试调用：本仓无生产调用点（编译器已核）。
-pub fn resolved_style_content<'a>(
-    primary: Option<&'a String>,
-    generated_fallback: Option<&'a String>,
-) -> Option<&'a str> {
-    nonempty_content(primary).or_else(|| nonempty_content(generated_fallback))
-}
-
 /// Manifest template path for a widget size, when declared.
 pub fn widget_template_path<'a>(
     manifest: &'a TappManifest,
@@ -616,21 +607,6 @@ mod tests {
             .message();
         assert!(msg.contains("widgets[].styles"));
         assert!(msg.contains("widget-card.css"));
-    }
-
-    #[test]
-    fn resolved_style_content_prefers_primary_then_generated() {
-        let primary = "a".to_string();
-        let generated = "b".to_string();
-        assert_eq!(
-            resolved_style_content(Some(&primary), Some(&generated)),
-            Some("a")
-        );
-        assert_eq!(
-            resolved_style_content(Some(&String::new()), Some(&generated)),
-            Some("b")
-        );
-        assert_eq!(resolved_style_content(None, Some(&String::new())), None);
     }
 
     #[test]

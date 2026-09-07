@@ -33,6 +33,16 @@ export interface TurnIdentity {
   messageId: string
 }
 
+let messageSequence = 0
+
+/**
+ * ASR can commit two ordered results in the same millisecond. The client
+ * message IDs must remain distinct before either reply has a backend runId.
+ */
+export function nextAgentMessageId(role: 'user' | 'assistant'): string {
+  return `msg_${role}_${Date.now()}_${++messageSequence}`
+}
+
 /** In-memory Chat replacement counter. Never persisted. */
 export class ChatTurnClock {
   private generation = 0

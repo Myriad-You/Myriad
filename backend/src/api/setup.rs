@@ -472,6 +472,18 @@ pub async fn save_database_config(
 
     tracing::info!("Database URL constructed (password masked)");
 
+    if let Err(message) =
+        crate::api::setup_bootstrap::validate_env_value("DATABASE_URL", &database_url)
+    {
+        return Err(status_json_to_http((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Invalid database configuration",
+                "message": message
+            })),
+        )));
+    }
+
     let env_path = get_env_path();
 
     // If .env doesn't exist, create it from .env.example
@@ -492,7 +504,19 @@ pub async fn save_database_config(
         } else {
             // Create a minimal .env file with just the database URL
             tracing::info!(".env.example not found, creating minimal .env");
-            if let Err(e) = fs::write(&env_path, format!("DATABASE_URL={}\n", database_url)) {
+            let seed = match crate::api::config::update_env_var("", "DATABASE_URL", &database_url) {
+                Ok(content) => content,
+                Err(message) => {
+                    return Err(status_json_to_http((
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "error": "Invalid database configuration",
+                            "message": message
+                        })),
+                    )));
+                }
+            };
+            if let Err(e) = fs::write(&env_path, seed) {
                 tracing::error!("Failed to create .env file: {:?}", e);
                 return Err(status_json_to_http((
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -532,8 +556,19 @@ pub async fn save_database_config(
         }
     };
 
-    // Update DATABASE_URL
-    let updated_content = update_env_variable(&content, "DATABASE_URL", &database_url);
+    // Update DATABASE_URL through the shared writer (CR/LF/NUL fail closed).
+    let updated_content =
+        crate::api::config::update_env_var(&content, "DATABASE_URL", &database_url).map_err(
+            |message| {
+                status_json_to_http((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Invalid database configuration",
+                        "message": message
+                    })),
+                ))
+            },
+        )?;
 
     // Write back to file
     match fs::write(&env_path, updated_content) {
@@ -592,53 +627,6 @@ fn get_env_path() -> PathBuf {
     let mut path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     path.push(".env");
     path
-}
-
-/// Update a single environment variable in the content.
-///
-/// 调用方必须先用 [`crate::api::setup_bootstrap::validate_env_value`] 校验。这里
-/// 再兜一层：把值里的 CR/LF 换成空格，保证无论调用路径如何，一个 key 永远只
-/// 产出一行，不会把 `.env` 撕成多条记录。
-fn update_env_variable(content: &str, key: &str, value: &str) -> String {
-    let value: String = value
-        .chars()
-        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
-        .collect();
-    let value = value.as_str();
-
-    let lines: Vec<&str> = content.lines().collect();
-    let mut result = Vec::new();
-    let mut found = false;
-
-    for line in lines {
-        let trimmed = line.trim();
-
-        // Skip comments and empty lines
-        if trimmed.starts_with('#') || trimmed.is_empty() {
-            result.push(line.to_string());
-            continue;
-        }
-
-        // Check if this line contains our key
-        if let Some(eq_pos) = trimmed.find('=') {
-            let line_key = trimmed[..eq_pos].trim();
-            if line_key == key {
-                // Replace the value
-                result.push(format!("{}={}", key, value));
-                found = true;
-                continue;
-            }
-        }
-
-        result.push(line.to_string());
-    }
-
-    // If key wasn't found, append it
-    if !found {
-        result.push(format!("{}={}", key, value));
-    }
-
-    result.join("\n")
 }
 
 #[cfg(test)]

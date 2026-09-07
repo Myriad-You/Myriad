@@ -9,12 +9,13 @@ import { PERSONA_UPDATED_EVENT } from '../../features/merope/events'
 import {
   MEROPE_STATE_EVENT,
   meropeStateEventDetail,
+  resolveLoadedMeropeAffect,
 } from '../../features/merope/performanceEvents'
 import { agentService } from '../../services/agent'
 import { ADDRESSEE_UPDATED_EVENT, moodBand } from '../agent/meropeVitals'
 
 export function useAddresseeMoodBand(): MoodBand | null {
-  const { hasChecked, isAuthenticated } = useAuth()
+  const { hasChecked, isAuthenticated, user } = useAuth()
   const [band, setBand] = useState<MoodBand | null>(null)
 
   useEffect(() => {
@@ -23,6 +24,7 @@ export function useAddresseeMoodBand(): MoodBand | null {
       return undefined
     }
     let active = true
+    setBand(null)
     const apply = (
       value: number | undefined,
       arousal: number | undefined,
@@ -38,10 +40,8 @@ export function useAddresseeMoodBand(): MoodBand | null {
             setBand(null)
             return
           }
-          apply(
-            typeof persona.mood === 'number' ? persona.mood : 70,
-            typeof persona.arousal === 'number' ? persona.arousal : 48,
-          )
+          const affect = resolveLoadedMeropeAffect(persona)
+          apply(affect.mood, affect.arousal)
         })
         .catch(() => {
           if (active) setBand(null)
@@ -63,7 +63,7 @@ export function useAddresseeMoodBand(): MoodBand | null {
       window.removeEventListener(PERSONA_UPDATED_EVENT, load)
       window.removeEventListener(ADDRESSEE_UPDATED_EVENT, load)
     }
-  }, [hasChecked, isAuthenticated])
+  }, [hasChecked, isAuthenticated, user?.id])
 
   return band
 }

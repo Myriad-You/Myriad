@@ -1,4 +1,7 @@
-export { getSettingGuidesCatalog } from './catalog'
+export {
+  getSettingGuidesCatalog,
+  loadSettingGuidesCatalog,
+} from './catalog'
 export {
   extractMatchSnippet,
   parseSearchQuery,

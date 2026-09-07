@@ -1,0 +1,878 @@
+// Work confirmation.
+
+use chrono::{Duration, Utc};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+
+use super::super::agent_footer::*;
+use super::super::agent_header::*;
+use super::super::types::*;
+use super::super::{capability, executor, response_agent, types};
+
+/// 确认请求的判定结果：能直接答复的，和真要跑 recipe 的。
+///
+/// 分开是为了让预算作用域只包住后者——见 [`Agent::process_confirmation`]。
+enum ConfirmationOutcome {
+    /// 不跑任何 AI 就能给出的答复（取消 / 越权 / 不存在 / 过期 / 参数缺失）
+    Answered(Box<AgentResponse>),
+    /// 校验通过，待执行的 recipe
+    Execute(Box<PendingRecipeConfirmation>),
+}
+
+impl Agent {
+    /// 处理用户确认
+    ///
+    /// 只有「真的要跑 recipe」这一段进预算作用域。取消、越权、找不到、已过期、
+    /// 参数还没齐——这些分支一次模型都不调，不该记一次调用额度，也不该把 10k
+    /// tokens 挂到结算才退。
+    pub async fn process_confirmation(
+        &self,
+        confirmation: UserConfirmation,
+    ) -> Result<AgentResponse, String> {
+        let user_id = confirmation.user_id;
+        let task_id = confirmation.confirmation_id.clone();
+        let pending_confirmation = match self.resolve_confirmation(confirmation).await? {
+            ConfirmationOutcome::Answered(response) => return Ok(*response),
+            ConfirmationOutcome::Execute(pending) => *pending,
+        };
+
+        AgentTurnBudget::run_continuation(
+            &self.db,
+            user_id,
+            "agent.process_confirmation",
+            task_id,
+            Box::pin(self.execute_confirmed_recipe(pending_confirmation)),
+        )
+        .await
+    }
+
+    /// 消费待确认记录并判定：直接答复，还是执行 recipe。全程不调用 AI。
+    async fn resolve_confirmation(
+        &self,
+        confirmation: UserConfirmation,
+    ) -> Result<ConfirmationOutcome, String> {
+        // PostgreSQL provides atomic, owner-scoped consumption across replicas.
+        // The local map is only a hot cache and is cleared after the shared take.
+        let pending =
+            crate::services::tapp_registry::take_for_subject::<PendingRecipeConfirmation>(
+                &self.db,
+                CONFIRMATION_REGISTRY_NAMESPACE,
+                &confirmation.confirmation_id,
+                confirmation.user_id,
+            )
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "Failed to consume confirmation");
+                "Failed to consume confirmation".to_string()
+            })?;
+        PENDING_CONFIRMATIONS
+            .write()
+            .await
+            .remove(&confirmation.confirmation_id);
+
+        match pending {
+            Some(pending_confirmation) => {
+                // 二次校验（防御性）
+                if pending_confirmation.user_id != confirmation.user_id {
+                    return Ok(ConfirmationOutcome::Answered(Box::new(AgentResponse {
+                        response_type: AgentResponseType::Error,
+                        message: response_agent::confirmation_not_found(),
+                        data: None,
+                        data_display: None,
+                        suggestions: response_agent::retry_operation_suggestions(),
+                        task: None,
+                        confirmation: None,
+                        frontend_action: None,
+                        performance: None,
+                    })));
+                }
+
+                if !confirmation.confirmed {
+                    return Ok(ConfirmationOutcome::Answered(Box::new(AgentResponse {
+                        response_type: AgentResponseType::Answer,
+                        message: response_agent::operation_cancelled(),
+                        data: Some(json!({
+                            "cancelled": true,
+                            "confirmation_id": confirmation.confirmation_id
+                        })),
+                        data_display: None,
+                        suggestions: response_agent::cancel_suggestions(),
+                        task: None,
+                        confirmation: None,
+                        frontend_action: None,
+                        performance: None,
+                    })));
+                }
+
+                if Utc::now() > pending_confirmation.request.expires_at {
+                    tracing::info!(
+                        confirmation_id = %confirmation.confirmation_id,
+                        "[Agent] Confirmation expired, rejecting"
+                    );
+                    return Ok(ConfirmationOutcome::Answered(Box::new(AgentResponse {
+                        response_type: AgentResponseType::Error,
+                        message: response_agent::confirmation_expired(),
+                        data: None,
+                        data_display: None,
+                        suggestions: response_agent::retry_suggestions(),
+                        task: None,
+                        confirmation: None,
+                        frontend_action: None,
+                        performance: None,
+                    })));
+                }
+
+                tracing::info!(
+                    confirmation_id = %confirmation.confirmation_id,
+                    user_id = pending_confirmation.user_id,
+                    "[Agent] User confirmed sensitive operation"
+                );
+
+                // Sensitive gating runs before required-parameter prompting in
+                // the initial request. After confirmation, ask for any missing
+                // values instead of executing a partially specified recipe.
+                // Schema-driven, no model call — hence still outside the budget.
+                if let Some(missing_response) = self
+                    .check_missing_required_parameters(
+                        &pending_confirmation.recipe,
+                        &pending_confirmation.planner_output,
+                        pending_confirmation.user_id,
+                        None,
+                    )
+                    .await?
+                {
+                    return Ok(ConfirmationOutcome::Answered(Box::new(missing_response)));
+                }
+
+                Ok(ConfirmationOutcome::Execute(Box::new(pending_confirmation)))
+            }
+            None => Ok(ConfirmationOutcome::Answered(Box::new(AgentResponse {
+                response_type: AgentResponseType::Error,
+                message: response_agent::confirmation_not_found(),
+                data: None,
+                data_display: None,
+                suggestions: response_agent::retry_operation_suggestions(),
+                task: None,
+                confirmation: None,
+                frontend_action: None,
+                performance: None,
+            }))),
+        }
+    }
+
+    /// 执行已确认的 recipe。调用方保证这一段确实会消耗 AI，并已装好预算作用域。
+    async fn execute_confirmed_recipe(
+        &self,
+        pending_confirmation: PendingRecipeConfirmation,
+    ) -> Result<AgentResponse, String> {
+        // 始终以 pending 所有者身份执行（已与 caller 对齐）
+        let task_state = self
+            .executor
+            .execute(&pending_confirmation.recipe, pending_confirmation.user_id)
+            .await?;
+
+        let result = self.extract_final_result(&task_state);
+        let frontend_action = self.extract_frontend_action(&result);
+
+        // v3 记忆记录（确认后的敏感操作也需要记录）
+        {
+            let ok = task_state.status == TaskStatus::Completed;
+            record_execution_memory(MemoryRecordParams {
+                user_id: pending_confirmation.user_id,
+                user_input: &pending_confirmation.recipe.name,
+                recipe: &pending_confirmation.recipe,
+                planner_steps_len: pending_confirmation.recipe.steps.len(),
+                success: ok,
+                error_msg: task_state.error.as_deref(),
+                log_prefix: "confirmed:",
+                conversation_context: None,
+                step_results: Some(&task_state.step_results),
+            })
+            .await;
+        }
+
+        Ok(AgentResponse {
+            response_type: AgentResponseType::Answer,
+            message: self
+                .generate_response_message_v2(
+                    &pending_confirmation.planner_output,
+                    &task_state,
+                    pending_confirmation.user_id,
+                    None,
+                )
+                .await,
+            data: Some(result),
+            data_display: None,
+            suggestions: vec![],
+            task: Some(task_state),
+            confirmation: None,
+            frontend_action,
+            performance: None,
+        })
+    }
+
+    /// 检查配方步骤中是否有必需参数缺失
+    /// 如果有缺失参数，创建任务并发送 WaitingForInput 事件让用户补充信息
+    pub(crate) async fn check_missing_required_parameters(
+        &self,
+        recipe: &Recipe,
+        _planner_output: &PlannerOutput,
+        user_id: i32,
+        progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
+    ) -> Result<Option<AgentResponse>, String> {
+        let missing = collect_missing_required_params(recipe).await;
+
+        if missing.is_empty() {
+            return Ok(None);
+        }
+
+        tracing::info!(
+            missing_count = missing.len(),
+            params = ?missing.iter().map(|m| format!("{}:{}", m.step_id, m.param_name)).collect::<Vec<_>>(),
+            "[Agent] Missing required parameters, asking user before execution"
+        );
+
+        // 创建一个任务来持有 WaitingForInput 状态
+        let mut task_state = types::TaskState::new(recipe);
+        task_state.status = types::TaskStatus::WaitingForInput;
+
+        // 按参数逐个提问（结构化 question_id = pre_param:{step_id}:{param_name}），
+        // 其余进入 pending_questions，resume 时写回 Recipe 后再问下一个
+        let question_expires = Some(chrono::Utc::now() + chrono::Duration::minutes(30));
+        let mut questions: Vec<types::UserQuestion> = missing
+            .iter()
+            .map(|m| types::UserQuestion {
+                question_id: pre_param_question_id(&m.step_id, &m.param_name),
+                question_type: types::QuestionType::FreeText,
+                question: response_agent::ask_single_param(&m.description),
+                context: format!("step={} param={}", m.step_id, m.param_name),
+                options: None,
+                required: true,
+                default_value: None,
+                created_at: chrono::Utc::now(),
+                expires_at: question_expires,
+            })
+            .collect();
+
+        let question = questions.remove(0);
+        let mut exec_ctx = types::ExecutionContext::from_request_full(
+            &recipe.original_request,
+            &recipe.name,
+            recipe.page_context.clone(),
+            recipe.conversation_context.clone(),
+        );
+        exec_ctx.autonomy_permission_cap = recipe.autonomy_permission_cap.clone();
+        exec_ctx.pending_questions = questions;
+
+        task_state.set_pending_question(question.clone());
+        task_state.execution_context = Some(exec_ctx);
+        // 保证 resume 时有可变 recipe 可写回参数
+        task_state.recipe = Some(recipe.clone());
+
+        // 存储任务等待用户回答
+        {
+            let mut store = executor::TASK_STORE.write().await;
+            store.store(user_id, task_state.clone());
+        }
+        executor::persist_task_async(user_id, task_state.clone());
+
+        // 发送 SSE 事件（仅 streaming 路径有 progress_tx）
+        if let Some(tx) = progress_tx {
+            let _ = tx
+                .send(AgentProgressEvent::TaskCreated {
+                    task_id: task_state.task_id.clone(),
+                    message: String::new(),
+                    total_steps: recipe.steps.len() as u32,
+                    step_descriptions: Vec::new(),
+                })
+                .await;
+
+            let _ = tx
+                .send(AgentProgressEvent::WaitingForInput {
+                    task_id: task_state.task_id.clone(),
+                    question_id: question.question_id.clone(),
+                    question_type: serde_json::to_value(&question.question_type)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_else(|| "free_text".to_string()),
+                    question: question.question.clone(),
+                    context: None,
+                    options: None,
+                    required: question.required,
+                    default_value: None,
+                })
+                .await;
+        }
+
+        // 构建响应 — task 就是 TaskState，前端通过 SSE 得到 WaitingForInput
+        Ok(Some(AgentResponse {
+            response_type: AgentResponseType::TaskCompleted,
+            message: String::new(),
+            data: None,
+            data_display: None,
+            suggestions: vec![],
+            task: Some(task_state),
+            confirmation: None,
+            frontend_action: None,
+            performance: None,
+        }))
+    }
+
+    /// 检查配方中的敏感步骤
+    /// 系统任务对敏感步骤的自动确认门控
+    ///
+    /// 无人值守场景（Heartbeat 定时任务）等待人工确认只会让任务静默空跑，因此：
+    /// - High / Critical：拒绝自动执行，返回说明性响应
+    /// - Low / Medium：自动确认放行并留痕
+    ///
+    /// 返回 `None` = 非系统用户，走正常确认流程；
+    /// `Some(Ok(()))` = 已自动确认，继续执行；
+    /// `Some(Err(response))` = 被拒绝，直接返回该响应。
+    pub(crate) fn system_sensitive_gate(
+        user_id: i32,
+        sensitive_steps: &[PendingConfirmation],
+    ) -> Option<Result<(), AgentResponse>> {
+        if user_id != SYSTEM_USER_ID {
+            return None;
+        }
+        if let Some(blocked) = sensitive_steps
+            .iter()
+            .find(|s| matches!(s.risk_level, RiskLevel::High | RiskLevel::Critical))
+        {
+            let msg = format!(
+                "定时任务包含敏感操作 '{}'（{}，风险 {:?}），已拒绝自动执行。请手动操作或调整任务指令。",
+                blocked.capability_name, blocked.capability_id, blocked.risk_level
+            );
+            tracing::warn!(
+                capability = %blocked.capability_id,
+                risk = ?blocked.risk_level,
+                "[Agent] System task blocked: High/Critical operation requires human confirmation"
+            );
+            return Some(Err(AgentResponse {
+                response_type: AgentResponseType::Answer,
+                message: msg.clone(),
+                data: Some(json!({ "blocked": true, "reason": msg })),
+                data_display: None,
+                suggestions: vec![],
+                task: None,
+                confirmation: None,
+                frontend_action: None,
+                performance: None,
+            }));
+        }
+        tracing::info!(
+            steps = %sensitive_steps
+                .iter()
+                .map(|s| s.capability_id.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            "[Agent] System task auto-confirmed sensitive steps"
+        );
+        Some(Ok(()))
+    }
+
+    pub(crate) async fn check_sensitive_steps(&self, recipe: &Recipe) -> Vec<PendingConfirmation> {
+        let mut sensitive = Vec::new();
+
+        for step in &recipe.steps {
+            // 使用异步版本，可以从 Capability 结构体或静态配置获取
+            if let Some((message, risk_level)) =
+                capability::capability_requires_confirmation_async(&step.capability_id).await
+            {
+                let definition = capability::get_capability_by_id(&step.capability_id).await;
+                let capability_name = definition
+                    .as_ref()
+                    .map(|capability| capability.name.clone())
+                    .unwrap_or_else(|| step.capability_id.clone());
+
+                let description = definition
+                    .map(|capability| capability.description)
+                    .unwrap_or_default();
+
+                // 生成影响说明
+                let impact = self.generate_impact_description(step, &risk_level);
+
+                sensitive.push(PendingConfirmation {
+                    step_id: step.id.clone(),
+                    capability_id: step.capability_id.clone(),
+                    capability_name,
+                    description,
+                    risk_level,
+                    confirmation_message: message,
+                    impact,
+                });
+            }
+        }
+
+        sensitive
+    }
+
+    /// 生成操作影响说明
+    pub(crate) fn generate_impact_description(
+        &self,
+        step: &RecipeStep,
+        risk_level: &RiskLevel,
+    ) -> Vec<String> {
+        let level = match risk_level {
+            RiskLevel::Critical => "critical",
+            RiskLevel::High => "high",
+            RiskLevel::Medium => "medium",
+            RiskLevel::Low => "low",
+            RiskLevel::None => "none",
+        };
+        let mut impact: Vec<String> = response_agent::risk_impact(level);
+
+        // 添加具体参数信息
+        if let Some(platform) = step.params.get("platform") {
+            impact.push(response_agent::target_platform(&platform.to_string()));
+        }
+        if let Some(url) = step.params.get("url") {
+            impact.push(response_agent::target_url(&url.to_string()));
+        }
+
+        impact
+    }
+
+    /// 请求用户确认（使用 PlannerOutput）
+    pub(crate) async fn request_confirmation_v2(
+        &self,
+        recipe: &Recipe,
+        planner_output: &PlannerOutput,
+        user_id: i32,
+        sensitive_steps: Vec<PendingConfirmation>,
+        session_id: Option<String>,
+        run_id: Option<String>,
+        source_intent_id: Option<String>,
+    ) -> Result<AgentResponse, String> {
+        let confirmation_id = uuid::Uuid::new_v4().to_string();
+
+        // 确定最高风险等级
+        let max_risk = sensitive_steps
+            .iter()
+            .map(|s| &s.risk_level)
+            .max_by_key(|r| match r {
+                RiskLevel::Critical => 4,
+                RiskLevel::High => 3,
+                RiskLevel::Medium => 2,
+                RiskLevel::Low => 1,
+                RiskLevel::None => 0,
+            })
+            .cloned()
+            .unwrap_or(RiskLevel::None);
+
+        // 过期时间：高风险 5 分钟，其他 15 分钟
+        let expires_in = match max_risk {
+            RiskLevel::Critical | RiskLevel::High => Duration::minutes(5),
+            _ => Duration::minutes(15),
+        };
+
+        let confirmation_request = ConfirmationRequest {
+            confirmation_id: confirmation_id.clone(),
+            recipe_id: recipe.id.clone(),
+            pending_steps: sensitive_steps,
+            expires_at: Utc::now() + expires_in,
+        };
+
+        let pending = PendingRecipeConfirmation {
+            request: confirmation_request.clone(),
+            recipe: recipe.clone(),
+            user_id,
+            planner_output: planner_output.clone(),
+            session_id: session_id.filter(|s| !s.is_empty()),
+            run_id: run_id.filter(|s| !s.is_empty()),
+            source_intent_id: source_intent_id.filter(|id| !id.is_empty()),
+        };
+        crate::services::tapp_registry::put(
+            &self.db,
+            CONFIRMATION_REGISTRY_NAMESPACE,
+            &confirmation_id,
+            crate::services::tapp_registry::RegistryIdentity {
+                subject_id: Some(user_id),
+                owner_id: Some(user_id),
+                tapp_id: None,
+                runtime_id: None,
+            },
+            &pending,
+            confirmation_request.expires_at.timestamp(),
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to persist confirmation");
+            "Failed to persist confirmation".to_string()
+        })?;
+        PENDING_CONFIRMATIONS
+            .write()
+            .await
+            .insert(confirmation_id.clone(), pending);
+
+        // 生成确认消息
+        let message = self.generate_confirmation_message(&confirmation_request, &max_risk);
+
+        tracing::info!(
+            confirmation_id = %confirmation_id,
+            risk_level = ?max_risk,
+            steps = confirmation_request.pending_steps.len(),
+            "[Agent] Requesting user confirmation for sensitive operation"
+        );
+
+        Ok(AgentResponse {
+            response_type: AgentResponseType::ConfirmationRequired,
+            message,
+            data: None,
+            data_display: None,
+            suggestions: response_agent::confirmation_suggestions(),
+            task: None,
+            confirmation: Some(confirmation_request),
+            frontend_action: None,
+            performance: None,
+        })
+    }
+
+    /// 生成确认提示消息
+    pub(crate) fn generate_confirmation_message(
+        &self,
+        request: &ConfirmationRequest,
+        risk_level: &RiskLevel,
+    ) -> String {
+        let prefix = response_agent::risk_prefix(match risk_level {
+            RiskLevel::Critical => "critical",
+            RiskLevel::High => "high",
+            RiskLevel::Medium => "medium",
+            RiskLevel::Low => "low",
+            RiskLevel::None => "none",
+        });
+
+        let step_names: Vec<_> = request
+            .pending_steps
+            .iter()
+            .map(|s| s.capability_name.as_str())
+            .collect();
+
+        let impact_text = request
+            .pending_steps
+            .iter()
+            .map(|s| format!("• {}: {}", s.capability_name, s.confirmation_message))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        response_agent::confirmation_dialog(prefix, &step_names.join("、"), &impact_text)
+    }
+
+    // NOTE: Old execute_recipe / execute_with_escalation / build_response_from_result
+    // removed — escalation is now handled by Planner.replan_with_progress_for() in execute_recipe_with_progress_v2
+
+    /// 从步骤构建 Recipe
+    pub(crate) fn build_recipe_from_steps(
+        steps: Vec<RecipeStep>,
+        name: String,
+        request: &UserRequest,
+    ) -> Recipe {
+        let estimated_duration_ms: u64 = steps.iter().map(|s| s.timeout_ms.unwrap_or(15000)).sum();
+
+        let page_context = request
+            .context
+            .as_ref()
+            .and_then(|c| c.custom_data.as_ref())
+            .and_then(|d| d.get("pageContent").cloned());
+
+        let conversation_context = request
+            .context
+            .as_ref()
+            .and_then(|c| c.conversation_history.clone());
+
+        let lane_key = request.context.as_ref().and_then(|c| c.lane_key.clone());
+        let autonomy_permission_cap = request
+            .context
+            .as_ref()
+            .and_then(|c| c.autonomy_permission_cap.clone());
+
+        let mut metadata = HashMap::new();
+        if let Some(route) = request
+            .context
+            .as_ref()
+            .and_then(|c| c.current_route.clone())
+            .filter(|route| !route.is_empty())
+        {
+            metadata.insert("current_route".to_string(), json!(route));
+        }
+        if let Some(custom) = request
+            .context
+            .as_ref()
+            .and_then(|c| c.custom_data.as_ref())
+        {
+            if let Some(music) = custom.get("musicStatus").cloned() {
+                metadata.insert("music_status".to_string(), music);
+            }
+            if let Some(windows) = custom.get("windowState").cloned() {
+                metadata.insert("window_state".to_string(), windows);
+            }
+        }
+
+        Recipe {
+            id: format!("recipe_{}", uuid::Uuid::new_v4()),
+            name,
+            original_request: request.raw_input.clone(),
+            execution_type: ExecutionType::Instant,
+            steps,
+            expected_output: OutputFormat::Json,
+            estimated_duration_ms,
+            created_at: chrono::Utc::now(),
+            metadata,
+            page_context,
+            conversation_context,
+            lane_key,
+            autonomy_permission_cap,
+        }
+    }
+
+    /// 生成响应消息（Planner 版）— 委托给 response_agent
+    pub(crate) async fn generate_response_message_v2(
+        &self,
+        _planner_output: &PlannerOutput,
+        task_state: &TaskState,
+        user_id: i32,
+        progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
+    ) -> String {
+        if task_state.status == TaskStatus::Failed {
+            let err = task_state.error.as_deref().unwrap_or("Processing failed");
+            return response_agent::error_message(err);
+        }
+
+        let result = self.extract_final_result(task_state);
+
+        // 检查 extract_final_result 返回的错误信息
+        if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
+            if !error.is_empty() {
+                return response_agent::execution_error(error);
+            }
+        }
+
+        // 多步骤结果汇总：交给 response_agent AI 流式生成
+        let successful_results: Vec<_> = {
+            let mut r: Vec<_> = task_state
+                .step_results
+                .values()
+                .filter(|r| r.success)
+                .collect();
+            r.sort_by_key(|r| &r.step_id);
+            r
+        };
+        if successful_results.len() > 1 {
+            let step_outputs: Vec<response_agent::StepOutput<'_>> = successful_results
+                .iter()
+                .filter_map(|r| {
+                    r.output.as_ref().map(|o| response_agent::StepOutput {
+                        step_id: &r.step_id,
+                        output: o,
+                    })
+                })
+                .collect();
+
+            if !step_outputs.is_empty() {
+                let user_request = task_state
+                    .recipe
+                    .as_ref()
+                    .map(|r| r.original_request.as_str())
+                    .unwrap_or("");
+                let ctx = response_agent::ResponseContext {
+                    user_request,
+                    user_id,
+                    step_outputs,
+                    progress_tx,
+                };
+                return response_agent::generate_final_response(ctx).await;
+            }
+        }
+
+        // 单步骤：委托 response_agent 提取有意义的回复
+        if let Some(msg) = response_agent::generate_single_step_response(&result) {
+            return msg;
+        }
+
+        // 检查是否有部分步骤失败
+        let total_steps = task_state.step_results.len();
+        let failed_steps: Vec<_> = task_state
+            .step_results
+            .values()
+            .filter(|r| !r.success)
+            .collect();
+        if !failed_steps.is_empty() && failed_steps.len() < total_steps {
+            let success_count = total_steps - failed_steps.len();
+            let fail_info: Vec<String> = failed_steps
+                .iter()
+                .filter_map(|r| r.error.clone())
+                .collect();
+            return response_agent::partial_completion(success_count, total_steps, &fail_info);
+        }
+
+        response_agent::completion_message()
+    }
+
+    /// 智能推断数据展示类型（Planner 版）
+    pub(crate) fn infer_data_display_v2(
+        &self,
+        data: &Value,
+        _planner_output: &PlannerOutput,
+    ) -> Option<DataDisplayHint> {
+        // 复用现有的数据结构推断逻辑
+        match data {
+            Value::Array(arr) if !arr.is_empty() => {
+                if let Some(Value::Object(obj)) = arr.first() {
+                    let fields: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+
+                    // 时间线数据
+                    if fields
+                        .iter()
+                        .any(|f| f.contains("time") || f.contains("date") || f.contains("created"))
+                        && fields.iter().any(|f| {
+                            f.contains("title") || f.contains("content") || f.contains("message")
+                        })
+                    {
+                        let time_field = fields
+                            .iter()
+                            .find(|f| {
+                                f.contains("time") || f.contains("date") || f.contains("created")
+                            })
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "time".to_string());
+                        let content_field = fields
+                            .iter()
+                            .find(|f| {
+                                f.contains("title") || f.contains("content") || f.contains("name")
+                            })
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "content".to_string());
+                        return Some(DataDisplayHint::Timeline {
+                            time_field,
+                            content_field,
+                        });
+                    }
+
+                    // 卡片列表
+                    if fields
+                        .iter()
+                        .any(|f| f.contains("title") || f.contains("name"))
+                    {
+                        let title_field = fields
+                            .iter()
+                            .find(|f| f.contains("title") || f.contains("name"))
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "title".to_string());
+                        let description_field = fields
+                            .iter()
+                            .find(|f| {
+                                f.contains("desc") || f.contains("summary") || f.contains("content")
+                            })
+                            .map(|s| s.to_string());
+                        let image_field = fields
+                            .iter()
+                            .find(|f| {
+                                f.contains("image")
+                                    || f.contains("cover")
+                                    || f.contains("thumbnail")
+                            })
+                            .map(|s| s.to_string());
+                        return Some(DataDisplayHint::CardList {
+                            title_field,
+                            description_field,
+                            image_field,
+                        });
+                    }
+
+                    // 默认表格
+                    let columns: Vec<ColumnDef> = fields
+                        .iter()
+                        .take(6)
+                        .map(|f| ColumnDef {
+                            field: f.to_string(),
+                            title: humanize_field_name(f),
+                            width: None,
+                            sortable: true,
+                        })
+                        .collect();
+                    return Some(DataDisplayHint::Table {
+                        columns,
+                        data_path: None,
+                    });
+                }
+            }
+            Value::Object(obj) => {
+                if crate::services::agent::search_output::is_web_search_output(data) {
+                    if let Some(Value::Array(results)) = obj.get("results") {
+                        if results.len() > 1 {
+                            return Some(DataDisplayHint::CardList {
+                                title_field: "name".to_string(),
+                                description_field: Some("description".to_string()),
+                                image_field: None,
+                            });
+                        }
+                    }
+                    return Some(DataDisplayHint::Markdown);
+                }
+                let inner = crate::services::agent::ai_process_pure::task_inner_value(data);
+                if inner.as_str().is_some()
+                    || inner.get("aiSummary").is_some()
+                    || inner.get("analysis").is_some()
+                    || inner.get("summary").is_some()
+                    || inner.get("reply").is_some()
+                    || obj.contains_key("aiSummary")
+                    || obj.contains_key("analysis")
+                    || obj.contains_key("summary")
+                {
+                    return Some(DataDisplayHint::Markdown);
+                }
+                // 内嵌数组
+                for (key, value) in obj.iter() {
+                    if let Value::Array(arr) = value {
+                        if !arr.is_empty() {
+                            if let Some(Value::Object(inner)) = arr.first() {
+                                let inner_fields: Vec<&str> =
+                                    inner.keys().map(|k| k.as_str()).collect();
+                                let columns: Vec<ColumnDef> = inner_fields
+                                    .iter()
+                                    .take(6)
+                                    .map(|f| ColumnDef {
+                                        field: f.to_string(),
+                                        title: humanize_field_name(f),
+                                        width: None,
+                                        sortable: true,
+                                    })
+                                    .collect();
+                                return Some(DataDisplayHint::Table {
+                                    columns,
+                                    data_path: Some(key.clone()),
+                                });
+                            }
+                        }
+                    }
+                }
+                if obj.contains_key("markdown") || obj.contains_key("content") {
+                    if let Some(Value::String(s)) =
+                        obj.get("markdown").or_else(|| obj.get("content"))
+                    {
+                        if s.contains('#') || s.contains('*') || s.contains('`') {
+                            return Some(DataDisplayHint::Markdown);
+                        }
+                    }
+                }
+                if obj.contains_key("chartData") || obj.contains_key("series") {
+                    return Some(DataDisplayHint::Chart {
+                        chart_type: ChartType::Line,
+                        x_field: "x".to_string(),
+                        y_field: "y".to_string(),
+                    });
+                }
+                if obj.len() <= 10 {
+                    return Some(DataDisplayHint::KeyValue);
+                }
+            }
+            Value::String(s)
+                if s.contains('#') || s.contains('*') || s.contains('`') || s.contains('\n') =>
+            {
+                return Some(DataDisplayHint::Markdown);
+            }
+            _ => {}
+        }
+        None
+    }
+}

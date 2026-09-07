@@ -16,6 +16,10 @@ use crate::services::agent::recipe::validate_and_convert_steps;
 use crate::services::agent::types::*;
 use crate::services::ai::create_ai_analyzer_for_tier;
 use crate::services::analyzer::{AiAnalyzer, StreamDelta};
+use myriad_agent_rules::{
+    plan_image_size_rule, plan_step_cap_rule, MAX_PLAN_STEPS, PLAN_DATA_FLOW_RULE,
+    PLAN_DEPENDENCY_RULE,
+};
 
 /// Planner — 单次 Pro AI 调用完成意图理解 + 执行规划
 pub struct Planner {
@@ -40,29 +44,12 @@ impl Planner {
         }
     }
 
-    /// 主入口：用户请求 → PlannerOutput
-    #[allow(dead_code)]
-    pub async fn plan(&self, request: &UserRequest) -> Result<PlannerOutput, String> {
-        self.plan_internal(request, None, None, None).await
-    }
-
     pub async fn plan_for(
         &self,
         request: &UserRequest,
         granted: &HashSet<String>,
     ) -> Result<PlannerOutput, String> {
         self.plan_internal(request, None, None, Some(granted)).await
-    }
-
-    /// Live SSE path: reasoning deltas go out while the planner JSON is still forming.
-    #[allow(dead_code)]
-    pub async fn plan_with_progress(
-        &self,
-        request: &UserRequest,
-        progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
-    ) -> Result<PlannerOutput, String> {
-        self.plan_internal(request, None, Some(progress_tx), None)
-            .await
     }
 
     pub async fn plan_with_progress_for(
@@ -72,17 +59,6 @@ impl Planner {
         granted: &HashSet<String>,
     ) -> Result<PlannerOutput, String> {
         self.plan_internal(request, None, Some(progress_tx), Some(granted))
-            .await
-    }
-
-    #[allow(dead_code)]
-    pub async fn replan_with_progress(
-        &self,
-        request: &UserRequest,
-        escalation_hint: &str,
-        progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
-    ) -> Result<PlannerOutput, String> {
-        self.plan_internal(request, Some(escalation_hint), Some(progress_tx), None)
             .await
     }
 
@@ -390,16 +366,14 @@ impl Planner {
         let compact_index = get_compact_index_for_grants(granted).await;
         stable.push(format!(
             "## 可用能力（紧凑索引）\n\
-             条目字段：`id` 能力 ID、`h` 用途、`p` 必需参数、`o` 该能力的输出字段。\n\
-             引用前序步骤输出时，优先按 `o` 写出精确字段——\
-             `\"dataFrom\": \"search.results\"` 而不是 `\"dataFrom\": \"search\"`；\
-             只有确实需要整个输出对象时才引用步骤 ID 本身。\n\
+             条目字段：`id` 能力 ID、`h` 用途、`p` 必需参数、`o` 该能力的输出字段\
+             （怎么引用见下面的数据流规则）。\n\
              ```json\n{}\n```",
             serde_json::to_string_pretty(&compact_index).unwrap_or_default()
         ));
 
-        // 4. 输出格式与规则（纯常量，稳定段的最后一块）
-        stable.push(PLANNER_RULES.to_string());
+        // 4. 输出格式与规则（只由常量组装，稳定段的最后一块）
+        stable.push(planner_rules());
 
         // —— 以下按请求变化，排在缓存前缀之后 ——
 
@@ -512,9 +486,17 @@ impl Planner {
 
             // 页面上下文
             if let Some(custom_data) = &context.custom_data {
-                let has_page = custom_data.get("pageContent").is_some();
-                if has_page {
+                if let Some(page) = custom_data.get("pageContent") {
+                    if let Some(title) = page.get("title").and_then(|v| v.as_str()) {
+                        let title: String = title.chars().take(120).collect();
+                        if !title.trim().is_empty() {
+                            prompt.push_str(&format!("\n正在看：{}", title.trim()));
+                        }
+                    }
                     prompt.push_str("\n页面上下文可用：true。总结/分析用 \"contentFrom\": \"__page_context__\"；page.content / page.understand 用 \"contextFrom\": \"__page_context__\"（不要写成 inputFrom）");
+                }
+                if let Some(now_playing) = now_playing_line(custom_data.get("musicStatus")) {
+                    prompt.push_str(&format!("\n{now_playing}"));
                 }
 
                 if let Some(attachments) = custom_data.get("attachments").and_then(|v| v.as_array())
@@ -754,7 +736,7 @@ impl Planner {
                 depends_on: vec![],
                 on_failure: "abort".to_string(),
                 retry: None,
-                timeout_ms: Some(30000),
+                timeout_ms: Some(300_000),
             }],
             clarification: None,
             unsupported_reason: None,
@@ -840,8 +822,8 @@ fn planner_output_schema() -> serde_json::Value {
             },
             "steps": {
                 "type": "array",
-                "description": "status=plan 时的执行步骤，最多 8 个",
-                "maxItems": 8,
+                "description": format!("status=plan 时的执行步骤，最多 {MAX_PLAN_STEPS} 个"),
+                "maxItems": MAX_PLAN_STEPS,
                 "items": {
                     "type": "object",
                     "properties": {
@@ -899,6 +881,42 @@ fn planner_output_schema() -> serde_json::Value {
     })
 }
 
+fn now_playing_line(music: Option<&serde_json::Value>) -> Option<String> {
+    let music = music?;
+    let song = music.get("currentSong")?;
+    if song.is_null() {
+        return None;
+    }
+    let name: String = song
+        .get("name")
+        .or_else(|| song.get("title"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .chars()
+        .take(80)
+        .collect();
+    let artist: String = song
+        .get("artist")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .chars()
+        .take(80)
+        .collect();
+    if name.trim().is_empty() {
+        return None;
+    }
+    let playing = music
+        .get("isPlaying")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let label = if playing { "正在播放" } else { "已暂停" };
+    Some(if artist.trim().is_empty() {
+        format!("{label}：{}", name.trim())
+    } else {
+        format!("{label}：{} — {}", name.trim(), artist.trim())
+    })
+}
+
 /// 路由描述
 fn describe_route(route: &str) -> &'static str {
     match route.trim_matches('/') {
@@ -917,8 +935,22 @@ fn describe_route(route: &str) -> &'static str {
     }
 }
 
-/// Planner 规则与输出格式（注入到系统 prompt）
-const PLANNER_RULES: &str = r#"## 规则
+/// 把共享的引擎契约填进 Planner 规则模板。
+///
+/// 结果只由常量决定，所以仍然逐字稳定，能进 provider 的前缀缓存。
+fn planner_rules() -> String {
+    PLANNER_RULES_TEMPLATE
+        .replace("{{DEPENDENCY}}", PLAN_DEPENDENCY_RULE)
+        .replace("{{DATA_FLOW}}", PLAN_DATA_FLOW_RULE)
+        .replace("{{STEP_CAP}}", &plan_step_cap_rule())
+        .replace("{{IMAGE_SIZE}}", &plan_image_size_rule())
+}
+
+/// Planner 规则与输出格式（注入到系统 prompt）。
+///
+/// 四块 `{{…}}` 由 [`myriad_agent_rules::plan_contract`] 填入：引擎的调度语义
+/// 只有一份，Skill 内部 DAG 那份提示词填的是同样的字。
+const PLANNER_RULES_TEMPLATE: &str = r#"## 规则
 
 你需要分析用户请求，判断其类型，并输出对应的 JSON 响应。
 
@@ -941,22 +973,25 @@ const PLANNER_RULES: &str = r#"## 规则
 
 1. `capability_id` 必须匹配可用能力索引中的 ID。能力索引中 `"p"` 字段列出了必需参数，务必包含
 2. 如果可用能力中有 `skill:xxx` 类型恰好匹配用户意图，优先使用 Skill（它封装了完整的多步骤编排）
-3. **Skill 单次调用原则**：同一个 `skill:xxx` 在整个计划中最多出现一次。如果用户要求多张图/多个变体/一些/一批，通过 Skill 的参数传达数量和变体需求（如 `"count": 3`、`"variations": ["场景A", "场景B"]`），由 Skill 内部自行编排多轮生成。**绝不允许**把同一个 Skill 在步骤列表里重复调用多次
+3. **Skill 单次调用原则**：同一个 `skill:xxx` 在整个计划中最多出现一次。如果用户要求多张图/多个变体/一些/一批，通过 Skill 的参数传达数量和变体需求（如 `"count": 3`、`"variations": ["场景A", "场景B"]`），由 Skill 内部自行编排多轮生成。**绝不允许**把同一个 Skill 在步骤列表里重复调用多次。举例：用户说"帮我生成一些XX图片" → 一个 `skill:xxx` 步骤 + `"count": 3`，而不是 3 个重复的 skill 步骤
 4. `params` 根据能力描述和 `"p"` 参数列表推断合理值
-5. **❗ xxxFrom 必须配合 depends_on**：使用 `"xxxFrom": "step_id"` 引用其他步骤输出时，**必须同时在 `depends_on` 中声明该步骤**。例如 `"dataFrom": "search"` → `"depends_on": ["search"]`。缺少 depends_on 会导致步骤并行执行、引用为 null
-5.1 **优先引用具体字段**：`"xxxFrom"` 支持 `"step_id.字段名"`，字段名取自能力索引的 `o` 列表。例如 `ai.webSearch` 的 `o` 含 `results`，就写 `"dataFrom": "search.results"`。引用整个步骤（`"search"`）只在需要完整输出对象时使用
-6. 如果页面上下文可用：总结/分析用 `"contentFrom": "__page_context__"`；`page.content` / `page.understand` 用 `"contextFrom": "__page_context__"`（不要写成 `inputFrom`，这两个能力读的是 `context`）
-7. `on_failure` 策略：
+5. 如果页面上下文可用：总结/分析用 `"contentFrom": "__page_context__"`；`page.content` / `page.understand` 用 `"contextFrom": "__page_context__"`（不要写成 `inputFrom`，这两个能力读的是 `context`）
+6. `on_failure` 策略：
    - 数据获取步骤用 `"abort"`（后续步骤依赖数据，获取失败则无法继续）
    - AI 处理步骤可用 `"skip"`（非关键性分析/总结可跳过）
    - 如果步骤是其他步骤的 `depends_on` 数据源，必须 `"abort"`
-8. `timeout_ms`: 数据获取 15000，AI 处理 30000，图片生成 60000
-9. 可选字段：`"retry": {"max_attempts": 2, "delay_ms": 1000, "exponential_backoff": true}` — 对网络请求类步骤建议添加
-10. 可选字段：`"model_tier": "pro"` — 需要高质量分析/创作时指定 pro，普通任务省略即可
+7. `timeout_ms`: 数据获取 15000，AI 处理 300000，图片生成 900000
+8. 可选字段：`"retry": {"max_attempts": 2, "delay_ms": 1000, "exponential_backoff": true}` — 对网络请求类步骤建议添加
+9. 可选字段：`"model_tier": "pro"` — 需要高质量分析/创作时指定 pro，普通任务省略即可
+
+### 数据流（xxxFrom）
+
+{{DATA_FLOW}}
 
 ### ❗ 步骤最小化原则（极其重要）
 
-- **步骤数量绝对上限 8 个**，但大多数请求应在 1-3 步内完成
+- {{STEP_CAP}}
+- 大多数请求应在 1-3 步内完成
 - **简单请求**（查询、搜索、生成一张图、问答）→ 1-2 步
 - **中等请求**（搜索+分析、获取+总结）→ 2-3 步
 - **复杂请求**（多平台对比、多步骤工作流）→ 3-6 步
@@ -964,24 +999,15 @@ const PLANNER_RULES: &str = r#"## 规则
 - **当一个能力就能完成时，绝不拆成多步**
 - step.action 字段是你对这个步骤的直接命令，必须具体、明确、与用户请求直接相关
 
-### Skill 单次调用铁律
-
-- **同一个 `skill:xxx` 在整个计划中只能出现一次**，重复调用同一 Skill 是严重错误
-- 用户要求多张图/多个变体/一些/一批时，通过 params 传达（如 `"count": 3`、`"variations": ["场景A", "场景B", "场景C"]`），Skill 内部自行编排
-- 举例：用户说"帮我生成一些XX图片" → 一个 `skill:xxx` 步骤 + params 中 `"count": 3` 或 `"variations": [...]`，而不是 3 个重复的 skill 步骤
-
 ### 数量意图识别
 
 用户请求中包含数量词时：
 - **明确单数**（"一张"、"一个"）→ 1 个步骤
-- **指定具体数量**（"三张"、"5个"）→ 通过 params 传达数量，不要拆分为多步骤
 - **无数量词或模糊词**（“帮我生成图”、“一些”、“几个”）→ **默认单个**，不要自行展开为多个
 
-### 多目标与并行
+### 依赖与并行
 
-**执行引擎会自动并行执行所有 `depends_on` 为空的步骤。** 因此：
-- 互相独立、无数据依赖的步骤 → `depends_on: []`（引擎自动并行）
-- 只有当步骤 B 需要步骤 A 的输出时 → `depends_on: ["step_a"]`
+{{DEPENDENCY}}
 
 仅当用户**明确列举**多个目标时（"B站和Steam"、"搜索X和Y"）为每个目标生成独立步骤。
 - "所有平台" → 最多展开 3 个主要平台
@@ -990,7 +1016,7 @@ const PLANNER_RULES: &str = r#"## 规则
 ### 对比意图
 
 用户表达对比、比较、PK 等意图时（"对比"、"比一比"、"哪个更好"、"有什么区别"），执行计划必须包含：
-1. **并行数据获取**：为每个对比目标生成独立的数据获取步骤（`depends_on: []`，引擎自动并行）
+1. **并行数据获取**：为每个对比目标生成独立的数据获取步骤，`depends_on: []`
 2. **对比分析步骤**：一个 `compare.content` 或 `ai.analyze`（analysisType="custom"）步骤，`depends_on` 全部获取步骤，将获取结果作为对比输入
 
 ### 串联意图（A 然后 B）
@@ -1030,18 +1056,9 @@ const PLANNER_RULES: &str = r#"## 规则
 - 包含场景、氛围、构图
 - 绝不要只写简短标题
 
-**分辨率由 `ai.image` 的 `width` / `height` 决定（像素，256–2048，省略则默认 1024×1024）**：
-- 用户明确给了数字（"512"、"1024x768"、"1920×1080"）→ 按数字填 `width`/`height`
-- 用户要竖图/手机壁纸/肖像 → 建议 `width: 768, height: 1024`（或 768×1344）
-- 用户要横图/桌面壁纸/风景 → 建议 `width: 1024, height: 768`（或 1344×768）
-- 用户要方图/头像/图标，或未提尺寸 → 省略尺寸（走默认 1024）或 `1024, 1024`
-- **不要**把宽高写进 prompt 文本；写在 `ai.image` 的 params 里
-- `width`/`height` 与 `promptFrom` 可同时存在
+{{IMAGE_SIZE}}
 
-**当需要引用前置步骤的输出作为描述来源时**，使用 `xxxFrom` 约定：
-- `descriptionFrom: "step_id"` — 从指定步骤的输出中提取文本作为 description
-- `titleFrom: "step_id"` — 从指定步骤的输出中提取文本作为 title
-- 与 `dataFrom` 一样，引擎会自动解析引用并提取文本内容
+`prompt.generate` 的描述来源同样走 `xxxFrom`：`descriptionFrom` 取文本作 description，`titleFrom` 取文本作 title。
 
 典型链式计划（搜索 → 分析 → 生成提示词 → 生成图片）：
 ```
@@ -1076,7 +1093,7 @@ search(ai.webSearch) → analyze(ai.analyze, dataFrom:"search") → gen_prompt(p
       "params": { "dataFrom": "search", "instruction": "根据搜索结果介绍该角色..." },
       "depends_on": ["search"],
       "on_failure": "skip",
-      "timeout_ms": 30000
+      "timeout_ms": 300000
     },
     {
       "id": "gen_prompt",
@@ -1092,7 +1109,7 @@ search(ai.webSearch) → analyze(ai.analyze, dataFrom:"search") → gen_prompt(p
       "action": "生成角色图片",
       "params": { "promptFrom": "gen_prompt", "width": 768, "height": 1024 },
       "depends_on": ["gen_prompt"],
-      "timeout_ms": 60000
+      "timeout_ms": 900000
     }
   ],
 
@@ -1222,6 +1239,93 @@ mod tests {
             declared.len(),
             4,
             "schema enum has drifted from PlannerStatus"
+        );
+    }
+
+    /// 模板里的四个占位符必须全部被填掉。漏一个就会把 `{{DATA_FLOW}}` 这种
+    /// 字面量发给模型。
+    #[test]
+    fn planner_rules_fill_every_shared_slot() {
+        let rules = planner_rules();
+        assert!(!rules.contains("{{"), "unfilled slot left in PLANNER_RULES");
+        assert!(rules.contains(PLAN_DEPENDENCY_RULE));
+        assert!(rules.contains(PLAN_DATA_FLOW_RULE));
+        assert!(rules.contains(&plan_step_cap_rule()));
+        assert!(rules.contains(&plan_image_size_rule()));
+    }
+
+    /// Planner 和 Skill 内部 DAG 面对同一个引擎，调度语义必须逐字同一份。
+    ///
+    /// 这两份提示词此前各手抄一遍，已经漂开过：`on_failure` 与 `timeout_ms`
+    /// 只有 Planner 那份提到，步骤上限那个 8 在五处各写一遍。任何一边重新
+    /// 抄写这几条，这个测试就红。
+    #[test]
+    fn both_plan_prompts_quote_the_same_engine_contract() {
+        let dag = include_str!("executor/execute_step.rs");
+        for slot in ["{dependency}", "{data_flow}", "{image_size}", "{step_cap}"] {
+            assert!(dag.contains(slot), "DAG 提示词没有引用共享契约的 {slot}");
+        }
+        for restated in [
+            "黄金法则",
+            "整数像素 256",
+            "$$variable$$ 语法或模板占位符",
+            "最多 8 个步骤",
+        ] {
+            assert!(
+                !dag.contains(restated),
+                "DAG 提示词又把共享契约抄了一遍：{restated}"
+            );
+        }
+        let template = PLANNER_RULES_TEMPLATE;
+        for restated in ["256–2048", "绝对上限 8 个", "引擎自动并行"] {
+            assert!(
+                !template.contains(restated),
+                "PLANNER_RULES 又把共享契约抄了一遍：{restated}"
+            );
+        }
+    }
+
+    /// 只查模板不够：能力索引那一段也在同一份系统提示词里，`o` 字段怎么引用
+    /// 曾经在那里又写了一遍。断言落在**组装完的整份提示词**上。
+    #[tokio::test]
+    async fn the_assembled_prompt_states_each_shared_rule_once() {
+        let planner = test_planner();
+        let prompt = planner
+            .build_system_prompt(
+                &request("帮我搜一下再总结"),
+                crate::services::agent::intent::keywords::Language::Chinese,
+                None,
+                None,
+            )
+            .await;
+        for fragment in [PLAN_DEPENDENCY_RULE, PLAN_DATA_FLOW_RULE] {
+            assert_eq!(
+                prompt.matches(fragment).count(),
+                1,
+                "共享规则在整份提示词里出现了不止一次"
+            );
+        }
+        assert_eq!(
+            prompt.matches("search.results").count(),
+            1,
+            "「按 o 写精确字段」这条在整份提示词里被写了不止一次"
+        );
+    }
+
+    /// 步骤上限在提示词、schema 和真正截断的地方是同一个数。
+    #[test]
+    fn every_step_cap_comes_from_one_constant() {
+        assert_eq!(
+            planner_output_schema()["properties"]["steps"]["maxItems"],
+            MAX_PLAN_STEPS
+        );
+        assert!(
+            include_str!("recipe.rs").contains("MAX_PLAN_STEPS as MAX_STEPS"),
+            "recipe.rs 的截断必须用共享常量，不能再私有一个 8"
+        );
+        assert!(
+            include_str!("executor/execute_step.rs").contains("take(MAX_PLAN_STEPS)"),
+            "DAG 的截断必须用共享常量"
         );
     }
 
@@ -1377,6 +1481,42 @@ mod tests {
         assert!(prompt.contains("hello"));
         assert!(prompt.contains("a.png"));
         assert!(prompt.contains("图片像素未随请求发送"));
+    }
+
+    #[test]
+    fn user_prompt_names_page_title_and_now_playing() {
+        let prompt = test_planner().build_user_prompt(
+            &UserRequest {
+                raw_input: "这首和歌呢".to_string(),
+                timestamp: chrono::Utc::now(),
+                user_id: 1,
+                context: Some(RequestContext {
+                    custom_data: Some(serde_json::json!({
+                        "pageContent": {
+                            "type": "brew_article",
+                            "title": "Harbour Notes",
+                            "content": "long body",
+                            "sourceUrl": "https://example.test/secret"
+                        },
+                        "musicStatus": {
+                            "isPlaying": true,
+                            "currentSong": {
+                                "name": "Night",
+                                "artist": "Lantern",
+                                "url": "https://example.test/secret.mp3"
+                            }
+                        }
+                    })),
+                    ..Default::default()
+                }),
+            },
+            None,
+        );
+        assert!(prompt.contains("正在看：Harbour Notes"));
+        assert!(prompt.contains("页面上下文可用：true"));
+        assert!(prompt.contains("正在播放：Night — Lantern"));
+        assert!(!prompt.contains("example.test"));
+        assert!(!prompt.contains("long body"));
     }
 
     #[test]

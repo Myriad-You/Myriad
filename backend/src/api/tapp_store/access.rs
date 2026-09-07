@@ -121,13 +121,12 @@ pub(crate) fn storage_access_from_runtime_grant(
         grant.subject_id(),
         actor_subject_id(claims),
     )
-    .map_err(|err| match err {
-        TappStorageAccessError::Unauthenticated => {
-            HttpError(AppError::unauthorized("Unauthorized"))
-        }
-        TappStorageAccessError::SubjectMismatch | TappStorageAccessError::InstallationReadOnly => {
-            HttpError(AppError::forbidden("Forbidden"))
-        }
+    .map_err(|err| {
+        HttpError(
+            AppError::from_status_u16(err.status_hint(), err.message())
+                .with_message(err.message())
+                .with_code(err.code()),
+        )
     })
 }
 
@@ -181,12 +180,13 @@ pub(crate) async fn authorize_runtime_storage_write(
 }
 
 pub(crate) fn installation_write_forbidden_error() -> HttpError {
+    let err = TappStorageAccessError::InstallationReadOnly;
     HttpError::from((
-        StatusCode::FORBIDDEN,
+        StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::FORBIDDEN),
         axum::Json(serde_json::json!({
             "error": "Read-only installation resource",
-            "message": TappStorageAccessError::InstallationReadOnly.message(),
-            "code": TappStorageAccessError::InstallationReadOnly.code()
+            "message": err.message(),
+            "code": err.code()
         })),
     ))
 }

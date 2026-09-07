@@ -40,6 +40,8 @@ pub fn event_plane(event: &AgentProgressEvent) -> EventPlane {
         | AgentProgressEvent::ThinkingToken { .. }
         | AgentProgressEvent::PerformancePlan { .. }
         | AgentProgressEvent::MeropeStateChanged { .. }
+        | AgentProgressEvent::OutfitOverlay { .. }
+        | AgentProgressEvent::MusicControl { .. }
         | AgentProgressEvent::Error { .. }
         | AgentProgressEvent::PlannerDecision { .. }
         | AgentProgressEvent::StepDebug { .. } => EventPlane::Control,
@@ -64,6 +66,7 @@ pub fn is_chat_turn_completion(response: &serde_json::Value) -> bool {
 struct ChatTurnSlot {
     tx: oneshot::Sender<()>,
     slot_id: u64,
+    run_id: String,
 }
 
 static CHAT_TURNS: Lazy<Mutex<HashMap<(i32, String), ChatTurnSlot>>> =
@@ -72,17 +75,38 @@ static NEXT_CHAT_SLOT: AtomicU64 = AtomicU64::new(1);
 
 /// Register this Chat run as the live turn for the session. The previous Chat
 /// turn, if any, is cancelled. Work must not call this.
-pub async fn claim_chat_turn(user_id: i32, session_id: &str) -> (oneshot::Receiver<()>, u64) {
+pub async fn claim_chat_turn(
+    user_id: i32,
+    session_id: &str,
+    run_id: &str,
+) -> (oneshot::Receiver<()>, u64) {
     let (tx, rx) = oneshot::channel();
     let slot_id = NEXT_CHAT_SLOT.fetch_add(1, Ordering::Relaxed);
     let mut slots = CHAT_TURNS.lock().await;
     if let Some(previous) = slots.insert(
         (user_id, session_id.to_string()),
-        ChatTurnSlot { tx, slot_id },
+        ChatTurnSlot {
+            tx,
+            slot_id,
+            run_id: run_id.to_owned(),
+        },
     ) {
         let _ = previous.tx.send(());
     }
     (rx, slot_id)
+}
+
+/// A voice transport may stop its own run, never a newer typed Chat reply.
+pub async fn cancel_chat_run(user_id: i32, session_id: &str, run_id: &str) -> bool {
+    let mut slots = CHAT_TURNS.lock().await;
+    let key = (user_id, session_id.to_owned());
+    if !slots.get(&key).is_some_and(|slot| slot.run_id == run_id) {
+        return false;
+    }
+    if let Some(slot) = slots.remove(&key) {
+        let _ = slot.tx.send(());
+    }
+    true
 }
 
 /// Drop this Chat slot after it finishes, if a newer claim has not replaced it.
@@ -207,7 +231,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancel_chat_turn_fires_the_live_slot_without_a_replacement() {
-        let (first, _) = claim_chat_turn(9, "chat-session").await;
+        let (first, _) = claim_chat_turn(9, "chat-session", "first").await;
         assert!(cancel_chat_turn(9, "chat-session").await);
         assert!(first.await.is_ok());
         assert!(!cancel_chat_turn(9, "chat-session").await);
@@ -215,32 +239,32 @@ mod tests {
 
     #[tokio::test]
     async fn finish_chat_turn_drops_only_the_matching_slot() {
-        let (first, first_id) = claim_chat_turn(8, "chat-session").await;
-        let (second, second_id) = claim_chat_turn(8, "chat-session").await;
+        let (first, first_id) = claim_chat_turn(8, "chat-session", "first").await;
+        let (second, second_id) = claim_chat_turn(8, "chat-session", "second").await;
         assert!(first.await.is_ok());
         finish_chat_turn(8, "chat-session", first_id).await;
         finish_chat_turn(8, "other-session", second_id).await;
         assert!(cancel_chat_turn(8, "chat-session").await);
         drop(second);
-        let (_, live_id) = claim_chat_turn(8, "chat-session").await;
+        let (_, live_id) = claim_chat_turn(8, "chat-session", "live").await;
         finish_chat_turn(8, "chat-session", live_id).await;
         assert!(!cancel_chat_turn(8, "chat-session").await);
     }
 
     #[tokio::test]
     async fn newer_chat_cancels_the_previous_chat_once() {
-        let (first, _) = claim_chat_turn(12, "chat-session").await;
-        let (second, _) = claim_chat_turn(12, "chat-session").await;
+        let (first, _) = claim_chat_turn(12, "chat-session", "first").await;
+        let (second, _) = claim_chat_turn(12, "chat-session", "second").await;
         assert!(first.await.is_ok());
-        let (third, _) = claim_chat_turn(12, "chat-session").await;
+        let (third, _) = claim_chat_turn(12, "chat-session", "third").await;
         assert!(second.await.is_ok());
         drop(third);
     }
 
     #[tokio::test]
     async fn different_sessions_do_not_cancel_each_other() {
-        let (mut chat, _) = claim_chat_turn(11, "chat-session").await;
-        let _work = claim_chat_turn(11, "work-session").await;
+        let (mut chat, _) = claim_chat_turn(11, "chat-session", "chat").await;
+        let _work = claim_chat_turn(11, "work-session", "work").await;
         assert!(tokio::time::timeout(Duration::from_millis(30), &mut chat)
             .await
             .is_err());
@@ -248,9 +272,20 @@ mod tests {
 
     #[tokio::test]
     async fn repeated_claim_is_idempotent_for_the_latest_turn() {
-        let (first, _) = claim_chat_turn(13, "s").await;
-        let _second = claim_chat_turn(13, "s").await;
-        let _again = claim_chat_turn(13, "s").await;
+        let (first, _) = claim_chat_turn(13, "s", "first").await;
+        let _second = claim_chat_turn(13, "s", "second").await;
+        let _again = claim_chat_turn(13, "s", "again").await;
         assert!(first.await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn voice_stop_cannot_cancel_the_newer_typed_run() {
+        let (voice, _) = claim_chat_turn(14, "shared-chat", "voice-run").await;
+        let (typed, _) = claim_chat_turn(14, "shared-chat", "typed-run").await;
+        assert!(voice.await.is_ok());
+        assert!(!cancel_chat_run(14, "shared-chat", "voice-run").await);
+        assert!(!cancel_chat_run(15, "shared-chat", "typed-run").await);
+        assert!(cancel_chat_run(14, "shared-chat", "typed-run").await);
+        assert!(typed.await.is_ok());
     }
 }

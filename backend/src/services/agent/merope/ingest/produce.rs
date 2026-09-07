@@ -9,13 +9,10 @@ use super::super::store::{
     affect_from_state, get_or_create_state, insert_diary, recently_spoke_event, update_affect,
     DIARY_SOURCE_EVENT,
 };
-use super::super::{
-    activity_is_busy, apply_task_outcome, current_activity, effective_do_not_disturb,
-    is_extremely_low, is_logged_in_addressee,
-};
+use super::super::{apply_task_outcome, is_extremely_low, is_logged_in_addressee};
 use super::{
-    addressee_is_chatting, compact_summary, is_enabled, is_trivial_line, persist_persona_remember,
-    SAME_EVENT_MINUTES,
+    compact_summary, current_sight, is_enabled, is_trivial_line, log_skip,
+    persist_persona_remember, SAME_EVENT_MINUTES,
 };
 use crate::services::agent::consciousness::{
     consider_event, enqueue_speak_intent, is_work_outcome, new_speak_intent, ConsciousnessAction,
@@ -142,22 +139,18 @@ pub async fn ingest(
         return Ok(());
     }
     if !is_enabled().await {
+        log_skip(user_id, event_key, "disabled");
         return Ok(());
     }
     let summary = compact_summary(summary);
     if summary.is_empty() {
+        log_skip(user_id, event_key, "empty_summary");
         return Ok(());
     }
 
     let state = get_or_create_state(db, user_id).await?;
-    let chatting = addressee_is_chatting(db, user_id).await;
-    let working = activity_is_busy(current_activity(&state));
-    let decision = decide_ingest(
-        event_key,
-        effective_do_not_disturb(&state),
-        chatting,
-        working,
-    );
+    let sight = current_sight(user_id, &state).await;
+    let decision = decide_ingest(event_key, &sight);
     // Whether this is a Chat completion is a property of the event, and it is
     // already filtered twice: `run_hub` stops publishing one, and the match in
     // `apply_task_mood` ignores every key but the three task outcomes. Whether
@@ -167,6 +160,7 @@ pub async fn ingest(
     apply_task_mood(db, user_id, event_key).await;
 
     if !decision.allow_model {
+        log_skip(user_id, event_key, decision.reason);
         let _ = insert_diary(db, user_id, &summary, DIARY_SOURCE_EVENT).await;
         return Ok(());
     }
@@ -244,6 +238,10 @@ pub async fn ingest(
             conscious_event.urgency,
             work_intent_id,
         ));
+        let speak_db = db.clone();
+        tokio::spawn(async move {
+            super::tick_speak_intents(speak_db).await;
+        });
     }
 
     let _ = insert_diary(db, user_id, &summary, DIARY_SOURCE_EVENT).await;
@@ -377,8 +375,7 @@ mod tests {
             guard.is_none_or(|at| apply - at > 400),
             "a Work outcome must not be dropped because the addressee is chatting"
         );
-        // `chatting` still decides whether she *says* something about it.
-        assert!(src.contains("chatting,\n        working,"));
+        assert!(src.contains("current_sight(user_id, &state)"));
     }
 
     #[test]

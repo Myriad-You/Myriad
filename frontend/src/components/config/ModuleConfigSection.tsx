@@ -21,6 +21,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import apiService from '../../services/api'
 import {
+  ISLAND_CONTENT_KEYS,
+  islandBagKey,
+  islandContentFromBagFields,
+  type IslandContentKey,
+} from '../../utils/islandContent'
+import {
   DEFAULT_LIBRARY_SOURCE_PREFERENCES,
   LIBRARY_ITEM_TYPES,
   normalizeLibraryPreferences,
@@ -65,9 +71,6 @@ export {
   DEFAULT_LIBRARY_SOURCE_PREFERENCES,
   normalizeLibraryPreferences,
 } from '../../utils/librarySourcePreferences'
-/** @deprecated 从 uiBagOwnership 导入；此处 re-export 保持兼容 */
-export { MODULE_UI_RESET_KEYS } from './uiBagOwnership'
-
 interface LibraryResponse {
   success: boolean
   total: number
@@ -200,6 +203,25 @@ function QuoteTitleIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="currentColor" viewBox="0 0 24 24">
       <path d="M6 17h3l2-4V7H5v6h3zm8 0h3l2-4V7h-6v6h3z" />
+    </svg>
+  )
+}
+
+function IslandTitleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <rect x="3" y="8" width="18" height="8" rx="4" strokeWidth="2" />
+      <circle cx="8" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <path
+        strokeLinecap="round"
+        strokeWidth="1.8"
+        d="M11.5 12h7"
+      />
     </svg>
   )
 }
@@ -350,6 +372,7 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
   const { t } = useI18n()
   const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
   const hitokotoSourceGuide = renderGuide(g.modules.hitokotoSource)
+  const islandContentGuide = renderGuide(g.modules.islandContent)
   const [loading, setLoading] = useState(true)
 
   const getUiFieldValue = useCallback(
@@ -359,6 +382,8 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
   const musicEnabled = getUiFieldValue('music_enabled') === 'true'
   const musicSource = getUiFieldValue('music_source')
   const playlistId = getUiFieldValue('music_playlist_id')
+  const islandContent = islandContentFromBagFields(uiConfigFields)
+  const islandSelected = ISLAND_CONTENT_KEYS.filter((key) => islandContent[key])
 
   const handleClearMusicCache = useCallback(() => {
     clearPlaylistCache()
@@ -475,6 +500,30 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
     [t],
   )
 
+  const islandContentLabels = useMemo<Record<IslandContentKey, string>>(
+    () => ({
+      greeting: t.config.islandGreeting,
+      weather: t.config.islandWeather,
+      quote: t.config.islandQuote,
+      music: t.config.islandMusic,
+      tapp: t.config.islandTapp,
+    }),
+    [t],
+  )
+
+  const updateIslandContent = useCallback(
+    (selected: IslandContentKey[]) => {
+      const selectedSet = new Set(selected)
+      for (const key of ISLAND_CONTENT_KEYS) {
+        updateUiFieldValue(
+          islandBagKey(key),
+          String(selectedSet.has(key)),
+        )
+      }
+    },
+    [updateUiFieldValue],
+  )
+
   const updateHitokotoConfig = useCallback(
     (patch: Partial<HitokotoConfig>) => {
       setHitokotoDraft((prev) => ({ ...prev, ...patch }))
@@ -579,7 +628,7 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
       description={description}
       sectionId={sectionId}
     >
-      {/* 1. 可见性 → 2. 媒体库 → 3. 报告 → 4. 音乐 → 5. 一言 */}
+      {/* 1. 可见性 → 2. 媒体库 → 3. 报告 → 4. 音乐 → 5. 智能岛 → 6. 一言 */}
       <SettingGroup
         title={t.config.moduleVisibilityTitle}
         description={t.config.moduleVisibilityDesc}
@@ -855,6 +904,40 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
           size="md"
           onClick={handleClearMusicCache}
         />
+      </SettingGroup>
+
+      <SettingGroup
+        title={t.config.islandContentTitle}
+        description={t.config.islandContentDesc}
+        {...bindGuide('modules.island', g.modules.island)}
+        icon={<IslandTitleIcon className="h-3.5 w-3.5" />}
+      >
+        <div
+          id="cfg-g-modules-islandContent"
+          data-guide-path="modules.islandContent"
+          className="setting-item setting-vertical has-guide-anchor"
+        >
+          <div className="setting-label">
+            <span className="setting-label-text">
+              {t.config.islandContentLocations}
+              <SettingTitleGuideEntry
+                title={t.config.islandContentLocations}
+                guide={islandContentGuide}
+              />
+            </span>
+          </div>
+          <SegmentedControl
+            mode="multi"
+            size="sm"
+            value={islandSelected}
+            options={ISLAND_CONTENT_KEYS.map((key) => ({
+              value: key,
+              label: islandContentLabels[key],
+            }))}
+            onChange={updateIslandContent}
+            ariaLabel={t.config.islandContentLocations}
+          />
+        </div>
       </SettingGroup>
 
       <SettingGroup

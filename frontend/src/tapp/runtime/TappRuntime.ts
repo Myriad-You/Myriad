@@ -24,6 +24,7 @@ import type {
   TappStatus,
   WidgetRegistration,
 } from '../types'
+import { getDynamicContentProvider } from '../../services/DynamicContentProvider'
 import * as TappApiService from '../services/TappApiService'
 import { getResourceLoader } from './sandbox/resourceLoader'
 import { TappPermissionController } from './TappPermission'
@@ -305,7 +306,7 @@ export class TappRuntime {
         ])
         for (const tappId of backgroundTappIds) {
           if (!this.runningTapps.has(tappId)) {
-            this.clearBackgroundRequirements(tappId)
+            this.dropStoppedTappHostState(tappId)
           }
         }
 
@@ -456,6 +457,7 @@ export class TappRuntime {
 
       // 清除该 Tapp 的全部模式资源缓存
       getResourceLoader().clearCache(tappId)
+      this.dropStoppedTappHostState(tappId)
 
       // 从列表中移除
       this.installedTapps.delete(tappId)
@@ -607,7 +609,7 @@ export class TappRuntime {
       } else {
         this.sessionRunningTapps.delete(tappId)
       }
-      this.clearBackgroundRequirements(tappId)
+      this.dropStoppedTappHostState(tappId)
       instance.status = 'installed'
       this.runningTapps.delete(tappId)
       this.emit('tapp:stopped', { id: tappId, instance })
@@ -888,6 +890,15 @@ export class TappRuntime {
         hasRequirements: false,
       })
     }
+  }
+
+  /**
+   * 停止/卸载后卸掉宿主侧残留：后台需求与信息岛内容。
+   * 岛内容没有跟沙箱走，Tapp 自己不 remove 就会一直留在控制岛里。
+   */
+  private dropStoppedTappHostState(tappId: string): void {
+    this.clearBackgroundRequirements(tappId)
+    getDynamicContentProvider().unregisterTappProvider(tappId)
   }
 
   /**

@@ -215,7 +215,7 @@ export interface TappOpenUrlDef {
   match?: 'exact' | 'prefix' | 'origin'
 }
 
-export type TappAIOperation = 'generate' | 'analyze' | 'chat' | 'image'
+export type TappAIOperation = 'generate' | 'analyze' | 'chat' | 'image' | 'search'
 export type TappAIContextSource = 'platform' | 'report' | 'profile' | 'custom'
 export type TappAIOutputFormat = 'text' | 'json' | 'image'
 
@@ -441,6 +441,9 @@ export interface TappSettingItem {
   step?: number
   /** input 类型的 placeholder */
   placeholder?: string
+  /** input 多行（仓库列表等） */
+  multiline?: boolean
+  rows?: number
 }
 
 /** 权限类型 */
@@ -458,6 +461,7 @@ export type TappPermission =
   | 'ai:analyze'
   | 'ai:chat'
   | 'ai:image'
+  | 'ai:search'
   | '3d:generate'
   // 报告权限
   | 'report:read'
@@ -563,6 +567,13 @@ export interface TappInstance {
 
   /** 是否为临时安装（普通用户安装的 Tapp，退出登录后移除） */
   isTemporary?: boolean
+
+  /**
+   * Playground 临时预览实例。无 Runtime Grant；未注册的宿主 API 以
+   * `PREVIEW_UNAVAILABLE` 失败，不等于安装后的授予权限。
+   * 与 `isTemporary`（普通用户登录期内的临时安装）不是同一层。
+   */
+  previewMode?: boolean
 
   /** 是否为管理员的 Tapp（对所有用户可见） */
   isAdminTapp?: boolean
@@ -778,6 +789,31 @@ export interface AIImageInput {
   referenceImages?: string[]
 }
 
+export interface AISearchInput {
+  query: string
+  searchType?: 'rss_source' | 'api_docs' | 'general'
+  maxResults?: number
+  searchPrompt?: string
+}
+
+export interface AIGenerateInput {
+  prompt: string
+}
+
+export interface AIAnalyzeInput {
+  data: unknown
+  instruction?: string
+}
+
+export interface AIChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export interface AIChatInput {
+  messages: AIChatMessage[]
+}
+
 interface AITaskRequestOptions {
   version: 2
   context?: AIContextRef[]
@@ -791,7 +827,10 @@ interface AITaskRequestOptions {
 
 export type AITaskRequest = AITaskRequestOptions & (
   | { operation: 'image'; input: string | AIImageInput }
-  | { operation: Exclude<TappAIOperation, 'image'>; input: unknown }
+  | { operation: 'search'; input: string | AISearchInput }
+  | { operation: 'generate'; input: string | AIGenerateInput }
+  | { operation: 'analyze'; input: AIAnalyzeInput }
+  | { operation: 'chat'; input: AIChatInput }
 )
 
 export type AITaskStatus =

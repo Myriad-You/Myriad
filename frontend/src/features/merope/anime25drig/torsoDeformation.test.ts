@@ -3,7 +3,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   anime25DLayerUsesTorsoShell,
+  anime25DSleeveAnchorX,
   anime25DTorsoShellModeForLayer,
+  anime25DTorsoShellOffsetX,
+  anime25DTorsoYawFollow,
   deformAnime25DTorsoShellPoint,
   resolveAnime25DTorsoChestShape,
   stepAnime25DTorsoShellRotation,
@@ -44,9 +47,15 @@ test('binds body garments fully and both split-collar layers through one field',
     assert.equal(anime25DTorsoShellModeForLayer(source), 'collar')
     assert.equal(anime25DLayerUsesTorsoShell(source), true)
   }
+  const sleeve = { group: 'body' as const, role: 'handwear' }
+  assert.equal(anime25DTorsoShellModeForLayer(sleeve), 'sleeve')
+  assert.equal(anime25DLayerUsesTorsoShell(sleeve), true)
+  assert.equal(
+    anime25DTorsoShellModeForLayer({ group: 'body', role: 'neck' }),
+    'neck',
+  )
   for (const source of [
-    { group: 'body', role: 'neck' },
-    { group: 'body', role: 'handwear' },
+    { group: 'body', role: 'neckwear' },
     { group: 'head', role: 'topwear' },
   ] as const) {
     assert.equal(anime25DTorsoShellModeForLayer(source), null)
@@ -66,6 +75,66 @@ test('matches the fork low-pass torso yaw response', () => {
 
   stepAnime25DTorsoShellRotation(state, 1, -0.5, 0, rotation)
   assert.equal(state.value, expectedYaw)
+})
+
+test('the per-model follow scales the head share and leaves the body alone', () => {
+  const stepped = (
+    angleX: number,
+    body: number,
+    yawFollowScale?: number,
+  ): number => {
+    const state = { value: 0 }
+    const rotation = { active: false, yawCosine: 1, yawSine: 0 }
+    stepAnime25DTorsoShellRotation(
+      state,
+      angleX,
+      body,
+      0.05,
+      rotation,
+      yawFollowScale,
+    )
+    return state.value
+  }
+  // Half the follow, half the head's contribution.
+  assert.ok(Math.abs(stepped(1, 0, 0.5) - stepped(1, 0) * 0.5) < 1e-12)
+  assert.equal(stepped(1, 0, 0), 0)
+  // The body's own share is the authored amount and carries no such control.
+  assert.equal(stepped(0, 1, 0), stepped(0, 1))
+  assert.equal(stepped(0, 1, 0.25), stepped(0, 1))
+})
+
+test('a manifest with no authored follow, or a bad one, turns fully', () => {
+  const full = (() => {
+    const state = { value: 0 }
+    stepAnime25DTorsoShellRotation(state, 1, 0, 0.05, {
+      active: false,
+      yawCosine: 1,
+      yawSine: 0,
+    })
+    return state.value
+  })()
+  for (const scale of [undefined, Number.NaN, Number.POSITIVE_INFINITY, 4, 1]) {
+    const state = { value: 0 }
+    stepAnime25DTorsoShellRotation(
+      state,
+      1,
+      0,
+      0.05,
+      { active: false, yawCosine: 1, yawSine: 0 },
+      scale,
+    )
+    assert.equal(state.value, full, `${scale}`)
+  }
+  const negative = { value: 0 }
+  stepAnime25DTorsoShellRotation(
+    negative,
+    1,
+    0,
+    0.05,
+    { active: false, yawCosine: 1, yawSine: 0 },
+    -2,
+  )
+  assert.equal(negative.value, 0)
 })
 
 test('keeps the frontal pose exact and matches the fork cylinder projection', () => {
@@ -246,3 +315,88 @@ function projectedX(
   )
   return point.x
 }
+
+const SLEEVE_TORSO = {
+  enabled: true,
+  blend: 0.5,
+  centerX: 117,
+  radiusX: 92,
+  radiusZ: 54,
+}
+
+function sleeveCarry(normalizedX: number, yawRadians: number): number {
+  const anchorX = SLEEVE_TORSO.centerX + normalizedX * SLEEVE_TORSO.radiusX
+  return anime25DTorsoShellOffsetX(
+    anime25DSleeveAnchorX(anchorX, SLEEVE_TORSO),
+    SLEEVE_TORSO,
+    {
+      active: yawRadians !== 0,
+      yawCosine: Math.cos(yawRadians),
+      yawSine: Math.sin(yawRadians),
+    },
+    0.5,
+  )
+}
+
+test('a sleeve drawn past the body silhouette is not dragged against it', () => {
+  // Outside the cylinder its depth is gone and the bare projection reverses,
+  // pulling the sleeve the opposite way from the garment it hangs on — by as
+  // much as 60% of the garment's own travel.
+  for (const yaw of [0.2, 0.45, 0.6]) {
+    const garment = anime25DTorsoShellOffsetX(
+      SLEEVE_TORSO.centerX - 0.5 * SLEEVE_TORSO.radiusX,
+      SLEEVE_TORSO,
+      { active: true, yawCosine: Math.cos(yaw), yawSine: Math.sin(yaw) },
+      0.5,
+    )
+    assert.ok(garment > 0)
+    // The near sleeve is carried outright; the far one recedes and may hold
+    // still, but neither is swept backwards.
+    for (const normalizedX of [-1.5, -1.25, -0.9]) {
+      assert.ok(sleeveCarry(normalizedX, yaw) > 0, `${normalizedX} @ ${yaw}`)
+    }
+    for (const normalizedX of [0.9, 1.25, 1.5]) {
+      const carry = sleeveCarry(normalizedX, yaw)
+      assert.ok(carry > -0.05 * garment, `${normalizedX} @ ${yaw}: ${carry}`)
+    }
+  }
+})
+
+test('how far out a sleeve is drawn stops mattering past the shoulder', () => {
+  // Depth falls off a cliff at the silhouette: read the turn there and a tenth
+  // of a radius of drawing position would change the carry several-fold.
+  for (const side of [-1, 1]) {
+    const shoulder = sleeveCarry(side * 0.8, 0.45)
+    for (const normalizedX of [0.9, 1, 1.25, 1.5, 3]) {
+      assert.ok(
+        Math.abs(sleeveCarry(side * normalizedX, 0.45) - shoulder) < 1e-9,
+        `${side * normalizedX}`,
+      )
+    }
+  }
+})
+
+test('a sleeve drawn on the body reads the turn where it is drawn', () => {
+  for (const normalizedX of [-0.8, -0.62, -0.3, 0.3, 0.62, 0.8]) {
+    const anchorX = SLEEVE_TORSO.centerX + normalizedX * SLEEVE_TORSO.radiusX
+    assert.ok(Math.abs(anime25DSleeveAnchorX(anchorX, SLEEVE_TORSO) - anchorX) < 1e-9)
+  }
+  // Nearer the front of the torso is carried further than nearer the edge.
+  assert.ok(sleeveCarry(-0.3, 0.45) > sleeveCarry(-0.8, 0.45))
+})
+
+test('the compiled follow and the audition are one value, not two', () => {
+  assert.equal(anime25DTorsoYawFollow({ yawFollowScale: 0.5 }, 0.5), 0.25)
+  // A manifest compiled before the follow became per-model turns fully.
+  assert.equal(anime25DTorsoYawFollow({}, 1), 1)
+  assert.equal(anime25DTorsoYawFollow({}, 0.4), 0.4)
+  // The site never writes bodyYaw, so the compiled value governs alone.
+  assert.equal(anime25DTorsoYawFollow({ yawFollowScale: 0.6 }, 1), 0.6)
+  // Neither source can push the other out of range.
+  for (const authored of [Number.NaN, undefined, 4, -1]) {
+    for (const bodyYaw of [Number.NaN, Number.POSITIVE_INFINITY, 4, -1]) {
+      const follow = anime25DTorsoYawFollow({ yawFollowScale: authored }, bodyYaw)
+      assert.ok(follow >= 0 && follow <= 1, `${authored} ${bodyYaw}: ${follow}`)
+    }
+  }
+})

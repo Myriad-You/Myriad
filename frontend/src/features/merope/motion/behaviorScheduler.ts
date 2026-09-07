@@ -3,6 +3,7 @@ import type {
   BehaviorPhase,
   BehaviorPlan,
   BehaviorSnapshot,
+  BehaviorTiming,
   ScheduledBehavior,
   TimePeg,
 } from './behavior'
@@ -25,6 +26,25 @@ export interface BehaviorPlanReconcileReport extends BehaviorPlanRetimeReport {
 
 /** Preparation may adapt, but cannot chase a moving event indefinitely. */
 export const MAX_PREPARATION_RETIME_MS = 160
+
+/** Retreat length for a mid-sized gesture caught halfway through its stroke. */
+export const NOMINAL_RECOVERY_MS = 180
+/** A retreat is still one motion: never a snap, never a second gesture. */
+export const MIN_RECOVERY_MS = 90
+export const MAX_RECOVERY_MS = 420
+
+/**
+ * Stroke points that an interruption pulls back onto the relaxation peg.
+ *
+ * `start` is excluded: a behavior that has not started yet is completed
+ * outright rather than retreating, so every surviving case already began.
+ */
+const COLLAPSIBLE_STROKE_ROLES = [
+  'ready',
+  'strokeStart',
+  'strokePeak',
+  'strokeEnd',
+] as const
 
 interface RuntimeBehavior {
   spec: ScheduledBehavior
@@ -50,7 +70,7 @@ export class BehaviorScheduler {
     return () => this.listeners.delete(listener)
   }
 
-  replace(plan: BehaviorPlan, nowMs: number, recoveryMs = 180): void {
+  replace(plan: BehaviorPlan, nowMs: number, recoveryMs?: number): void {
     this.interruptAll(nowMs, recoveryMs)
     for (const peg of plan.pegs) {
       this.pegs.set(peg.id, sanitizePeg(peg))
@@ -70,7 +90,7 @@ export class BehaviorScheduler {
     this.prune(nowMs)
   }
 
-  clear(nowMs: number, recoveryMs = 180): void {
+  clear(nowMs: number, recoveryMs?: number): void {
     this.interruptAll(nowMs, recoveryMs)
     this.tick(nowMs)
   }
@@ -110,7 +130,7 @@ export class BehaviorScheduler {
   reconcilePlan(
     plan: BehaviorPlan,
     nowMs: number,
-    recoveryMs = 180,
+    recoveryMs?: number,
   ): BehaviorPlanReconcileReport {
     const nextById = new Map(
       plan.behaviors.map((behavior) => [behavior.id, behavior]),
@@ -250,7 +270,11 @@ export class BehaviorScheduler {
     return 'retimed'
   }
 
-  interrupt(behaviorId: string, nowMs: number, recoveryMs = 180): boolean {
+  /**
+   * Retreats a live behavior. Omit `recoveryMs` to let the retreat scale with
+   * what the body actually has to undo.
+   */
+  interrupt(behaviorId: string, nowMs: number, recoveryMs?: number): boolean {
     const runtime = this.behaviors.get(behaviorId)
     if (
       !runtime ||
@@ -266,24 +290,33 @@ export class BehaviorScheduler {
     } else {
       const relaxId = `${runtime.spec.id}:interrupt-relax`
       const endId = `${runtime.spec.id}:interrupt-end`
+      const recovery =
+        recoveryMs === undefined
+          ? this.recoveryFor(runtime.spec, now)
+          : Math.max(1, finiteTime(recoveryMs))
       this.pegs.set(relaxId, { id: relaxId, atMs: now, revision: 0 })
       this.pegs.set(endId, {
         id: endId,
-        atMs: now + Math.max(1, finiteTime(recoveryMs)),
+        atMs: now + recovery,
         revision: 0,
       })
+      // Every stroke point still ahead of the interruption collapses onto the
+      // relaxation peg. Leaving one in the future makes the timing
+      // non-monotonic, and both readers of that timing then misbehave: the
+      // realizer refuses the behavior outright, so it disappears in one frame
+      // instead of retreating, and `phaseAt` walks back into `committed`,
+      // which the reaction policy still reads as an occupied resource.
+      const collapsed: Partial<BehaviorTiming> = {}
+      for (const role of COLLAPSIBLE_STROKE_ROLES) {
+        if (this.pegTime(runtime.spec.timing[role]) > now) {
+          collapsed[role] = relaxId
+        }
+      }
       runtime.spec = {
         ...runtime.spec,
         timing: {
           ...runtime.spec.timing,
-          ...(phase === 'preparing'
-            ? {
-                ready: relaxId,
-                strokeStart: relaxId,
-                strokePeak: relaxId,
-                strokeEnd: relaxId,
-              }
-            : {}),
+          ...collapsed,
           relax: relaxId,
           end: endId,
         },
@@ -320,7 +353,7 @@ export class BehaviorScheduler {
     return true
   }
 
-  private interruptAll(nowMs: number, recoveryMs: number): void {
+  private interruptAll(nowMs: number, recoveryMs: number | undefined): void {
     for (const behaviorId of [...this.behaviors.keys()]) {
       this.interrupt(behaviorId, nowMs, recoveryMs)
     }
@@ -369,6 +402,34 @@ export class BehaviorScheduler {
           }
         : {}),
     }
+  }
+
+  /**
+   * How long this particular gesture needs to put itself away.
+   *
+   * A flat retreat made a full-extent `emphasize` caught at its peak release
+   * in the same time as a barely-begun nod, which reads as the body giving up
+   * rather than finishing. Three things decide it, and nothing else: how much
+   * of the outbound arc was actually delivered, how far out the pose reaches,
+   * and how quickly this delivery moves. The bounds keep the result one
+   * motion — never a snap, never long enough to read as a second gesture.
+   */
+  private recoveryFor(spec: ScheduledBehavior, nowMs: number): number {
+    const timing = this.resolvedTiming(spec)
+    const outbound = timing.strokeEnd - timing.start
+    const delivered =
+      Number.isFinite(outbound) && outbound > 0
+        ? clamp((nowMs - timing.start) / outbound, 0, 1)
+        : 1
+    const extent = clamp(finiteOr(spec.quality?.extent, 1), 0.2, 1.6)
+    const tempo = clamp(finiteOr(spec.quality?.tempo, 1), 0.45, 1.7)
+    return Math.round(
+      clamp(
+        (NOMINAL_RECOVERY_MS * (0.45 + 0.55 * delivered) * extent) / tempo,
+        MIN_RECOVERY_MS,
+        MAX_RECOVERY_MS,
+      ),
+    )
   }
 
   private hasValidTiming(spec: ScheduledBehavior): boolean {
@@ -548,6 +609,10 @@ function sanitizePeg(peg: TimePeg): TimePeg {
 
 function finiteTime(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0
+}
+
+function finiteOr(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

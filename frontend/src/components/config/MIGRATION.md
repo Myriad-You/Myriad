@@ -121,7 +121,7 @@
 | `GET /api/config` · `ui_config` | **仅** `config_fields` bag（无 typed 镜像） |
 | `GET /api/config/ui` | 公开运行时扁平 JSON；已去掉 `pet_*` / `wallpaper_parallax` |
 
-备份 registry 仍可含 legacy 键（`pet_*` 等），用于还原旧备份；**勿再 emit 到 admin bag**。
+备份只维护下线黑名单（`pet_*` / `ui_wallpaper_parallax` / `github_client_*` / `github_redirect_url`）；旧备份里这些键进 ignored。启动时按同一名单从 `configurations` 删行。**勿再 emit 到 admin bag**。
 
 ## 新增设置时的约定
 

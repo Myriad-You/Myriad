@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 description = "Deterministic JSON Schema subset validator (AI Task / Data Exchange / agent interaction)."
 authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
 
 [dependencies]
 serde_json = "1"

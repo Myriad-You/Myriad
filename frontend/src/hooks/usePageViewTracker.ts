@@ -16,7 +16,6 @@ import {
 } from '../utils/googleAnalytics'
 import {
   getOrCreateVisitorId,
-  setAnalyticsAdminSession,
   setAnalyticsStaffSession,
   trackEvent,
   trackPageview,
@@ -29,7 +28,6 @@ import {
 export {
   AnalyticsEvents,
   getOrCreateVisitorId,
-  setAnalyticsAdminSession,
   setAnalyticsStaffSession,
   trackEvent,
   trackPageview,

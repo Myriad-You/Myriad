@@ -11,7 +11,7 @@
     "agentInteractions": 32,
     "agentSchemaBytes": 65536,
     "aiContextSources": 4,
-    "aiOperations": 4,
+    "aiOperations": 5,
     "aiOutputFormats": 3,
     "apiCacheTtlSeconds": 86400,
     "apiInjectAliases": 32,
@@ -94,6 +94,7 @@
     "ai:chat": "elevated",
     "ai:generate": "elevated",
     "ai:image": "elevated",
+    "ai:search": "elevated",
     "analytics:read": "basic",
     "brew:commentWrite": "elevated",
     "brew:manage": "privileged",
@@ -171,13 +172,15 @@
       "report": "report:read"
     },
     "aiOperationOutputRules": {
-      "image": "image"
+      "image": "image",
+      "search": "json"
     },
     "aiOperationPermissions": {
       "analyze": "ai:analyze",
       "chat": "ai:chat",
       "generate": "ai:generate",
-      "image": "ai:image"
+      "image": "ai:image",
+      "search": "ai:search"
     },
     "apiBuiltinAiOperations": {
       "ai:chat": "chat",
@@ -595,7 +598,8 @@
           "generate",
           "analyze",
           "chat",
-          "image"
+          "image",
+          "search"
         ],
         "type": "string"
       },
@@ -1702,6 +1706,7 @@
       "ai:chat": "elevated",
       "ai:generate": "elevated",
       "ai:image": "elevated",
+      "ai:search": "elevated",
       "analytics:read": "basic",
       "brew:commentWrite": "elevated",
       "brew:manage": "privileged",
@@ -1786,6 +1791,7 @@
       "widget.updateConfig": "widget:register",
       "widget.instanceSettings.update": "public",
       "widget.invalidate": "public",
+      "widget.invalidateTarget": "storage:write",
       "tappList.list": "tappList:read",
       "tappList.get": "tappList:read",
       "tappList.getRecent": "tappList:read",
@@ -1904,7 +1910,7 @@
       "dynamicContent.set": "ui:notification",
       "dynamicContent.update": "ui:notification",
       "dynamicContent.remove": "ui:notification",
-      "file.download": "storage:read",
+      "file.download": "public",
       "assets.get": "public",
       "assets.list": "public",
       "scheduler.register": "scheduler:register",

@@ -58,7 +58,8 @@ function validWidgetProject(): {
     },
     code: {
       ...code,
-      widget: 'function renderWidget() {}',
+      widget:
+        "Tapp.widgets['card'] = { render: function (container) { container.textContent = 'W'; } };",
       widgetHtml: '<div class="widget">W</div>',
     },
   }
@@ -91,7 +92,8 @@ function validWidgetOnlyProject(): {
       page: '',
       styles: '.widget { color: red; }',
       pageHtml: '',
-      widget: 'function renderWidget() {}',
+      widget:
+        "Tapp.widgets['card'] = { render: function (container) { container.textContent = 'W'; } };",
       widgetHtml: '<div class="widget">W</div>',
     },
   }
@@ -275,7 +277,8 @@ describe('validatePlaygroundPackage', () => {
       code: {
         ...code,
         widgetHtml: undefined,
-        widget: 'function renderWidget() {}',
+        widget:
+          "Tapp.widgets['card'] = { render: function (container) { container.textContent = 'W'; } };",
       },
     })
     assert.equal(result.ok, false)
@@ -347,6 +350,81 @@ describe('validatePlaygroundPackage', () => {
       formatPlaygroundPackageErrors(['a', 'b']),
       '1. a\n2. b',
     )
+  })
+
+  it('rejects Tapp.ai without manifest.ai before install', () => {
+    const { manifest, code } = validPageProject()
+    const result = validatePlaygroundPackage({
+      manifest,
+      code: {
+        ...code,
+        page: "Tapp.ai.tasks.create({ version: 2, operation: 'image' })",
+      },
+    })
+    assert.equal(result.ok, false)
+    if (!result.ok) {
+      assert.ok(result.errors.some((error) => error.includes('manifest.ai')))
+    }
+  })
+
+  it('rejects Widget register instead of Tapp.widgets render', () => {
+    const { manifest, code } = validWidgetOnlyProject()
+    const result = validatePlaygroundPackage({
+      manifest,
+      code: {
+        ...code,
+        widget: "Tapp.widget.register({ id: 'card', name: 'Card' });",
+      },
+    })
+    assert.equal(result.ok, false)
+    if (!result.ok) {
+      assert.ok(
+        result.errors.some(
+          (error) =>
+            error.includes('Tapp.widgets') || error.includes('Page-only'),
+        ),
+      )
+    }
+  })
+
+  it('rejects Widget confirm and Tailwind breakpoint prefixes', () => {
+    const { manifest, code } = validWidgetOnlyProject()
+    const confirm = validatePlaygroundPackage({
+      manifest,
+      code: {
+        ...code,
+        widget:
+          "Tapp.widgets['card'] = { render: function () {} }; Tapp.ui.confirm('x');",
+      },
+    })
+    assert.equal(confirm.ok, false)
+    if (!confirm.ok) {
+      assert.ok(
+        confirm.errors.some((error) => error.includes('Tapp.ui.confirm')),
+      )
+    }
+
+    const { manifest: pageManifest, code: pageCode } = validPageProject()
+    const breakpoints = validatePlaygroundPackage({
+      manifest: pageManifest,
+      code: {
+        ...pageCode,
+        pageHtml: '<div class="p-4 md:p-6">Hi</div>',
+      },
+    })
+    assert.equal(breakpoints.ok, false)
+    if (!breakpoints.ok) {
+      assert.ok(breakpoints.errors.some((error) => error.includes('md:')))
+    }
+
+    const okClasses = validatePlaygroundPackage({
+      manifest: pageManifest,
+      code: {
+        ...pageCode,
+        pageHtml: '<div class="p-4 text-sm rounded-md">Hi</div>',
+      },
+    })
+    assert.equal(okClasses.ok, true)
   })
 })
 

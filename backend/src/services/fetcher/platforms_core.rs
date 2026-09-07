@@ -9,6 +9,44 @@ use crate::services::http_client::{get_global_client, GitHubApiUrl};
 
 use super::types::*;
 
+const GITHUB_DESCRIPTION_MAX: usize = 500;
+const GITHUB_LANGUAGE_MAX: usize = 64;
+
+fn clip_github_text(value: &str, max_chars: usize) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.chars().take(max_chars).collect())
+}
+
+pub(crate) fn parse_github_repo_summary(body: &serde_json::Value) -> Result<GithubRepoSummary> {
+    let stars = body
+        .get("stargazers_count")
+        .and_then(|value| value.as_i64())
+        .filter(|count| *count >= 0)
+        .ok_or_else(|| anyhow!("GitHub repo payload missing stargazers_count"))?;
+    let forks = body
+        .get("forks_count")
+        .and_then(|value| value.as_i64())
+        .filter(|count| *count >= 0)
+        .unwrap_or(0);
+    let description = body
+        .get("description")
+        .and_then(|value| value.as_str())
+        .and_then(|value| clip_github_text(value, GITHUB_DESCRIPTION_MAX));
+    let language = body
+        .get("language")
+        .and_then(|value| value.as_str())
+        .and_then(|value| clip_github_text(value, GITHUB_LANGUAGE_MAX));
+    Ok(GithubRepoSummary {
+        stars,
+        forks,
+        description,
+        language,
+    })
+}
+
 impl PlatformFetcher {
     pub async fn new() -> Self {
         Self {
@@ -645,6 +683,44 @@ impl PlatformFetcher {
         }
 
         Ok(all_repos)
+    }
+
+    /// 获取单个公开仓库（含 `stargazers_count`）。
+    pub async fn fetch_github_repo(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let url = GitHubApiUrl::repo_url(owner, repo).await;
+        let mut request = self
+            .client
+            .get(&url)
+            .header("User-Agent", "Myriad")
+            .header("Accept", "application/vnd.github.v3+json");
+
+        if let Some(token) = token.map(str::trim).filter(|token| !token.is_empty()) {
+            request = request.header("Authorization", format!("token {}", token));
+        }
+
+        let response = request.send().await?;
+
+        if !response.status().is_success() {
+            return Err(anyhow!("GitHub API error: {}", response.status()));
+        }
+
+        Ok(response.json().await?)
+    }
+
+    /// 读取公开仓库摘要（star / fork / 描述 / 语言）。
+    pub async fn fetch_github_repo_summary(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+    ) -> Result<GithubRepoSummary> {
+        let body = self.fetch_github_repo(owner, repo, token).await?;
+        parse_github_repo_summary(&body)
     }
 
     /// 获取 GitHub 贡献日历数据（通过爬取用户页面）
