@@ -302,7 +302,7 @@ impl MigrationTrait for Migration {
         manager
             .get_connection()
             .execute_unprepared(
-                "CREATE INDEX IF NOT EXISTS idx_brew_items_topic                  ON brew_items (topic) WHERE topic IS NOT NULL",
+                "CREATE INDEX IF NOT EXISTS idx_brew_items_topic ON brew_items (topic) WHERE topic IS NOT NULL",
             )
             .await?;
 

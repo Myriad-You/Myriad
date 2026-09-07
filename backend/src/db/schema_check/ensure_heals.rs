@@ -14,7 +14,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
 /// 与 003 的 DDL 必须一字不差。缺列时通用 ADD COLUMN 先补，这里只管索引。
 pub(crate) async fn ensure_brew_item_topic_index(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(
-        "CREATE INDEX IF NOT EXISTS idx_brew_items_topic          ON brew_items (topic) WHERE topic IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_brew_items_topic ON brew_items (topic) WHERE topic IS NOT NULL",
     )
     .await?;
     Ok(())

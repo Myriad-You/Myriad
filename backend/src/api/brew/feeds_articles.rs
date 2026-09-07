@@ -30,12 +30,12 @@ use crate::services::data_paths::paths;
 use crate::services::icon_service::IconService;
 
 use super::comments_rsshub;
-use super::notes;
 use super::helpers::{
     brew_http_err, brew_store_http, build_feed_discovery_candidates, generate_opml,
     get_admin_user_id_from_headers, get_user_and_admin_status, overlay_requested_feed_type,
     parse_feed_type_label, parse_opml,
 };
+use super::notes;
 use super::reading_sync_ws;
 
 /// 创建 Brew API 路由
@@ -1339,7 +1339,12 @@ pub(crate) async fn list_items(
 
     // 按主题筛选。与 category 同级：只回该主题的文章，`topic IS NULL` 的天然落空。
     // 打标是离线的，读路径只读已有列，绝不在这里现算。
-    if let Some(topic) = query.topic.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+    if let Some(topic) = query
+        .topic
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
         items_query = items_query.filter(brew_items::Column::Topic.eq(topic));
     }
 

@@ -366,7 +366,10 @@ mod tests {
 
     #[test]
     fn first_image_becomes_the_cover() {
-        let note = render_note("标题", "![封面](https://example.com/a.png)\n\n![二](https://example.com/b.png)");
+        let note = render_note(
+            "标题",
+            "![封面](https://example.com/a.png)\n\n![二](https://example.com/b.png)",
+        );
         assert_eq!(note.image.as_deref(), Some("https://example.com/a.png"));
     }
 

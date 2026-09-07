@@ -223,10 +223,7 @@ pub(crate) async fn create_note(
     let source = ensure_note_source(&db, user_id).await?;
     let rendered = render_note(&req.title, &req.content_md);
     let now = Utc::now();
-    let published_at = req
-        .published_at
-        .and_then(millis_to_datetime)
-        .unwrap_or(now);
+    let published_at = req.published_at.and_then(millis_to_datetime).unwrap_or(now);
 
     let new_item = brew_items::ActiveModel {
         source_id: Set(source.id),

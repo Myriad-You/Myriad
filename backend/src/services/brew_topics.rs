@@ -38,7 +38,15 @@ const TOPIC_SEEDS: &[(&str, &[&str])] = &[
     ),
     (
         "ai",
-        &["llm", "gpt", "模型", "transformer", "agent", "embedding", "提示词"],
+        &[
+            "llm",
+            "gpt",
+            "模型",
+            "transformer",
+            "agent",
+            "embedding",
+            "提示词",
+        ],
     ),
     ("product", &["设计", "ux", "ui", "独立开发", "产品", "交互"]),
     ("writing", &["中文", "排版", "写作", "播客", "字体"]),
