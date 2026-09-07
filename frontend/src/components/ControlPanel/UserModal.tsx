@@ -21,7 +21,10 @@ import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { agentService } from '../../services/agent'
-import type { QqPairingStatus } from '../../services/agent/agentApi'
+import type {
+  QqPairingStatus,
+  TelegramPairingStatus,
+} from '../../services/agent/agentApi'
 import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { getRecentTapps, listTapps } from '../../tapp/services/TappLifecycleApi'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
@@ -158,6 +161,10 @@ export const UserModal: FC<UserModalProps> = ({
   const [qqPairing, setQqPairing] = useState<QqPairingStatus | null>(null)
   const [qqPairingBusy, setQqPairingBusy] = useState(false)
   const [qqCopied, setQqCopied] = useState(false)
+  const [telegramPairing, setTelegramPairing] =
+    useState<TelegramPairingStatus | null>(null)
+  const [telegramPairingBusy, setTelegramPairingBusy] = useState(false)
+  const [telegramCopied, setTelegramCopied] = useState(false)
   const { t, locale, format } = useI18n()
   const navigate = useNavigate()
   /** 自然高度测量目标：不受外层钉住 height / 滚动容器 max-height 约束 */
@@ -346,12 +353,24 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }, [t.userModal.qqPairingLoadFailed])
 
+  const loadTelegramPairing = useCallback(async () => {
+    try {
+      const data = await agentService.getTelegramPairing()
+      setTelegramPairing(data.pairing)
+    } catch (error) {
+      setOAuthError(
+        userFacingError(error, t.userModal.telegramPairingLoadFailed),
+      )
+    }
+  }, [t.userModal.telegramPairingLoadFailed])
+
   useEffect(() => {
     if (page === 'oauth') {
       void loadOAuthBindings()
       void loadQqPairing()
+      void loadTelegramPairing()
     }
-  }, [page, loadOAuthBindings, loadQqPairing])
+  }, [page, loadOAuthBindings, loadQqPairing, loadTelegramPairing])
 
   /** Prefer live bindings list; fall back to /me identities + legacy linked_github_id */
   const linkedProviders = useMemo(() => {
@@ -359,7 +378,10 @@ export const UserModal: FC<UserModalProps> = ({
       .map((i) => i.provider)
       .filter(
         (p): p is string =>
-          !!p && p.trim().length > 0 && p.trim().toLowerCase() !== 'qq',
+          !!p &&
+          p.trim().length > 0 &&
+          p.trim().toLowerCase() !== 'qq' &&
+          p.trim().toLowerCase() !== 'telegram',
       )
     if (fromLive.length > 0) {
       return [...new Set(fromLive.map((p) => p.trim().toLowerCase()))]
@@ -368,7 +390,10 @@ export const UserModal: FC<UserModalProps> = ({
       .map((i) => i.provider)
       .filter(
         (p): p is string =>
-          !!p && p.trim().length > 0 && p.trim().toLowerCase() !== 'qq',
+          !!p &&
+          p.trim().length > 0 &&
+          p.trim().toLowerCase() !== 'qq' &&
+          p.trim().toLowerCase() !== 'telegram',
       )
       .map((p) => p.trim().toLowerCase())
     if (fromUser.length > 0) {
@@ -469,6 +494,46 @@ export const UserModal: FC<UserModalProps> = ({
       setQqCopied(true)
     } catch {
       setOAuthError(t.userModal.qqPairingCopyFailed)
+    }
+  }
+
+  const handleIssueTelegramCode = async () => {
+    setOAuthError('')
+    setTelegramPairingBusy(true)
+    setTelegramCopied(false)
+    try {
+      const data = await agentService.issueTelegramPairingCode()
+      setTelegramPairing(data.pairing)
+    } catch (error) {
+      setOAuthError(
+        userFacingError(error, t.userModal.telegramPairingIssueFailed),
+      )
+    } finally {
+      setTelegramPairingBusy(false)
+    }
+  }
+
+  const handleCopyTelegramCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setTelegramCopied(true)
+    } catch {
+      setOAuthError(t.userModal.telegramPairingCopyFailed)
+    }
+  }
+
+  const handleUnpairTelegram = async () => {
+    if (!window.confirm(t.userModal.telegramUnpairConfirm)) return
+    setOAuthError('')
+    setTelegramPairingBusy(true)
+    try {
+      await agentService.unpairTelegram()
+      const data = await agentService.getTelegramPairing()
+      setTelegramPairing(data.pairing)
+    } catch (error) {
+      setOAuthError(userFacingError(error, t.userModal.telegramUnpairFailed))
+    } finally {
+      setTelegramPairingBusy(false)
     }
   }
 
@@ -945,6 +1010,75 @@ export const UserModal: FC<UserModalProps> = ({
                         {qqPairing?.pendingCode
                           ? t.userModal.qqRefreshCode
                           : t.userModal.qqGenerateCode}
+                      </button>
+                    </div>
+                  )}
+                </section>
+                <section className="user-modal-qq-pairing">
+                  <h4 className="user-modal-qq-title">
+                    {t.userModal.telegramPairingTitle}
+                  </h4>
+                  <p className="user-modal-qq-hint">
+                    {t.userModal.telegramPairingHint}
+                  </p>
+                  {telegramPairing?.paired ? (
+                    <div className="user-modal-qq-row">
+                      <span className="user-modal-oauth-info">
+                        <span className="user-modal-oauth-name">
+                          {t.userModal.telegramPaired}
+                        </span>
+                        <span className="user-modal-oauth-sub bound">
+                          {telegramPairing.openidMasked ||
+                            t.userModal.githubLinked}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="user-modal-oauth-btn danger"
+                        disabled={telegramPairingBusy}
+                        onClick={() => void handleUnpairTelegram()}
+                      >
+                        {t.userModal.telegramUnpair}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="user-modal-qq-row">
+                      <span className="user-modal-oauth-info">
+                        <span className="user-modal-oauth-name">
+                          {telegramPairing?.pendingCode ||
+                            t.userModal.telegramNotPaired}
+                        </span>
+                        <span className="user-modal-oauth-sub">
+                          {telegramPairing?.pendingCode
+                            ? t.userModal.telegramPairingSendCode
+                            : t.userModal.telegramPairingGenerateHint}
+                        </span>
+                      </span>
+                      {telegramPairing?.pendingCode ? (
+                        <button
+                          type="button"
+                          className="user-modal-oauth-btn"
+                          onClick={() =>
+                            void handleCopyTelegramCode(
+                              telegramPairing.pendingCode || '',
+                            )
+                          }
+                        >
+                          <LuCopy size={14} aria-hidden />
+                          {telegramCopied
+                            ? t.common.copied
+                            : t.userModal.telegramCopyCode}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="user-modal-oauth-btn"
+                        disabled={telegramPairingBusy}
+                        onClick={() => void handleIssueTelegramCode()}
+                      >
+                        {telegramPairing?.pendingCode
+                          ? t.userModal.telegramRefreshCode
+                          : t.userModal.telegramGenerateCode}
                       </button>
                     </div>
                   )}

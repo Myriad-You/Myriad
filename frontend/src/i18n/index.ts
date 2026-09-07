@@ -1570,6 +1570,19 @@ export interface TranslationKeys {
     qqBotTesting: string
     qqBotTestOk: string
     qqBotTestFailed: string
+    telegramBotTitle: string
+    telegramBotDesc: string
+    telegramBotToken: string
+    telegramBotHint: string
+    telegramBotPhaseOffline: string
+    telegramBotPhaseConnecting: string
+    telegramBotPhaseOnline: string
+    telegramBotPhaseRejected: string
+    telegramBotPhaseReconnecting: string
+    telegramBotTest: string
+    telegramBotTesting: string
+    telegramBotTestOk: string
+    telegramBotTestFailed: string
     enableProxy: string
     enableProxyHint: string
     proxyUrl: string
@@ -3308,6 +3321,21 @@ export interface TranslationKeys {
     qqUnpair: string
     qqUnpairConfirm: string
     qqUnpairFailed: string
+    telegramPairingTitle: string
+    telegramPairingHint: string
+    telegramPairingLoadFailed: string
+    telegramPairingIssueFailed: string
+    telegramPairingCopyFailed: string
+    telegramPairingGenerateHint: string
+    telegramPairingSendCode: string
+    telegramGenerateCode: string
+    telegramRefreshCode: string
+    telegramCopyCode: string
+    telegramPaired: string
+    telegramNotPaired: string
+    telegramUnpair: string
+    telegramUnpairConfirm: string
+    telegramUnpairFailed: string
     profileDisplaySourcesTitle: string
     profileSourceTitle: string
     profileSourceHint: string

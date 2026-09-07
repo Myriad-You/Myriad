@@ -1,12 +1,12 @@
-//! QQ C2C pairing: one-time codes and `user_identities` rows.
+//! Telegram DM pairing: one-time codes and `user_identities` rows.
 //!
-//! Pairing is "this openid is which site user", not QQ login OAuth.
-//! Codes live in `tapp_runtime_registry`; the bound id is `provider = qq`.
+//! Pairing is "this from.id is which site user", not Telegram login OAuth.
+//! Codes live in `tapp_runtime_registry`; the bound id is `provider = telegram`.
 
 use chrono::{Duration as ChronoDuration, Utc};
 use myriad_agent_rules::channel::{
-    encode_pairing_code, extract_pairing_code, format_pairing_code, ingest_c2c_text,
-    pairing_bind_reply, InboundC2cText, InboundDecision, PairingBindResult, PairingLookup,
+    encode_pairing_code, extract_pairing_code, format_pairing_code, ingest_channel_text,
+    pairing_bind_reply_for, InboundDecision, PairingBindResult, PairingLookup, TelegramPrivateText,
     PAIRING_REQUIRED_REPLY,
 };
 use rand::Rng;
@@ -18,15 +18,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
-use crate::services::http_client;
 use crate::services::tapp_registry::{self as shared_registry, RegistryIdentity};
-use crate::GLOBAL_DYNAMIC_CONFIG;
 
-pub const QQ_IDENTITY_PROVIDER: &str = "qq";
-const CODE_NAMESPACE: &str = "qq_pairing_code";
+pub const TELEGRAM_IDENTITY_PROVIDER: &str = "telegram";
+const CODE_NAMESPACE: &str = "telegram_pairing_code";
 const CODE_TTL_SECS: i64 = 10 * 60;
-const API_BASE: &str = "https://api.bot.qq.com";
-const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredPairingCode {
@@ -52,22 +48,7 @@ pub struct IssuedPairingCode {
 }
 
 pub fn mask_openid(openid: &str) -> String {
-    let trimmed = openid.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    if trimmed.chars().count() <= 4 {
-        return "****".to_string();
-    }
-    let tail: String = trimmed
-        .chars()
-        .rev()
-        .take(4)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect();
-    format!("****{tail}")
+    crate::services::qq_pairing::mask_openid(openid)
 }
 
 fn token_hash(code: &str) -> String {
@@ -84,7 +65,7 @@ pub async fn lookup_openid(db: &DatabaseConnection, openid: &str) -> Result<Pair
             DatabaseBackend::Postgres,
             "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2",
             vec![
-                SeaValue::String(Some(QQ_IDENTITY_PROVIDER.to_string())),
+                SeaValue::String(Some(TELEGRAM_IDENTITY_PROVIDER.to_string())),
                 SeaValue::String(Some(openid.to_string())),
             ],
         ))
@@ -108,7 +89,7 @@ pub async fn status_for_user(
              WHERE user_id = $1 AND provider = $2 ORDER BY linked_at DESC LIMIT 1",
             vec![
                 SeaValue::Int(Some(user_id)),
-                SeaValue::String(Some(QQ_IDENTITY_PROVIDER.to_string())),
+                SeaValue::String(Some(TELEGRAM_IDENTITY_PROVIDER.to_string())),
             ],
         ))
         .await?;
@@ -224,7 +205,7 @@ pub async fn unpair(db: &DatabaseConnection, user_id: i32) -> Result<bool, DbErr
             "DELETE FROM user_identities WHERE user_id = $1 AND provider = $2",
             vec![
                 SeaValue::Int(Some(user_id)),
-                SeaValue::String(Some(QQ_IDENTITY_PROVIDER.to_string())),
+                SeaValue::String(Some(TELEGRAM_IDENTITY_PROVIDER.to_string())),
             ],
         ))
         .await?;
@@ -267,7 +248,7 @@ async fn bind_openid(
             DatabaseBackend::Postgres,
             "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2",
             vec![
-                SeaValue::String(Some(QQ_IDENTITY_PROVIDER.to_string())),
+                SeaValue::String(Some(TELEGRAM_IDENTITY_PROVIDER.to_string())),
                 SeaValue::String(Some(openid.to_string())),
             ],
         ))
@@ -287,7 +268,7 @@ async fn bind_openid(
         "DELETE FROM user_identities WHERE user_id = $1 AND provider = $2",
         vec![
             SeaValue::Int(Some(user_id)),
-            SeaValue::String(Some(QQ_IDENTITY_PROVIDER.to_string())),
+            SeaValue::String(Some(TELEGRAM_IDENTITY_PROVIDER.to_string())),
         ],
     ))
     .await?;
@@ -302,7 +283,7 @@ async fn bind_openid(
              RETURNING user_id",
             vec![
                 SeaValue::Int(Some(user_id)),
-                SeaValue::String(Some(QQ_IDENTITY_PROVIDER.to_string())),
+                SeaValue::String(Some(TELEGRAM_IDENTITY_PROVIDER.to_string())),
                 SeaValue::String(Some(openid.to_string())),
             ],
         ))
@@ -315,46 +296,40 @@ async fn bind_openid(
     Ok(PairingBindResult::Bound { user_id })
 }
 
-/// Gateway worker entry: classify the C2C text, bind pairing codes, or start Work.
-pub async fn handle_inbound_c2c(event: InboundC2cText, auth_header: &str) {
+/// Worker entry: classify private text, pair, or start Work.
+pub async fn handle_inbound(event: TelegramPrivateText, token: &str) {
     let Ok(db) = crate::services::tapp_registry::database().await else {
-        warn!("QQ pairing skipped: database is not connected");
+        warn!("Telegram pairing skipped: database is not connected");
         return;
     };
-    let pairing = match lookup_openid(&db, &event.user_openid).await {
+    let inbound = event.inbound();
+    let pairing = match lookup_openid(&db, &inbound.user_openid).await {
         Ok(value) => value,
         Err(error) => {
-            warn!(error = %error, "QQ pairing lookup failed");
+            warn!(error = %error, "Telegram pairing lookup failed");
             return;
         }
     };
-    match ingest_c2c_text(&event, pairing, false) {
+    let chat_id = event.chat_id_key();
+    match ingest_channel_text(&inbound, pairing, false, "telegram", &chat_id) {
         InboundDecision::Duplicate { .. } => {}
-        InboundDecision::PairingRequired { reply, msg_id, .. } => {
-            send_passive_text(auth_header, &event.user_openid, &reply, &msg_id).await;
+        InboundDecision::PairingRequired { reply, .. } => {
+            send_text(token, &chat_id, &reply).await;
         }
         InboundDecision::ConsumePairingCode {
-            user_openid,
-            code,
-            msg_id,
+            user_openid, code, ..
         } => {
             let result = match consume_code(&db, &user_openid, &code).await {
                 Ok(value) => value,
                 Err(error) => {
-                    warn!(error = %error, "QQ pairing consume failed");
+                    warn!(error = %error, "Telegram pairing consume failed");
                     PairingBindResult::InvalidOrExpired
                 }
             };
             if let PairingBindResult::Bound { user_id } = result {
-                info!(user_id, "QQ C2C paired");
+                info!(user_id, "Telegram DM paired");
             }
-            send_passive_text(
-                auth_header,
-                &event.user_openid,
-                pairing_bind_reply(result),
-                &msg_id,
-            )
-            .await;
+            send_text(token, &chat_id, pairing_bind_reply_for(result, "telegram")).await;
         }
         InboundDecision::StartWork {
             user_id,
@@ -363,86 +338,40 @@ pub async fn handle_inbound_c2c(event: InboundC2cText, auth_header: &str) {
             msg_id,
             ..
         } => {
-            crate::services::qq_work::start_paired_work(
+            crate::services::telegram_work::start_paired_work(
                 &db,
                 user_id,
-                &event.user_openid,
+                &chat_id,
                 &input,
                 &session_key,
                 &msg_id,
-                auth_header,
+                token,
             )
             .await;
         }
     }
 }
 
-async fn send_passive_text(auth_header: &str, openid: &str, content: &str, msg_id: &str) {
-    if content.is_empty() || openid.is_empty() || msg_id.is_empty() {
-        return;
-    }
-    let enabled = {
-        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-        config.qq_bot_enabled
-    };
-    if !enabled {
-        return;
-    }
-    let client = http_client::get_global_client().await;
-    let url = format!("{API_BASE}/v2/users/{openid}/messages");
-    let body = serde_json::json!({
-        "content": content,
-        "msg_type": 0,
-        "msg_id": msg_id,
-        "msg_seq": 1,
-    });
-    match client
-        .post(&url)
-        .timeout(HTTP_TIMEOUT)
-        .header("Authorization", auth_header)
-        .json(&body)
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => {}
-        Ok(resp) => {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            warn!(
-                status = status.as_u16(),
-                body = %myriad_error::redact_secrets(&text),
-                "QQ pairing reply failed"
-            );
-        }
-        Err(error) => {
-            warn!(
-                error = %myriad_error::redact_secrets(&error.to_string()),
-                "QQ pairing reply request failed"
-            );
-        }
+async fn send_text(token: &str, chat_id: &str, content: &str) {
+    if let Err(error) = crate::services::telegram_bot::send_message(token, chat_id, content).await {
+        warn!(?error, "Telegram pairing reply failed");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn masks_openid_without_returning_the_full_id() {
-        assert_eq!(mask_openid("abcdefg"), "****defg");
-        assert_eq!(mask_openid("ab"), "****");
-        assert_eq!(mask_openid(""), "");
-        assert!(!mask_openid("openid-secret-value").contains("openid-secret"));
-    }
+    use myriad_agent_rules::channel::{ingest_channel_text, InboundC2cText};
 
     #[test]
     fn unpaired_plain_text_is_not_a_work_request() {
         let event = InboundC2cText {
-            msg_id: "m1".into(),
-            user_openid: "oid".into(),
+            msg_id: "10".into(),
+            user_openid: "1001".into(),
             content: "帮我查天气".into(),
         };
-        let decision = ingest_c2c_text(&event, PairingLookup::Unpaired, false);
+        let decision =
+            ingest_channel_text(&event, PairingLookup::Unpaired, false, "telegram", "1001");
         match decision {
             InboundDecision::PairingRequired { reply, .. } => {
                 assert_eq!(reply, PAIRING_REQUIRED_REPLY);

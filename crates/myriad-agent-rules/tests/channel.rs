@@ -1,17 +1,21 @@
-//! Public boundary of the QQ C2C transport adapter.
+//! Public boundary of the channel transport adapter.
 //!
-//! These tests do not simulate the QQ Gateway. They only prove that a C2C
-//! text event becomes a Work request or a pairing reply, and that a finished
-//! turn is delivered, dropped, or failed visibly.
+//! These tests do not simulate the QQ Gateway or Telegram HTTP. They prove
+//! that inbound text becomes a Work request or a pairing reply, and that a
+//! finished turn is delivered, dropped, or failed visibly.
 
 use myriad_agent_rules::channel::{
     classify_connect_failure, classify_gateway_close, encode_pairing_code, extract_pairing_code,
-    format_pairing_code, ingest_c2c_text, next_passive_seq, outbound_idempotency_key,
-    pairing_bind_reply, parse_access_token_response, parse_gateway_url_response, plan_delivery,
-    qq_c2c_capabilities, qq_token_needs_refresh, session_key, worker_intent, ChannelEvent,
-    ConnectFailure, DeliveryContext, DeliveryPlan, InboundC2cText, InboundDecision,
-    PairingBindResult, PairingLookup, WorkerIntent, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY,
-    PAIRING_OK_REPLY, PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY,
+    format_pairing_code, ingest_c2c_text, ingest_channel_text, next_passive_seq,
+    outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for,
+    parse_access_token_response, parse_gateway_url_response, parse_telegram_ok_payload,
+    parse_telegram_private_texts, plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh,
+    session_key, telegram_dm_capabilities, telegram_max_update_id, telegram_retry_after,
+    telegram_worker_intent, truncate_telegram_text, worker_intent, ChannelEvent, ConnectFailure,
+    DeliveryContext, DeliveryPlan, InboundC2cText, InboundDecision, PairingBindResult,
+    PairingLookup, WorkerIntent, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
+    PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY,
+    TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -114,6 +118,10 @@ fn pairing_code_normalizes_crockford_and_rejects_extra_words() {
         pairing_bind_reply(PairingBindResult::OpenidTaken),
         PAIRING_TAKEN_REPLY
     );
+    assert_eq!(
+        pairing_bind_reply_for(PairingBindResult::OpenidTaken, "telegram"),
+        TELEGRAM_PAIRING_TAKEN_REPLY
+    );
 }
 
 #[test]
@@ -174,8 +182,30 @@ fn session_key_strips_colons_so_openid_cannot_collide() {
 }
 
 #[test]
+fn paired_telegram_text_uses_chat_id_session_key() {
+    let decision = ingest_channel_text(
+        &text("42", "1001", "帮我订一张票"),
+        PairingLookup::Paired { user_id: 7 },
+        false,
+        "telegram",
+        "1001",
+    );
+    let InboundDecision::StartWork {
+        session_key: key, ..
+    } = decision
+    else {
+        panic!("expected work request");
+    };
+    assert_eq!(key, session_key("telegram", "1001"));
+}
+
+#[test]
 fn first_cut_capabilities_are_text_only() {
     let caps = qq_c2c_capabilities();
+    assert!(telegram_dm_capabilities().inbound_text);
+    assert!(telegram_dm_capabilities().outbound_final_text);
+    assert!(!telegram_dm_capabilities().outbound_edit);
+    assert!(!telegram_dm_capabilities().outbound_streaming_draft);
     assert!(caps.inbound_text);
     assert!(caps.outbound_final_text);
     assert!(!caps.inbound_media);
@@ -323,6 +353,15 @@ fn worker_runs_only_with_switch_and_complete_credentials() {
     assert_eq!(worker_intent(false, "app-1", true), WorkerIntent::Stop);
     assert_eq!(worker_intent(true, "", true), WorkerIntent::Stop);
     assert_eq!(worker_intent(true, "app-1", false), WorkerIntent::Stop);
+    assert_eq!(
+        telegram_worker_intent(true, "123456:ABC-DEF"),
+        WorkerIntent::Run
+    );
+    assert_eq!(telegram_worker_intent(true, "  "), WorkerIntent::Stop);
+    assert_eq!(
+        telegram_worker_intent(false, "123456:ABC-DEF"),
+        WorkerIntent::Stop
+    );
 }
 
 #[test]
@@ -381,6 +420,13 @@ fn connect_failures_split_permanent_from_transient() {
         myriad_agent_rules::channel::ConnectFailureKind::Permanent
     );
     assert_eq!(
+        classify_connect_failure(&ConnectFailure::HttpStatus {
+            status: 409,
+            body: r#"{"ok":false,"error_code":409,"description":"Conflict"}"#,
+        }),
+        myriad_agent_rules::channel::ConnectFailureKind::Transient
+    );
+    assert_eq!(
         classify_gateway_close(4009),
         myriad_agent_rules::channel::ConnectFailureKind::Transient
     );
@@ -429,4 +475,73 @@ fn access_token_and_gateway_url_parse_without_leaking_secrets() {
         parse_gateway_url_response(500, r#"{"code":11242,"message":"retry"}"#),
         Err(myriad_agent_rules::channel::ConnectFailureKind::Transient)
     );
+}
+
+#[test]
+fn telegram_get_updates_keeps_private_text_and_drops_groups() {
+    let body = r#"{
+        "ok": true,
+        "result": [
+            {
+                "update_id": 10,
+                "message": {
+                    "message_id": 2,
+                    "from": {"id": 1001},
+                    "chat": {"id": 1001, "type": "private"},
+                    "text": "帮我查天气"
+                }
+            },
+            {
+                "update_id": 11,
+                "message": {
+                    "message_id": 3,
+                    "from": {"id": 2002},
+                    "chat": {"id": -100, "type": "group"},
+                    "text": "群消息"
+                }
+            },
+            {
+                "update_id": 12,
+                "message": {
+                    "message_id": 4,
+                    "chat": {"id": 3003, "type": "private"},
+                    "text": "频道投影"
+                }
+            }
+        ]
+    }"#;
+    let texts = parse_telegram_private_texts(200, body).expect("updates");
+    assert_eq!(texts.len(), 1);
+    assert_eq!(texts[0].update_id, 10);
+    assert_eq!(texts[0].from_id, 1001);
+    assert_eq!(texts[0].chat_id, 1001);
+    assert_eq!(texts[0].text, "帮我查天气");
+    assert_eq!(telegram_max_update_id(200, body).unwrap(), Some(12));
+    assert_eq!(
+        parse_telegram_ok_payload(
+            401,
+            r#"{"ok":false,"error_code":401,"description":"Unauthorized"}"#
+        ),
+        Err(myriad_agent_rules::channel::ConnectFailureKind::Permanent)
+    );
+    assert_eq!(
+        parse_telegram_ok_payload(
+            409,
+            r#"{"ok":false,"error_code":409,"description":"Conflict"}"#
+        ),
+        Err(myriad_agent_rules::channel::ConnectFailureKind::Transient)
+    );
+}
+
+#[test]
+fn telegram_retry_after_and_text_cap() {
+    assert_eq!(
+        telegram_retry_after(r#"{"ok":false,"error_code":429,"parameters":{"retry_after":7}}"#),
+        Some(7)
+    );
+    assert_eq!(telegram_retry_after(r#"{"ok":false}"#), None);
+    let over: String = "字".repeat(TELEGRAM_TEXT_LIMIT + 3);
+    let trimmed = truncate_telegram_text(&over);
+    assert_eq!(trimmed.chars().count(), TELEGRAM_TEXT_LIMIT);
+    assert_eq!(truncate_telegram_text("短"), "短");
 }

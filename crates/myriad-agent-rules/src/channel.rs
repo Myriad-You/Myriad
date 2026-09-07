@@ -1,4 +1,8 @@
-//! Pure QQ C2C transport rules. No I/O.
+//! Pure channel transport rules. No I/O.
+//!
+//! QQ C2C and Telegram DM share ingest, pairing replies, delivery plans, and
+//! Transient/Permanent classification. Platform-specific parse helpers stay here
+//! so workers only do HTTP.
 //!
 //! Capability names, session-key colon sanitizing, passive `msg_seq`,
 //! outbound idempotency, and Transient/Permanent classification follow the
@@ -16,6 +20,14 @@ pub const PAIRING_INVALID_REPLY: &str = "配对码无效或已过期，请回站
 
 /// Reply when this openid is already bound to a different site user.
 pub const PAIRING_TAKEN_REPLY: &str = "这个 QQ 号已经绑过别人。请先在原账号解除，或换一个号。";
+
+/// Reply when this Telegram user id is already bound to a different site user.
+pub const TELEGRAM_PAIRING_TAKEN_REPLY: &str =
+    "这个 Telegram 号已经绑过别人。请先在原账号解除，或换一个号。";
+
+/// Telegram `sendMessage` text cap. Counted after entity parse; first cut
+/// sends plain text so Unicode scalars are the conservative bound.
+pub const TELEGRAM_TEXT_LIMIT: usize = 4096;
 
 /// Reply when confirmation or a browser-only page action arrives on QQ.
 pub const PANEL_REQUIRED_REPLY: &str = "请到站点面板完成这一步。";
@@ -83,6 +95,11 @@ pub struct ChannelCapabilities {
     pub frontend_action: bool,
     pub performance: bool,
     pub outfit: bool,
+}
+
+/// First-cut Telegram DM: text in, final text out. Edit / typing stay off.
+pub fn telegram_dm_capabilities() -> ChannelCapabilities {
+    qq_c2c_capabilities()
 }
 
 /// First-cut C2C: text in, final text out. Everything else is false.
@@ -168,9 +185,15 @@ pub enum PairingBindResult {
 
 /// Text to send after a pairing-code consume. Binding I/O stays outside this crate.
 pub fn pairing_bind_reply(result: PairingBindResult) -> &'static str {
+    pairing_bind_reply_for(result, "qq")
+}
+
+/// Pairing consume reply for a channel. Only the taken-openid copy differs.
+pub fn pairing_bind_reply_for(result: PairingBindResult, platform: &str) -> &'static str {
     match result {
         PairingBindResult::Bound { .. } => PAIRING_OK_REPLY,
         PairingBindResult::InvalidOrExpired => PAIRING_INVALID_REPLY,
+        PairingBindResult::OpenidTaken if platform == "telegram" => TELEGRAM_PAIRING_TAKEN_REPLY,
         PairingBindResult::OpenidTaken => PAIRING_TAKEN_REPLY,
     }
 }
@@ -181,6 +204,18 @@ pub fn ingest_c2c_text(
     event: &InboundC2cText,
     pairing: PairingLookup,
     already_seen: bool,
+) -> InboundDecision {
+    ingest_channel_text(event, pairing, already_seen, "qq", &event.user_openid)
+}
+
+/// Same decision tree as [`ingest_c2c_text`], with an explicit platform and
+/// session chat id. Telegram uses `update_id` as `msg_id` and `chat.id` here.
+pub fn ingest_channel_text(
+    event: &InboundC2cText,
+    pairing: PairingLookup,
+    already_seen: bool,
+    platform: &str,
+    chat_id: &str,
 ) -> InboundDecision {
     if already_seen {
         return InboundDecision::Duplicate {
@@ -207,7 +242,7 @@ pub fn ingest_c2c_text(
             user_id,
             input: event.content.clone(),
             mode: "work".to_string(),
-            session_key: session_key("qq", &event.user_openid),
+            session_key: session_key(platform, chat_id),
             msg_id: event.msg_id.clone(),
         },
     }
@@ -339,6 +374,11 @@ pub fn worker_intent(enabled: bool, app_id: &str, has_app_secret: bool) -> Worke
     } else {
         WorkerIntent::Stop
     }
+}
+
+/// Telegram: switch on and a non-empty bot token → run.
+pub fn telegram_worker_intent(enabled: bool, token: &str) -> WorkerIntent {
+    worker_intent(enabled, token, !token.trim().is_empty())
 }
 
 /// Official `GROUP_AND_C2C_EVENT`. One bit covers C2C and group events.
@@ -490,7 +530,7 @@ pub fn classify_connect_failure(failure: &ConnectFailure<'_>) -> ConnectFailureK
             } else if body.contains("\"code\":100001") || body.contains("code\":100001") {
                 return ConnectFailureKind::Transient;
             }
-            if *status >= 500 || *status == 429 {
+            if *status >= 500 || *status == 429 || *status == 409 {
                 ConnectFailureKind::Transient
             } else if *status >= 400 {
                 ConnectFailureKind::Permanent
@@ -499,4 +539,142 @@ pub fn classify_connect_failure(failure: &ConnectFailure<'_>) -> ConnectFailureK
             }
         }
     }
+}
+
+/// Private-chat text extracted from a Telegram `Update`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TelegramPrivateText {
+    pub update_id: i64,
+    pub message_id: i64,
+    pub from_id: i64,
+    pub chat_id: i64,
+    pub text: String,
+}
+
+impl TelegramPrivateText {
+    pub fn inbound(&self) -> InboundC2cText {
+        InboundC2cText {
+            msg_id: self.update_id.to_string(),
+            user_openid: self.from_id.to_string(),
+            content: self.text.clone(),
+        }
+    }
+
+    pub fn chat_id_key(&self) -> String {
+        self.chat_id.to_string()
+    }
+}
+
+/// Parse `getUpdates` / `getMe` / `sendMessage` JSON. Never returns the token.
+pub fn parse_telegram_ok_payload(
+    status: u16,
+    body: &str,
+) -> Result<serde_json::Value, ConnectFailureKind> {
+    if let Some(kind) = telegram_failure_kind(status, body) {
+        return Err(kind);
+    }
+    let data: serde_json::Value =
+        serde_json::from_str(body).map_err(|_| ConnectFailureKind::Transient)?;
+    if data.get("ok") != Some(&serde_json::Value::Bool(true)) {
+        return Err(telegram_failure_kind(status, body).unwrap_or(ConnectFailureKind::Transient));
+    }
+    Ok(data
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null))
+}
+
+/// Private-chat texts from a `getUpdates` body. Groups, edits, and empty `from` drop.
+pub fn parse_telegram_private_texts(
+    status: u16,
+    body: &str,
+) -> Result<Vec<TelegramPrivateText>, ConnectFailureKind> {
+    let result = parse_telegram_ok_payload(status, body)?;
+    let updates = result.as_array().cloned().unwrap_or_default();
+    Ok(updates
+        .iter()
+        .filter_map(telegram_private_text_from_update)
+        .collect())
+}
+
+fn telegram_private_text_from_update(update: &serde_json::Value) -> Option<TelegramPrivateText> {
+    let update_id = json_i64(update.get("update_id")?)?;
+    let message = update.get("message")?;
+    let chat = message.get("chat")?;
+    if chat.get("type").and_then(|value| value.as_str()) != Some("private") {
+        return None;
+    }
+    let from = message.get("from")?;
+    let from_id = json_i64(from.get("id")?)?;
+    let chat_id = json_i64(chat.get("id")?)?;
+    let text = message
+        .get("text")
+        .and_then(|value| value.as_str())?
+        .to_string();
+    let message_id = json_i64(message.get("message_id")?)?;
+    Some(TelegramPrivateText {
+        update_id,
+        message_id,
+        from_id,
+        chat_id,
+        text,
+    })
+}
+
+/// `parameters.retry_after` seconds on 429. Missing → none, caller uses default backoff.
+pub fn telegram_retry_after(body: &str) -> Option<u64> {
+    let data: serde_json::Value = serde_json::from_str(body).ok()?;
+    data.get("parameters")
+        .and_then(|value| value.get("retry_after"))
+        .and_then(json_u64)
+}
+
+/// Largest `update_id` in a successful `getUpdates` body, including dropped types.
+pub fn telegram_max_update_id(status: u16, body: &str) -> Result<Option<i64>, ConnectFailureKind> {
+    let result = parse_telegram_ok_payload(status, body)?;
+    let updates = result.as_array().cloned().unwrap_or_default();
+    Ok(updates
+        .iter()
+        .filter_map(|update| update.get("update_id").and_then(json_i64))
+        .max())
+}
+
+/// First-cut outbound: trim to [`TELEGRAM_TEXT_LIMIT`] Unicode scalars.
+pub fn truncate_telegram_text(text: &str) -> String {
+    let count = text.chars().count();
+    if count <= TELEGRAM_TEXT_LIMIT {
+        return text.to_string();
+    }
+    text.chars().take(TELEGRAM_TEXT_LIMIT).collect()
+}
+
+fn telegram_failure_kind(status: u16, body: &str) -> Option<ConnectFailureKind> {
+    let data: Option<serde_json::Value> = serde_json::from_str(body).ok();
+    let ok = data
+        .as_ref()
+        .and_then(|value| value.get("ok"))
+        .and_then(|value| value.as_bool());
+    let error_code = data
+        .as_ref()
+        .and_then(|value| value.get("error_code"))
+        .and_then(json_u64)
+        .map(|code| code as u16);
+    let effective = error_code.unwrap_or(status);
+    if ok == Some(true) && (200..300).contains(&status) {
+        return None;
+    }
+    if ok == Some(true) {
+        return None;
+    }
+    Some(classify_connect_failure(&ConnectFailure::HttpStatus {
+        status: effective,
+        body,
+    }))
+}
+
+fn json_i64(value: &serde_json::Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|n| i64::try_from(n).ok()))
+        .or_else(|| value.as_str().and_then(|s| s.parse().ok()))
 }

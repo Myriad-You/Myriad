@@ -28,7 +28,12 @@ import {
 } from '../../features/merope/events'
 import SiteMotionWorkbench from '../../features/merope/SiteMotionWorkbench'
 import { agentService } from '../../services/agent'
-import type { QqBotPhase, QqBotStatus } from '../../services/agent/agentApi'
+import type {
+  QqBotPhase,
+  QqBotStatus,
+  TelegramBotPhase,
+  TelegramBotStatus,
+} from '../../services/agent/agentApi'
 import { invalidatePublicConfigCache } from '../../utils/requestDedup'
 import { userFacingError } from '../../utils/userFacingError'
 import {
@@ -318,6 +323,12 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   const [qqBotStatus, setQqBotStatus] = useState<QqBotStatus | null>(null)
   const [qqBotTesting, setQqBotTesting] = useState(false)
   const [qqBotTestMessage, setQqBotTestMessage] = useState<string | null>(null)
+  const [telegramBotStatus, setTelegramBotStatus] =
+    useState<TelegramBotStatus | null>(null)
+  const [telegramBotTesting, setTelegramBotTesting] = useState(false)
+  const [telegramBotTestMessage, setTelegramBotTestMessage] = useState<
+    string | null
+  >(null)
 
   // 辅助函数：获取配置字段值
   const getFieldValue = useCallback(
@@ -728,6 +739,57 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       setQqBotTesting(false)
     }
   }, [loadQqBotStatus, t.config.qqBotTestFailed, t.config.qqBotTestOk])
+
+  const loadTelegramBotStatus = useCallback(async () => {
+    try {
+      setTelegramBotStatus(await agentService.getTelegramBotStatus())
+    } catch {
+      setTelegramBotStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadTelegramBotStatus()
+    const timer = window.setInterval(() => {
+      void loadTelegramBotStatus()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [loadTelegramBotStatus])
+
+  const handleTelegramBotTest = useCallback(async () => {
+    setTelegramBotTesting(true)
+    setTelegramBotTestMessage(null)
+    try {
+      await agentService.testTelegramBot()
+      setTelegramBotTestMessage(t.config.telegramBotTestOk)
+      await loadTelegramBotStatus()
+    } catch (error) {
+      setTelegramBotTestMessage(
+        userFacingError(error, t.config.telegramBotTestFailed),
+      )
+    } finally {
+      setTelegramBotTesting(false)
+    }
+  }, [
+    loadTelegramBotStatus,
+    t.config.telegramBotTestFailed,
+    t.config.telegramBotTestOk,
+  ])
+
+  const telegramPhaseLabel = (phase: TelegramBotPhase | undefined) => {
+    switch (phase) {
+      case 'online':
+        return t.config.telegramBotPhaseOnline
+      case 'connecting':
+        return t.config.telegramBotPhaseConnecting
+      case 'reconnecting':
+        return t.config.telegramBotPhaseReconnecting
+      case 'rejected':
+        return t.config.telegramBotPhaseRejected
+      default:
+        return t.config.telegramBotPhaseOffline
+    }
+  }
 
   const qqPhaseLabel = (phase: QqBotPhase | undefined) => {
     switch (phase) {
@@ -1255,6 +1317,53 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           </SettingsButton>
           {qqBotTestMessage ? (
             <p className="ai-llm-tier-desc">{qqBotTestMessage}</p>
+          ) : null}
+        </AgentNestedSection>
+        <AgentNestedSection
+          title={t.config.telegramBotTitle}
+          description={t.config.telegramBotDesc}
+          {...bindGuide('ai.telegramBot', g.ai.telegramBot)}
+          badge={
+            <SettingTitleTag
+              variant={
+                telegramBotStatus?.phase === 'rejected' ? 'danger' : 'muted'
+              }
+              title={telegramBotTestMessage || t.config.telegramBotHint}
+            >
+              {telegramPhaseLabel(telegramBotStatus?.phase)}
+            </SettingTitleTag>
+          }
+          toggle={{
+            checked: getFieldValue('telegram_bot_enabled') === 'true',
+            onChange: (value) =>
+              updateValue('telegram_bot_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.telegramBotTitle,
+            title: t.config.telegramBotHint,
+          }}
+        >
+          <InputItem
+            itemKey="telegram_bot_token"
+            label={t.config.telegramBotToken}
+            value={getFieldValue('telegram_bot_token')}
+            onChange={(value) => updateValue('telegram_bot_token', value)}
+            inputType="password"
+            autoSelectOnMask
+            hint={t.config.telegramBotHint}
+            layout="vertical"
+            {...bindGuide('ai.telegramBot', g.ai.telegramBot)}
+          />
+          <SettingsButton
+            size="sm"
+            loading={telegramBotTesting}
+            disabled={telegramBotTesting}
+            onClick={() => void handleTelegramBotTest()}
+          >
+            {telegramBotTesting
+              ? t.config.telegramBotTesting
+              : t.config.telegramBotTest}
+          </SettingsButton>
+          {telegramBotTestMessage ? (
+            <p className="ai-llm-tier-desc">{telegramBotTestMessage}</p>
           ) : null}
         </AgentNestedSection>
         <AgentOptionsPanel />

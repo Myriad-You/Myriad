@@ -383,6 +383,10 @@ pub struct DynamicConfig {
     pub qq_bot_app_id: String,
     pub qq_bot_app_secret: Option<String>,
 
+    /// Telegram 机器人办事通道。默认关；bot token 只写，不是 MTProto api_hash。
+    pub telegram_bot_enabled: bool,
+    pub telegram_bot_token: Option<String>,
+
     // UI 配置
     pub ui_wallpaper_url: Option<String>,
     pub ui_wallpaper_blur: i32,
@@ -758,6 +762,8 @@ impl Default for DynamicConfig {
             qq_bot_enabled: false,
             qq_bot_app_id: String::new(),
             qq_bot_app_secret: None,
+            telegram_bot_enabled: false,
+            telegram_bot_token: None,
 
             ui_wallpaper_url: None,
             ui_wallpaper_blur: 3,

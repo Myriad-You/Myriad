@@ -187,8 +187,8 @@ _Avoid_: 当成自治接受
 _Avoid_: 第三个面板模式、Heartbeat、SYSTEM_USER_ID
 
 **配对（pairing）**：
-外部聊天账号（如 QQ openid）绑到已登录的站点用户。一次性配对码证明「这个号是我」，不是该平台的登录 OAuth，也不新开登录方式。
-_Avoid_: QQ 登录、把配对当会话、把 openid 漏进计划器
+外部聊天账号（如 QQ openid、Telegram `from.id`）绑到已登录的站点用户。一次性配对码证明「这个号是我」，不是该平台的登录 OAuth，也不新开登录方式。
+_Avoid_: QQ 登录、Telegram 登录、把配对当会话、把 openid 漏进计划器
 
 ### Merope
 

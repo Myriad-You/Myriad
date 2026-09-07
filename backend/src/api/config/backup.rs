@@ -953,6 +953,40 @@ mod settings_backup_tests {
     }
 
     #[test]
+    fn saves_telegram_bot_write_only_token() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("telegram_bot_enabled", "true"),
+            ui_field("telegram_bot_token", "123456:ABC-DEF-token"),
+        ];
+        let set = collect_database_updates(&config);
+        assert_eq!(set.get("telegram_bot_enabled"), Some(&json!(true)));
+        assert_eq!(
+            set.get("telegram_bot_token"),
+            Some(&json!("123456:ABC-DEF-token"))
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("telegram_bot_enabled", "true"),
+            ui_field("telegram_bot_token", "••••••••"),
+        ];
+        let masked = collect_database_updates(&config);
+        assert_eq!(masked.get("telegram_bot_enabled"), Some(&json!(true)));
+        assert!(
+            !masked.contains_key("telegram_bot_token"),
+            "mask must keep the stored token"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("telegram_bot_enabled", "false"),
+            ui_field("telegram_bot_token", ""),
+        ];
+        let cleared = collect_database_updates(&config);
+        assert_eq!(cleared.get("telegram_bot_enabled"), Some(&json!(false)));
+        assert_eq!(cleared.get("telegram_bot_token"), Some(&Value::Null));
+    }
+
+    #[test]
     fn saves_agora_realtime_talk_fields() {
         let mut config = empty_config();
         config.ai_config.config_fields = vec![

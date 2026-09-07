@@ -581,6 +581,13 @@ export const zh: SettingGuidesCatalog = {
       frontend: '设置 → AI → Agent → QQ 机器人。',
       notes: '不要把 Discord 数据平台 OAuth 填到这里。AppSecret 不会出现在页面明文或报错里。',
     },
+    telegramBot: {
+      what: '用 Telegram 私聊把一句话交给站点办事，结果回到同一条私聊。',
+      chain:
+        '① 打开开关并填 BotFather 签发的 bot token，点保存。标题旁的标签是工人真实状态：离线 / 连接中 / 在线 / 凭证无效 / 重连中。\n② 「测试已保存凭证」只打库里的值，不测未保存的表单。\n③ token 只写：读回是掩码，空值清除，掩码再提交不覆盖库里的值。\n④ 关掉、没填或 401/403 时工人停掉；429 按 retry_after 等；409（webhook / 另一实例占用）会退避重试，不当成凭证作废。',
+      frontend: '设置 → AI → Agent → Telegram 机器人。',
+      notes: '不要填 MTProto 的 api_id / api_hash。token 不会出现在页面明文或报错里。中国大陆出站可达性不在平台控制内。',
+    },
     liteEnable: {
       what: '要不要启用轻量这一档。',
       chain:

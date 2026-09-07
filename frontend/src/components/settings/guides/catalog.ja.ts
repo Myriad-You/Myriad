@@ -586,6 +586,13 @@ export const ja: SettingGuidesCatalog = {
       frontend: '設定 → AI → Agent → QQ ボット。',
       notes: 'Discord データ基盤の OAuth をここに貼らない。AppSecret は画面の平文にもエラー文にも出ない。',
     },
+    telegramBot: {
+      what: 'Telegram の個チャットで用事をサイトに渡し、同じ私聊に結果を返す。',
+      chain:
+        '① スイッチをオンにして BotFather の bot token を保存。タイトル横のラベルがワーカーの状態：オフライン / 接続中 / オンライン / 資格情報無効 / 再接続中。\n② 「保存済み資格情報をテスト」は庫の値だけを打つ。未保存の入力は見ない。\n③ token は書き込み専用。読み返すとマスク。空にすると消去。\n④ オフ、未記入、401/403 ではワーカーが止まる。429 は retry_after だけ待つ。409（webhook / 別インスタンス）は再試行であり、資格情報無効ではない。',
+      frontend: '設定 → AI → Agent → Telegram ボット。',
+      notes: 'MTProto の api_id / api_hash は使わない。token は画面の平文にもエラー文にも出ない。api.telegram.org への到達はプラットフォームの外。',
+    },
     liteEnable: {
       what: '軽量の段を有効にするかどうか。',
       chain:

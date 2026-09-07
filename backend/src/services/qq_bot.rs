@@ -4,7 +4,7 @@
 //! `POST /app/getAppAccessToken`, `Authorization: QQBot <token>`,
 //! `GET /gateway/bot`, Hello / Identify / Heartbeat.
 //! Close-code permanence follows the official Node SDK table.
-//! Pairing codes bind C2C openid onto `user_identities`. Work ingest is a later ticket.
+//! Pairing codes bind C2C openid onto `user_identities`. Paired text starts Work.
 
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};

@@ -108,5 +108,9 @@ pub mod image_cache; // e.g. Notion temporary URLs
 pub mod notion_service;
 pub mod qq_bot; // QQ C2C Gateway worker
 pub mod qq_pairing; // QQ C2C pairing codes + user_identities
+pub mod qq_work; // QQ C2C Work ingest + final C2C reply
 pub mod rig_chest_analysis; // One-shot vision profile for Anime2.5D chest motion
 pub mod rsshub_service;
+pub mod telegram_bot; // Telegram DM getUpdates worker
+pub mod telegram_pairing; // Telegram DM pairing codes + user_identities
+pub mod telegram_work; // Telegram DM Work ingest + final sendMessage

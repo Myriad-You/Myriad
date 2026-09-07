@@ -525,6 +525,7 @@ mod tests {
             "agora_app_certificate",
             "agora_customer_secret",
             "qq_bot_app_secret",
+            "telegram_bot_token",
         ] {
             assert!(
                 is_sensitive_config_key(secret),
@@ -541,6 +542,7 @@ mod tests {
             "base_url",
             "qq_bot_enabled",
             "qq_bot_app_id",
+            "telegram_bot_enabled",
         ] {
             assert!(
                 !is_sensitive_config_key(non_secret),

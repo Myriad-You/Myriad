@@ -756,6 +756,8 @@ async fn run_server() -> anyhow::Result<()> {
 
                 services::qq_bot::spawn_worker();
                 tracing::info!("✅ QQ bot Gateway worker started");
+                services::telegram_bot::spawn_worker();
+                tracing::info!("✅ Telegram bot worker started");
 
                 // 密钥迁移：把存量明文配置与 v0 联邦私钥升级到数据密钥信封。
                 //

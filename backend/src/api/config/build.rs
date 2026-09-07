@@ -1201,6 +1201,30 @@ pub(crate) async fn build_config(
                     placeholder: "".to_string(),
                     required: false,
                 },
+                ConfigField {
+                    key: "telegram_bot_enabled".to_string(),
+                    label: "Telegram bot".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.telegram_bot_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "telegram_bot_token".to_string(),
+                    label: "Telegram bot token".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.telegram_bot_token.clone())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
             ],
         },
         tripo_config: TripoConfig {

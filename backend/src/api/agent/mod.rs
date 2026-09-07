@@ -238,6 +238,8 @@ mod qq_pairing;
 mod qq_status;
 mod routes;
 mod sessions;
+mod telegram_pairing;
+mod telegram_status;
 mod types;
 
 pub use autonomy_dispatch::*;
@@ -253,4 +255,6 @@ pub use qq_pairing::*;
 pub use qq_status::*;
 pub use routes::*;
 pub use sessions::*;
+pub use telegram_pairing::*;
+pub use telegram_status::*;
 pub use types::*;

@@ -692,6 +692,15 @@ impl ConfigService {
         if let Some(v) = map.get("qq_bot_app_secret") {
             config.qq_bot_app_secret = opt_nonempty_string(v);
         }
+        if let Some(v) = map.get("telegram_bot_enabled") {
+            config.telegram_bot_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.telegram_bot_enabled);
+        }
+        if let Some(v) = map.get("telegram_bot_token") {
+            config.telegram_bot_token = opt_nonempty_string(v);
+        }
 
         if let Some(v) = map.get("enable_auto_fetch") {
             if let Some(b) = v.as_bool() {
@@ -1494,13 +1503,38 @@ mod tests {
         assert_eq!(from_str.qq_bot_app_id, "");
         assert_eq!(from_str.qq_bot_app_secret, None);
 
-        let off = ConfigService::parse_config(HashMap::from([(
-            "qq_bot_enabled".into(),
-            json!(false),
-        )]));
+        let off =
+            ConfigService::parse_config(HashMap::from([("qq_bot_enabled".into(), json!(false))]));
         assert!(!off.qq_bot_enabled);
         assert!(off.qq_bot_app_id.is_empty());
         assert_eq!(off.qq_bot_app_secret, None);
+    }
+
+    #[test]
+    fn parses_telegram_bot_fields_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([
+            ("telegram_bot_enabled".into(), json!(true)),
+            ("telegram_bot_token".into(), json!("123456:ABC-DEF")),
+        ]));
+        assert!(configured.telegram_bot_enabled);
+        assert_eq!(
+            configured.telegram_bot_token.as_deref(),
+            Some("123456:ABC-DEF")
+        );
+
+        let from_str = ConfigService::parse_config(HashMap::from([
+            ("telegram_bot_enabled".into(), json!("true")),
+            ("telegram_bot_token".into(), json!("  ")),
+        ]));
+        assert!(from_str.telegram_bot_enabled);
+        assert_eq!(from_str.telegram_bot_token, None);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "telegram_bot_enabled".into(),
+            json!(false),
+        )]));
+        assert!(!off.telegram_bot_enabled);
+        assert_eq!(off.telegram_bot_token, None);
     }
 
     #[test]

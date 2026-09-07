@@ -118,6 +118,7 @@ export interface SettingGuidesCatalog {
     agentPersona: SettingGuideEntry
     agentPersonaSpeech: SettingGuideEntry
     qqBot: SettingGuideEntry
+    telegramBot: SettingGuideEntry
     pro: SettingGuideEntry
     proEnable: SettingGuideEntry
     image: SettingGuideEntry

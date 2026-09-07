@@ -94,6 +94,16 @@ export interface QqBotStatus {
   hasSecret: boolean
 }
 
+export type TelegramBotPhase = QqBotPhase
+
+export interface TelegramBotStatus {
+  phase: TelegramBotPhase
+  enabled: boolean
+  hasToken: boolean
+}
+
+export type TelegramPairingStatus = QqPairingStatus
+
 function sharePersonaGeneration<T>(
   key: string,
   start: () => Promise<T>,
@@ -368,6 +378,33 @@ class AgentService {
 
   async testQqBot(): Promise<{ success: boolean; phase?: QqBotPhase }> {
     return apiService.post(`${this.baseUrl}/qq/test`)
+  }
+
+  async getTelegramPairing(): Promise<{ pairing: TelegramPairingStatus }> {
+    return apiService.get(`${this.baseUrl}/telegram/pairing`)
+  }
+
+  async issueTelegramPairingCode(): Promise<{
+    code: string
+    expiresAt: string
+    pairing: TelegramPairingStatus
+  }> {
+    return apiService.post(`${this.baseUrl}/telegram/pairing`)
+  }
+
+  async unpairTelegram(): Promise<{ success: boolean }> {
+    return apiService.delete(`${this.baseUrl}/telegram/pairing`)
+  }
+
+  async getTelegramBotStatus(): Promise<TelegramBotStatus> {
+    return apiService.get(`${this.baseUrl}/telegram/status`)
+  }
+
+  async testTelegramBot(): Promise<{
+    success: boolean
+    phase?: TelegramBotPhase
+  }> {
+    return apiService.post(`${this.baseUrl}/telegram/test`)
   }
 
   /**
