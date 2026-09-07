@@ -1,0 +1,77 @@
+.face-presence {
+  --face-presence-enter-ms: 540ms;
+  --face-presence-exit-ms: 360ms;
+  --face-presence-rest-ms: 100ms;
+  --face-presence-vacant-ms: 280ms;
+  --face-presence-ease-enter: cubic-bezier(0.16, 0.84, 0.32, 1);
+  --face-presence-ease-exit: cubic-bezier(0.4, 0, 0.72, 0.2);
+  --face-presence-lift: 10px;
+
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  translate: 0 var(--face-presence-lift);
+  transition:
+    opacity var(--face-presence-exit-ms) var(--face-presence-ease-exit),
+    translate var(--face-presence-exit-ms) var(--face-presence-ease-exit);
+}
+
+.face-presence[data-phase='enter'],
+.face-presence[data-phase='shown'],
+.face-presence[data-vacant] {
+  opacity: 1;
+  translate: 0;
+}
+
+.face-presence[data-phase='enter'] {
+  transition:
+    opacity var(--face-presence-enter-ms) var(--face-presence-ease-enter),
+    translate var(--face-presence-enter-ms) var(--face-presence-ease-enter);
+}
+
+.face-presence[data-vacant] {
+  transition:
+    opacity var(--face-presence-vacant-ms) var(--face-presence-ease-enter),
+    translate var(--face-presence-vacant-ms) var(--face-presence-ease-enter);
+}
+
+.face-presence__live,
+.face-presence__hold {
+  position: absolute;
+  inset: 0;
+}
+
+.face-presence__live {
+  display: flex;
+  align-items: inherit;
+  justify-content: inherit;
+}
+
+.face-presence__hold {
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  object-fit: fill;
+}
+
+.face-presence__live .merope-rig canvas {
+  opacity: 1;
+  transition: none;
+}
+
+.face-presence__vacant {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .face-presence {
+    transition: none;
+    translate: 0;
+  }
+}

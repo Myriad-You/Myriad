@@ -473,6 +473,14 @@ export const enUS: TranslationKeys = {
         title: 'Widget grid',
         body: 'The widget board shown first when the site opens.',
       },
+      'home-agent': {
+        title: 'Agent',
+        body: 'Long-press any empty area to open it. Buttons, links, and navigation do not trigger it. Continues after it opens.',
+      },
+      'home-agent-panel': {
+        title: 'Agent',
+        body: 'Type and send here. Click outside the panel to dismiss it.',
+      },
       'home-edit': {
         title: 'Edit',
         body: 'Enter edit mode to change the layout and add or remove widgets.',

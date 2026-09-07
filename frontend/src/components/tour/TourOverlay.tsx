@@ -12,7 +12,10 @@ import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 import { LuArrowRight, LuCheck, LuChevronLeft } from '@lib/icons'
 import { useI18n } from '../../contexts/I18nContext'
+import { dispatchAgentPanelClose } from '../agent-panel/agentPanelEvents'
+import { subscribeAgentPanelVisible } from '../agent-panel/agentPanelVisible'
 import {
+  completeTourAction,
   getTourSnapshot,
   nextTourStep,
   previousTourStep,
@@ -25,9 +28,12 @@ import {
   dockTourCard,
   holePadForTourAnchor,
   holeRadiusFor,
+  homeAgentPressInsets,
   inflateRect,
   isDegenerateBox,
+  isHomeAgentActionStep,
   isPredictedTourAnchor,
+  pickHomeAgentPressBox,
   predictedControlIslandHoleRadius,
   predictedControlIslandTourBox,
   predictedControlPanelHoleRadius,
@@ -35,6 +41,7 @@ import {
   predictedLibraryDockTourBox,
   queryTourAnchor,
   readControlPanelContentHeight,
+  readHomeAgentOccupiedBoxes,
   readTourBox,
   resolveTourMeasureNode,
   rootFontSizePx,
@@ -44,6 +51,7 @@ import {
   tourHoleSync,
   tourMeasureWatchesHost,
   tourMeasureWatchesScroll,
+  tourStepBlocksAdvance,
 } from './tourLogic'
 import './TourOverlay.css'
 
@@ -98,6 +106,7 @@ export function TourOverlay() {
     ready: false,
   })
   const [pulse, setPulse] = useState(false)
+  const [holdDemo, setHoldDemo] = useState(true)
   const viewRef = useRef(view)
   viewRef.current = view
   const stepRef = useRef(state.step)
@@ -126,25 +135,40 @@ export function TourOverlay() {
       step.id === 'home-widget-library' || step.anchor === 'home-widget-library'
     const isControlPanelStep = step.anchor === 'control-panel'
     const isControlIslandStep = step.anchor === 'control-island'
+    const isAgentPress = isHomeAgentActionStep(step)
     const predicted = isPredictedTourAnchor(step.anchor, step.id)
-    const found = predicted && !isControlPanelStep
-      ? null
-      : queryTourAnchor(step.anchor)
+    const found =
+      (predicted && !isControlPanelStep) || isAgentPress
+        ? null
+        : queryTourAnchor(step.anchor)
     const node = found ? resolveTourMeasureNode(step.anchor, found) : null
     const contentHeight = isControlPanelStep
       ? readControlPanelContentHeight(found)
       : 0
-    const box = isLibraryStep
-      ? predictedLibraryDockTourBox(vw, vh, rem)
-      : isControlPanelStep && contentHeight > 0
-        ? predictedControlPanelTourBox(vw, contentHeight, rem)
-        : isControlIslandStep
-          ? predictedControlIslandTourBox(vw, rem)
-          : node
-            ? readTourBox(node)
-            : null
+    const box = isAgentPress
+      ? pickHomeAgentPressBox(
+          vw,
+          vh,
+          rem,
+          readHomeAgentOccupiedBoxes(),
+          homeAgentPressInsets(
+            rem,
+            document.documentElement.dataset.navLayout === 'mobile',
+          ),
+        )
+      : isLibraryStep
+        ? predictedLibraryDockTourBox(vw, vh, rem)
+        : isControlPanelStep && contentHeight > 0
+          ? predictedControlPanelTourBox(vw, contentHeight, rem)
+          : isControlIslandStep
+            ? predictedControlIslandTourBox(vw, rem)
+            : node
+              ? readTourBox(node)
+              : null
     if (!box || isDegenerateBox(box)) {
-      if (!predicted) recoverTourStep()
+      if (!predicted && !isAgentPress) {
+        recoverTourStep()
+      }
       const measured = cardRef.current
       commitView({
         hole: EMPTY_HOLE,
@@ -161,13 +185,15 @@ export function TourOverlay() {
     }
     const pad = holePadForTourAnchor(step.anchor, box)
     const inflated = inflateRect(box, pad)
-    const predictedRadius = isControlPanelStep
-      ? predictedControlPanelHoleRadius(rem)
-      : isControlIslandStep
-        ? predictedControlIslandHoleRadius(rem)
-        : node
-          ? readRadius(node)
-          : 16
+    const predictedRadius = isAgentPress
+      ? Math.min(inflated.width, inflated.height) / 2
+      : isControlPanelStep
+        ? predictedControlPanelHoleRadius(rem)
+        : isControlIslandStep
+          ? predictedControlIslandHoleRadius(rem)
+          : node
+            ? readRadius(node)
+            : 16
     const measured = cardRef.current
     commitView({
       hole: {
@@ -214,7 +240,8 @@ export function TourOverlay() {
     measureNow()
     const step = state.step
     const predicted = step
-      ? isPredictedTourAnchor(step.anchor, step.id)
+      ? isPredictedTourAnchor(step.anchor, step.id) ||
+        isHomeAgentActionStep(step)
       : false
     const hosts: HTMLElement[] = []
     // 预计算步不观察 DOM：外壳 morph、内容高度过渡都会每帧触发 RO。
@@ -278,7 +305,8 @@ export function TourOverlay() {
   useEffect(() => {
     if (!state.active) return
     const predicted = state.step
-      ? isPredictedTourAnchor(state.step.anchor, state.step.id)
+      ? isPredictedTourAnchor(state.step.anchor, state.step.id) ||
+        isHomeAgentActionStep(state.step)
       : false
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -313,8 +341,47 @@ export function TourOverlay() {
 
   useEffect(() => {
     if (!state.active) return
+    if (tourStepBlocksAdvance(state.step)) return
     primaryRef.current?.focus({ preventScroll: true })
   }, [state.active, state.step?.id])
+
+  useEffect(() => {
+    if (!state.active || !state.step?.action) return
+    const tryComplete = () => {
+      if (!tourStepBlocksAdvance(getTourSnapshot().step)) completeTourAction()
+    }
+    tryComplete()
+    const stopPanel = subscribeAgentPanelVisible(tryComplete)
+    const timer = window.setInterval(tryComplete, 50)
+    return () => {
+      stopPanel()
+      window.clearInterval(timer)
+    }
+  }, [state.active, state.step?.id, state.step?.action])
+
+  useEffect(() => {
+    const after = state.step?.after
+    return () => {
+      if (after === 'open-agent') dispatchAgentPanelClose()
+    }
+  }, [state.step?.after, state.step?.id])
+
+  useEffect(() => {
+    if (!state.active || !isHomeAgentActionStep(state.step)) {
+      setHoldDemo(true)
+      return
+    }
+    const node = document.querySelector('.agent-panel-longpress')
+    if (!node) {
+      setHoldDemo(true)
+      return
+    }
+    const sync = () => setHoldDemo(!node.classList.contains('active'))
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(node, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [state.active, state.step?.id, state.step?.action])
 
   const endHold = useCallback(() => {
     if (holdTimerRef.current) {
@@ -338,6 +405,7 @@ export function TourOverlay() {
   const copy = stepCopy(t.tour.steps, state.step.id)
   const isLast = state.index >= state.total - 1
   const isFirst = state.index <= 0
+  const blocksAdvance = tourStepBlocksAdvance(state.step)
   const { hole, cardPos, ready } = view
   const hasHole = hole.width > 0 && hole.height > 0
   const holeStyle = {
@@ -355,6 +423,7 @@ export function TourOverlay() {
   return createPortal(
     <div
       className="tour-overlay"
+      data-pass={blocksAdvance ? '' : undefined}
       data-hole-sync={tourHoleSync(state.step)}
       data-hole-snap={
         isPredictedTourAnchor(state.step.anchor, state.step.id)
@@ -373,12 +442,41 @@ export function TourOverlay() {
           />
         </>
       ) : null}
+      {hasHole && ready && holdDemo && isHomeAgentActionStep(state.step) ? (
+        <div
+          className="tour-hold-demo"
+          style={{
+            top: hole.top + hole.height / 2,
+            left: hole.left + hole.width / 2,
+          }}
+          aria-hidden
+        >
+          <div className="tour-hold-demo__pulse" />
+          <div className="tour-hold-demo__dot" />
+          <svg className="tour-hold-demo__svg" viewBox="0 0 40 40">
+            <circle
+              className="tour-hold-demo__track"
+              cx="20"
+              cy="20"
+              r="16"
+              pathLength="100"
+            />
+            <circle
+              className="tour-hold-demo__ring"
+              cx="20"
+              cy="20"
+              r="16"
+              pathLength="100"
+            />
+          </svg>
+        </div>
+      ) : null}
       <div
         ref={cardRef}
         className={`tour-card${ready ? ' is-ready' : ''}`}
         data-placement={cardPos.placement}
         role="dialog"
-        aria-modal="true"
+        aria-modal={blocksAdvance ? undefined : 'true'}
         aria-labelledby={titleId}
         aria-hidden={!ready}
         style={cardStyle}
@@ -426,74 +524,78 @@ export function TourOverlay() {
           ) : (
             <span className="tour-card__actions-spacer" />
           )}
-          <button
-            ref={primaryRef}
-            type="button"
-            className="tour-card__btn tour-card__btn--entry tour-card__btn--entry-go"
-            data-kind={isLast ? 'done' : 'next'}
-            data-holding={holding ? 'true' : undefined}
-            title={t.tour.skipHold}
-            aria-label={`${isLast ? t.tour.done : t.tour.next}. ${t.tour.skipHold}`}
-            onPointerDown={(event) => {
-              if (event.button !== 0) return
-              holdFiredRef.current = false
-              holdOriginRef.current = { x: event.clientX, y: event.clientY }
-              event.currentTarget.setPointerCapture(event.pointerId)
-              setHolding(true)
-              holdTimerRef.current = window.setTimeout(() => {
-                holdFiredRef.current = true
-                holdTimerRef.current = 0
-                setHolding(false)
-                if (navigator.vibrate) navigator.vibrate(50)
-                stopTour('skip')
-              }, SKIP_HOLD_MS)
-            }}
-            onPointerMove={(event) => {
-              const origin = holdOriginRef.current
-              if (!origin || holdFiredRef.current) return
-              if (
-                Math.abs(event.clientX - origin.x) > SKIP_HOLD_SLOP ||
-                Math.abs(event.clientY - origin.y) > SKIP_HOLD_SLOP
-              ) {
-                endHold()
-              }
-            }}
-            onPointerUp={() => endHold()}
-            onPointerCancel={() => {
-              holdFiredRef.current = false
-              endHold()
-            }}
-            onContextMenu={(event) => event.preventDefault()}
-            onClick={(event) => {
-              if (holdFiredRef.current) {
-                event.preventDefault()
+          {blocksAdvance ? (
+            <span className="tour-card__btn-slot" aria-hidden />
+          ) : (
+            <button
+              ref={primaryRef}
+              type="button"
+              className="tour-card__btn tour-card__btn--entry tour-card__btn--entry-go"
+              data-kind={isLast ? 'done' : 'next'}
+              data-holding={holding ? 'true' : undefined}
+              title={t.tour.skipHold}
+              aria-label={`${isLast ? t.tour.done : t.tour.next}. ${t.tour.skipHold}`}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return
                 holdFiredRef.current = false
-                return
-              }
-              if (isLast) stopTour('done')
-              else nextTourStep()
-            }}
-          >
-            <span className="tour-card__hold" aria-hidden>
-              <svg viewBox="0 0 36 36">
-                <circle
-                  className="tour-card__hold-track"
-                  cx="18"
-                  cy="18"
-                  r="15"
-                  pathLength="100"
-                />
-                <circle
-                  className="tour-card__hold-ring"
-                  cx="18"
-                  cy="18"
-                  r="15"
-                  pathLength="100"
-                />
-              </svg>
-            </span>
-            {isLast ? <LuCheck aria-hidden /> : <LuArrowRight aria-hidden />}
-          </button>
+                holdOriginRef.current = { x: event.clientX, y: event.clientY }
+                event.currentTarget.setPointerCapture(event.pointerId)
+                setHolding(true)
+                holdTimerRef.current = window.setTimeout(() => {
+                  holdFiredRef.current = true
+                  holdTimerRef.current = 0
+                  setHolding(false)
+                  if (navigator.vibrate) navigator.vibrate(50)
+                  stopTour('skip')
+                }, SKIP_HOLD_MS)
+              }}
+              onPointerMove={(event) => {
+                const origin = holdOriginRef.current
+                if (!origin || holdFiredRef.current) return
+                if (
+                  Math.abs(event.clientX - origin.x) > SKIP_HOLD_SLOP ||
+                  Math.abs(event.clientY - origin.y) > SKIP_HOLD_SLOP
+                ) {
+                  endHold()
+                }
+              }}
+              onPointerUp={() => endHold()}
+              onPointerCancel={() => {
+                holdFiredRef.current = false
+                endHold()
+              }}
+              onContextMenu={(event) => event.preventDefault()}
+              onClick={(event) => {
+                if (holdFiredRef.current) {
+                  event.preventDefault()
+                  holdFiredRef.current = false
+                  return
+                }
+                if (isLast) stopTour('done')
+                else nextTourStep()
+              }}
+            >
+              <span className="tour-card__hold" aria-hidden>
+                <svg viewBox="0 0 36 36">
+                  <circle
+                    className="tour-card__hold-track"
+                    cx="18"
+                    cy="18"
+                    r="15"
+                    pathLength="100"
+                  />
+                  <circle
+                    className="tour-card__hold-ring"
+                    cx="18"
+                    cy="18"
+                    r="15"
+                    pathLength="100"
+                  />
+                </svg>
+              </span>
+              {isLast ? <LuCheck aria-hidden /> : <LuArrowRight aria-hidden />}
+            </button>
+          )}
         </div>
       </div>
     </div>,

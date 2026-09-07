@@ -474,6 +474,14 @@ export const jaJP: TranslationKeys = {
         title: 'ウィジェット',
         body: 'サイトを開いたとき最初に表示されるウィジェットボードです。',
       },
+      'home-agent': {
+        title: 'Agent',
+        body: '余白のどこでも長押しして呼び出します。ボタン、リンク、ナビゲーションでは反応しません。呼び出したあと続きます。',
+      },
+      'home-agent-panel': {
+        title: 'Agent',
+        body: 'ここで入力して送信します。パネルの外をクリックすると閉じます。',
+      },
       'home-edit': {
         title: '編集',
         body: '編集モードでレイアウトの変更とウィジェットの追加・削除ができます。',

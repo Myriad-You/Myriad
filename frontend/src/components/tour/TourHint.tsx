@@ -30,7 +30,7 @@ import {
   fillTourHint,
   getConfigTourSurface,
   getLibraryTourSurfaceSnapshot,
-  isTourAnchorMeasurable,
+  isTourStepAvailable,
   LIBRARY_FILTER_EXPAND_WAIT_MS,
   waitForTourAnchor,
   isHomeEditSurface,
@@ -235,9 +235,7 @@ export function TourHint() {
                   }),
                 )
               }
-              const first = def.steps.find((step) =>
-                isTourAnchorMeasurable(step.anchor),
-              )
+              const first = def.steps.find((step) => isTourStepAvailable(step))
               if (first) revealTourAnchor(first.anchor, first.id)
               finishLeave('start', () => {
                 const begin = () => {

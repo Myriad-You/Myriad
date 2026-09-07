@@ -25,7 +25,7 @@ interface LongPressIndicator {
  * 它自己的按钮和输入框由下面的通用控件选择器兜住。
  */
 const EXCLUDED_SELECTORS =
-  '.agent-panel-overlay-anchor, input, textarea, button, a, [contenteditable], .global-control-bar, .control-panel-overlay'
+  '.agent-panel-overlay-anchor, input, textarea, button, a, [contenteditable], .global-control-bar, .control-panel-overlay, .tour-overlay, .tour-card'
 
 /** 按住多久算长按 (ms)。 */
 export const LONG_PRESS_DURATION = 500

@@ -1,7 +1,9 @@
 import type { GuideRect } from '../settings/settingTitleGuideLogic'
+import { getAgentPanelVisible } from '../agent-panel/agentPanelVisible'
 import type {
   TourAudience,
   TourDefinition,
+  TourStepAction,
   TourStepDef,
   TourSurfacePick,
 } from './tourTypes'
@@ -203,13 +205,14 @@ export function pageNameForPath(
 export type HomeEditTourDockPose = 'parked' | 'restored'
 export type HomeBrowseTourPanelPose = 'collapsed' | 'expanded'
 
-/** 编辑教程只在小组件库那一步拉开库存，前后都停靠。 */
+/** 编辑教程只在小组件库那一步拉开库存。 */
 export function homeEditTourDockPose(
   tourId: string | null,
   stepId: string | null,
 ): HomeEditTourDockPose | undefined {
   if (tourId !== 'home-edit-owner') return undefined
-  return stepId === 'home-widget-library' ? 'restored' : 'parked'
+  if (stepId === 'home-widget-library') return 'restored'
+  return 'parked'
 }
 
 /** 首页浏览教程：控制面板步展开，其余步收起，好让控制岛保持收缩态。 */
@@ -534,24 +537,177 @@ export function pickTour(
 
 export function firstVisibleIndex(
   steps: readonly TourStepDef[],
-  hasAnchor: (anchor: string) => boolean,
+  hasAnchor: (anchor: string, step: TourStepDef) => boolean,
   from = 0,
 ): number {
   for (let i = from; i < steps.length; i += 1) {
-    if (hasAnchor(steps[i]!.anchor)) return i
+    const step = steps[i]!
+    if (hasAnchor(step.anchor, step)) return i
   }
   return -1
 }
 
 export function previousVisibleIndex(
   steps: readonly TourStepDef[],
-  hasAnchor: (anchor: string) => boolean,
+  hasAnchor: (anchor: string, step: TourStepDef) => boolean,
   from: number,
 ): number {
   for (let i = from - 1; i >= 0; i -= 1) {
-    if (hasAnchor(steps[i]!.anchor)) return i
+    const step = steps[i]!
+    if (hasAnchor(step.anchor, step)) return i
   }
   return -1
+}
+
+export function tourActionHostReady(action?: TourStepAction): boolean {
+  if (action === 'open-agent') {
+    return (
+      typeof document !== 'undefined' &&
+      document.querySelector('.agent-panel-longpress') != null
+    )
+  }
+  return true
+}
+
+export function isTourActionSatisfied(
+  step: Pick<TourStepDef, 'action'>,
+  panelVisible: () => boolean = getAgentPanelVisible,
+): boolean {
+  if (step.action === 'open-agent') return panelVisible()
+  return true
+}
+
+export function tourStepBlocksAdvance(
+  step: Pick<TourStepDef, 'action'> | null | undefined,
+  panelVisible: () => boolean = getAgentPanelVisible,
+): boolean {
+  if (!step?.action) return false
+  return !isTourActionSatisfied(step, panelVisible)
+}
+
+export function isTourStepAvailable(step: TourStepDef): boolean {
+  if (step.after) {
+    if (!tourActionHostReady(step.after)) return false
+    if (step.after === 'open-agent' && !getAgentPanelVisible()) return false
+  }
+  if (!tourActionHostReady(step.action)) return false
+  return isTourAnchorMeasurable(step.anchor)
+}
+
+/**
+ * 实操完成后的下一步。紧后一步依赖刚完成的动作、但还没挂上时等，不要跨过去。
+ */
+export function nextIndexAfterTourAction(
+  steps: readonly TourStepDef[],
+  index: number,
+  isAvailable: (step: TourStepDef) => boolean,
+  hostReady: (action: TourStepAction) => boolean = tourActionHostReady,
+): number | 'wait' {
+  const current = steps[index]
+  const immediate = steps[index + 1]
+  if (!immediate) return -1
+  if (isAvailable(immediate)) return index + 1
+  if (current?.action && immediate.after === current.action) {
+    if (!hostReady(current.action)) {
+      return firstVisibleIndex(steps, (_anchor, step) => isAvailable(step), index + 2)
+    }
+    return 'wait'
+  }
+  return firstVisibleIndex(steps, (_anchor, step) => isAvailable(step), index + 1)
+}
+
+/** 实操步的长按示范区边长。 */
+export const HOME_AGENT_PRESS_REM = 7.5
+
+export interface HomeAgentPressInsets {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+export function isHomeAgentActionStep(
+  step: Pick<TourStepDef, 'id' | 'action'> | null | undefined,
+): boolean {
+  return step?.action === 'open-agent'
+}
+
+export function homeAgentPressInsets(
+  rem: number,
+  mobile: boolean,
+): HomeAgentPressInsets {
+  const edge = 1.25 * rem
+  if (mobile) {
+    return { left: edge, top: 4.75 * rem, right: edge, bottom: 5.5 * rem }
+  }
+  return { left: 5.5 * rem, top: 4.75 * rem, right: edge, bottom: edge }
+}
+
+function overlapArea(a: Box, b: Box): number {
+  const left = Math.max(a.left, b.left)
+  const top = Math.max(a.top, b.top)
+  const right = Math.min(a.left + a.width, b.left + b.width)
+  const bottom = Math.min(a.top + a.height, b.top + b.height)
+  return Math.max(0, right - left) * Math.max(0, bottom - top)
+}
+
+/** 在避开导航、控制岛和小组件的空档里放一块长按区。 */
+export function pickHomeAgentPressBox(
+  vw: number,
+  vh: number,
+  rem = 16,
+  occupied: readonly Box[] = [],
+  insets: HomeAgentPressInsets = homeAgentPressInsets(rem, false),
+): Box {
+  const size = HOME_AGENT_PRESS_REM * rem
+  const minLeft = insets.left
+  const minTop = insets.top
+  const maxLeft = Math.max(minLeft, vw - insets.right - size)
+  const maxTop = Math.max(minTop, vh - insets.bottom - size)
+  const preferX = (minLeft + maxLeft) / 2
+  const preferY = minTop + (maxTop - minTop) * 0.55
+  const cols = 6
+  const rows = 5
+  let best: Box = { top: preferY, left: preferX, width: size, height: size }
+  let bestScore = Number.POSITIVE_INFINITY
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const left =
+        cols === 1
+          ? preferX
+          : minLeft + ((maxLeft - minLeft) * col) / (cols - 1)
+      const top =
+        rows === 1
+          ? preferY
+          : minTop + ((maxTop - minTop) * row) / (rows - 1)
+      const box = { top, left, width: size, height: size }
+      let overlap = 0
+      for (const other of occupied) overlap += overlapArea(box, other)
+      const cx = left + size / 2
+      const cy = top + size / 2
+      const score =
+        overlap * 40 + Math.abs(cx - preferX - size / 2) + Math.abs(cy - preferY - size / 2)
+      if (score < bestScore) {
+        bestScore = score
+        best = box
+      }
+    }
+  }
+  return best
+}
+
+export function readHomeAgentOccupiedBoxes(): Box[] {
+  if (typeof document === 'undefined') return []
+  const nodes = document.querySelectorAll<HTMLElement>(
+    '.widget-grid-item, .nav-container, .global-control-bar, .control-bar-trigger',
+  )
+  const boxes: Box[] = []
+  for (const node of nodes) {
+    const r = node.getBoundingClientRect()
+    const box = { top: r.top, left: r.left, width: r.width, height: r.height }
+    if (!isDegenerateBox(box, 8)) boxes.push(box)
+  }
+  return boxes
 }
 
 export function visibleBoxArea(box: Box, vw: number, vh: number): number {
@@ -749,7 +905,7 @@ export function resolveTourMeasureNode(
 
 /** 展开面板贴齐玻璃外壳，不再外扩一圈。 */
 export function holePadForTourAnchor(anchor: string, box: Box): number {
-  if (anchor === 'control-panel') return 0
+  if (anchor === 'control-panel' || anchor === 'home-agent') return 0
   return holePadForBox(box)
 }
 

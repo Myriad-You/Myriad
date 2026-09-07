@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties, ReactNode, Ref } from 'react'
 import type { RigCharacterHandle } from '../../features/merope/rig/RigCharacter'
 import type { MoodBand } from '../agent/meropeVitals'
 import type { WidgetComponentProps } from '../widgetGridTypes'
@@ -108,11 +108,13 @@ function MeropeWidgetChrome({
   surfaceStyle,
   label,
   children,
+  surfaceRef,
 }: {
   compact?: boolean
   surfaceStyle?: CSSProperties
   label?: string
   children: ReactNode
+  surfaceRef?: Ref<HTMLDivElement>
 }) {
   return (
     <WidgetShell
@@ -120,6 +122,7 @@ function MeropeWidgetChrome({
       className={`merope-widget${compact ? ' merope-widget--compact' : ''}`}
     >
       <div
+        ref={surfaceRef}
         className="merope-widget__surface"
         style={surfaceStyle}
         role={label ? 'group' : undefined}
@@ -157,7 +160,10 @@ function portraitFrameStyle(
 function MeropeWidgetPreview({ compact }: { compact?: boolean }) {
   return (
     <MeropeWidgetChrome compact={compact}>
-      <div className="merope-widget__rig merope-widget__rig--idle">
+      <div
+        className="merope-widget__rig merope-widget__rig--idle"
+        data-rig-quality="static"
+      >
         <span className="merope-rig is-ready" data-rig-quality="static">
           <img src={STYLE_REFERENCE_PREVIEW} alt="" draggable={false} />
         </span>
@@ -194,6 +200,7 @@ function LiveMeropeWidget({
   const [readyKey, setReadyKey] = useState('')
   const [vitalsReady, setVitalsReady] = useState(false)
   const faceRequestRef = useRef(0)
+  const surfaceRef = useRef<HTMLDivElement>(null)
   const rigRef = useRef<RigCharacterHandle>(null)
   const manifestRef = useRef(manifest)
   manifestRef.current = manifest
@@ -347,12 +354,17 @@ function LiveMeropeWidget({
       compact={compact}
       surfaceStyle={surfaceStyle}
       label={`${t.widgets.agentPersona}: ${agentName ?? t.merope.title}`}
+      surfaceRef={surfaceRef}
     >
-      <div className={stateClass}>
+      <div
+        className={stateClass}
+        data-rig-quality={playableRig && !rigFailed ? 'live' : 'static'}
+      >
         <FacePresence
           present={wantLive}
           packageKey={packageKey}
           ready={ready}
+          hostRef={surfaceRef}
           onLiveUnmounted={() => notifyLiveFaceUnmounted(playbackId)}
           vacant={
             !loading && (failed || rigFailed || !playableRig) ? (

@@ -825,6 +825,7 @@ button.agent-panel-tag:disabled {
   --agent-face-width: calc(128px * 2.5);
   --agent-face-visible-height: calc(var(--agent-face-width) * 4 / 3 * 4 / 5);
   --agent-face-fade: 40px;
+  --agent-face-lift: 10px;
   --agent-mode-lag: 40ms;
 
   /* 人头伸出贴行的那截。人仍绝对定位贴着输入框，对话靠这段 padding 让位。 */
@@ -1092,15 +1093,19 @@ button.agent-panel-tag:disabled {
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  translate: -50% 0;
-  transition: opacity var(--agent-move) var(--agent-ease-exit);
+  translate: -50% var(--agent-face-lift);
+  transition:
+    opacity var(--agent-move) var(--agent-ease-exit),
+    translate var(--agent-move) var(--agent-ease-exit);
 }
 
 .agent-panel-composer[data-mode='chat'] .agent-panel-face-slot {
   opacity: 1;
   pointer-events: auto;
   translate: -50% 0;
-  transition: opacity var(--agent-move) var(--agent-ease) var(--agent-mode-lag);
+  transition:
+    opacity var(--agent-move) var(--agent-ease) var(--agent-mode-lag),
+    translate var(--agent-move) var(--agent-ease) var(--agent-mode-lag);
 }
 
 /* 中间列吃掉弹性空位。办事贴只淡，占位不撤，左右贴才不会在淡出结束时被拽动。
@@ -1269,6 +1274,12 @@ button.agent-panel-tag:disabled {
   left: 0;
   width: 100%;
   aspect-ratio: var(--agent-face-portrait);
+}
+
+.agent-panel-face .face-presence {
+  opacity: 1;
+  translate: 0;
+  transition: none;
 }
 
 .agent-panel-face-rig .merope-rig {

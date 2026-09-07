@@ -456,6 +456,14 @@ export const zhCN: TranslationKeys = {
         title: '宫格',
         body: '站点打开后首先显示的小组件看板。',
       },
+      'home-agent': {
+        title: 'Agent',
+        body: '长按任意空白处呼出。按钮、链接与导航上无效。呼出后继续。',
+      },
+      'home-agent-panel': {
+        title: 'Agent',
+        body: '在此输入并发送。点面板外收起。',
+      },
       'home-edit': {
         title: '编辑',
         body: '进入编辑模式，以调整布局并增减小组件。',

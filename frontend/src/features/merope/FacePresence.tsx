@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import {
   useEffect,
   useLayoutEffect,
@@ -12,6 +12,11 @@ import {
   INITIAL_FACE_PRESENCE,
   reduceFacePresence,
 } from './reduceFacePresence'
+import './facePresence.css'
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
 
 export function FacePresence({
   present,
@@ -20,6 +25,7 @@ export function FacePresence({
   children,
   vacant,
   onLiveUnmounted,
+  hostRef,
 }: {
   present: boolean
   packageKey: string
@@ -28,24 +34,17 @@ export function FacePresence({
   vacant?: ReactNode
   /** After the live player is out of the tree. Outfit swap stays on the same lease. */
   onLiveUnmounted?: () => void
+  /** Host writes `data-face-phase` so siblings can follow without `:has()`. */
+  hostRef?: RefObject<HTMLElement | null>
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [state, dispatch] = useReducer(reduceFacePresence, INITIAL_FACE_PRESENCE)
   const [hold, setHold] = useState<HTMLCanvasElement | null>(null)
-  const [reduceMotion, setReduceMotion] = useState(false)
   const packageRef = useRef('')
   const presentRef = useRef(false)
   const liveMountedRef = useRef(false)
   const onLiveUnmountedRef = useRef(onLiveUnmounted)
   onLiveUnmountedRef.current = onLiveUnmounted
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const sync = () => setReduceMotion(media.matches)
-    sync()
-    media.addEventListener('change', sync)
-    return () => media.removeEventListener('change', sync)
-  }, [])
 
   const readyRef = useRef(false)
 
@@ -92,11 +91,20 @@ export function FacePresence({
     }
     const timer = window.setTimeout(
       dispatch,
-      facePresenceDurationMs(state.phase, reduceMotion),
+      facePresenceDurationMs(state.phase, prefersReducedMotion()),
       { type: 'elapsed' },
     )
     return () => window.clearTimeout(timer)
-  }, [reduceMotion, state.phase])
+  }, [state.phase])
+
+  useLayoutEffect(() => {
+    const host = hostRef?.current
+    if (!host) return undefined
+    host.dataset.facePhase = state.phase
+    return () => {
+      delete host.dataset.facePhase
+    }
+  }, [hostRef, state.phase])
 
   useEffect(() => {
     if (state.phase === 'exit') return
@@ -128,7 +136,7 @@ export function FacePresence({
       ref={rootRef}
       className="face-presence"
       data-phase={state.phase}
-      data-reduced={reduceMotion || undefined}
+      data-vacant={showVacant ? '' : undefined}
     >
       {showHold && hold ? <PresenceHold source={hold} /> : null}
       {mounted ? (

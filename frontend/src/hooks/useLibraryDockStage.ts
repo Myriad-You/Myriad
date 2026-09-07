@@ -97,7 +97,7 @@ export function useLibraryDockStage(input: {
   reducedMotion: boolean
   /** Sticker cell-pick: keep the dock parked and ignore grid clicks. */
   pausePointer?: boolean
-  /** 编辑教程：只在小组件库那一步拉开，其余步骤停靠且不让点击改姿态。 */
+  /** 编辑教程：小组件库步拉开，其余步锁停靠。 */
   tourDockPose?: HomeEditTourDockPose
 }) {
   const {
@@ -307,7 +307,7 @@ export function useLibraryDockStage(input: {
     if (!parkable || !visible) return
 
     const onPointerDown = (event: PointerEvent) => {
-      if (tourDockPose) return
+      if (tourDockPose === 'restored' || tourDockPose === 'parked') return
       if (pausePointer) return
       if (event.pointerType === 'mouse' && event.button !== 0) return
       const target = event.target

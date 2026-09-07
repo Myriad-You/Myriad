@@ -9,6 +9,14 @@
   pointer-events: auto;
 }
 
+.tour-overlay[data-pass] {
+  pointer-events: none;
+}
+
+.tour-overlay[data-pass] .tour-card.is-ready {
+  pointer-events: auto;
+}
+
 .tour-spotlight,
 .tour-ring,
 .tour-card {
@@ -70,6 +78,160 @@ html.dark .tour-ring {
 
 .tour-ring.is-pulse {
   animation: tour-ring-pulse 0.52s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tour-overlay[data-pass] .tour-ring {
+  animation: tour-ring-pulse 1.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.tour-hold-demo {
+  position: fixed;
+  z-index: 10043;
+  width: 2.5rem;
+  height: 2.5rem;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.tour-hold-demo__dot,
+.tour-hold-demo__pulse,
+.tour-hold-demo__svg {
+  position: absolute;
+  pointer-events: none;
+}
+
+.tour-hold-demo__dot {
+  top: 50%;
+  left: 50%;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--color-primary, #10b981);
+  box-shadow: 0 0 6px
+    color-mix(in srgb, var(--color-primary, #10b981) 40%, transparent);
+  animation: tour-hold-demo-dot 1.4s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+
+.tour-hold-demo__pulse {
+  inset: -8px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-primary, #10b981) 20%, transparent) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  transform: scale(0.3);
+  animation: tour-hold-demo-pulse 1.4s ease-out infinite;
+}
+
+.tour-hold-demo__svg {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.tour-hold-demo__track,
+.tour-hold-demo__ring {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.tour-hold-demo__track {
+  stroke: color-mix(in srgb, var(--color-primary, #10b981) 16%, transparent);
+}
+
+.tour-hold-demo__ring {
+  stroke: var(--color-primary, #10b981);
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  transform: rotate(-90deg);
+  transform-origin: 20px 20px;
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--color-primary, #10b981) 45%, transparent)
+  );
+  animation: tour-hold-demo-draw 1.4s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+
+@keyframes tour-hold-demo-dot {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    background: var(--color-primary, #10b981);
+    box-shadow: 0 0 6px
+      color-mix(in srgb, var(--color-primary, #10b981) 40%, transparent);
+    opacity: 1;
+  }
+
+  10% {
+    transform: translate(-50%, -50%) scale(0.28);
+    background: var(--color-primary, #10b981);
+    opacity: 1;
+  }
+
+  20% {
+    transform: translate(-50%, -50%) scale(1);
+    background: transparent;
+    box-shadow: inset 0 0 0 2.5px var(--color-primary, #10b981);
+    opacity: 1;
+  }
+
+  28%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    background: transparent;
+    box-shadow: inset 0 0 0 2.5px var(--color-primary, #10b981);
+    opacity: 0;
+  }
+}
+
+@keyframes tour-hold-demo-pulse {
+  0%,
+  6% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+
+  18% {
+    opacity: 0.85;
+  }
+
+  34% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+@keyframes tour-hold-demo-draw {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 1;
+  }
+
+  8% {
+    stroke-dashoffset: 100;
+    opacity: 1;
+  }
+
+  44% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+
+  88% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+
+  100% {
+    stroke-dashoffset: 100;
+    opacity: 1;
+  }
 }
 
 @keyframes tour-ring-pulse {
@@ -400,9 +562,18 @@ html.dark .tour-card__btn--entry-back {
   .tour-card__pip,
   .tour-card__btn--entry > svg,
   .tour-card__hold,
-  .tour-card__hold-ring {
+  .tour-card__hold-ring,
+  .tour-overlay[data-pass] .tour-ring,
+  .tour-hold-demo__dot,
+  .tour-hold-demo__pulse,
+  .tour-hold-demo__ring {
     transition: none;
     animation: none;
+  }
+
+  .tour-hold-demo__ring {
+    stroke-dashoffset: 0;
+    opacity: 1;
   }
 
   .tour-card__btn--entry-go[data-holding='true'] .tour-card__hold-ring {

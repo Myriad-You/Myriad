@@ -422,6 +422,8 @@ export interface TranslationKeys {
     steps: {
       nav: { title: string; body: string }
       'home-grid': { title: string; body: string }
+      'home-agent': { title: string; body: string }
+      'home-agent-panel': { title: string; body: string }
       'home-edit': { title: string; body: string }
       'home-edit-grid': { title: string; body: string }
       'home-widget-library': { title: string; body: string }

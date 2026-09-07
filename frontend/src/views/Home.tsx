@@ -829,6 +829,7 @@ export default function Home() {
             : 'h-screen overflow-hidden'
           : ''
       }`}
+      data-tour="home-agent"
       data-home-band={
         isDesktopBand ? 'desktop' : isPhoneBand ? 'phone' : 'tablet'
       }

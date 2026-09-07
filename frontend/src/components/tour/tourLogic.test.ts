@@ -18,6 +18,12 @@ import {
   filterVisibleSteps,
   fitTourUnion,
   firstVisibleIndex,
+  HOME_AGENT_PRESS_REM,
+  homeAgentPressInsets,
+  isHomeAgentActionStep,
+  isTourActionSatisfied,
+  nextIndexAfterTourAction,
+  pickHomeAgentPressBox,
   holePadForBox,
   holePadForTourAnchor,
   inflateRect,
@@ -35,6 +41,7 @@ import {
   waitForTourAnchor,
   previousVisibleIndex,
   TOUR_HOLE_PAD,
+  tourStepBlocksAdvance,
   unionBoxes,
 } from './tourLogic'
 import {
@@ -127,7 +134,14 @@ describe('pickTour', () => {
     assert.equal(tour?.id, 'home-visitor')
     assert.deepEqual(
       tour?.steps.map((step) => step.anchor),
-      ['nav', 'home-grid', 'control-island', 'control-panel'],
+      [
+        'nav',
+        'home-grid',
+        'home-agent',
+        'home-agent-panel',
+        'control-island',
+        'control-panel',
+      ],
     )
   })
 
@@ -142,7 +156,12 @@ describe('pickTour', () => {
     assert.equal(tour?.id, 'home-edit-owner')
     assert.deepEqual(
       tour?.steps.map((step) => step.anchor),
-      ['home-grid', 'home-widget-library', 'home-free-layout', 'home-sticker'],
+      [
+        'home-grid',
+        'home-widget-library',
+        'home-free-layout',
+        'home-sticker',
+      ],
     )
     assert.equal(pickTour(HOME_TOURS, '/', false, 'edit'), null)
     assert.equal(
@@ -183,6 +202,104 @@ describe('HOME_TOURS', () => {
   it('keeps owner browse, owner edit, and visitor as separate definitions', () => {
     const ids = HOME_TOURS.map((tour: TourDefinition) => tour.id)
     assert.deepEqual(ids, ['home-visitor', 'home-owner', 'home-edit-owner'])
+  })
+
+  it('keeps the edit tour as grid, library, free layout, then stickers', () => {
+    const tour = pickTour(HOME_TOURS, '/', true, 'edit')
+    assert.deepEqual(
+      tour?.steps.map((step) => step.id),
+      [
+        'home-edit-grid',
+        'home-widget-library',
+        'home-free-layout',
+        'home-sticker',
+      ],
+    )
+    assert.equal(
+      tour?.steps.some((step) => step.action),
+      false,
+    )
+  })
+
+  it('keeps Agent after the grid, as the first action step', () => {
+    const visitor = pickTour(HOME_TOURS, '/', false)
+    const owner = pickTour(HOME_TOURS, '/', true)
+    assert.equal(visitor?.steps[0]?.id, 'nav')
+    assert.equal(visitor?.steps[2]?.id, 'home-agent')
+    assert.equal(visitor?.steps[2]?.action, 'open-agent')
+    assert.equal(visitor?.steps[3]?.id, 'home-agent-panel')
+    assert.equal(visitor?.steps[3]?.after, 'open-agent')
+    assert.equal(owner?.steps[3]?.id, 'home-agent')
+    assert.equal(owner?.steps[3]?.action, 'open-agent')
+    assert.equal(
+      pickTour(HOME_TOURS, '/', true, 'edit')?.steps.some(
+        (step) => step.action === 'open-agent',
+      ),
+      false,
+    )
+  })
+})
+
+describe('tour action gate', () => {
+  it('blocks advance until the action is satisfied', () => {
+    const step = { id: 'home-agent', anchor: 'home-agent', action: 'open-agent' as const }
+    assert.equal(tourStepBlocksAdvance(step, () => false), true)
+    assert.equal(isTourActionSatisfied(step, () => false), false)
+    assert.equal(tourStepBlocksAdvance(step, () => true), false)
+    assert.equal(isTourActionSatisfied({ id: 'nav', anchor: 'nav' }, () => false), true)
+  })
+
+  it('waits for the follow-up step instead of skipping past it', () => {
+    const steps = [
+      { id: 'home-agent', anchor: 'home-agent', action: 'open-agent' as const },
+      {
+        id: 'home-agent-panel',
+        anchor: 'home-agent-panel',
+        after: 'open-agent' as const,
+      },
+      { id: 'control-island', anchor: 'control-island' },
+    ]
+    const ready = new Set(['home-agent', 'control-island'])
+    assert.equal(
+      nextIndexAfterTourAction(
+        steps,
+        0,
+        (step) => ready.has(step.anchor),
+        () => true,
+      ),
+      'wait',
+    )
+    ready.add('home-agent-panel')
+    assert.equal(
+      nextIndexAfterTourAction(
+        steps,
+        0,
+        (step) => ready.has(step.anchor),
+        () => true,
+      ),
+      1,
+    )
+  })
+
+  it('skips the follow-up when the action host is missing', () => {
+    const steps = [
+      { id: 'home-agent', anchor: 'home-agent', action: 'open-agent' as const },
+      {
+        id: 'home-agent-panel',
+        anchor: 'home-agent-panel',
+        after: 'open-agent' as const,
+      },
+      { id: 'control-island', anchor: 'control-island' },
+    ]
+    assert.equal(
+      nextIndexAfterTourAction(
+        steps,
+        0,
+        (step) => step.anchor === 'control-island',
+        () => false,
+      ),
+      2,
+    )
   })
 })
 
@@ -472,7 +589,26 @@ describe('page tours', () => {
   it('keeps nav and control island on home only', () => {
     assert.deepEqual(
       pickTour(HOME_TOURS, '/', true)?.steps.map((step) => step.anchor),
-      ['nav', 'home-grid', 'home-edit', 'control-island', 'control-panel'],
+      [
+        'nav',
+        'home-grid',
+        'home-edit',
+        'home-agent',
+        'home-agent-panel',
+        'control-island',
+        'control-panel',
+      ],
+    )
+    assert.deepEqual(
+      pickTour(HOME_TOURS, '/', false)?.steps.map((step) => step.id),
+      [
+        'nav',
+        'home-grid',
+        'home-agent',
+        'home-agent-panel',
+        'control-island',
+        'control-panel',
+      ],
     )
     assert.deepEqual(
       pickTour(LIBRARY_TOURS, '/library', true)?.steps.map((step) => step.anchor),
@@ -722,6 +858,52 @@ describe('holePadForBox', () => {
       holePadForTourAnchor('nav', { top: 0, left: 0, width: 900, height: 400 }),
       6,
     )
+    assert.equal(
+      holePadForTourAnchor('home-agent', {
+        top: 200,
+        left: 400,
+        width: 120,
+        height: 120,
+      }),
+      0,
+    )
+  })
+})
+
+describe('home agent press box', () => {
+  it('keeps a circular press target inside the inset', () => {
+    const rem = 16
+    const insets = homeAgentPressInsets(rem, false)
+    const box = pickHomeAgentPressBox(1440, 900, rem, [], insets)
+    assert.equal(box.width, HOME_AGENT_PRESS_REM * rem)
+    assert.equal(box.height, box.width)
+    assert.ok(box.left >= insets.left - 0.01)
+    assert.ok(box.top >= insets.top - 0.01)
+    assert.ok(box.left + box.width <= 1440 - insets.right + 0.01)
+    assert.ok(box.top + box.height <= 900 - insets.bottom + 0.01)
+    assert.equal(isHomeAgentActionStep({ id: 'home-agent', action: 'open-agent' }), true)
+    assert.equal(isHomeAgentActionStep({ id: 'nav' }), false)
+  })
+
+  it('slides off an occupied center', () => {
+    const rem = 16
+    const insets = homeAgentPressInsets(rem, false)
+    const empty = pickHomeAgentPressBox(1440, 900, rem, [], insets)
+    const blocker = {
+      top: empty.top - 8,
+      left: empty.left - 8,
+      width: empty.width + 16,
+      height: empty.height + 16,
+    }
+    const next = pickHomeAgentPressBox(1440, 900, rem, [blocker], insets)
+    const overlap = (a: typeof empty, b: typeof blocker) => {
+      const left = Math.max(a.left, b.left)
+      const top = Math.max(a.top, b.top)
+      const right = Math.min(a.left + a.width, b.left + b.width)
+      const bottom = Math.min(a.top + a.height, b.top + b.height)
+      return Math.max(0, right - left) * Math.max(0, bottom - top)
+    }
+    assert.ok(overlap(next, blocker) < overlap(empty, blocker))
   })
 })
 

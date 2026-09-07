@@ -38,6 +38,8 @@ export const HOME_TOURS: readonly TourDefinition[] = [
     steps: [
       { id: 'nav', anchor: 'nav' },
       { id: 'home-grid', anchor: 'home-grid' },
+      { id: 'home-agent', anchor: 'home-agent', action: 'open-agent' },
+      { id: 'home-agent-panel', anchor: 'home-agent-panel', after: 'open-agent' },
       { id: 'control-island', anchor: 'control-island' },
       { id: 'control-panel', anchor: 'control-panel' },
     ],
@@ -50,6 +52,8 @@ export const HOME_TOURS: readonly TourDefinition[] = [
       { id: 'nav', anchor: 'nav' },
       { id: 'home-grid', anchor: 'home-grid' },
       { id: 'home-edit', anchor: 'home-edit' },
+      { id: 'home-agent', anchor: 'home-agent', action: 'open-agent' },
+      { id: 'home-agent-panel', anchor: 'home-agent-panel', after: 'open-agent' },
       { id: 'control-island', anchor: 'control-island' },
       { id: 'control-panel-owner', anchor: 'control-panel' },
     ],

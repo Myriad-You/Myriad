@@ -230,10 +230,15 @@ describe('agent panel motion contract', () => {
     )
     assert.match(faceSlot, /position:\s*absolute/)
     assert.match(faceSlot, /left:\s*50%/)
-    assert.match(faceSlot, /translate:\s*-50% 0/)
+    assert.match(css, /--agent-face-lift:\s*10px/)
+    assert.match(faceSlot, /translate:\s*-50% var\(--agent-face-lift\)/)
     assert.match(
       faceSlot,
       /opacity var\(--agent-move\) var\(--agent-ease-exit\)/,
+    )
+    assert.match(
+      faceSlot,
+      /translate var\(--agent-move\) var\(--agent-ease-exit\)/,
     )
     assert.doesNotMatch(faceSlot, /transition:[\s\S]*(width|height|margin)/)
     assert.match(
