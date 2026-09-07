@@ -5003,11 +5003,11 @@ export const jaJP: TranslationKeys = {
 
     // ボード（二次ナビ）
     boardFeeds: '購読',
-    boardFeedsTitle: '購読元',
+    boardFeedsTitle: 'すべての購読元',
     boardNotes: '手記',
-    boardNotesTitle: '自分が書いたもの・自分のもの',
+    boardNotesTitle: '自分が書いた記事',
     boardSites: 'サイト',
-    boardSitesTitle: 'サイトと相互リンク',
+    boardSitesTitle: '相互リンクとよく見るサイト',
 
     // 手記エディタ
     noteWrite: '手記を書く',

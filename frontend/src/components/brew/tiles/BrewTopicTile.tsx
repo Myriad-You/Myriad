@@ -8,7 +8,7 @@
  */
 
 import type { BrewSource } from '../../../types/brew'
-import type { WidgetComponentProps } from '../../WidgetGrid'
+import type { WidgetComponentProps } from '../../widgetGridTypes'
 import type { BrewTileSize } from '../logic/layout'
 import type { BrewTopic, TopicItem } from '../logic/topics'
 

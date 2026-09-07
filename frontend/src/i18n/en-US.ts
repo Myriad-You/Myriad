@@ -5010,11 +5010,11 @@ export const enUS: TranslationKeys = {
 
     // Boards (secondary nav)
     boardFeeds: 'Feeds',
-    boardFeedsTitle: 'Subscribed sources',
+    boardFeedsTitle: 'All subscribed sources',
     boardNotes: 'Notes',
-    boardNotesTitle: 'What I write and what is mine',
+    boardNotesTitle: 'Articles I wrote',
     boardSites: 'Sites',
-    boardSitesTitle: 'Sites and friend links',
+    boardSitesTitle: 'Friend links and bookmarks',
 
     // Note editor
     noteWrite: 'Write a note',

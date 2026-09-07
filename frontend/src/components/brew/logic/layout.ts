@@ -14,7 +14,7 @@
 
 import type { BrewSource, CardSize } from '../../../types/brew'
 import type { ViewportBand } from '../../../utils/viewportBands'
-import type { WidgetSize } from '../../WidgetGrid'
+import type { WidgetSize } from '../../widgetGridTypes'
 import type { BrewViewerRole } from './score'
 import { isSiteSource } from './board'
 import { daysSinceLastPublish } from './score'

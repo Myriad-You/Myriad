@@ -13,7 +13,7 @@
 
 import type { KeyboardEvent, MouseEvent } from 'react'
 import type { BrewItemPreview, BrewSource } from '../../../types/brew'
-import type { WidgetComponentProps } from '../../WidgetGrid'
+import type { WidgetComponentProps } from '../../widgetGridTypes'
 import type { BrewTileLayout, BrewTileSize } from '../logic/layout'
 
 import type { BrewViewerRole } from '../logic/score'
