@@ -5012,7 +5012,7 @@ export const enUS: TranslationKeys = {
     boardFeeds: 'Feeds',
     boardFeedsTitle: 'All subscribed sources',
     boardNotes: 'Notes',
-    boardNotesTitle: 'Articles I wrote',
+    boardNotesTitle: 'Notes',
     boardSites: 'Sites',
     boardSitesTitle: 'Friend links and bookmarks',
 

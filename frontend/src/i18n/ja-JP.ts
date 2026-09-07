@@ -5005,7 +5005,7 @@ export const jaJP: TranslationKeys = {
     boardFeeds: '購読',
     boardFeedsTitle: 'すべての購読元',
     boardNotes: '手記',
-    boardNotesTitle: '自分が書いた記事',
+    boardNotesTitle: '手記',
     boardSites: 'サイト',
     boardSitesTitle: '相互リンクとよく見るサイト',
 

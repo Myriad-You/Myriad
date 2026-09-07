@@ -4744,7 +4744,7 @@ export const zhCN: TranslationKeys = {
     boardFeeds: '订阅',
     boardFeedsTitle: '所有订阅源',
     boardNotes: '手记',
-    boardNotesTitle: '我自己写的文章',
+    boardNotesTitle: '手记',
     boardSites: '站点',
     boardSitesTitle: '友情链接和常用站点',
 
