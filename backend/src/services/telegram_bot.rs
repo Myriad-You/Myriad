@@ -6,8 +6,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use myriad_agent_rules::channel::{
-    parse_telegram_ok_payload, parse_telegram_private_texts, telegram_max_update_id,
-    telegram_retry_after, telegram_worker_intent, ConnectFailureKind, WorkerIntent,
+    parse_telegram_ok_payload, parse_telegram_private_inbounds, telegram_max_update_id,
+    telegram_retry_after, telegram_worker_intent, ConnectFailureKind, TelegramPrivateInbound,
+    WorkerIntent,
 };
 use myriad_error::redact_secrets;
 use serde::Serialize;
@@ -191,15 +192,27 @@ async fn run_session(
             result = get_updates(token, offset) => {
                 match result {
                     Ok(body) => {
-                        let texts = parse_telegram_private_texts(200, &body)?;
+                        let inbounds = parse_telegram_private_inbounds(200, &body)?;
                         if let Some(max_id) = telegram_max_update_id(200, &body)? {
                             offset = Some(max_id + 1);
                         }
-                        for event in texts {
+                        for event in inbounds {
                             let token = token.to_string();
                             tokio::spawn(async move {
-                                crate::services::telegram_pairing::handle_inbound(event, &token)
-                                    .await;
+                                match event {
+                                    TelegramPrivateInbound::Text(text) => {
+                                        crate::services::telegram_pairing::handle_inbound(
+                                            text, &token,
+                                        )
+                                        .await;
+                                    }
+                                    TelegramPrivateInbound::Callback(callback) => {
+                                        crate::services::telegram_pairing::handle_callback(
+                                            callback, &token,
+                                        )
+                                        .await;
+                                    }
+                                }
                             });
                         }
                     }
@@ -233,7 +246,7 @@ async fn get_me(token: &str) -> Result<(), ConnectFailureKind> {
 async fn get_updates(token: &str, offset: Option<i64>) -> Result<String, GetUpdatesError> {
     let mut payload = serde_json::json!({
         "timeout": LONG_POLL_SECS,
-        "allowed_updates": ["message"],
+        "allowed_updates": ["message", "callback_query"],
     });
     if let Some(offset) = offset {
         payload["offset"] = serde_json::Value::from(offset);
@@ -261,7 +274,72 @@ pub async fn send_message(
     chat_id: &str,
     text: &str,
 ) -> Result<(), ConnectFailureKind> {
+    send_outbound(token, chat_id, text, None).await
+}
+
+pub async fn send_outbound(
+    token: &str,
+    chat_id: &str,
+    text: &str,
+    reply_markup: Option<serde_json::Value>,
+) -> Result<(), ConnectFailureKind> {
     if chat_id.is_empty() || text.is_empty() {
+        return Ok(());
+    }
+    let enabled = {
+        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        config.telegram_bot_enabled
+    };
+    if !enabled {
+        return Ok(());
+    }
+    let mut payload = serde_json::json!({
+        "chat_id": chat_id,
+        "text": myriad_agent_rules::channel::truncate_telegram_text(text),
+    });
+    if let Some(markup) = reply_markup {
+        payload["reply_markup"] = markup;
+    }
+    let (status, body) =
+        telegram_request(token, "sendMessage", Some(payload), HTTP_TIMEOUT).await?;
+    if status == 429 {
+        let wait = telegram_retry_after(&body).unwrap_or(1);
+        warn!(retry_after = wait, "Telegram sendMessage rate-limited");
+        return Err(ConnectFailureKind::Transient);
+    }
+    parse_telegram_ok_payload(status, &body).map(|_| ())
+}
+
+/// Must be called after every callback press or the client spinner never stops.
+pub async fn answer_callback_query(
+    token: &str,
+    callback_query_id: &str,
+) -> Result<(), ConnectFailureKind> {
+    if callback_query_id.is_empty() {
+        return Ok(());
+    }
+    let enabled = {
+        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        config.telegram_bot_enabled
+    };
+    if !enabled {
+        return Ok(());
+    }
+    let payload = serde_json::json!({ "callback_query_id": callback_query_id });
+    let (status, body) =
+        telegram_request(token, "answerCallbackQuery", Some(payload), HTTP_TIMEOUT).await?;
+    if status == 429 {
+        let wait = telegram_retry_after(&body).unwrap_or(1);
+        warn!(retry_after = wait, "Telegram answerCallbackQuery rate-limited");
+        return Err(ConnectFailureKind::Transient);
+    }
+    parse_telegram_ok_payload(status, &body).map(|_| ())
+}
+
+/// `sendChatAction` typing. Official window is about 5 seconds or until a
+/// bot message arrives; callers refresh while Work is still running.
+pub async fn send_typing(token: &str, chat_id: &str) -> Result<(), ConnectFailureKind> {
+    if chat_id.is_empty() {
         return Ok(());
     }
     let enabled = {
@@ -273,13 +351,13 @@ pub async fn send_message(
     }
     let payload = serde_json::json!({
         "chat_id": chat_id,
-        "text": myriad_agent_rules::channel::truncate_telegram_text(text),
+        "action": "typing",
     });
     let (status, body) =
-        telegram_request(token, "sendMessage", Some(payload), HTTP_TIMEOUT).await?;
+        telegram_request(token, "sendChatAction", Some(payload), HTTP_TIMEOUT).await?;
     if status == 429 {
         let wait = telegram_retry_after(&body).unwrap_or(1);
-        warn!(retry_after = wait, "Telegram sendMessage rate-limited");
+        warn!(retry_after = wait, "Telegram sendChatAction rate-limited");
         return Err(ConnectFailureKind::Transient);
     }
     parse_telegram_ok_payload(status, &body).map(|_| ())

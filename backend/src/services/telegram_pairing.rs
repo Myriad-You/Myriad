@@ -6,8 +6,8 @@
 use chrono::{Duration as ChronoDuration, Utc};
 use myriad_agent_rules::channel::{
     encode_pairing_code, extract_pairing_code, format_pairing_code, ingest_channel_text,
-    pairing_bind_reply_for, InboundDecision, PairingBindResult, PairingLookup, TelegramPrivateText,
-    PAIRING_REQUIRED_REPLY,
+    pairing_bind_reply_for, InboundDecision, PairingBindResult, PairingLookup,
+    TelegramPrivateCallback, TelegramPrivateText, PAIRING_REQUIRED_REPLY,
 };
 use rand::Rng;
 use sea_orm::{
@@ -350,6 +350,40 @@ pub async fn handle_inbound(event: TelegramPrivateText, token: &str) {
             .await;
         }
     }
+}
+
+/// Worker entry: inline-button press. Always ack the callback first.
+pub async fn handle_callback(event: TelegramPrivateCallback, token: &str) {
+    if let Err(error) =
+        crate::services::telegram_bot::answer_callback_query(token, &event.callback_query_id).await
+    {
+        warn!(?error, "Telegram callback ack failed");
+    }
+    let Ok(db) = crate::services::tapp_registry::database().await else {
+        warn!("Telegram callback skipped: database is not connected");
+        return;
+    };
+    let pairing = match lookup_openid(&db, &event.from_id.to_string()).await {
+        Ok(value) => value,
+        Err(error) => {
+            warn!(error = %error, "Telegram callback pairing lookup failed");
+            return;
+        }
+    };
+    let PairingLookup::Paired { user_id } = pairing else {
+        send_text(token, &event.chat_id_key(), PAIRING_REQUIRED_REPLY).await;
+        return;
+    };
+    crate::services::telegram_work::start_paired_callback(
+        &db,
+        user_id,
+        &event.chat_id_key(),
+        &event.data,
+        &myriad_agent_rules::channel::session_key("telegram", &event.chat_id_key()),
+        &event.msg_id(),
+        token,
+    )
+    .await;
 }
 
 async fn send_text(token: &str, chat_id: &str, content: &str) {

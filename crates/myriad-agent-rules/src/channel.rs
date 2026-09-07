@@ -32,6 +32,27 @@ pub const TELEGRAM_TEXT_LIMIT: usize = 4096;
 /// Reply when confirmation or a browser-only page action arrives on QQ.
 pub const PANEL_REQUIRED_REPLY: &str = "请到站点面板完成这一步。";
 
+/// Reply when a pending prompt cannot be parsed.
+pub const PENDING_REASK_REPLY: &str = "没看懂。请回复选项编号，或按提示回答。";
+
+/// Reply when a confirmation or question has expired.
+pub const PENDING_EXPIRED_REPLY: &str = "这一步已经过期。请重新发一句，或到站点面板继续。";
+
+/// How to answer a yes/no confirmation in chat.
+pub const CONFIRM_HINT: &str = "回复「是」确认，或「否」取消。";
+
+/// Inline button that opens Telegram's reply composer for free-text pending.
+pub const TELEGRAM_INPUT_BUTTON: &str = "输入";
+
+/// `callback_data` for [`TELEGRAM_INPUT_BUTTON`].
+pub const TELEGRAM_CALLBACK_INPUT: &str = "i";
+
+/// `callback_data` for confirmation yes.
+pub const TELEGRAM_CALLBACK_YES: &str = "y";
+
+/// `callback_data` for confirmation no.
+pub const TELEGRAM_CALLBACK_NO: &str = "n";
+
 /// Crockford Base32 without checksum. I/L → 1, O → 0. Eight characters = 40 bits.
 pub const PAIRING_CODE_ALPHABET: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -97,9 +118,24 @@ pub struct ChannelCapabilities {
     pub outfit: bool,
 }
 
-/// First-cut Telegram DM: text in, final text out. Edit / typing stay off.
+/// Telegram DM: text in, final text out, numbered options plus inline buttons.
+/// Typing is a transport hint (`sendChatAction`), not a capability bit.
+/// Edit / streaming draft stay off.
 pub fn telegram_dm_capabilities() -> ChannelCapabilities {
-    qq_c2c_capabilities()
+    ChannelCapabilities {
+        inbound_text: true,
+        inbound_media: false,
+        inbound_callback: true,
+        outbound_final_text: true,
+        outbound_markdown: false,
+        outbound_image: false,
+        outbound_edit: false,
+        outbound_streaming_draft: false,
+        interactive: true,
+        frontend_action: false,
+        performance: false,
+        outfit: false,
+    }
 }
 
 /// First-cut C2C: text in, final text out. Everything else is false.
@@ -335,6 +371,444 @@ pub fn plan_delivery(event: &ChannelEvent, ctx: &DeliveryContext) -> DeliveryPla
     }
 }
 
+/// What the next inbound text should resume, after a prompt was sent.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PendingKind {
+    Clarify {
+        original_input: String,
+    },
+    Confirm {
+        confirmation_id: String,
+    },
+    Answer {
+        task_id: String,
+        question_id: String,
+        question_type: String,
+    },
+}
+
+/// One visible choice. `value` is what resume APIs consume; `label` is what
+/// the person sees.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PendingOption {
+    pub value: String,
+    pub label: String,
+}
+
+/// A question parked on a channel until the next inbound text.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PendingPrompt {
+    pub kind: PendingKind,
+    pub question: String,
+    pub options: Vec<PendingOption>,
+    pub expires_at_unix: Option<i64>,
+}
+
+/// How the next inbound text is consumed against a parked prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingDecision {
+    Resume {
+        kind: PendingKind,
+        answer: String,
+        confirmed: Option<bool>,
+    },
+    Reask {
+        reply: String,
+    },
+    Expired {
+        reply: String,
+    },
+}
+
+/// Numbered options plus a yes/no hint for confirmation.
+pub fn format_pending_prompt(prompt: &PendingPrompt) -> String {
+    let mut lines = Vec::new();
+    let question = prompt.question.trim();
+    if !question.is_empty() {
+        lines.push(question.to_string());
+    }
+    if !prompt.options.is_empty() {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        for (index, option) in prompt.options.iter().enumerate() {
+            let label = if option.label.trim().is_empty() {
+                option.value.as_str()
+            } else {
+                option.label.as_str()
+            };
+            lines.push(format!("{}. {}", index + 1, label.trim()));
+        }
+    }
+    if matches!(prompt_question_type(prompt), "confirmation" | "confirm") {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(CONFIRM_HINT.to_string());
+    }
+    if lines.is_empty() {
+        PENDING_REASK_REPLY.to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+/// Parse the next inbound text against a parked prompt. Unknown text re-asks;
+/// confirmation never defaults to yes.
+pub fn decide_pending_reply(prompt: &PendingPrompt, text: &str, now_unix: i64) -> PendingDecision {
+    if prompt
+        .expires_at_unix
+        .is_some_and(|expires| now_unix >= expires)
+    {
+        return PendingDecision::Expired {
+            reply: PENDING_EXPIRED_REPLY.to_string(),
+        };
+    }
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return reask(prompt);
+    }
+    match prompt_question_type(prompt) {
+        "confirmation" | "confirm" => match parse_yes_no(trimmed) {
+            Some(true) => PendingDecision::Resume {
+                kind: prompt.kind.clone(),
+                answer: "是".to_string(),
+                confirmed: Some(true),
+            },
+            Some(false) => PendingDecision::Resume {
+                kind: prompt.kind.clone(),
+                answer: "否".to_string(),
+                confirmed: Some(false),
+            },
+            None => reask(prompt),
+        },
+        "single_choice" => match match_one_option(prompt, trimmed) {
+            Some(option) => PendingDecision::Resume {
+                kind: prompt.kind.clone(),
+                answer: option,
+                confirmed: None,
+            },
+            None => reask(prompt),
+        },
+        "multiple_choice" => match match_many_options(prompt, trimmed) {
+            Some(answer) => PendingDecision::Resume {
+                kind: prompt.kind.clone(),
+                answer,
+                confirmed: None,
+            },
+            None => reask(prompt),
+        },
+        _ => {
+            if !prompt.options.is_empty() {
+                if let Some(option) = match_one_option(prompt, trimmed) {
+                    return PendingDecision::Resume {
+                        kind: prompt.kind.clone(),
+                        answer: option,
+                        confirmed: None,
+                    };
+                }
+                return reask(prompt);
+            }
+            PendingDecision::Resume {
+                kind: prompt.kind.clone(),
+                answer: trimmed.to_string(),
+                confirmed: None,
+            }
+        }
+    }
+}
+
+fn prompt_question_type(prompt: &PendingPrompt) -> &str {
+    match &prompt.kind {
+        PendingKind::Confirm { .. } => "confirmation",
+        PendingKind::Answer { question_type, .. } => question_type.as_str(),
+        PendingKind::Clarify { .. } => {
+            if prompt.options.is_empty() {
+                "free_text"
+            } else {
+                "single_choice"
+            }
+        }
+    }
+}
+
+fn reask(prompt: &PendingPrompt) -> PendingDecision {
+    PendingDecision::Reask {
+        reply: format_pending_prompt(prompt),
+    }
+}
+
+/// One inline button. `callback_data` must stay within Telegram's 64-byte cap.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TelegramInlineButton {
+    pub text: String,
+    pub callback_data: String,
+}
+
+/// What a private-chat callback should do against the parked prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TelegramCallbackAction {
+    Resume(String),
+    RequestInput,
+    Unknown,
+}
+
+/// Inline keyboard (and optional ForceReply) for a parked prompt.
+///
+/// Choice and confirm become `callback_data` buttons. Free text gets an
+/// 「输入」 button; the caller sends `ForceReply` when that is pressed.
+pub fn telegram_reply_markup(prompt: &PendingPrompt) -> Option<serde_json::Value> {
+    let rows = telegram_inline_keyboard(prompt);
+    if rows.is_empty() {
+        return None;
+    }
+    Some(serde_json::json!({
+        "inline_keyboard": rows
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|button| {
+                        serde_json::json!({
+                            "text": button.text,
+                            "callback_data": button.callback_data,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    }))
+}
+
+/// Force the reply composer. Placeholder is capped at 64 characters.
+pub fn telegram_force_reply_markup(placeholder: &str) -> serde_json::Value {
+    let placeholder: String = placeholder.chars().take(64).collect();
+    if placeholder.is_empty() {
+        serde_json::json!({ "force_reply": true })
+    } else {
+        serde_json::json!({
+            "force_reply": true,
+            "input_field_placeholder": placeholder,
+        })
+    }
+}
+
+/// Button rows for a parked prompt. Confirm is yes/no; options are one per row.
+pub fn telegram_inline_keyboard(prompt: &PendingPrompt) -> Vec<Vec<TelegramInlineButton>> {
+    match prompt_question_type(prompt) {
+        "confirmation" | "confirm" => vec![vec![
+            TelegramInlineButton {
+                text: "是".to_string(),
+                callback_data: TELEGRAM_CALLBACK_YES.to_string(),
+            },
+            TelegramInlineButton {
+                text: "否".to_string(),
+                callback_data: TELEGRAM_CALLBACK_NO.to_string(),
+            },
+        ]],
+        _ if !prompt.options.is_empty() => prompt
+            .options
+            .iter()
+            .enumerate()
+            .map(|(index, option)| {
+                let label = if option.label.trim().is_empty() {
+                    option.value.as_str()
+                } else {
+                    option.label.as_str()
+                };
+                vec![TelegramInlineButton {
+                    text: truncate_button_label(label),
+                    callback_data: format!("o:{index}"),
+                }]
+            })
+            .collect(),
+        _ => vec![vec![TelegramInlineButton {
+            text: TELEGRAM_INPUT_BUTTON.to_string(),
+            callback_data: TELEGRAM_CALLBACK_INPUT.to_string(),
+        }]],
+    }
+}
+
+/// Map `callback_data` onto the parked prompt. Indexes stay 0-based (`o:0`).
+pub fn telegram_callback_action(prompt: &PendingPrompt, data: &str) -> TelegramCallbackAction {
+    match data.trim() {
+        TELEGRAM_CALLBACK_INPUT => TelegramCallbackAction::RequestInput,
+        TELEGRAM_CALLBACK_YES => TelegramCallbackAction::Resume("是".to_string()),
+        TELEGRAM_CALLBACK_NO => TelegramCallbackAction::Resume("否".to_string()),
+        other => match other.strip_prefix("o:") {
+            Some(index) => index
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| prompt.options.get(index))
+                .map(|option| TelegramCallbackAction::Resume(option.value.clone()))
+                .unwrap_or(TelegramCallbackAction::Unknown),
+            None => TelegramCallbackAction::Unknown,
+        },
+    }
+}
+
+/// Lift a model JSON blob in `message` into a parked clarify prompt.
+///
+/// Only succeeds when at least one option is present. Unknown wrappers
+/// (`intent`, `clarifications_needed`) are read; they are not a contract.
+pub fn pending_prompt_from_model_json(text: &str, original_input: &str) -> Option<PendingPrompt> {
+    let value = extract_json_object(text)?;
+    let (question, options) = clarification_fields(&value);
+    if options.is_empty() {
+        return None;
+    }
+    let question = if question.is_empty() {
+        "请选择：".to_string()
+    } else {
+        question
+    };
+    Some(PendingPrompt {
+        kind: PendingKind::Clarify {
+            original_input: original_input.to_string(),
+        },
+        question,
+        options,
+        expires_at_unix: None,
+    })
+}
+
+fn extract_json_object(text: &str) -> Option<serde_json::Value> {
+    let trimmed = text.trim();
+    let start = trimmed.find('{')?;
+    if start > 0 && !trimmed[..start].trim().is_empty() && !trimmed.starts_with("```") {
+        return None;
+    }
+    let end = trimmed.rfind('}')?;
+    if end < start {
+        return None;
+    }
+    let parsed = serde_json::from_str::<serde_json::Value>(&trimmed[start..=end]).ok()?;
+    parsed.as_object().is_some().then_some(parsed)
+}
+
+fn clarification_fields(value: &serde_json::Value) -> (String, Vec<PendingOption>) {
+    let needed = value
+        .get("clarifications_needed")
+        .and_then(|row| row.as_array())
+        .and_then(|rows| rows.first());
+    let question = needed
+        .and_then(|row| row.get("question"))
+        .and_then(|row| row.as_str())
+        .or_else(|| value.get("question").and_then(|row| row.as_str()))
+        .or_else(|| {
+            value
+                .get("clarification")
+                .and_then(|row| row.get("message"))
+                .and_then(|row| row.as_str())
+        })
+        .or_else(|| value.get("message").and_then(|row| row.as_str()))
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let mut options = json_choice_options(needed.and_then(|row| row.get("suggestions")));
+    if options.is_empty() {
+        options = json_choice_options(needed.and_then(|row| row.get("options")));
+    }
+    if options.is_empty() {
+        options = json_choice_options(value.get("suggestions"));
+    }
+    if options.is_empty() {
+        options = json_choice_options(value.get("options"));
+    }
+    if options.is_empty() {
+        options = json_choice_options(
+            value
+                .get("clarification")
+                .and_then(|row| row.get("options")),
+        );
+    }
+    (question, options)
+}
+
+fn json_choice_options(value: Option<&serde_json::Value>) -> Vec<PendingOption> {
+    value
+        .and_then(|row| row.as_array())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    let text = row.as_str().or_else(|| {
+                        row.get("label")
+                            .and_then(|item| item.as_str())
+                            .or_else(|| row.get("value").and_then(|item| item.as_str()))
+                    })?;
+                    let trimmed = text.trim();
+                    (!trimmed.is_empty()).then(|| PendingOption {
+                        value: trimmed.to_string(),
+                        label: trimmed.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn truncate_button_label(label: &str) -> String {
+    let trimmed = label.trim();
+    let truncated: String = trimmed.chars().take(64).collect();
+    if truncated.is_empty() {
+        "选项".to_string()
+    } else {
+        truncated
+    }
+}
+
+fn parse_yes_no(text: &str) -> Option<bool> {
+    let folded = text.trim().to_ascii_lowercase();
+    match folded.as_str() {
+        "是" | "确认" | "同意" | "好的" | "好" | "yes" | "y" | "ok" => Some(true),
+        "否" | "取消" | "不同意" | "不" | "no" | "n" => Some(false),
+        _ => None,
+    }
+}
+
+fn match_one_option(prompt: &PendingPrompt, text: &str) -> Option<String> {
+    if let Some(index) = parse_option_index(text, prompt.options.len()) {
+        return Some(prompt.options[index].value.clone());
+    }
+    let needle = normalize_choice(text);
+    prompt.options.iter().find_map(|option| {
+        let label = normalize_choice(&option.label);
+        let value = normalize_choice(&option.value);
+        (needle == label || needle == value).then(|| option.value.clone())
+    })
+}
+
+fn match_many_options(prompt: &PendingPrompt, text: &str) -> Option<String> {
+    let parts: Vec<&str> = text
+        .split(|ch: char| ch == ',' || ch == '，' || ch.is_ascii_whitespace())
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let mut values = Vec::new();
+    for part in parts {
+        let Some(value) = match_one_option(prompt, part) else {
+            return None;
+        };
+        if !values.contains(&value) {
+            values.push(value);
+        }
+    }
+    (!values.is_empty()).then_some(values.join(","))
+}
+
+fn parse_option_index(text: &str, count: usize) -> Option<usize> {
+    let cleaned = text
+        .trim()
+        .trim_end_matches(|ch: char| matches!(ch, '.' | '、' | ')' | '）'));
+    let index: usize = cleaned.parse().ok()?;
+    (index >= 1 && index <= count).then_some(index - 1)
+}
+
+fn normalize_choice(text: &str) -> String {
+    text.trim().to_lowercase()
+}
+
 /// First unused `msg_seq` for a passive reply. QQ starts at 1.
 pub fn next_passive_seq(last: Option<u32>) -> u32 {
     last.unwrap_or(0).saturating_add(1).max(1)
@@ -551,6 +1025,24 @@ pub struct TelegramPrivateText {
     pub text: String,
 }
 
+/// Private-chat inline-button press. `data` is raw `callback_data`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TelegramPrivateCallback {
+    pub update_id: i64,
+    pub message_id: i64,
+    pub from_id: i64,
+    pub chat_id: i64,
+    pub callback_query_id: String,
+    pub data: String,
+}
+
+/// Private-chat inbound after `getUpdates`. Groups and empty `from` drop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TelegramPrivateInbound {
+    Text(TelegramPrivateText),
+    Callback(TelegramPrivateCallback),
+}
+
 impl TelegramPrivateText {
     pub fn inbound(&self) -> InboundC2cText {
         InboundC2cText {
@@ -562,6 +1054,16 @@ impl TelegramPrivateText {
 
     pub fn chat_id_key(&self) -> String {
         self.chat_id.to_string()
+    }
+}
+
+impl TelegramPrivateCallback {
+    pub fn chat_id_key(&self) -> String {
+        self.chat_id.to_string()
+    }
+
+    pub fn msg_id(&self) -> String {
+        self.update_id.to_string()
     }
 }
 
@@ -589,12 +1091,67 @@ pub fn parse_telegram_private_texts(
     status: u16,
     body: &str,
 ) -> Result<Vec<TelegramPrivateText>, ConnectFailureKind> {
+    Ok(parse_telegram_private_inbounds(status, body)?
+        .into_iter()
+        .filter_map(|inbound| match inbound {
+            TelegramPrivateInbound::Text(text) => Some(text),
+            TelegramPrivateInbound::Callback(_) => None,
+        })
+        .collect())
+}
+
+/// Private-chat texts and callback presses from a `getUpdates` body.
+pub fn parse_telegram_private_inbounds(
+    status: u16,
+    body: &str,
+) -> Result<Vec<TelegramPrivateInbound>, ConnectFailureKind> {
     let result = parse_telegram_ok_payload(status, body)?;
     let updates = result.as_array().cloned().unwrap_or_default();
     Ok(updates
         .iter()
-        .filter_map(telegram_private_text_from_update)
+        .filter_map(telegram_private_inbound_from_update)
         .collect())
+}
+
+fn telegram_private_inbound_from_update(
+    update: &serde_json::Value,
+) -> Option<TelegramPrivateInbound> {
+    if let Some(text) = telegram_private_text_from_update(update) {
+        return Some(TelegramPrivateInbound::Text(text));
+    }
+    telegram_private_callback_from_update(update).map(TelegramPrivateInbound::Callback)
+}
+
+fn telegram_private_callback_from_update(
+    update: &serde_json::Value,
+) -> Option<TelegramPrivateCallback> {
+    let update_id = json_i64(update.get("update_id")?)?;
+    let query = update.get("callback_query")?;
+    let from = query.get("from")?;
+    let from_id = json_i64(from.get("id")?)?;
+    let message = query.get("message")?;
+    let chat = message.get("chat")?;
+    if chat.get("type").and_then(|value| value.as_str()) != Some("private") {
+        return None;
+    }
+    let chat_id = json_i64(chat.get("id")?)?;
+    let message_id = json_i64(message.get("message_id")?)?;
+    let callback_query_id = query.get("id")?.as_str()?.to_string();
+    if callback_query_id.is_empty() {
+        return None;
+    }
+    let data = query.get("data")?.as_str()?.to_string();
+    if data.is_empty() {
+        return None;
+    }
+    Some(TelegramPrivateCallback {
+        update_id,
+        message_id,
+        from_id,
+        chat_id,
+        callback_query_id,
+        data,
+    })
 }
 
 fn telegram_private_text_from_update(update: &serde_json::Value) -> Option<TelegramPrivateText> {

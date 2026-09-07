@@ -5,16 +5,21 @@
 //! finished turn is delivered, dropped, or failed visibly.
 
 use myriad_agent_rules::channel::{
-    classify_connect_failure, classify_gateway_close, encode_pairing_code, extract_pairing_code,
-    format_pairing_code, ingest_c2c_text, ingest_channel_text, next_passive_seq,
-    outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for,
-    parse_access_token_response, parse_gateway_url_response, parse_telegram_ok_payload,
-    parse_telegram_private_texts, plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh,
-    session_key, telegram_dm_capabilities, telegram_max_update_id, telegram_retry_after,
+    classify_connect_failure, classify_gateway_close, decide_pending_reply, encode_pairing_code,
+    extract_pairing_code, format_pairing_code, format_pending_prompt, ingest_c2c_text,
+    ingest_channel_text, next_passive_seq, outbound_idempotency_key, pairing_bind_reply,
+    pairing_bind_reply_for, parse_access_token_response, parse_gateway_url_response,
+    parse_telegram_ok_payload, parse_telegram_private_inbounds, parse_telegram_private_texts,
+    pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities,
+    qq_token_needs_refresh, session_key, telegram_dm_capabilities, telegram_max_update_id,
+    telegram_callback_action, telegram_inline_keyboard, telegram_reply_markup, telegram_retry_after,
     telegram_worker_intent, truncate_telegram_text, worker_intent, ChannelEvent, ConnectFailure,
     DeliveryContext, DeliveryPlan, InboundC2cText, InboundDecision, PairingBindResult,
-    PairingLookup, WorkerIntent, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
-    PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY,
+    PairingLookup, PendingDecision, PendingKind, PendingOption, PendingPrompt,
+    TelegramCallbackAction, TelegramPrivateInbound, WorkerIntent, CONFIRM_HINT,
+    GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
+    PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY,
+    TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES, TELEGRAM_INPUT_BUTTON,
     TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
 };
 
@@ -206,6 +211,8 @@ fn first_cut_capabilities_are_text_only() {
     assert!(telegram_dm_capabilities().outbound_final_text);
     assert!(!telegram_dm_capabilities().outbound_edit);
     assert!(!telegram_dm_capabilities().outbound_streaming_draft);
+    assert!(telegram_dm_capabilities().interactive);
+    assert!(telegram_dm_capabilities().inbound_callback);
     assert!(caps.inbound_text);
     assert!(caps.outbound_final_text);
     assert!(!caps.inbound_media);
@@ -544,4 +551,225 @@ fn telegram_retry_after_and_text_cap() {
     let trimmed = truncate_telegram_text(&over);
     assert_eq!(trimmed.chars().count(), TELEGRAM_TEXT_LIMIT);
     assert_eq!(truncate_telegram_text("短"), "短");
+}
+
+fn choice_prompt() -> PendingPrompt {
+    PendingPrompt {
+        kind: PendingKind::Clarify {
+            original_input: "订票".into(),
+        },
+        question: "去哪一站？".into(),
+        options: vec![
+            PendingOption {
+                value: "shanghai".into(),
+                label: "上海".into(),
+            },
+            PendingOption {
+                value: "hangzhou".into(),
+                label: "杭州".into(),
+            },
+        ],
+        expires_at_unix: None,
+    }
+}
+
+#[test]
+fn pending_prompt_lists_numbered_options() {
+    let text = format_pending_prompt(&choice_prompt());
+    assert!(text.contains("去哪一站？"));
+    assert!(text.contains("1. 上海"));
+    assert!(text.contains("2. 杭州"));
+}
+
+#[test]
+fn pending_choice_accepts_number_or_label_not_other_text() {
+    let prompt = choice_prompt();
+    match decide_pending_reply(&prompt, "2", 0) {
+        PendingDecision::Resume { answer, .. } => assert_eq!(answer, "hangzhou"),
+        other => panic!("{other:?}"),
+    }
+    match decide_pending_reply(&prompt, "上海", 0) {
+        PendingDecision::Resume { answer, .. } => assert_eq!(answer, "shanghai"),
+        other => panic!("{other:?}"),
+    }
+    match decide_pending_reply(&prompt, "随便", 0) {
+        PendingDecision::Reask { reply } => {
+            assert!(reply.contains("1. 上海"));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn pending_confirmation_never_defaults_to_yes() {
+    let prompt = PendingPrompt {
+        kind: PendingKind::Confirm {
+            confirmation_id: "c1".into(),
+        },
+        question: "要删掉这篇文章吗？".into(),
+        options: vec![],
+        expires_at_unix: Some(100),
+    };
+    let text = format_pending_prompt(&prompt);
+    assert!(text.contains(CONFIRM_HINT));
+    match decide_pending_reply(&prompt, "是", 10) {
+        PendingDecision::Resume {
+            confirmed: Some(true),
+            ..
+        } => {}
+        other => panic!("{other:?}"),
+    }
+    match decide_pending_reply(&prompt, "取消", 10) {
+        PendingDecision::Resume {
+            confirmed: Some(false),
+            ..
+        } => {}
+        other => panic!("{other:?}"),
+    }
+    match decide_pending_reply(&prompt, "嗯", 10) {
+        PendingDecision::Reask { .. } => {}
+        other => panic!("{other:?}"),
+    }
+    match decide_pending_reply(&prompt, "是", 100) {
+        PendingDecision::Expired { reply } => assert_eq!(reply, PENDING_EXPIRED_REPLY),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn pending_free_text_keeps_the_next_message() {
+    let prompt = PendingPrompt {
+        kind: PendingKind::Answer {
+            task_id: "t1".into(),
+            question_id: "q1".into(),
+            question_type: "free_text".into(),
+        },
+        question: "标题写什么？".into(),
+        options: vec![],
+        expires_at_unix: None,
+    };
+    match decide_pending_reply(&prompt, " 春游计划 ", 0) {
+        PendingDecision::Resume { answer, .. } => assert_eq!(answer, "春游计划"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn telegram_choice_becomes_one_inline_button_per_option() {
+    let rows = telegram_inline_keyboard(&choice_prompt());
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0][0].text, "上海");
+    assert_eq!(rows[0][0].callback_data, "o:0");
+    assert_eq!(rows[1][0].callback_data, "o:1");
+    match telegram_callback_action(&choice_prompt(), "o:1") {
+        TelegramCallbackAction::Resume(answer) => assert_eq!(answer, "hangzhou"),
+        other => panic!("{other:?}"),
+    }
+    let markup = telegram_reply_markup(&choice_prompt()).expect("markup");
+    assert_eq!(markup["inline_keyboard"][0][0]["callback_data"], "o:0");
+}
+
+#[test]
+fn telegram_confirm_and_input_buttons() {
+    let confirm = PendingPrompt {
+        kind: PendingKind::Confirm {
+            confirmation_id: "c1".into(),
+        },
+        question: "要删吗？".into(),
+        options: vec![],
+        expires_at_unix: None,
+    };
+    let rows = telegram_inline_keyboard(&confirm);
+    assert_eq!(rows[0][0].callback_data, TELEGRAM_CALLBACK_YES);
+    assert_eq!(rows[0][1].callback_data, TELEGRAM_CALLBACK_NO);
+    assert_eq!(
+        telegram_callback_action(&confirm, "y"),
+        TelegramCallbackAction::Resume("是".into())
+    );
+    let free = PendingPrompt {
+        kind: PendingKind::Answer {
+            task_id: "t1".into(),
+            question_id: "q1".into(),
+            question_type: "free_text".into(),
+        },
+        question: "标题写什么？".into(),
+        options: vec![],
+        expires_at_unix: None,
+    };
+    assert_eq!(
+        telegram_inline_keyboard(&free)[0][0].text,
+        TELEGRAM_INPUT_BUTTON
+    );
+    assert_eq!(
+        telegram_callback_action(&free, TELEGRAM_CALLBACK_INPUT),
+        TelegramCallbackAction::RequestInput
+    );
+}
+
+#[test]
+fn model_json_with_suggestions_becomes_a_clarify_prompt() {
+    let prompt = pending_prompt_from_model_json(
+        r#"{
+          "intent": "clarification",
+          "message": "【步骤 1 · clarification】\n测试用，选一个城市",
+          "clarifications_needed": [
+            { "question": "测试用，选一个城市", "suggestions": ["东京", "京都"] }
+          ]
+        }"#,
+        "测试脚本",
+    )
+    .expect("json prompt");
+    assert_eq!(prompt.question, "测试用，选一个城市");
+    assert_eq!(prompt.options[0].label, "东京");
+    assert_eq!(prompt.options[1].label, "京都");
+    assert!(matches!(prompt.kind, PendingKind::Clarify { .. }));
+    assert!(pending_prompt_from_model_json("票已订好", "订票").is_none());
+}
+
+#[test]
+fn telegram_get_updates_keeps_private_callback() {
+    let body = r#"{
+        "ok": true,
+        "result": [
+            {
+                "update_id": 20,
+                "callback_query": {
+                    "id": "cb1",
+                    "from": {"id": 1001},
+                    "data": "o:0",
+                    "message": {
+                        "message_id": 5,
+                        "chat": {"id": 1001, "type": "private"}
+                    }
+                }
+            },
+            {
+                "update_id": 21,
+                "callback_query": {
+                    "id": "cb2",
+                    "from": {"id": 2002},
+                    "data": "o:0",
+                    "message": {
+                        "message_id": 6,
+                        "chat": {"id": -100, "type": "group"}
+                    }
+                }
+            }
+        ]
+    }"#;
+    let inbounds = parse_telegram_private_inbounds(200, body).expect("updates");
+    assert_eq!(inbounds.len(), 1);
+    match &inbounds[0] {
+        TelegramPrivateInbound::Callback(callback) => {
+            assert_eq!(callback.update_id, 20);
+            assert_eq!(callback.from_id, 1001);
+            assert_eq!(callback.chat_id, 1001);
+            assert_eq!(callback.data, "o:0");
+            assert_eq!(callback.callback_query_id, "cb1");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(parse_telegram_private_texts(200, body)
+        .expect("texts")
+        .is_empty());
 }

@@ -1350,6 +1350,148 @@ pub async fn answer_task_question_stream(
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
+pub(crate) async fn start_answer_run(
+    db: DatabaseConnection,
+    claims: Claims,
+    task_id: String,
+    question_id: String,
+    answer: String,
+    session_id: Option<String>,
+) -> Result<Arc<AgentRun>, HttpError> {
+    let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
+    let run = create_run(user_id, session_id).await;
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
+    let run_for_forwarder = run.clone();
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            run_for_forwarder.publish(event).await;
+        }
+    });
+
+    let req = AnswerQuestionRequest {
+        question_id,
+        answer,
+    };
+    spawn_answer_resume(db, user_id, task_id, req, tx);
+    Ok(run)
+}
+
+fn spawn_answer_resume(
+    db: DatabaseConnection,
+    user_id: i32,
+    task_id: String,
+    req: AnswerQuestionRequest,
+    tx: tokio::sync::mpsc::Sender<ProgressEvent>,
+) {
+    tokio::spawn(async move {
+        let session_from_waiting = {
+            let map = WAITING_TASKS.read().await;
+            map.get(&task_id)
+                .filter(|ctx| ctx.user_id == user_id)
+                .map(|ctx| ctx.session_id.clone())
+                .filter(|s| !s.is_empty())
+        };
+        let task_for_lane =
+            crate::services::agent::executor::get_task_for_user(&task_id, user_id).await;
+        let lane_key = LaneQueue::resolve_answer_lane_key(
+            user_id,
+            task_for_lane.as_ref().and_then(|t| t.lane_id.as_deref()),
+            session_from_waiting.as_deref(),
+        );
+
+        let queue = LANE_QUEUE.clone();
+        let _lane_guard = match queue
+            .acquire_timeout(
+                &lane_key,
+                std::time::Duration::from_secs(LaneQueue::DEFAULT_ACQUIRE_TIMEOUT_SECS),
+            )
+            .await
+        {
+            Ok(guard) => guard,
+            Err(e) => {
+                let _ = tx
+                    .send(AgentProgressEvent::Error {
+                        task_id: Some(task_id.clone()),
+                        message: e,
+                        code: "QUEUE_FULL".to_string(),
+                    })
+                    .await;
+                return;
+            }
+        };
+
+        let agent = Agent::new(db.clone()).await;
+        let waiting_ctx = take_waiting_task(&task_id, user_id).await;
+        let ctx_session_id = waiting_ctx
+            .as_ref()
+            .map(|ctx| ctx.session_id.clone())
+            .or(session_from_waiting)
+            .unwrap_or_default();
+        if !ctx_session_id.is_empty() {
+            let _ = persist_user_message(&db, &ctx_session_id, &req.answer).await;
+        }
+
+        let answer = UserAnswer {
+            question_id: req.question_id,
+            task_id: task_id.clone(),
+            answer: req.answer,
+            skipped: false,
+        };
+
+        let resume_tx = waiting_ctx
+            .as_ref()
+            .map(|ctx| ctx.progress_tx.clone())
+            .unwrap_or_else(|| tx.clone());
+
+        match agent
+            .resume_task_with_progress(&task_id, answer, user_id, resume_tx)
+            .await
+        {
+            Ok(response) => {
+                let api_response: ApiResponse = response.into();
+                let final_task_id = api_response
+                    .task
+                    .as_ref()
+                    .map(|t| t.task_id.clone())
+                    .unwrap_or_default();
+                let success = api_response.success;
+                let response_value = serde_json::to_value(&api_response)
+                    .unwrap_or_else(|_| json!({"error": "serialization failed"}));
+                if let Some(ctx) = waiting_ctx {
+                    let _ = ctx.done_tx.send(response_value.clone());
+                }
+                let _ = tx
+                    .send(AgentProgressEvent::TaskCompleted {
+                        task_id: final_task_id,
+                        success,
+                        response: Box::new(response_value),
+                    })
+                    .await;
+            }
+            Err(e) => {
+                let code = agent_stream_error_code(&e, "RESUME_ERROR");
+                if code == "RESUME_ERROR" {
+                    tracing::error!(error = %e, "[Agent API] Resume failed");
+                }
+                if let Some(ctx) = waiting_ctx {
+                    let _ = ctx.done_tx.send(json!({
+                        "success": false,
+                        "message": e.clone(),
+                        "responseType": "error",
+                    }));
+                }
+                let _ = tx
+                    .send(AgentProgressEvent::Error {
+                        task_id: Some(task_id),
+                        message: e,
+                        code,
+                    })
+                    .await;
+            }
+        }
+    });
+}
+
 /// 提供澄清回答
 /// POST /api/agent/clarify
 #[derive(Debug, Deserialize)]
@@ -1406,11 +1548,23 @@ pub async fn confirm_operation_stream(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ConfirmRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, HttpError> {
+    let run = start_confirm_run(db, claims, req.confirmation_id, req.confirmed, req.note).await?;
+    Ok(Sse::new(agent_run_event_stream(run))
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+}
+
+pub(crate) async fn start_confirm_run(
+    db: DatabaseConnection,
+    claims: Claims,
+    confirmation_id: String,
+    confirmed: bool,
+    note: Option<String>,
+) -> Result<Arc<AgentRun>, HttpError> {
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     let confirmation = crate::services::agent::types::UserConfirmation {
-        confirmation_id: req.confirmation_id.clone(),
-        confirmed: req.confirmed,
-        user_note: req.note,
+        confirmation_id: confirmation_id.clone(),
+        confirmed,
+        user_note: note,
         user_id,
     };
 
@@ -1418,7 +1572,7 @@ pub async fn confirm_operation_stream(
     // original conversation (history persistence + WAITING_TASKS answers).
     let agent_for_lookup = Agent::new(db.clone()).await;
     let resume_ctx = agent_for_lookup
-        .confirmation_resume_context(&req.confirmation_id, user_id)
+        .confirmation_resume_context(&confirmation_id, user_id)
         .await
         .map_err(|error| {
             HttpError::from((
@@ -1454,7 +1608,6 @@ pub async fn confirm_operation_stream(
     };
     let run_for_task = run.clone();
     let db_clone = db.clone();
-    let confirmed = req.confirmed;
     tokio::spawn(async move {
         // Agent/executor progress events share the same run hub as the SSE subscriber.
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(256);
@@ -1641,8 +1794,7 @@ pub async fn confirm_operation_stream(
         }
     });
 
-    Ok(Sse::new(agent_run_event_stream(run))
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+    Ok(run)
 }
 
 #[derive(Debug, Deserialize)]
