@@ -314,8 +314,10 @@ Bridge 默认 payload 约 **1 MiB**；正式运行特例：`file.download` 文�
   `storage:write`。`Tapp.file.download` 是 public，不要为了把生成文件存到本机去申请
   `storage:read`。不要再声明已移除的 `storage`。确认和全屏分别需要
   `ui:confirm` 与 `ui:fullscreen`。
-- 应用分类和 Widget 分类不是同一枚举；Widget 分类仅允许 `stats`、`activity`、
-  `visualization`、`utility`、`custom`。声明 `widgets` 时安装校验要求声明权限含
+- 应用分类和 Widget 分类是两处独立声明，使用同一套稳定 ID：`ai`、`data`、
+  `developer`、`game`、`media`、`productivity`、`social`、`utility`。Widget
+  `category` 只能写这些规范值；不写则小组件库按实用工具。筛片按声明原样归入对应
+  主题（写 `media` 进媒体）。声明 `widgets` 时安装校验要求声明权限含
   `widget:register`；不要把它理解成「普通用户运行时可以动态注册 Widget」。
 - 顶层 `manifest.settings` 是安装级设置；用户个人偏好放入 `Tapp.storage`，要给访客看的
   站长数据放入 `Tapp.shared`，单个 Widget 实例偏好放入对应的 `widgets[].settings`。

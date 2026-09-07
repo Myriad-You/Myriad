@@ -77,6 +77,17 @@ impl Agent {
         // observes emitted prose on its own task, never on the token callback.
         let mut speech_delivery = None;
         let mut motion_refinement = None;
+        let live_direction = if let Some(run_id) = request
+            .context
+            .as_ref()
+            .and_then(|ctx| ctx.run_id.as_deref())
+        {
+            super::run_hub::get_live_run_for_user(run_id, user_id)
+                .await
+                .map(|run| run.playback_direction.clone())
+        } else {
+            None
+        };
         if let Some(mood) = mood_transition.clone() {
             let reaction_context = motion_context(
                 &request,
@@ -92,8 +103,11 @@ impl Agent {
             {
                 try_publish_motion(&progress_tx, performance);
             }
-            let (delivery, guard) =
-                spawn_chat_motion_refinement(reaction_context, progress_tx.clone());
+            let (delivery, guard) = spawn_chat_motion_refinement(
+                reaction_context,
+                progress_tx.clone(),
+                live_direction.clone(),
+            );
             speech_delivery = Some(std::sync::Arc::new(std::sync::Mutex::new(delivery)));
             motion_refinement = Some(guard);
         }
@@ -113,6 +127,9 @@ impl Agent {
                     .0
             }
             Err(error) => {
+                if let Some(live) = &live_direction {
+                    live.close();
+                }
                 crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
                 return Err(error);
             }
@@ -139,12 +156,19 @@ impl Agent {
             })
             .await;
 
-        // Run transport rejects post-terminal events. Abort outstanding model
-        // work at the round boundary, not inside the text-generation callback.
-        // This is a cancellation barrier, never a wait for model completion.
+        // Transient results have a separate playback lifetime. No post-terminal
+        // event is appended to the durable run, and no lane waits on the model.
         let refined = if let Some(guard) = motion_refinement {
-            guard.stop().await == super::motion_overlay::MotionPublication::Refined
+            if let Some(live) = live_direction {
+                guard.finish_for_playback(live);
+                true // The immediate floor is already installed; don't overwrite it.
+            } else {
+                guard.stop().await == super::motion_overlay::MotionPublication::Refined
+            }
         } else {
+            if let Some(live) = live_direction {
+                live.close();
+            }
             false
         };
         // The abort barrier above makes this choice race-free: a local landing

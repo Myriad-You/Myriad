@@ -4,9 +4,52 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
 import { buildAnime25DPlayback } from '../anime25drig/playback'
+import { anime25DImportCopy } from '../rig/anime25dImportCopy'
 import { persistRigAsset, preflightRigAsset } from './compiler'
 
 const file = new File([new Uint8Array([1])], 'character.psd')
+
+test('cancelled preparation never starts preview and late preview cannot publish a result', async () => {
+  for (const stage of ['prepare', 'preview'] as const) {
+    const controller = new AbortController()
+    let previews = 0
+    const events: RigAssetCompileEvent[] = []
+    await assert.rejects(
+      preflightRigAsset(
+        file,
+        'master',
+        {
+          prepare: async (_file, _master, _onStage, _fingerprint, signal) => {
+            assert.equal(signal, controller.signal)
+            if (stage === 'prepare') controller.abort()
+            return {
+              atlas: new Blob(),
+              analysisReference: new Blob(),
+              source: {} as never,
+              partCount: 1,
+            }
+          },
+          preview: async () => {
+            previews += 1
+            controller.abort()
+            return manifest
+          },
+        },
+        (event) => events.push(event),
+        undefined,
+        controller.signal,
+      ),
+      { name: 'AbortError' },
+    )
+    assert.equal(previews, stage === 'prepare' ? 0 : 1)
+    assert.ok(
+      !events.some(
+        (event) =>
+          event.stage === 'analyze-capabilities' || event.status === 'failed',
+      ),
+    )
+  }
+})
 const manifest = {
   schemaVersion: 1,
   quality: 'layered-2d',
@@ -140,35 +183,38 @@ test('preflight sends the imported PSD composition to one-shot vision analysis',
 test('preflight carries analyzed playback profiles into the persisted source', async () => {
   const mouth = { x0: 40, y0: 48, x1: 60, y1: 60, cx: 50, cy: 54 }
   const source = {
-    anime25dPlayback: buildAnime25DPlayback({
-      frameWidth: 100,
-      frameHeight: 120,
-      layers: [
-        {
-          id: 'face',
-          role: 'face',
-          side: null,
-          group: 'head',
-          bounds: { x: 0, y: 0, width: 1, height: 1 },
-          textureBounds: { x: 0, y: 0, width: 1, height: 1 },
-          strands: [],
+    anime25dPlayback: buildAnime25DPlayback(
+      {
+        frameWidth: 100,
+        frameHeight: 120,
+        layers: [
+          {
+            id: 'face',
+            role: 'face',
+            side: null,
+            group: 'head',
+            bounds: { x: 0, y: 0, width: 1, height: 1 },
+            textureBounds: { x: 0, y: 0, width: 1, height: 1 },
+            strands: [],
+          },
+        ],
+        anchors: {
+          face: { x0: 25, y0: 10, x1: 75, y1: 65, cx: 50, cy: 37.5 },
+          neckPivot: { x: 50, y: 70 },
+          neckTop: 65,
+          neckBottom: 75,
+          bodyPivot: { x: 50, y: 120 },
+          mouth,
+          faceScale: 1,
         },
-      ],
-      anchors: {
-        face: { x0: 25, y0: 10, x1: 75, y1: 65, cx: 50, cy: 37.5 },
-        neckPivot: { x: 50, y: 70 },
-        neckTop: 65,
-        neckBottom: 75,
-        bodyPivot: { x: 50, y: 120 },
-        mouth,
-        faceScale: 1,
+        mouthProfile: analyzeAnime25DMouthProfile(
+          [],
+          { x: 0, y: 0, width: 100, height: 120 },
+          mouth,
+        ),
       },
-      mouthProfile: analyzeAnime25DMouthProfile(
-        [],
-        { x: 0, y: 0, width: 100, height: 120 },
-        mouth,
-      ),
-    }),
+      anime25DImportCopy(),
+    ),
   }
   const analyzed = structuredClone(manifest)
   analyzed.anime25dPlayback = {

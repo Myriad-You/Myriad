@@ -168,7 +168,9 @@ Manifest 采用严格字段校验：未声明字段、拼写错误以及已经�
 | `utility`      | 无法归入上述用途的通用工具 |
 
 Page、Widget 和 headless core 是运行形态，由 `page`、`widgets` 和
-`backgroundRequirements` 表达，不得填入 `category`。`demo` 和 `test`
+`backgroundRequirements` 表达，不得填入 `category`。每张 Widget 另有独立的
+`widgets[].category`：同一套稳定 ID，字段分开声明，见 [Widget 分类](#widget-分类)。
+`demo` 和 `test`
 属于发布阶段，应使用商店标签表达。宿主会把旧值 `tools`、`games`、
 `development`、`music`、`visualization` 等规范为上述 ID；新包应直接使用规范值。
 界面仅翻译显示名称，Manifest 和商店索引不存储本地化分类文本。
@@ -338,16 +340,14 @@ Page、Core 与其余获授能力仍可正常使用。
 | `icon`          | string   | ❌   | Widget 图标（emoji 或 URL）                                    |
 | `defaultSize`   | string   | ✅   | 默认尺寸（如 "2x2"）                                           |
 | `sizes`         | string[] | ✅   | 支持的尺寸列表                                                 |
-| `category`      | string   | ❌   | Widget 分类（stats, activity, visualization, utility, custom） |
+| `category`      | string   | ❌   | Widget 自己的分类，不是顶层应用用途；见 [Widget 分类](#widget-分类) |
 | `templates`     | object   | ❌   | HTML 模板（按尺寸覆盖）                                        |
 | `settings`      | object[] | ❌   | 每个 Dashboard 实例独立的设置声明                              |
 | `refreshPolicy` | object   | ❌   | 宿主管理的刷新策略                                             |
 
 单个 Tapp 最多声明或动态注册 64 个 Widget；每个 Widget 最多声明 10 个尺寸，且
 `defaultSize` 必须包含在 `sizes` 中。超出限制会在安装或注册时被后端拒绝。
-Widget `category` 只接受表中列出的五个稳定 ID；旧值 `tool` 会规范为 `utility`，
-其他未知值会在 Manifest 解析或动态注册时被拒绝。旧数据库记录仍可读取，但不会再写入
-新的非规范分类。
+`widgets[].category` 的取值与小组件库归片见 [Widget 分类](#widget-分类)。
 顶层 `settings` 是整个 Tapp 共用的全局设置；`widgets[].settings` 则属于单个 Dashboard
 Widget 实例，因此同一种 Widget 添加两次时可以采用不同配置。实例设置会由 Dashboard
 设置面板保存并通过 `props.config`、`Tapp.widget.getInstanceSettings()` 提供给沙箱。
@@ -365,6 +365,32 @@ Widget 实例，因此同一种 Widget 添加两次时可以采用不同配置�
 模板按 `Widget ID + 尺寸` 隔离。同一个 Tapp 的多个 Widget 可以各自声明不同的 `2x2`
 模板，不会互相覆盖。商店索引中的 `download.widget_templates` 也必须使用
 `{ "widgetId": { "2x2": "path/to/template.html" } }` 结构。
+
+### Widget 分类
+
+`widgets[].category` 与顶层 `category` 是两处独立声明，使用**同一套**用途稳定 ID
+（见 [应用分类](#应用分类)）。一张 Widget 不必跟应用用途相同：`media` 应用也可以
+有一张 `utility` 卡片。小组件库没有单独的「第三方」桶；Tapp Widget 与内置件共用
+同一排主题筛片，库侧只读本字段，按 `tapp:<ID>` 原样归片，不看顶层
+`manifest.category`，也不按 `tappId` 分桶。
+
+| ID             | 用途                       | 库筛片           |
+| -------------- | -------------------------- | ---------------- |
+| `ai`           | AI 应用                    | `tapp:ai`        |
+| `data`         | 数据处理、管理与展示       | `tapp:data`      |
+| `developer`    | 开发、调试与部署工具       | `tapp:developer` |
+| `game`         | 游戏                       | `tapp:game`      |
+| `media`        | 音频、视频与其他媒体体验   | `tapp:media`     |
+| `productivity` | 笔记、任务与效率工具       | `tapp:productivity` |
+| `social`       | 社交、消息与协作           | `tapp:social`    |
+| `utility`      | 无法归入上述用途的通用工具 | `tapp:utility`   |
+
+**限制**
+
+- 可选。不写则库侧按 `utility`。
+- 只能写上表八个小写规范 ID。其它值在 Manifest 解析或 `Tapp.widget.register`
+  时被拒绝。
+- 界面只翻译显示名称；Manifest 和注册载荷不存本地化分类文本。
 
 ### templates 配置说明
 

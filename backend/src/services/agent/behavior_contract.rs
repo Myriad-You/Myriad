@@ -25,6 +25,7 @@ async fn parallel_director_reaches_wire_without_metadata_in_prose_or_global_pose
         activity: "talking".into(),
         user_text: "我们怎么办？".into(),
         response_text: None,
+        previous_phrases: Vec::new(),
         task_success: None,
         rig_state: None,
         motion_style: "even".into(),

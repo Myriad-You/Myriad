@@ -7,7 +7,6 @@ import type {
   Anime25DPlaybackAnchors,
   Anime25DPlaybackLayer,
 } from './types'
-import { currentCopy } from '../../../i18n/localeCopy'
 import { ANIME25D_LAYER_DEPTH, anime25DLayerFade } from '../rig/anime25d'
 import { deriveGeometryChestProfile } from './chestPhysics'
 import { deriveAnime25DShellProfile } from './shellProfile'
@@ -115,13 +114,14 @@ function shiftEyeAnchor(
 
 export function buildAnime25DPlayback(
   input: Anime25DPlaybackBuildInput,
+  copy: { anime25dMissingLayer: string },
 ): Anime25DPlayback {
   const width = Math.max(1, input.frameWidth)
   const height = Math.max(1, input.frameHeight)
   const layers = input.layers.map((layer, index) =>
     toPlaybackLayer(layer, width, index),
   )
-  requiredLayer(layers, 'face')
+  requiredLayer(layers, 'face', copy)
   const source = {
     ...anime25DPlaybackSource(),
     pixelCanvas: { width, height },
@@ -189,12 +189,11 @@ function playbackFade(role: string): Anime25DFade | null {
 function requiredLayer(
   layers: Anime25DPlaybackLayer[],
   role: string,
+  copy: { anime25dMissingLayer: string },
 ): Anime25DPlaybackLayer {
   const layer = layers.find((candidate) => candidate.role === role)
   if (!layer) {
-    throw new Error(
-      currentCopy().merope.anime25dMissingLayer.replace('{role}', role),
-    )
+    throw new Error(copy.anime25dMissingLayer.replace('{role}', role))
   }
   return layer
 }

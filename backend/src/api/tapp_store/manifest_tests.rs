@@ -1135,7 +1135,7 @@ fn preserves_widget_metadata_during_manifest_round_trip() {
             "icon": "chart",
             "defaultSize": "2x2",
             "sizes": ["2x2", "4x2"],
-            "category": "stats",
+            "category": "data",
             "templates": {
                 "2x2": "templates/widget-2x2.html",
                 "4x2": "templates/widget-4x2.html"
@@ -1160,7 +1160,7 @@ fn preserves_widget_metadata_during_manifest_round_trip() {
     let widget = &value["widgets"][0];
     assert_eq!(widget["description"], json!("Daily summary"));
     assert_eq!(widget["icon"], json!("chart"));
-    assert_eq!(widget["category"], json!("stats"));
+    assert_eq!(widget["category"], json!("data"));
     assert_eq!(
         widget["templates"]["4x2"],
         json!("templates/widget-4x2.html")
@@ -1415,31 +1415,30 @@ fn normalizes_legacy_tapp_categories_and_rejects_unknown_values() {
 }
 
 #[test]
-fn normalizes_and_restricts_widget_categories_across_manifest_and_runtime() {
-    let legacy_manifest: TappManifest = serde_json::from_value(json!({
+fn restricts_widget_categories_to_canonical_tapp_ids() {
+    let manifest: TappManifest = serde_json::from_value(json!({
         "id": "com.example.widget-category",
         "name": "Widget category",
         "version": "1.0.0",
         "core": { "entry": "main.js" },
-        "category": "utility",
+        "category": "media",
         "permissions": ["widget:register"],
-        "category": "utility",
         "widgets": [{
             "id": "summary",
             "name": "Summary",
             "defaultSize": "2x2",
             "sizes": ["2x2"],
-            "category": "tool"
+            "category": "media"
         }]
     }))
     .unwrap();
     assert_eq!(
-        legacy_manifest.widgets.as_ref().unwrap()[0].category,
-        Some(TappWidgetCategory::Utility)
+        manifest.widgets.as_ref().unwrap()[0].category,
+        Some(TappWidgetCategory::Media)
     );
     assert_eq!(
-        serde_json::to_value(legacy_manifest).unwrap()["widgets"][0]["category"],
-        json!("utility")
+        serde_json::to_value(manifest).unwrap()["widgets"][0]["category"],
+        json!("media")
     );
 
     let runtime_payload = json!({
@@ -1447,13 +1446,13 @@ fn normalizes_and_restricts_widget_categories_across_manifest_and_runtime() {
         "name": "Summary",
         "default_size": "2x2",
         "sizes": ["2x2"],
-        "category": "activity"
+        "category": "ai"
     });
     let runtime: RegisterWidgetRequest = serde_json::from_value(runtime_payload.clone()).unwrap();
-    assert_eq!(runtime.category, Some(TappWidgetCategory::Activity));
+    assert_eq!(runtime.category, Some(TappWidgetCategory::Ai));
 
     let mut invalid_runtime = runtime_payload;
-    invalid_runtime["category"] = json!("media");
+    invalid_runtime["category"] = json!("not-a-category");
     assert!(serde_json::from_value::<RegisterWidgetRequest>(invalid_runtime).is_err());
 
     let invalid_manifest = json!({
@@ -1468,7 +1467,7 @@ fn normalizes_and_restricts_widget_categories_across_manifest_and_runtime() {
             "name": "Summary",
             "defaultSize": "2x2",
             "sizes": ["2x2"],
-            "category": "media"
+            "category": "not-a-category"
         }]
     });
     assert!(serde_json::from_value::<TappManifest>(invalid_manifest).is_err());

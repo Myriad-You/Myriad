@@ -7,7 +7,7 @@
  */
 
 import {
-  normalizeTappCategory,
+  parseTappWidgetCategory,
   TAPP_CATEGORIES,
 } from '../tapp/utils/tappCategories'
 
@@ -95,7 +95,7 @@ export function classifyWidgetLibraryKind(
   widget: WidgetLibraryKindSource,
 ): Exclude<WidgetLibraryKindFilter, 'all'> {
   if (widget.isTappWidget) {
-    return `tapp:${normalizeTappCategory(widget.category)}`
+    return `tapp:${parseTappWidgetCategory(widget.category) ?? 'utility'}`
   }
   if (widget.id.startsWith('report-')) return 'report'
   if (widget.id.startsWith('platform-')) return 'tapp:social'

@@ -18,6 +18,8 @@ const ALIASES: Readonly<Record<string, string>> = {
   earr: 'ears-r',
   earl: 'ears-l',
   eyebg: 'eyewhite',
+  eyeclose: 'eye-close',
+  eyeclose2: 'eye-close2',
   necklace: 'neckwear',
   pendant: 'neckwear',
   amulet: 'neckwear',
@@ -92,7 +94,7 @@ export function normalizeAnime25DLayerName(value: string | undefined): string {
   if (name === 'mouth' || /^mouth-?\d+$/.test(name)) name = 'mouth-open'
   if (name === 'レイヤー-1') name = 'facedetail'
   const { base, suffix } = anime25DLayerNameParts(name)
-  return (ALIASES[base] ?? base) + suffix
+  return (Object.hasOwn(ALIASES, base) ? ALIASES[base] : base) + suffix
 }
 
 export function anime25DBaseRole(

@@ -9,11 +9,6 @@ import type { Anime25DDriver } from './driver'
 import type { Anime25DMotionEnvelopeProbeId } from './motionEnvelope'
 import type { Anime25DDebugSnapshot } from './player'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import {
-  getTourSnapshot,
-  subscribeTour,
-} from '../../../components/tour/tourEngine'
-import { personaTourPanel } from '../../../components/tour/tourLogic'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import {
   GitHubProjectBadge,
@@ -25,6 +20,11 @@ import {
   SliderItem,
   SwitchItem,
 } from '../../../components/settings'
+import {
+  getTourSnapshot,
+  subscribeTour,
+} from '../../../components/tour/tourEngine'
+import { personaTourPanel } from '../../../components/tour/tourLogic'
 import { useI18n } from '../../../contexts/I18nContext'
 import { userFacingError } from '../../../utils/userFacingError'
 import { PreviewMotionScope } from '../motion/previewScope'
@@ -61,6 +61,7 @@ interface Props {
   onPreflightRigPsd: (
     file: File,
     onStage: (event: RigAssetCompileEvent) => void,
+    signal?: AbortSignal,
   ) => Promise<RigAssetPreflight>
   onCommitRigPsd: (
     preflight: RigAssetPreflight,
@@ -297,14 +298,19 @@ export default function Anime25DWorkbench({
     'decompose' | 'manual' | 'commit' | null
   >(null)
   const importingRig = rigImportOperation !== null
+  const importAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
+    importAbortRef.current?.abort()
+    importAbortRef.current = null
+    setRigImportOperation(null)
     setRigPreflight(null)
     setRigImportStage(null)
     setRigImportSteps({})
     setRigImportResult(null)
     setRigImportError(null)
     syncedDriverRef.current = false
+    return () => { importAbortRef.current?.abort() }
   }, [sourceGenerationFingerprint, sourceMasterAssetId])
 
   useEffect(() => {
@@ -382,14 +388,21 @@ export default function Anime25DWorkbench({
 
   const preflightRigPsd = async (file: File) => {
     if (importingRig || !sourceMasterAssetId) return
+    const controller = new AbortController()
+    importAbortRef.current = controller
     setRigImportOperation('manual')
     setRigImportStage(null)
     setRigImportSteps({})
     setRigImportResult(null)
     setRigImportError(null)
     try {
-      setRigPreflight(null)
-      const imported = await onPreflightRigPsd(file, recordRigImportStage)
+      const imported = await onPreflightRigPsd(file,
+        (event) => {
+          if (!controller.signal.aborted) recordRigImportStage(event)
+        },
+        controller.signal,
+      )
+      controller.signal.throwIfAborted()
       setRigPreflight(imported)
       setRigImportResult({
         partCount: imported.partCount,
@@ -397,6 +410,7 @@ export default function Anime25DWorkbench({
         activated: false,
       })
     } catch (reason) {
+      if (controller.signal.aborted) return
       setRigImportError(
         userFacingError(
           generationFailureMessage(
@@ -409,23 +423,34 @@ export default function Anime25DWorkbench({
         ),
       )
     } finally {
-      setRigImportOperation(null)
+      if (importAbortRef.current === controller && !controller.signal.aborted) {
+        importAbortRef.current = null
+        setRigImportOperation(null)
     }
+  }
   }
 
   const decomposeRigPsd = async () => {
     if (importingRig || !sourceMasterAssetId || !seeThroughTokenConfigured) {
       return
     }
+    const controller = new AbortController()
+    importAbortRef.current = controller
     setRigImportOperation('decompose')
     setRigImportStage(null)
     setRigImportSteps({})
     setRigImportResult(null)
     setRigImportError(null)
     try {
-      setRigPreflight(null)
       const file = await onDecomposeRigPsd()
-      const imported = await onPreflightRigPsd(file, recordRigImportStage)
+      controller.signal.throwIfAborted()
+      const imported = await onPreflightRigPsd(file,
+        (event) => {
+          if (!controller.signal.aborted) recordRigImportStage(event)
+        },
+        controller.signal,
+      )
+      controller.signal.throwIfAborted()
       setRigPreflight(imported)
       setRigImportResult({
         partCount: imported.partCount,
@@ -433,6 +458,7 @@ export default function Anime25DWorkbench({
         activated: false,
       })
     } catch (reason) {
+      if (controller.signal.aborted) return
       setRigImportError(
         userFacingError(
           generationFailureMessage(
@@ -445,8 +471,11 @@ export default function Anime25DWorkbench({
         ),
       )
     } finally {
-      setRigImportOperation(null)
+      if (importAbortRef.current === controller && !controller.signal.aborted) {
+        importAbortRef.current = null
+        setRigImportOperation(null)
     }
+  }
   }
 
   const commitRigPsd = async () => {
@@ -942,7 +971,22 @@ export default function Anime25DWorkbench({
                   if (file) void preflightRigPsd(file)
                 }}
               />
-              {rigImportStage ||
+              {rigImportOperation === 'manual' && (
+                  <SettingsButton
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      importAbortRef.current?.abort()
+                      importAbortRef.current = null
+                      setRigImportOperation(null)
+                      setRigImportStage(null)
+                      setRigImportSteps({})
+                    }}
+                  >
+                    {labels.motionSeeThroughTokenCancel}
+                  </SettingsButton>
+                )}
+                {rigImportStage ||
               rigImportResult ||
               rigImportError ||
               rigPreflight ? (

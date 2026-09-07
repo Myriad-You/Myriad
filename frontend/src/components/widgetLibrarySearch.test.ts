@@ -122,6 +122,14 @@ describe('widgetLibrarySearch', () => {
       }),
       'tapp:utility',
     )
+    assert.equal(
+      classifyWidgetLibraryKind({
+        id: 'com.example.assistant',
+        isTappWidget: true,
+        category: 'ai',
+      }),
+      'tapp:ai',
+    )
   })
 
   it('lists only kinds that currently have a widget', () => {

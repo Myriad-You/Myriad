@@ -153,7 +153,6 @@ pub fn export_tapp_contract() -> Value {
             "dataExchangeDirections": string_map(contract_rules::DATA_EXCHANGE_DIRECTIONS),
             "eventTopicPrefixes": list_map(contract_rules::EVENT_TOPIC_PREFIXES),
             "tappCategoryAliases": contract_rules::TAPP_CATEGORY_ALIASES,
-            "widgetCategoryAliases": contract_rules::WIDGET_CATEGORY_ALIASES,
             "aiOperationPermissions": ai_operation_permissions(),
             "widgetManifestPermission": contract_rules::WIDGET_MANIFEST_PERMISSION,
             "httpApiPermission": contract_rules::HTTP_API_PERMISSION,

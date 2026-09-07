@@ -7,6 +7,7 @@ import {
   mergeSpeechPhrases,
   refineSpeechPhrases,
   sanitizeSpeechPhrases,
+  upcomingSpeechText,
 } from './phrasePlan'
 import { predictTextProsody } from './textProsody'
 
@@ -21,6 +22,33 @@ const phrases = sanitizeSpeechPhrases([
   { text: '其实可以先解释清楚。', intent: 'explain' },
   { text: '你觉得呢？', intent: 'check-in' },
 ])
+
+test('upcoming evidence follows scheduler commitment and preserves normalized offsets', () => {
+  const plan = {
+    utteranceId: 'window',
+    startedAtMs: 0,
+    durationMs: 3000,
+    accents: [
+      { textOffset: 3, offsetMs: 1000, intensity: 1 },
+      { textOffset: 6, offsetMs: 2000, intensity: 1 },
+    ],
+  }
+  assert.equal(upcomingSpeechText(plan, 'ＡＢ。ＣＤ。', [], 0), 'AB。CD。')
+  assert.equal(upcomingSpeechText(plan, 'ＡＢ。ＣＤ。', [], 1000), 'CD。')
+  const runtime = new HumanPerformanceRuntime()
+  const active = runtime
+    .frame([compileSpeechBehaviorPlan(plan)], 0)
+    .behaviors.map((item) => ({ ...item, strokeStartAtMs: 4000 }))
+  assert.equal(
+    upcomingSpeechText(plan, 'ＡＢ。ＣＤ。', active, 1000),
+    'AB。CD。',
+  )
+  assert.equal(upcomingSpeechText(plan, 'ＡＢ。ＣＤ。', [], 3000), '')
+  assert.doesNotMatch(
+    upcomingSpeechText(plan, '“哈哈！”回答。', [], 1000),
+    /哈/,
+  )
+})
 
 test('fragment revisions retain queued phrases, replace exact matches and stay bounded', () => {
   const first = mergeSpeechPhrases(

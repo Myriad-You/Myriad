@@ -266,7 +266,7 @@ networks:
 `.env` 必须包含：
 
 ```
-MYRIAD_TAG=v0.4.8
+MYRIAD_TAG=v0.4.9
 PROXY_TAG=v0.4.6
 UPDATER_TAG=v0.4.6
 UPDATER_IMAGE_REF=docker.io/somekawahitomi/myriad-updater@sha256:<64hex>

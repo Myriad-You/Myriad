@@ -1,14 +1,8 @@
 import type { Anime25DDriver } from './driver'
-import type {
-  Anime25DEyeAnchor,
-  Anime25DPlaybackLayer,
-} from './types'
+import type { Anime25DEyeAnchor, Anime25DPlaybackLayer } from './types'
 
 export type Anime25DUpstreamFeatureKind =
-  | 'eye-close'
-  | 'eye-open-iris'
-  | 'eye-open-lid'
-  | 'eyebrow'
+  'eye-close' | 'eye-open-iris' | 'eye-open-lid' | 'eyebrow'
 
 export interface Anime25DMutablePoint {
   x: number
@@ -47,7 +41,11 @@ export function resolveAnime25DUpstreamFeature(
   source: Pick<Anime25DPlaybackLayer, 'fade' | 'role'>,
   hasEyeAnchor: boolean,
 ): Anime25DUpstreamFeatureKind | null {
-  if (source.role === 'eye-close' && hasEyeAnchor) return 'eye-close'
+  if (
+    (source.role === 'eye-close' || source.role === 'eye-close2') &&
+    hasEyeAnchor
+  )
+    return 'eye-close'
   if (source.fade === 'eyeOpen' && hasEyeAnchor) {
     return source.role === 'irides' ? 'eye-open-iris' : 'eye-open-lid'
   }
@@ -85,10 +83,10 @@ export function bindAnime25DUpstreamFeature(
 export function deformAnime25DUpstreamFeaturePoint(
   point: Anime25DMutablePoint,
   input: Readonly<Anime25DUpstreamFeatureInput>,
+  irisRebound?: Readonly<{ x: number; y: number }>,
 ): void {
   const { expression } = input
-  const eyeOpen =
-    input.side === 'L' ? expression.eyeOpenL : expression.eyeOpenR
+  const eyeOpen = input.side === 'L' ? expression.eyeOpenL : expression.eyeOpenR
   if (input.kind === 'eye-close') {
     const eye = input.eye!
     const scale =
@@ -111,8 +109,11 @@ export function deformAnime25DUpstreamFeaturePoint(
   }
   if (input.kind === 'eye-open-iris') {
     const eye = input.eye!
-    point.x = eye.icx + (point.x - eye.icx) * expression.irisScale
-    point.y = eye.icy + (point.y - eye.icy) * expression.irisScale
+    const visible = smoothstep((eyeOpen - 0.4) / 0.6)
+    const scaleX = 1 + ((irisRebound?.x ?? 1) - 1) * visible
+    const scaleY = 1 + ((irisRebound?.y ?? 1) - 1) * visible
+    point.x = eye.icx + (point.x - eye.icx) * expression.irisScale * scaleX
+    point.y = eye.icy + (point.y - eye.icy) * expression.irisScale * scaleY
     point.x += expression.eyeX * 11 * input.faceScale
     point.y += expression.eyeY * 6 * input.faceScale
     const closing = smoothstep((0.32 - eyeOpen) / 0.32)
@@ -121,8 +122,7 @@ export function deformAnime25DUpstreamFeaturePoint(
   }
   if (input.kind === 'eye-open-lid') {
     const eye = input.eye!
-    point.y =
-      eye.closeY + (point.y - eye.closeY) * (1 - 0.85 * (1 - eyeOpen))
+    point.y = eye.closeY + (point.y - eye.closeY) * (1 - 0.85 * (1 - eyeOpen))
     return
   }
   point.y += (-expression.brow * 9 + (1 - eyeOpen) * 3.5) * input.faceScale

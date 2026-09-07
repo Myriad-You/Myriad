@@ -26,10 +26,14 @@ sea-orm-cli migrate generate create_new_table
 6. `006_oauth_identities` - OAuth/OIDC identity bindings
 7. `016_tapp_legacy_grant_clear` - Remove retired permission strings from installed TAPP rows and durably flag affected installs as needing re-authorization (`tapps.needs_reauthorization`; data cleanup for #336, not a permission mapping)
 
+8. `017_agent_tapp_approved_permissions` - Restore Agent installation approvals from declarations.
+
+017 restores approved permissions for `agent.generated.%` / `agent.installed.%` from recognized manifest permission names. Unknown names are discarded; malformed manifests are skipped per row. Equal approvals are skipped. Granted snapshots and reauthorization markers remain unchanged; runtime grants still depend on the current role. Rollback does not reconstruct historical snapshots.
+
 Base CREATE tables (001–006) include the current column set for greenfield installs.
 `Migrator::up` deletes folded 007–015 names from `seaql_migrations` **before**
 SeaORM validates history, drops leftover `digital_life_*` experiment tables
-(prefix scan, local/dev only), then applies 001–006 + 016. Those names are not
+(prefix scan, local/dev only), then applies 001–006 + 016–017. Those names are not
 kept as no-op files:
 
 - `007_notification_preferences` → `users.notification_preferences` in 001
@@ -48,7 +52,7 @@ kept as no-op files:
 Startup drops leftover `digital_life_*` experiment tables (and matching enum /
 domain / composite types, plus `_schema_versions` marks). Other retired feature
 tables stay. A future migration must use a new unique version name. 001–006 and
-016 rows in `seaql_migrations` stay.
+016–017 rows in `seaql_migrations` stay.
 
 Whole tables are created by Migrator (001–006) — the numbered series is the
 **complete greenfield source of truth**. Runtime `schema_check` only heals

@@ -183,7 +183,6 @@ pub const TAPP_CATEGORY_ALIASES: &[&str] = &[
     "utilities",
     "widget",
 ];
-pub const WIDGET_CATEGORY_ALIASES: &[&str] = &["tool"];
 pub const WIDGET_MANIFEST_PERMISSION: &str = "widget:register";
 pub const HTTP_API_PERMISSION: &str = "network:fetch";
 /// Host opens a browser tab for a manifest-declared link only.

@@ -4,6 +4,18 @@ import type { Anime25DFrameWork } from './performanceTelemetry'
 import type { Anime25DPlaybackLayer } from './types'
 import { requiredUniform } from './webglRuntime'
 
+const LEFT_EYE_STENCIL = 1
+const RIGHT_EYE_STENCIL = 2
+const COLLAR_STENCIL = 4
+
+function eyeStencilBit(layer: Anime25DRenderableLayer): number {
+  return layer.source.side === 'L'
+    ? LEFT_EYE_STENCIL
+    : layer.source.side === 'R'
+      ? RIGHT_EYE_STENCIL
+      : 0
+}
+
 export interface Anime25DRenderableLayer {
   source: Anime25DPlaybackLayer
   vao: WebGLVertexArrayObject | null
@@ -91,6 +103,10 @@ export function drawAnime25DFrame(
   frame: Readonly<Anime25DRenderFrame>,
   work?: Anime25DFrameWork,
 ): void {
+  gl.disable(gl.STENCIL_TEST)
+  gl.stencilMask(255)
+  gl.clearStencil(0)
+  gl.colorMask(true, true, true, true)
   gl.clearColor(0, 0, 0, 0)
   gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
   gl.useProgram(program)
@@ -106,9 +122,32 @@ export function drawAnime25DFrame(
   gl.activeTexture(gl.TEXTURE0)
   if (!atlasTexture) return
   gl.bindTexture(gl.TEXTURE_2D, atlasTexture)
+  // Build masks independently of paint order. Hidden whites still bound open
+  // irises during expression crossfades; each eye unions only its own fragments.
+  gl.enable(gl.STENCIL_TEST)
+  gl.colorMask(false, false, false, false)
+  for (const layer of layers) {
+    if (layer.renderKind !== 'eyewhite' || !layer.vao) continue
+    if (layer.frameOpacity < 0.004 && !layer.retainWhenHidden) continue
+    const bit = eyeStencilBit(layer)
+    if (!bit) continue
+    bindLayerUniforms(gl, bindings, layer, frame)
+    gl.uniform1f(bindings.opacity, 1)
+    gl.uniform1f(bindings.cut, 0.25)
+    gl.stencilMask(bit)
+    gl.stencilFunc(gl.ALWAYS, bit, bit)
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE)
+    gl.bindVertexArray(layer.vao)
+    gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)
+    if (work) work.drawCalls += 1
+  }
+  gl.colorMask(true, true, true, true)
+  gl.stencilMask(0)
+  gl.disable(gl.STENCIL_TEST)
   for (const layer of layers) {
     const opacity = layer.frameOpacity
     if (opacity < 0.004 && !layer.retainWhenHidden) continue
+    if (layer.renderKind === 'iris' && !eyeStencilBit(layer)) continue
     const usesOwnGeometry = anime25DLayerUsesOwnGeometry(
       layer.renderKind,
       Boolean(collarClip),
@@ -118,44 +157,16 @@ export function drawAnime25DFrame(
       work.drawnLayers += 1
       work.drawCalls += usesOwnGeometry ? 1 : 2
     }
-    gl.uniformMatrix3fv(bindings.layerTransform, false, layer.layerTransform)
-    gl.uniform1f(bindings.opacity, opacity)
-    gl.uniform2f(
-      bindings.neckSurfaceFade,
-      layer.neckSurfaceFade?.start ?? 0,
-      layer.neckSurfaceFade?.end ?? 0,
-    )
-    const contour = layer.neckSurfaceFade?.contour
-    gl.uniform2f(
-      bindings.neckSurfaceBounds,
-      contour?.left ?? 0,
-      contour?.right ?? 0,
-    )
-    if (contour) gl.uniform2fv(bindings.neckSurfaceContour, contour.bands)
-    gl.uniform1f(bindings.cry, layer.cryDirection * frame.eyeCry)
-    gl.uniform4f(
-      bindings.atlasRect,
-      layer.source.atlas.x,
-      layer.source.atlas.y,
-      layer.source.atlas.w,
-      layer.source.atlas.h,
-    )
+    bindLayerUniforms(gl, bindings, layer, frame)
     if (!usesOwnGeometry && collarClip) {
       drawCollarMaskedLayer(gl, bindings, collarClip, opacity)
       continue
     }
     gl.bindVertexArray(layer.vao)
-    if (layer.renderKind === 'eyewhite') {
+    if (layer.renderKind === 'iris') {
+      const bit = eyeStencilBit(layer)
       gl.enable(gl.STENCIL_TEST)
-      gl.stencilFunc(gl.ALWAYS, 1, 255)
-      gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE)
-      gl.uniform1f(bindings.cut, 0.25)
-      gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)
-      gl.disable(gl.STENCIL_TEST)
-      gl.uniform1f(bindings.cut, 0)
-    } else if (layer.renderKind === 'iris') {
-      gl.enable(gl.STENCIL_TEST)
-      gl.stencilFunc(gl.EQUAL, 1, 255)
+      gl.stencilFunc(gl.EQUAL, bit, bit)
       gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP)
       gl.uniform1f(bindings.cut, 0)
       gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)
@@ -165,7 +176,38 @@ export function drawAnime25DFrame(
       gl.drawElements(gl.TRIANGLES, layer.indexCount, gl.UNSIGNED_SHORT, 0)
     }
   }
+  gl.stencilMask(255)
   gl.bindVertexArray(null)
+}
+
+function bindLayerUniforms(
+  gl: WebGL2RenderingContext,
+  bindings: Readonly<Anime25DRendererBindings>,
+  layer: Anime25DRenderableLayer,
+  frame: Readonly<Anime25DRenderFrame>,
+): void {
+  gl.uniformMatrix3fv(bindings.layerTransform, false, layer.layerTransform)
+  gl.uniform1f(bindings.opacity, layer.frameOpacity)
+  gl.uniform2f(
+    bindings.neckSurfaceFade,
+    layer.neckSurfaceFade?.start ?? 0,
+    layer.neckSurfaceFade?.end ?? 0,
+  )
+  const contour = layer.neckSurfaceFade?.contour
+  gl.uniform2f(
+    bindings.neckSurfaceBounds,
+    contour?.left ?? 0,
+    contour?.right ?? 0,
+  )
+  if (contour) gl.uniform2fv(bindings.neckSurfaceContour, contour.bands)
+  gl.uniform1f(bindings.cry, layer.cryDirection * frame.eyeCry)
+  gl.uniform4f(
+    bindings.atlasRect,
+    layer.source.atlas.x,
+    layer.source.atlas.y,
+    layer.source.atlas.w,
+    layer.source.atlas.h,
+  )
 }
 
 function drawCollarMaskedLayer(
@@ -175,8 +217,9 @@ function drawCollarMaskedLayer(
   opacity: number,
 ): void {
   gl.enable(gl.STENCIL_TEST)
-  gl.stencilMask(255)
-  gl.stencilFunc(gl.ALWAYS, 1, 255)
+  gl.stencilMask(COLLAR_STENCIL)
+  gl.clear(gl.STENCIL_BUFFER_BIT)
+  gl.stencilFunc(gl.ALWAYS, COLLAR_STENCIL, COLLAR_STENCIL)
   gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE)
   gl.colorMask(false, false, false, false)
   gl.uniform1f(bindings.opacity, 1)
@@ -186,11 +229,11 @@ function drawCollarMaskedLayer(
   gl.drawElements(gl.TRIANGLES, collarClip.indexCount, gl.UNSIGNED_SHORT, 0)
   gl.colorMask(true, true, true, true)
   gl.stencilMask(0)
-  gl.stencilFunc(gl.EQUAL, 1, 255)
+  gl.stencilFunc(gl.EQUAL, COLLAR_STENCIL, COLLAR_STENCIL)
   gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP)
   gl.uniform1f(bindings.opacity, opacity)
   gl.bindVertexArray(collarClip.vao)
   gl.drawElements(gl.TRIANGLES, collarClip.indexCount, gl.UNSIGNED_SHORT, 0)
-  gl.stencilMask(255)
+  gl.stencilMask(0)
   gl.disable(gl.STENCIL_TEST)
 }

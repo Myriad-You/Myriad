@@ -14,11 +14,13 @@ import {
   directorPhraseCoverage,
   mergeSpeechPhrases,
   refineSpeechPhrases,
+  upcomingSpeechText,
 } from '../speech/phrasePlan'
 import { continueTextProsody, predictTextProsody } from '../speech/textProsody'
 import { MAX_VISUAL_SPEECH_TEXT_UNITS } from '../speech/textTiming'
 import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speechEvents'
 import { SpeechLifecycleController } from '../speechLifecycle'
+import { markTurnTrace } from '../turnTrace'
 import { compileSpeechBehaviorPlan } from './speechBehaviorPlan'
 import { SpeechMotionLease } from './speechLease'
 
@@ -79,6 +81,28 @@ export class SpeechMotionSource {
   current(nowMs: number = this.now()): SpeechIntent {
     this.scheduleProsodyWindow(nowMs)
     return this.intent
+  }
+
+  hasPlayback(scope: {
+    messageId: string
+    generation?: number
+    source: string
+  }): boolean {
+    return this.messageKey === speechMessageKey(scope) && this.intent.active
+  }
+
+  upcomingText(scope: {
+    messageId: string
+    generation?: number
+    source: string
+  }): string {
+    if (!this.hasPlayback(scope) || !this.rawProsody) return ''
+    return upcomingSpeechText(
+      this.rawProsody,
+      this.externalProsody ? this.prosodyText : this.behaviorText,
+      this.activeBehaviors(),
+      this.now(),
+    )
   }
 
   start(): void {
@@ -284,15 +308,37 @@ export class SpeechMotionSource {
     while (this.direction.size > 8)
       this.direction.delete(this.direction.keys().next().value!)
     if (key === this.messageKey && this.rawProsody) {
+      const before = this.intent.prosody
       this.publishProsody(
         this.rawProsody,
         this.externalProsody ? this.prosodyText : this.behaviorText,
       )
+      const changed =
+        this.intent.prosody?.accents.filter((accent) => {
+          const old = before?.accents.find(
+            (item) => item.textOffset === accent.textOffset,
+          )
+          return old && old.gesture !== accent.gesture
+        }).length ?? 0
+      markTurnTrace('director_phrase_effect', {
+        messageId: event.messageId,
+        phraseCount: directive.phrases?.length ?? 0,
+        changedAccents: changed,
+        disposition: changed ? 'revised' : 'unchanged-or-committed',
+      })
       this.flush()
+    } else if (directive.phrases?.length) {
+      markTurnTrace('director_phrase_effect', {
+        messageId: event.messageId,
+        phraseCount: directive.phrases.length,
+        changedAccents: 0,
+        disposition: 'queued',
+      })
     }
   }
 
   private publishProsody(base: SpeechProsodyPlan, text: string): void {
+    const previousUtterance = this.intent.prosody?.utteranceId
     this.rawProsody = base
     const direction = this.messageKey
       ? this.direction.get(this.messageKey)
@@ -306,6 +352,19 @@ export class SpeechMotionSource {
       this.activeBehaviors(),
       this.now(),
     )
+    if (direction?.phrases.length && previousUtterance !== base.utteranceId) {
+      const changed = prosody.accents.filter(
+        (accent, index) => accent.gesture !== base.accents[index]?.gesture,
+      ).length
+      if (changed) {
+        markTurnTrace('director_phrase_effect', {
+          utteranceId: base.utteranceId,
+          phraseCount: direction.phrases.length,
+          changedAccents: changed,
+          disposition: 'queued-revised',
+        })
+      }
+    }
     this.intent = {
       ...this.intent,
       prosody,

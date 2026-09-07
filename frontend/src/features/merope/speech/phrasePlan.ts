@@ -92,6 +92,42 @@ export function directorPhraseCoverage(
   })
 }
 
+/** Same commitment boundary as refinement; never invent a second speech clock. */
+export function upcomingSpeechText(
+  base: SpeechProsodyPlan,
+  text: string,
+  active: readonly BehaviorSnapshot[],
+  nowMs: number,
+): string {
+  let from = 0
+  let future = false
+  base.accents.forEach((accent, index) => {
+    if (accent.textOffset === undefined) return
+    if (nowMs >= accentCommitment(base, index, active)) {
+      from = Math.max(from, accent.textOffset)
+    } else {
+      future = true
+    }
+  })
+  // Strip quotes before slicing, so a cut inside a quote cannot turn another
+  // person's words into this character's emotional evidence.
+  return future ? unquotedSpeechText(text.normalize('NFKC')).slice(from) : ''
+}
+
+function accentCommitment(
+  base: SpeechProsodyPlan,
+  index: number,
+  active: readonly BehaviorSnapshot[],
+): number {
+  const accent = base.accents[index]!
+  return (
+    active.find(
+      (item) =>
+        item.id === speechAccentBehaviorId(base.utteranceId, accent, index),
+    )?.strokeStartAtMs ?? base.startedAtMs + accent.offsetMs - 44
+  )
+}
+
 /** Only a future beat can change delivery; the scheduler owns commitment. */
 export function refineSpeechPhrases(
   base: SpeechProsodyPlan,
@@ -146,8 +182,7 @@ export function refineSpeechPhrases(
       (item) =>
         item.id === speechAccentBehaviorId(base.utteranceId, accent, index),
     )
-    const committedAt =
-      behavior?.strokeStartAtMs ?? base.startedAtMs + accent.offsetMs - 44
+    const committedAt = accentCommitment(base, index, active)
     if (nowMs >= committedAt) return old ?? accent
     const matches =
       accent.textOffset === undefined

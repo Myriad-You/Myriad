@@ -112,6 +112,7 @@ async fn redeem_speak_intent(
                     activity: "talking".to_string(),
                     user_text: intent.gist.clone(),
                     response_text: Some(spoken.clone()),
+                    previous_phrases: Vec::new(),
                     task_success: None,
                     rig_state: last_live_presence(intent.user_id).rig_state,
                     motion_style,

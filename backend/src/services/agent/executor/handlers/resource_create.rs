@@ -16,6 +16,7 @@ use crate::services::agent::resource_create_pure::{
 };
 use crate::services::data_paths::paths;
 use crate::services::permission_service::{TappPermissionService, UserRole};
+use crate::services::tapp_install::select_install_approved_permissions;
 use crate::services::tapp_package_read::{installed_core_entry, installed_page_entry};
 use crate::GLOBAL_DYNAMIC_CONFIG;
 use chrono::Utc;
@@ -63,6 +64,7 @@ async fn persist_agent_tapp(
     let manifest =
         normalize_agent_tapp_manifest(manifest, tapp_id, name, description.as_deref(), &author)?;
     let requested_permissions = manifest_permission_strings(&manifest);
+    let approved_permissions = select_install_approved_permissions(&requested_permissions, &[]);
     let role = if crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await {
         UserRole::Admin
     } else {
@@ -70,7 +72,7 @@ async fn persist_agent_tapp(
     };
     let granted_permissions = {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-        TappPermissionService::filter_permissions_for_role(&config, role, &requested_permissions)
+        TappPermissionService::filter_permissions_for_role(&config, role, &approved_permissions)
     }
     .map_err(|error| format!("{}: {}", error.code(), error.message()))?;
 
@@ -141,8 +143,8 @@ async fn persist_agent_tapp(
         theme_color: Set(theme_color),
         manifest: Set(manifest),
         status: Set(tapps::TappStatus::Running),
-        granted_permissions: Set(json!(granted_permissions.clone())),
-        approved_permissions: Set(json!(granted_permissions)),
+        granted_permissions: Set(json!(granted_permissions)),
+        approved_permissions: Set(json!(approved_permissions)),
         file_path: Set(manifest_path.to_string_lossy().to_string()),
         code_path: Set(code_path.to_string_lossy().to_string()),
         installed_at: Set(now.into()),
@@ -596,4 +598,48 @@ async fn execute_bookmark_save(
             "timestamp": now.timestamp_millis()
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::DynamicConfig;
+
+    #[test]
+    fn agent_approval_survives_role_policy_changes() {
+        let requested = manifest_permission_strings(&json!({
+            "permissions": ["storage:read", "ai:generate"]
+        }));
+        let approved = select_install_approved_permissions(&requested, &[]);
+        assert_eq!(approved, requested);
+        let mut config = DynamicConfig {
+            user_perm_ai_generate: false,
+            ..DynamicConfig::default()
+        };
+        assert_eq!(
+            TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &approved)
+                .unwrap(),
+            vec!["storage:read"]
+        );
+        config.user_perm_ai_generate = true;
+        assert_eq!(
+            TappPermissionService::filter_permissions_for_role(&config, UserRole::User, &approved)
+                .unwrap(),
+            approved
+        );
+    }
+
+    #[test]
+    fn agent_install_unknown_permission_remains_fail_closed() {
+        let requested = manifest_permission_strings(&json!({
+            "permissions": ["storage:read", "unknown:permission"]
+        }));
+        let approved = select_install_approved_permissions(&requested, &[]);
+        assert!(TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::Admin,
+            &approved
+        )
+        .is_err());
+    }
 }

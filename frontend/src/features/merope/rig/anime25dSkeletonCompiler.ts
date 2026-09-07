@@ -1,4 +1,5 @@
 import type { Anime25DLayerRole } from './anime25d'
+import type { Anime25DImportCopy } from './anime25dImportCopy'
 import type { AnimeAnchors, PreparedLayer } from './anime25dImportTypes'
 import type {
   RigBone,
@@ -8,13 +9,13 @@ import type {
   RigPoint,
   RigRect,
 } from './types'
-import { currentCopy } from '../../../i18n/localeCopy'
 import { ANIME25D_LAYER_DEPTH } from './anime25d'
 import { MAX_RIG_BONES } from './contract'
 
 export function buildAnime25DBonesAndHandles(
   layers: PreparedLayer[],
   anchors: AnimeAnchors,
+  copy: Anime25DImportCopy,
 ): {
   bones: RigBone[]
   layerHandles: Map<string, RigBoneHandle[]>
@@ -46,7 +47,9 @@ export function buildAnime25DBonesAndHandles(
       layers.some(
         (layer) =>
           layer.side === side &&
-          (layer.role === 'eyelash' || layer.role === 'eye-close'),
+          (layer.role === 'eyelash' ||
+            layer.role === 'eye-close' ||
+            layer.role === 'eye-close2'),
       )
     ) {
       ensureBone(`a25d-eyelash-${side}`, 'face', eye)
@@ -138,10 +141,7 @@ export function buildAnime25DBonesAndHandles(
   }
   if (bones.length > MAX_RIG_BONES) {
     throw new Error(
-      currentCopy().merope.anime25dBoneLimit.replace(
-        '{max}',
-        String(MAX_RIG_BONES),
-      ),
+      copy.anime25dBoneLimit.replace('{max}', String(MAX_RIG_BONES)),
     )
   }
 
@@ -181,6 +181,7 @@ function handlesForLayer(
     side &&
     (layer.role === 'eyelash' ||
       layer.role === 'eye-close' ||
+      layer.role === 'eye-close2' ||
       layer.role === 'eye-dizzy' ||
       layer.role === 'eye-squeeze' ||
       layer.role === 'eye-cry' ||

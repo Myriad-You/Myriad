@@ -59,12 +59,16 @@ test('synthesizes at most two segments and plays in sequence order', async () =>
     },
   })
   pipeline.enqueue([segment(1, 'one'), segment(2, 'two'), segment(3, 'three')])
+  assert.equal(pipeline.upcomingText('msg-1', 1), 'one\ntwo\nthree')
+  assert.equal(pipeline.upcomingText('msg-1', 2), '')
+  assert.equal(pipeline.upcomingText('another', 1), '')
   assert.equal(synth.size, 2)
   assert.ok(maxInflight <= 2)
   synth.get('one')?.resolve(buffer('one'))
   synth.get('two')?.resolve(buffer('two'))
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.deepEqual(played, ['one'])
+  assert.equal(pipeline.upcomingText('msg-1', 1), 'two\nthree')
   ends[0]!()
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.deepEqual(played, ['one', 'two'])
@@ -72,6 +76,7 @@ test('synthesizes at most two segments and plays in sequence order', async () =>
   ends[1]!()
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.deepEqual(played, ['one', 'two', 'three'])
+  assert.equal(pipeline.upcomingText('msg-1', 1), '')
 })
 
 test('interrupt stops playback, clears the queue, and ignores late synth', async () => {

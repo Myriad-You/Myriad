@@ -43,6 +43,7 @@ pub(super) fn motion_context(
         activity: phase.activity().to_string(),
         user_text: request.raw_input.clone(),
         response_text,
+        previous_phrases: Vec::new(),
         task_success,
         rig_state: request_rig_state(request),
         motion_style,
@@ -77,6 +78,29 @@ pub(super) struct MotionRefinementGuard {
 }
 
 impl MotionRefinementGuard {
+    /// The reply is complete, not necessarily its playback. Keep already-started
+    /// refinement alive for the bounded playback window without retaining the
+    /// request/lane or delaying terminal. The client closes it when playback ends.
+    pub(super) fn finish_for_playback(
+        mut self,
+        live: super::playback_direction::PlaybackDirection,
+    ) {
+        tokio::spawn(async move {
+            let completed = tokio::select! {
+                biased;
+                _ = live.cancelled() => true,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => false,
+                _ = &mut self.task => true,
+            };
+            self.task.abort();
+            if completed {
+                live.finish();
+            } else {
+                live.close();
+            }
+        });
+    }
+
     #[cfg(test)]
     fn has_refinement(&self) -> bool {
         self.published.load(std::sync::atomic::Ordering::Acquire) != MotionPublication::None as u8
@@ -219,14 +243,36 @@ impl ChatMotionDelivery {
 pub(super) fn spawn_chat_motion_refinement(
     context: crate::services::agent::merope::MotionContext,
     tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    live: Option<super::playback_direction::PlaybackDirection>,
 ) -> (ChatMotionDelivery, MotionRefinementGuard) {
-    spawn_chat_motion_refinement_with(context, tx, crate::services::agent::merope::refine_motion)
+    spawn_chat_motion_refinement_in(
+        context,
+        tx,
+        crate::services::agent::merope::refine_motion,
+        live,
+    )
 }
 
+#[cfg(test)]
 pub(super) fn spawn_chat_motion_refinement_with<F, Fut>(
+    context: crate::services::agent::merope::MotionContext,
+    tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    refine: F,
+) -> (ChatMotionDelivery, MotionRefinementGuard)
+where
+    F: FnMut(crate::services::agent::merope::MotionContext) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Option<crate::services::agent::merope::PerformanceDirective>>
+        + Send
+        + 'static,
+{
+    spawn_chat_motion_refinement_in(context, tx, refine, None)
+}
+
+fn spawn_chat_motion_refinement_in<F, Fut>(
     mut context: crate::services::agent::merope::MotionContext,
     tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
     mut refine: F,
+    live: Option<super::playback_direction::PlaybackDirection>,
 ) -> (ChatMotionDelivery, MotionRefinementGuard)
 where
     F: FnMut(crate::services::agent::merope::MotionContext) -> Fut + Send + 'static,
@@ -247,33 +293,113 @@ where
         MotionPublication::None as u8,
     ));
     let did_publish = published.clone();
+    // Subscribe before spawning so feedback arriving before the worker's first
+    // scheduled poll is not marked as already seen by a late subscription.
+    let mut observations = live.as_ref().map(|slot| slot.observations());
     let task = tokio::spawn(async move {
+        let mut generation_open = true;
+        let mut generated = None;
+        let mut analyzed = String::new();
+        let mut calls = 0;
+        let mut playback_observed = false;
+        let cancelled = async {
+            if let Some(live) = &live {
+                live.cancelled().await;
+            } else {
+                tx.closed().await;
+            }
+        };
+        tokio::pin!(cancelled);
         loop {
             tokio::select! {
                 biased;
-                _ = tx.closed() => break,
-                update = updates.changed() => if update.is_err() { break },
+                _ = &mut cancelled => break,
+                update = updates.changed(), if generation_open => {
+                    generation_open = update.is_ok();
+                    generated = updates.borrow_and_update().clone();
+                    if !generation_open && live.is_none() { break; }
+                },
+                _ = async {
+                    if let Some(rx) = &mut observations {
+                        let _ = rx.changed().await;
+                        rx.borrow_and_update();
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => {},
             }
-            let text = updates.borrow_and_update().clone();
-            context.response_text = text;
+            context.response_text = generated.clone();
+            if let Some(observation) = live.as_ref().and_then(|slot| slot.observation()) {
+                playback_observed = true;
+                context.rig_state = myriad_merope::sanitize_rig_state(&observation.rig);
+                context.response_text = Some(observation.upcoming_text);
+            } else if playback_observed {
+                // Once playback has been observed, stale telemetry must not
+                // revert the director to already-generated, possibly spoken text.
+                continue;
+            }
+            let text = context.response_text.as_deref().unwrap_or("").trim();
+            // Cursor/pose feedback refreshes evidence, not the model bill.
+            // A suffix of an examined window is already covered. Only new
+            // upcoming content can request another single-flight refinement.
+            if text.is_empty() || analyzed.contains(text) {
+                continue;
+            }
+            if calls >= 12 {
+                break;
+            }
+            calls += 1;
+            analyzed = text.to_owned();
             // One in flight per round. New evidence replaces the pending value,
             // but doesn't repeatedly cancel a model that is about to finish.
             let result = tokio::select! {
                 biased;
-                _ = tx.closed() => break,
+                _ = &mut cancelled => break,
                 result = refine(context.clone()) => result,
             };
             if let Some(mut performance) = result {
                 // Spoken beats must use grounded phrase timing. Unanchored cues
                 // from an old window must not replay the immediate local beat.
                 performance.plan.cues.clear();
-                if try_publish_motion(&tx, performance) {
+                if let Some(observation) = live.as_ref().and_then(|slot| slot.observation()) {
+                    performance.phrases = myriad_merope::grounded_speech_phrases(
+                        &serde_json::to_value(&performance.phrases).unwrap_or_default(),
+                        Some(&observation.upcoming_text),
+                    );
+                    if observation.upcoming_text.trim().is_empty() {
+                        continue;
+                    }
+                } else if playback_observed {
+                    continue;
+                }
+                if myriad_merope::plan_is_empty(&performance.plan) && performance.phrases.is_empty()
+                {
+                    continue;
+                }
+                let issued = performance.phrases.clone();
+                let sent = if let Some(live) = &live {
+                    live.publish(performance)
+                } else {
+                    try_publish_motion(&tx, performance)
+                };
+                if sent {
+                    for phrase in issued {
+                        context
+                            .previous_phrases
+                            .retain(|old| old.text != phrase.text);
+                        context.previous_phrases.push(phrase);
+                    }
+                    let excess = context.previous_phrases.len().saturating_sub(6);
+                    context.previous_phrases.drain(..excess);
                     did_publish.store(
                         MotionPublication::Refined as u8,
                         std::sync::atomic::Ordering::Release,
                     );
                 }
             }
+        }
+        if let Some(live) = &live {
+            live.finish();
         }
     });
     (delivery, MotionRefinementGuard { task, published })
@@ -339,10 +465,212 @@ pub(super) mod motion_refinement_tests {
             activity: "thinking".into(),
             user_text: "tell me about that".into(),
             response_text: None,
+            previous_phrases: Vec::new(),
             task_success: None,
             rig_state: None,
             motion_style: "even".into(),
         }
+    }
+
+    #[tokio::test]
+    async fn playback_direction_new_evidence_has_a_per_round_call_budget() {
+        use super::super::playback_direction::{PlaybackDirection, PlaybackObservation};
+        let (tx, _rx) = tokio::sync::mpsc::channel(4);
+        let live = PlaybackDirection::default();
+        let (started, mut calls) = tokio::sync::mpsc::unbounded_channel();
+        let (_delivery, guard) = spawn_chat_motion_refinement_in(
+            context(),
+            tx,
+            move |_| {
+                started.send(()).unwrap();
+                async { None }
+            },
+            Some(live.clone()),
+        );
+        for index in 0..12 {
+            live.observe(PlaybackObservation {
+                upcoming_text: format!("新句段{index}。"),
+                rig: serde_json::json!({}),
+            });
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(1), calls.recv())
+                    .await
+                    .unwrap(),
+                Some(())
+            );
+        }
+        live.observe(PlaybackObservation {
+            upcoming_text: "第十三次不再调用。".into(),
+            rig: serde_json::json!({}),
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), live.read_after(0))
+                .await
+                .unwrap()
+                .closed
+        );
+        assert_eq!(calls.recv().await, None);
+        guard.stop().await;
+    }
+
+    #[tokio::test]
+    async fn playback_direction_uses_live_text_drops_spoken_results_and_carries_intentions() {
+        use super::super::playback_direction::{PlaybackDirection, PlaybackObservation};
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let live = PlaybackDirection::default();
+        let observe = |text: &str| {
+            live.observe(PlaybackObservation {
+                upcoming_text: text.into(),
+                rig: serde_json::json!({"expression":"subdued", "speaking":true}),
+            })
+        };
+        observe("也许可以试试。不过先解释清楚。");
+        let (started, mut contexts) = tokio::sync::mpsc::unbounded_channel();
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let blocked = gate.clone();
+        let (mut delivery, guard) = spawn_chat_motion_refinement_in(
+            context(),
+            tx.clone(),
+            move |context| {
+                let started = started.clone();
+                let blocked = blocked.clone();
+                async move {
+                    started.send(context.clone()).unwrap();
+                    blocked.acquire().await.unwrap().forget();
+                    let mut result =
+                        crate::services::agent::merope::local_directive(&context).unwrap();
+                    result.phrases = myriad_merope::grounded_speech_phrases(
+                        &serde_json::json!([
+                            {"text":"也许可以试试。","intent":"hesitate"},
+                            {"text":"不过先解释清楚。","intent":"explain"},
+                            {"text":"你觉得呢？","intent":"check-in"}
+                        ]),
+                        context.response_text.as_deref(),
+                    );
+                    Some(result)
+                }
+            },
+            Some(live.clone()),
+        );
+        delivery.observe("这是早已生成但现场已经说完的旧内容。", &tx);
+        let first = tokio::time::timeout(Duration::from_secs(1), contexts.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            first.response_text.as_deref(),
+            Some("也许可以试试。不过先解释清楚。")
+        );
+        assert_eq!(first.rig_state.unwrap().expression, "subdued");
+        observe("不过先解释清楚。"); // First phrase commits while inference is in flight.
+        gate.add_permits(1);
+        let result = tokio::time::timeout(Duration::from_secs(1), live.read_after(0))
+            .await
+            .unwrap();
+        let phrases = result.performance.unwrap().phrases;
+        assert_eq!(phrases.len(), 1);
+        assert_eq!(phrases[0].intent, "explain");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), contexts.recv())
+                .await
+                .is_err(),
+            "a suffix/pose update must not ask the same model question again"
+        );
+        drop(delivery);
+        guard.finish_for_playback(live.clone());
+        observe("不过先解释清楚。你觉得呢？"); // New queue evidence after prose terminal.
+        let next = tokio::time::timeout(Duration::from_secs(1), contexts.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.previous_phrases, phrases);
+        assert_eq!(
+            next.response_text.as_deref(),
+            Some("不过先解释清楚。你觉得呢？")
+        );
+        live.close();
+    }
+
+    #[tokio::test]
+    async fn playback_direction_survives_text_completion_but_not_playback_cancel() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let live = super::super::playback_direction::PlaybackDirection::default();
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let blocked = gate.clone();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let signal = entered.clone();
+        let (mut delivery, guard) = spawn_chat_motion_refinement_in(
+            context(),
+            tx.clone(),
+            move |context| {
+                let blocked = blocked.clone();
+                let signal = signal.clone();
+                async move {
+                    signal.notify_one();
+                    blocked.acquire().await.unwrap().forget();
+                    crate::services::agent::merope::local_directive(&context)
+                }
+            },
+            Some(live.clone()),
+        );
+        delivery.observe("这句话还没有播放完。", &tx);
+        tokio::time::timeout(Duration::from_secs(1), entered.notified())
+            .await
+            .unwrap();
+        drop(delivery); // Text generation has finished.
+        guard.finish_for_playback(live.clone()); // Returns without the model.
+        gate.add_permits(1);
+        let state = tokio::time::timeout(Duration::from_secs(1), live.read_after(0))
+            .await
+            .unwrap();
+        assert_eq!(state.version, 1);
+        assert!(state.performance.is_some());
+        live.close();
+        assert!(!live.publish(state.performance.unwrap()));
+    }
+
+    #[tokio::test]
+    async fn playback_direction_cancel_aborts_a_stalled_model_without_waiting_for_deadline() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let live = super::super::playback_direction::PlaybackDirection::default();
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        struct DropFlag(Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for DropFlag {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let flag = dropped.clone();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let signal = entered.clone();
+        let (mut delivery, guard) = spawn_chat_motion_refinement_in(
+            context(),
+            tx.clone(),
+            move |_| {
+                let flag = DropFlag(flag.clone());
+                let signal = signal.clone();
+                async move {
+                    let _flag = flag;
+                    signal.notify_one();
+                    std::future::pending().await
+                }
+            },
+            Some(live.clone()),
+        );
+        delivery.observe("还在播放。", &tx);
+        tokio::time::timeout(Duration::from_secs(1), entered.notified())
+            .await
+            .unwrap();
+        guard.finish_for_playback(live.clone());
+        live.close();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !dropped.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(live.read_after(0).await.version, 0);
     }
 
     #[tokio::test]

@@ -840,29 +840,39 @@ pub struct TappWidgetDef {
     pub refresh_policy: Option<TappWidgetRefreshPolicy>,
 }
 
+/// Widget 自己的分类。与顶层 [`TappCategory`] 使用同一套稳定 ID，只认规范值。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "tapp-contract-schema", derive(schemars::JsonSchema))]
 pub enum TappWidgetCategory {
-    #[serde(rename = "stats")]
-    Stats,
-    #[serde(rename = "activity")]
-    Activity,
-    #[serde(rename = "visualization")]
-    Visualization,
-    #[serde(rename = "utility", alias = "tool")]
+    #[serde(rename = "ai")]
+    Ai,
+    #[serde(rename = "data")]
+    Data,
+    #[serde(rename = "developer")]
+    Developer,
+    #[serde(rename = "game")]
+    Game,
+    #[serde(rename = "media")]
+    Media,
+    #[serde(rename = "productivity")]
+    Productivity,
+    #[serde(rename = "social")]
+    Social,
+    #[serde(rename = "utility")]
     Utility,
-    #[serde(rename = "custom")]
-    Custom,
 }
 
 impl TappWidgetCategory {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Stats => "stats",
-            Self::Activity => "activity",
-            Self::Visualization => "visualization",
+            Self::Ai => "ai",
+            Self::Data => "data",
+            Self::Developer => "developer",
+            Self::Game => "game",
+            Self::Media => "media",
+            Self::Productivity => "productivity",
+            Self::Social => "social",
             Self::Utility => "utility",
-            Self::Custom => "custom",
         }
     }
 }

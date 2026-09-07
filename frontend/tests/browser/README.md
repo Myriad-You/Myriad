@@ -1,4 +1,4 @@
-# Browser speech regressions
+# Isolated browser regressions
 
 Run from `frontend`:
 
@@ -26,3 +26,19 @@ These tests do **not** measure a real provider's latency, speech recognition
 accuracy, acoustic echo cancellation, Agora connectivity, or rendered avatar
 appearance. Those need separate opt-in provider and asset scenarios. Passing
 the speech producer check is not proof that a particular rig rendered the pose.
+
+## Rig import
+
+`pnpm test:browser rigImport.spec.ts` runs real PSD decoding and compilation in
+a browser Worker with OffscreenCanvas. A shared synthetic PSD fixture checks
+manifest and decoded PNG pixel parity with the page-side compiler, including
+true high collars and independent necklaces. It also checks cancellation during
+packing, successful retry, and the page's selected error language. It needs no
+backend, login, existing assets, or UI manipulation. This verifies import parity,
+not GPU motion quality or the accuracy of generated layer artwork.
+
+The eye fixture also runs the production WebGL player through automatic blink,
+deliberate one-/two-eye closure, crying and reopening. It checks the compiled
+layer opacity choices and bounded rebound on actual player ticks. This is a
+render-path regression using synthetic artwork, not a subjective appearance
+review of a user's character.

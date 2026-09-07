@@ -42,6 +42,7 @@ export const ANIME25D_LAYER_DESCRIPTORS = {
   'lovestruck-heart': { depth: 1.1, fade: 'lovestruckHeart' },
   eyelash: { depth: 1.12, fade: 'eyeOpen' },
   'eye-close': { depth: 1.12, fade: 'eyeClose' },
+  'eye-close2': { depth: 1.12, fade: 'eyeClose' },
   'eye-dizzy': { depth: 1.12, fade: 'eyeDizzy' },
   'eye-squeeze': { depth: 1.12, fade: 'eyeSqueeze' },
   'eye-cry': { depth: 1.12, fade: 'eyeCry' },

@@ -21,9 +21,11 @@ import {
   storeAssetStorePath,
   storePackageRoot,
 } from './utils/storePackagePaths.ts'
+import { classifyWidgetLibraryKind } from '../components/widgetLibrarySearch.ts'
 import {
   normalizeTappCategory,
   TAPP_CATEGORIES,
+  TAPP_WIDGET_CATEGORIES,
 } from './utils/tappCategories.ts'
 import {
   isLargeTappInstall,
@@ -128,6 +130,79 @@ describe('tapp docs gating consistency', () => {
     assert.equal(normalizeTappCategory('tools'), 'utility')
     assert.equal(normalizeTappCategory('music'), 'media')
     assert.equal(normalizeTappCategory('development'), 'developer')
+  })
+
+  it('widget categories match system Tapp IDs one-to-one', () => {
+    assert.deepEqual(
+      [...TAPP_WIDGET_CATEGORIES],
+      [...TAPP_CATEGORIES],
+      'Widget categories must be the same stable IDs as app categories',
+    )
+    const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
+    const section =
+      manifest.split('### Widget 分类')[1]?.split('### templates')[0] ?? ''
+    const ids = [...section.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm)].map(
+      (m) => m[1],
+    )
+    assert.deepEqual(
+      [...ids].sort(),
+      [...TAPP_CATEGORIES].sort(),
+      'MANIFEST Widget 分类 table must match TAPP_CATEGORIES',
+    )
+    assert.match(section, /同一套/)
+    assert.match(section, /\*\*限制\*\*/)
+    assert.match(section, /只能写上表八个/)
+    for (const category of TAPP_CATEGORIES) {
+      assert.match(section, new RegExp(`\`tapp:${category}\``))
+      assert.equal(
+        classifyWidgetLibraryKind({
+          id: `com.example.${category}`,
+          isTappWidget: true,
+          category,
+        }),
+        `tapp:${category}`,
+      )
+    }
+    assert.equal(
+      classifyWidgetLibraryKind({
+        id: 'com.example.omitted',
+        isTappWidget: true,
+      }),
+      'tapp:utility',
+    )
+
+    const widgetDoc = read(join(DOCS_TAPP, 'WIDGET.md'))
+    assert.match(widgetDoc, /同一套/)
+    assert.match(widgetDoc, /MANIFEST\.md#widget-分类/)
+    assert.match(widgetDoc, /\*\*限制\*\*/)
+
+    const apiSection =
+      read(join(DOCS_TAPP, 'API_REFERENCE.md'))
+        .split('## 小组件 API')[1]
+        ?.split('## ')[0] ?? ''
+    assert.match(apiSection, /Widget 分类/)
+    assert.match(apiSection, /MANIFEST\.md#widget-分类/)
+    assert.match(
+      apiSection,
+      /ai.*data.*developer.*game.*media.*productivity.*social.*utility/,
+    )
+    assert.match(apiSection, /只能写这八个规范 ID/)
+
+    const playground = read(join(DOCS_TAPP, 'PLAYGROUND_GENERATION_CONTEXT.md'))
+    assert.match(playground, /同一套稳定 ID/)
+    assert.match(playground, /只能写这些规范值/)
+
+    const generatePrompt = read(
+      join(REPO, 'backend/src/api/tapp_playground/types_generate.rs'),
+    )
+    const promptStart = generatePrompt.indexOf('const PLAYGROUND_SYSTEM_PROMPT')
+    const promptEnd = generatePrompt.indexOf('"##;', promptStart)
+    const systemPrompt = generatePrompt.slice(promptStart, promptEnd)
+    assert.ok(systemPrompt.length > 80, 'PLAYGROUND_SYSTEM_PROMPT must exist')
+    assert.match(
+      systemPrompt,
+      /ai, data, developer, game, media,\s*productivity, social, utility/,
+    )
   })
 
   it('store package path helpers match documented examples', () => {

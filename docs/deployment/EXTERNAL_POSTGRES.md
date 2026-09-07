@@ -76,7 +76,7 @@ MYRIAD_DB_MODE=external
 DATABASE_URL=postgres://myriad:CHANGE_ME@192.168.1.10:5432/myriad?sslmode=prefer
 
 # 其余与默认部署相同（版本号请换成当前 release）
-MYRIAD_TAG=v0.4.8
+MYRIAD_TAG=v0.4.9
 PROXY_TAG=v0.4.6
 UPDATER_TAG=v0.4.6
 # 生产 TCB 以 digest 为准，不要只靠 UPDATER_TAG：

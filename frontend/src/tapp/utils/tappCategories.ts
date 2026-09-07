@@ -1,4 +1,4 @@
-import type { TappCategory, TappManifest } from '../types'
+import type { TappCategory, TappManifest, WidgetCategory } from '../types'
 
 /**
  * Tapp 用途分类的稳定 ID。运行形态（Page / Widget）和发布阶段
@@ -14,6 +14,19 @@ export const TAPP_CATEGORIES = [
   'social',
   'utility',
 ] as const satisfies readonly TappCategory[]
+
+/** Widget `category` 与应用用途使用同一套稳定 ID。 */
+export const TAPP_WIDGET_CATEGORIES = TAPP_CATEGORIES
+
+export function parseTappWidgetCategory(
+  category: string | null | undefined,
+): WidgetCategory | null {
+  if (!category) return null
+  const id = category.trim().toLowerCase()
+  return (TAPP_WIDGET_CATEGORIES as readonly string[]).includes(id)
+    ? (id as WidgetCategory)
+    : null
+}
 
 export const TAPP_CATEGORY_I18N_KEYS = {
   ai: 'categoryAI',

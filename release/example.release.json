@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
-  "version": "v0.4.8",
+  "version": "v0.4.9",
   "commit_sha": "0123456789abcdef0123456789abcdef01234567",
   "channel": "stable",
   "released_at": "2026-05-16T00:00:00Z",
   "min_from_version": "v0.4.0",
   "images": {
     "backend": {
-      "ref": "docker.io/somekawahitomi/myriad-backend:v0.4.8",
+      "ref": "docker.io/somekawahitomi/myriad-backend:v0.4.9",
       "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "frontend": {
-      "ref": "docker.io/somekawahitomi/myriad-frontend:v0.4.8",
+      "ref": "docker.io/somekawahitomi/myriad-frontend:v0.4.9",
       "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     "proxy": {
@@ -45,6 +45,6 @@
     "min_pg_version": "16",
     "max_pg_version": "unbounded"
   },
-  "notes_url": "https://github.com/Myriad-You/Myriad/releases/tag/v0.4.8",
+  "notes_url": "https://github.com/Myriad-You/Myriad/releases/tag/v0.4.9",
   "signature": null
 }

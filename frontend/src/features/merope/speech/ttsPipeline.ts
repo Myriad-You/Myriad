@@ -83,6 +83,29 @@ export class TtsPipeline {
     )
   }
 
+  /** Ordered future segments only; the speech source owns the playing cursor. */
+  upcomingText(messageId: string, generation: number): string {
+    return [
+      ...this.pending,
+      ...[...this.ready].map(([playId, slot]) => ({
+        playId,
+        segment: slot.segment,
+      })),
+      ...[...this.synthesis].map(([playId, task]) => ({
+        playId,
+        segment: task.segment,
+      })),
+    ]
+      .filter(
+        ({ segment }) =>
+          segment.messageId === messageId && segment.generation === generation,
+      )
+      .sort((a, b) => a.playId - b.playId)
+      .slice(0, 6)
+      .map(({ segment }) => segment.text)
+      .join('\n')
+  }
+
   enqueue(
     segments: readonly SpeechSegment[],
     mode: SpeechInterruptMode = 'queue',

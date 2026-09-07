@@ -43,7 +43,9 @@ export async function preflightRigAsset(
   dependencies: RigAssetPreflightDependencies,
   onStage?: (event: RigAssetCompileEvent) => void,
   sourceGenerationFingerprint?: string,
+  signal?: AbortSignal,
 ): Promise<RigAssetPreflight> {
+  signal?.throwIfAborted()
   emit(onStage, 'validate-source', 'started')
   let prepared: Awaited<ReturnType<typeof prepareRigPsdImport>>
   let activeStage: RigAssetCompileStage = 'validate-source'
@@ -60,13 +62,16 @@ export async function preflightRigAsset(
         }
       },
       sourceGenerationFingerprint,
+      signal,
     )
+    signal?.throwIfAborted()
     if (activeStage === 'validate-source') {
       emit(onStage, 'validate-source', 'completed')
       emit(onStage, 'pack-atlas', 'started')
     }
     emit(onStage, 'pack-atlas', 'completed')
   } catch (error) {
+    signal?.throwIfAborted()
     const message = errorMessage(error)
     emit(onStage, activeStage, 'failed', message)
     throw error
@@ -79,6 +84,7 @@ export async function preflightRigAsset(
       prepared.atlas,
       prepared.analysisReference,
     )
+    signal?.throwIfAborted()
     copyPreviewPlaybackProfiles(prepared.source, manifest)
     emit(onStage, 'compile-preview', 'completed')
     emit(onStage, 'analyze-capabilities', 'started')
@@ -86,6 +92,7 @@ export async function preflightRigAsset(
     emit(onStage, 'analyze-capabilities', 'completed')
     return { manifest, partCount: prepared.partCount, prepared, report }
   } catch (error) {
+    signal?.throwIfAborted()
     emit(onStage, 'compile-preview', 'failed', errorMessage(error))
     throw error
   }
