@@ -150,9 +150,10 @@ pub fn decode_sticker_upload(source: &str) -> Result<(Vec<u8>, &'static str), Ap
         .and_then(|mime| match mime {
             "image/png" => Some("image/png"),
             "image/jpeg" => Some("image/jpeg"),
+            "image/webp" => Some("image/webp"),
             _ => None,
         })
-        .ok_or_else(|| invalid_sticker_image("sticker image must be base64 PNG or JPEG"))?;
+        .ok_or_else(|| invalid_sticker_image("sticker image must be base64 PNG, JPEG, or WebP"))?;
     if encoded.len() > MAX_STICKER_UPLOAD_BYTES.div_ceil(3) * 4 {
         return Err(invalid_sticker_image("sticker image is too large"));
     }
@@ -319,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn decode_sticker_upload_accepts_png_data_url() {
+    fn decode_sticker_upload_accepts_png_jpeg_and_webp_data_urls() {
         let png = image::RgbaImage::from_pixel(4, 4, image::Rgba([20, 180, 40, 255]));
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgba8(png)
@@ -332,5 +333,33 @@ mod tests {
         let (decoded, media) = decode_sticker_upload(&url).unwrap();
         assert_eq!(decoded, bytes);
         assert_eq!(media, "image/png");
+
+        let jpeg = format!(
+            "data:image/jpeg;base64,{}",
+            super::BASE64.encode(b"\xff\xd8\xff")
+        );
+        assert_eq!(decode_sticker_upload(&jpeg).unwrap().1, "image/jpeg");
+
+        let webp = format!(
+            "data:image/webp;base64,{}",
+            super::BASE64.encode(b"RIFF\x08\0\0\0WEBP")
+        );
+        assert_eq!(decode_sticker_upload(&webp).unwrap().1, "image/webp");
+        assert!(decode_sticker_upload("data:image/gif;base64,R0lG").is_err());
+
+        let mut encoded = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            2,
+            2,
+            image::Rgba([20, 180, 40, 255]),
+        ))
+        .write_to(
+            &mut std::io::Cursor::new(&mut encoded),
+            image::ImageFormat::WebP,
+        )
+        .unwrap();
+        let decoded = image::load_from_memory(&encoded).unwrap();
+        assert_eq!(decoded.width(), 2);
+        assert_eq!(decoded.height(), 2);
     }
 }

@@ -37,6 +37,11 @@ import { useNotificationCenter } from '../hooks/useNotificationCenter'
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { useWallpaper } from '../hooks/useWallpaper'
+import {
+  getTourSnapshot,
+  subscribeTour,
+} from './tour/tourEngine'
+import { homeBrowseTourPanelPose } from './tour/tourLogic'
 import { getDynamicContentProvider } from '../services/DynamicContentProvider'
 import {
   allowsIslandType,
@@ -44,6 +49,7 @@ import {
   ISLAND_CONTENT_CHANGED_EVENT,
   islandContentFromPublicUi,
 } from '../utils/islandContent'
+import { CONTROL_PANEL_HEIGHT_COMPENSATION } from '../utils/libraryDockStage'
 import {
   notificationSourceFor,
   notificationToastType,
@@ -97,6 +103,11 @@ import {
 } from './notifications/NotificationIcons'
 import { WeatherAssetIcon } from './weather/WeatherAssetIcon'
 import './GlobalControlPanel.css'
+
+function readHomeBrowseTourPanelPose() {
+  const snapshot = getTourSnapshot()
+  return homeBrowseTourPanelPose(snapshot.tourId, snapshot.step?.id ?? null)
+}
 
 // 懒加载展开面板子组件 — 仅在用户展开面板时加载
 const ControlPanelWidgets = lazy(() =>
@@ -1094,7 +1105,7 @@ const GlobalControlPanel: React.FC = () => {
       const raw = contentEl.scrollHeight
 
       // 适当补偿 (考虑内边距 + 过渡)
-      const compensated = Math.ceil(raw * 1.08)
+      const compensated = Math.ceil(raw * CONTROL_PANEL_HEIGHT_COMPENSATION)
 
       if (Math.abs(compensated - lastHeight) > 4) {
         lastHeight = compensated
@@ -1434,6 +1445,37 @@ const GlobalControlPanel: React.FC = () => {
       window.removeEventListener('open-control-panel', handleOpenPanel)
     }
   }, [handleTogglePanel])
+
+  const tourPanelPose = useSyncExternalStore(
+    subscribeTour,
+    readHomeBrowseTourPanelPose,
+    readHomeBrowseTourPanelPose,
+  )
+  const tourDrovePanel = useRef(false)
+
+  useLayoutEffect(() => {
+    if (tourPanelPose === 'expanded') {
+      tourDrovePanel.current = true
+      if (!isExpandedRef.current) {
+        expandPanel('control')
+        setForegroundSurface('control_panel')
+        return
+      }
+      if (panelTab !== 'control') {
+        dispatchPanel({ type: 'selectTab', tab: 'control' })
+      }
+      return
+    }
+    if (tourPanelPose === 'collapsed') {
+      if (isExpandedRef.current) handleClosePanel()
+      tourDrovePanel.current = false
+      return
+    }
+    if (tourDrovePanel.current) {
+      if (isExpandedRef.current) handleClosePanel()
+      tourDrovePanel.current = false
+    }
+  }, [expandPanel, handleClosePanel, panelTab, tourPanelPose])
 
   // 音乐错误兜底提示：面板收起时 MusicPlayer 的内联错误不可见
   // （典型场景：Agent 触发歌单加载失败），用全局 toast 兜底；
@@ -1818,6 +1860,7 @@ const GlobalControlPanel: React.FC = () => {
             <div
               ref={expandedContentRef}
               className={`expanded-panel-content ${showPanelContent ? 'visible' : ''}`}
+              data-tour="control-panel"
             >
               {/* 头部 - 用户信息按钮 */}
               <div className="control-panel-header">

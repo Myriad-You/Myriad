@@ -3,8 +3,10 @@
  */
 
 import type {
+  AddRsshubInstanceRequest,
   AddSourceRequest,
   BrewCategoriesResponse,
+  BrewCategory,
   BrewItem,
   BrewItemsQuery,
   BrewItemsResponse,
@@ -13,6 +15,9 @@ import type {
   BrewStats,
   BrewStatsResponse,
   CreateCategoryRequest,
+  RsshubInstance,
+  UpdateCategoryRequest,
+  UpdateRsshubInstanceRequest,
   UpdateSourceRequest,
 } from '../types/brew'
 import { API_URL } from '../config'
@@ -310,13 +315,75 @@ export function invalidateCategoriesCache(): void {
 export async function createCategory(
   req: CreateCategoryRequest,
   attributionHeaders?: BrewAttributionHeaders,
-): Promise<void> {
-  await request('/categories', {
-    method: 'POST',
-    body: JSON.stringify(req),
-    headers: attributionHeaders,
-  })
+): Promise<BrewCategory> {
+  const data = await request<{ success: boolean; category: BrewCategory }>(
+    '/categories',
+    {
+      method: 'POST',
+      body: JSON.stringify(req),
+      headers: attributionHeaders,
+    },
+  )
   invalidateCategoriesCache()
+  return data.category
+}
+
+export async function updateCategory(
+  id: number,
+  req: UpdateCategoryRequest,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<BrewCategory> {
+  const data = await request<{ success: boolean; category: BrewCategory }>(
+    `/categories/${id}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(req),
+      headers: attributionHeaders,
+    },
+  )
+  invalidateCategoriesCache()
+  return data.category
+}
+
+export async function listRsshubInstances(
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<RsshubInstance[]> {
+  const data = await request<{
+    success: boolean
+    instances: RsshubInstance[]
+  }>('/rsshub/instances', { headers: attributionHeaders })
+  return data.instances || []
+}
+
+export async function addRsshubInstance(
+  req: AddRsshubInstanceRequest,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<RsshubInstance> {
+  const data = await request<{ success: boolean; instance: RsshubInstance }>(
+    '/rsshub/instances',
+    {
+      method: 'POST',
+      body: JSON.stringify(req),
+      headers: attributionHeaders,
+    },
+  )
+  return data.instance
+}
+
+export async function updateRsshubInstance(
+  id: number,
+  req: UpdateRsshubInstanceRequest,
+  attributionHeaders?: BrewAttributionHeaders,
+): Promise<RsshubInstance> {
+  const data = await request<{ success: boolean; instance: RsshubInstance }>(
+    `/rsshub/instances/${id}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(req),
+      headers: attributionHeaders,
+    },
+  )
+  return data.instance
 }
 
 /**

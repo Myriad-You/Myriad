@@ -57,12 +57,13 @@ impl Agent {
             crate::services::agent::consciousness::live_presence_from_request(&request),
         );
         crate::services::agent::merope::mark_activity(&self.db, user_id, "thinking").await;
-        let mood_transition = crate::services::agent::merope::note_user_turn(
+        let (mood_transition, memory_input_at) = crate::services::agent::merope::note_user_turn(
             &self.db,
             &request,
             utterance_index_in_session(&request),
         )
-        .await;
+        .await
+        .unzip();
         let mood_before = mood_transition.as_ref().map(|transition| transition.before);
         let round_motion_style = round_motion_style(&request, mood_transition.as_ref()).await;
 
@@ -71,7 +72,12 @@ impl Agent {
             context.interaction_mode == crate::services::agent::AgentInteractionMode::Chat
         }) {
             return self
-                .process_chat(request, mood_transition, round_motion_style)
+                .process_chat(
+                    request,
+                    mood_transition,
+                    round_motion_style,
+                    memory_input_at,
+                )
                 .await;
         }
 
@@ -123,12 +129,13 @@ impl Agent {
             crate::services::agent::consciousness::live_presence_from_request(&request),
         );
         crate::services::agent::merope::mark_activity(&self.db, user_id, "thinking").await;
-        let mood_transition = crate::services::agent::merope::note_user_turn(
+        let (mood_transition, memory_input_at) = crate::services::agent::merope::note_user_turn(
             &self.db,
             &request,
             utterance_index_in_session(&request),
         )
-        .await;
+        .await
+        .unzip();
         let mood_before = mood_transition.as_ref().map(|transition| transition.before);
         let round_motion_style = round_motion_style(&request, mood_transition.as_ref()).await;
 
@@ -153,6 +160,7 @@ impl Agent {
                     progress_tx,
                     mood_transition,
                     round_motion_style,
+                    memory_input_at,
                 )
                 .await;
         }

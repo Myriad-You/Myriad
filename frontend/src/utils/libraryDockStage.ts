@@ -18,8 +18,19 @@ export const LIBRARY_DOCK_STAGE_INSET_REM = 1.5
 
 /** Matches `.global-control-bar { top; right }`. */
 export const CONTROL_PANEL_INSET_REM = 1
+/** Matches `@media (width <= 640px) { .global-control-bar { top; right } }`. */
+export const CONTROL_PANEL_MOBILE_MAX_PX = 640
+export const CONTROL_PANEL_MOBILE_INSET_REM = 0.75
 /** Matches `.control-bar-trigger.expanded { width }`. */
 export const CONTROL_PANEL_EXPANDED_WIDTH_PX = 400
+/** Matches `.control-bar-trigger.expanded { border-radius }`. */
+export const CONTROL_PANEL_EXPANDED_RADIUS_REM = 1.5
+/** Matches `GlobalControlPanel` height: `ceil(scrollHeight * 1.08)`. */
+export const CONTROL_PANEL_HEIGHT_COMPENSATION = 1.08
+/** Matches `.control-bar-trigger` collapsed chrome. */
+export const CONTROL_PANEL_COLLAPSED_WIDTH_PX = 160
+export const CONTROL_PANEL_COLLAPSED_HEIGHT_REM = 3
+export const CONTROL_PANEL_COLLAPSED_RADIUS_REM = 2
 /** Gap between the unparkable catalog and the expanded control panel. */
 export const LIBRARY_BESIDE_PANEL_GAP_REM = 1
 export const LIBRARY_BESIDE_PANEL_ANCHOR =
@@ -44,7 +55,7 @@ export const LIBRARY_DOCK_STAGE_ORIGIN_Y = 0.5
  * Home-owned chrome uses the data attr; nav / control bar are platform chrome.
  */
 export const LIBRARY_DOCK_CHROME_ATTR = 'data-library-dock-chrome'
-export const LIBRARY_DOCK_POINTER_CHROME = `[${LIBRARY_DOCK_CHROME_ATTR}], [data-sticker-pick], .nav-container, .global-control-bar`
+export const LIBRARY_DOCK_POINTER_CHROME = `[${LIBRARY_DOCK_CHROME_ATTR}], [data-sticker-pick], .nav-container, .global-control-bar, .tour-overlay`
 export const LIBRARY_DOCK_RESTORE_BLOCK =
   '.widget-grid-item, button, input, select, textarea, a, [role="button"]'
 
@@ -141,6 +152,67 @@ export function fallbackControlPanelEdge(
   }
 }
 
+export function compensatedControlPanelHeight(contentHeight: number): number {
+  return Math.max(
+    0,
+    Math.ceil(contentHeight * CONTROL_PANEL_HEIGHT_COMPENSATION),
+  )
+}
+
+export function controlPanelChromeInset(
+  viewportWidth: number,
+  rootFontSize = 16,
+): number {
+  const rem = rootFontSize > 0 ? rootFontSize : 16
+  const mobile = viewportWidth <= CONTROL_PANEL_MOBILE_MAX_PX
+  return (mobile ? CONTROL_PANEL_MOBILE_INSET_REM : CONTROL_PANEL_INSET_REM) * rem
+}
+
+/** 展开终态外壳：右上 inset + 宽 400 / 窄屏铺满，不读 morph 中的 width。 */
+export function expandedControlPanelMetrics(
+  viewportWidth: number,
+  rootFontSize = 16,
+): { top: number; left: number; width: number } {
+  const rem = rootFontSize > 0 ? rootFontSize : 16
+  const inset = controlPanelChromeInset(viewportWidth, rem)
+  const width =
+    viewportWidth <= CONTROL_PANEL_MOBILE_MAX_PX
+      ? Math.max(0, viewportWidth - inset * 2)
+      : CONTROL_PANEL_EXPANDED_WIDTH_PX
+  return {
+    top: inset,
+    left: viewportWidth - inset - width,
+    width,
+  }
+}
+
+export function predictExpandedControlPanelBox(
+  viewportWidth: number,
+  contentHeight: number,
+  rootFontSize = 16,
+): { top: number; left: number; width: number; height: number } {
+  return {
+    ...expandedControlPanelMetrics(viewportWidth, rootFontSize),
+    height: compensatedControlPanelHeight(contentHeight),
+  }
+}
+
+/** 收缩终态控制岛：右上 inset + 160×3rem，不读收起 morph 中的尺寸。 */
+export function predictCollapsedControlPanelBox(
+  viewportWidth: number,
+  rootFontSize = 16,
+): { top: number; left: number; width: number; height: number } {
+  const rem = rootFontSize > 0 ? rootFontSize : 16
+  const inset = controlPanelChromeInset(viewportWidth, rem)
+  const width = CONTROL_PANEL_COLLAPSED_WIDTH_PX
+  return {
+    top: inset,
+    left: viewportWidth - inset - width,
+    width,
+    height: CONTROL_PANEL_COLLAPSED_HEIGHT_REM * rem,
+  }
+}
+
 /**
  * Unparkable catalog: sit in the slot left of the expanded control panel.
  * Home dock size is the preferred cap; the slot may shrink it.
@@ -199,6 +271,23 @@ export function libraryDockIslandBoxStyle(
     bottom: LIBRARY_DOCK_BOTTOM_REM * rem,
     left: '50%',
     transformOrigin: `${LIBRARY_DOCK_STAGE_ORIGIN_X * 100}% ${LIBRARY_DOCK_STAGE_ORIGIN_Y * 100}%`,
+  }
+}
+
+/** Rest pose: centered, `left: 50%` + `translateX(-width/2)`, `bottom: 5.25rem`. */
+export function predictRestoredLibraryDockBox(
+  viewportWidth: number,
+  viewportHeight: number,
+  rootFontSize = 16,
+): { top: number; left: number; width: number; height: number } {
+  const rem = rootFontSize > 0 ? rootFontSize : 16
+  const island = libraryDockIslandSize(viewportWidth, viewportHeight, rem)
+  const bottom = LIBRARY_DOCK_BOTTOM_REM * rem
+  return {
+    width: island.width,
+    height: island.height,
+    left: viewportWidth / 2 - island.width / 2,
+    top: viewportHeight - bottom - island.height,
   }
 }
 

@@ -8,6 +8,7 @@ pub(super) async fn run(
     persona: &agent_persona::Model,
     model_override: Option<&str>,
     policy: Option<Policy>,
+    memory_only: bool,
 ) {
     let mut rows = Vec::new();
     // Same schema/prompt and validator as production; no extraction/store call.
@@ -54,6 +55,41 @@ pub(super) async fn run(
             vec![],
             None,
         ),
+        (
+            "correction",
+            "我现在不喝咖啡了。",
+            "知道了。",
+            vec!["喜欢咖啡".into()],
+            Some("咖啡"),
+        ),
+        (
+            "addition",
+            "我也喜欢喝茶。",
+            "两种都不错。",
+            vec!["喜欢咖啡".into()],
+            Some("茶"),
+        ),
+        (
+            "withdrawal",
+            "你记的咖啡偏好不对，把那条记忆撤回吧。",
+            "好。",
+            vec!["喜欢咖啡".into()],
+            None,
+        ),
+        (
+            "quoted_correction",
+            "请翻译这句小说台词：‘我现在不喝咖啡了’。",
+            "这只是翻译。",
+            vec!["喜欢咖啡".into()],
+            None,
+        ),
+        (
+            "partial_correction",
+            "我现在不喝咖啡了，但还是喜欢茶。",
+            "好。",
+            vec!["喜欢咖啡，也喜欢茶".into()],
+            Some("茶"),
+        ),
     ] {
         let (system, schema) = chat_remember::live_probe_contract(&existing);
         let input = json!({"userText":user,"reply":reply}).to_string();
@@ -79,33 +115,45 @@ pub(super) async fn run(
             }
         })
         .await;
-        let valid = result
+        let update = result
             .as_ref()
             .ok()
             .and_then(|r| r.as_ref().ok())
-            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
-            .is_some_and(|value| {
-                value.as_object().is_some_and(|object| object.len() == 1)
-                    && value
-                        .get("fact")
-                        .is_some_and(|fact| fact.is_null() || fact.is_string())
-            });
-        let semantic = result
-            .as_ref()
-            .ok()
-            .and_then(|r| r.as_ref().ok())
-            .is_some_and(
-                |raw| match (needle, chat_remember::parse_chat_remember_fact(raw)) {
+            .and_then(|raw| chat_remember::parse_chat_memory_update(raw, user, &existing));
+        let valid = update.is_some();
+        let semantic =
+            update
+                .as_ref()
+                .is_some_and(|update| match (needle, update.fact.as_deref()) {
                     (Some(needle), Some(fact)) => {
                         fact.contains(needle) && fact.chars().count() <= 240
                     }
-                    (None, None) => valid,
+                    (None, None) => true,
                     _ => false,
-                },
-            );
-        let row = json!({"consumer":"memory","id":id,"requestTimeoutMs":4000,"totalTimeoutMs":5000,"outcome":outcome(&result),"valid":valid,"semanticOk":semantic,"latencyMs":start.elapsed().as_millis(),"observation":observation});
+                })
+                && update.as_ref().is_some_and(|update| {
+                    let expected: Vec<String> = match id {
+                        "correction" | "withdrawal" => vec!["喜欢咖啡".into()],
+                        "partial_correction" => vec!["喜欢咖啡，也喜欢茶".into()],
+                        _ => vec![],
+                    };
+                    update.supersedes == expected
+                        && (!matches!(id, "correction" | "partial_correction")
+                            || update.fact.as_deref().is_some_and(|fact| {
+                                ["不", "停止", "戒"].iter().any(|word| fact.contains(word))
+                                    && fact.contains("咖啡")
+                            }))
+                });
+        let interpretation = update
+            .as_ref()
+            .map(|update| json!({"fact": update.fact, "supersedes": update.supersedes}));
+        let row = json!({"consumer":"memory","id":id,"requestTimeoutMs":4000,"totalTimeoutMs":5000,"outcome":outcome(&result),"valid":valid,"semanticOk":semantic,"interpretation":interpretation,"latencyMs":start.elapsed().as_millis(),"observation":observation});
         println!("{row}");
         rows.push(row);
+    }
+    if memory_only {
+        finish_report(report, model, policy, rows);
+        return;
     }
     for (id, speaking, singing, phase, user, response) in [
         (
@@ -201,6 +249,15 @@ pub(super) async fn run(
         println!("{row}");
         rows.push(row);
     }
+    finish_report(report, model, policy, rows);
+}
+
+fn finish_report(
+    report: &mut std::fs::File,
+    model: &str,
+    policy: Option<Policy>,
+    rows: Vec<Value>,
+) {
     let passed = rows
         .iter()
         .all(|row| row["valid"] == true && row["semanticOk"] != false);

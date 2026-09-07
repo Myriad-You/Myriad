@@ -5,6 +5,7 @@
  */
 
 import type { CSSProperties } from 'react'
+import type { HomeEditTourDockPose } from '../components/tour/tourLogic'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   LIBRARY_BESIDE_PANEL_ANCHOR,
@@ -96,6 +97,8 @@ export function useLibraryDockStage(input: {
   reducedMotion: boolean
   /** Sticker cell-pick: keep the dock parked and ignore grid clicks. */
   pausePointer?: boolean
+  /** 编辑教程：小组件库步拉开，其余步锁停靠。 */
+  tourDockPose?: HomeEditTourDockPose
 }) {
   const {
     parkable,
@@ -105,6 +108,7 @@ export function useLibraryDockStage(input: {
     windowHeight,
     reducedMotion,
     pausePointer = false,
+    tourDockPose,
   } = input
 
   const keepParkedRef = useRef(parkable)
@@ -234,10 +238,11 @@ export function useLibraryDockStage(input: {
   }, [parkable, widgetDragActive])
 
   const consumeEscape = useCallback(() => {
+    if (tourDockPose) return false
     if (!parkable || !staged) return false
     restore()
     return true
-  }, [parkable, restore, staged])
+  }, [parkable, restore, staged, tourDockPose])
 
   const onIslandAnimationComplete = useCallback(() => {
     if (stagedRef.current) setParkMotionDone(true)
@@ -278,10 +283,31 @@ export function useLibraryDockStage(input: {
     park()
   }, [pausePointer, park, parkable, visible])
 
+  const lastTourDockPoseRef = useRef(tourDockPose)
+  useLayoutEffect(() => {
+    const previousPose = lastTourDockPoseRef.current
+    lastTourDockPoseRef.current = tourDockPose
+    if (!parkable || !visible) return
+    if (tourDockPose === 'restored') {
+      if (pausePointer) return
+      keepParkedRef.current = false
+      suppressRestoreUntilRef.current = 0
+      setStageHovered(false)
+      setParkMotionDone(false)
+      if (!stagedRef.current) return
+      setStaged(false)
+      return
+    }
+    if (tourDockPose === 'parked' || previousPose === 'restored') {
+      park()
+    }
+  }, [park, parkable, pausePointer, tourDockPose, visible])
+
   useEffect(() => {
     if (!parkable || !visible) return
 
     const onPointerDown = (event: PointerEvent) => {
+      if (tourDockPose === 'restored' || tourDockPose === 'parked') return
       if (pausePointer) return
       if (event.pointerType === 'mouse' && event.button !== 0) return
       const target = event.target
@@ -313,7 +339,7 @@ export function useLibraryDockStage(input: {
       window.removeEventListener('pointerup', onPointerUp, true)
       window.removeEventListener('pointercancel', onPointerUp, true)
     }
-  }, [park, parkable, pausePointer, restore, staged, visible])
+  }, [park, parkable, pausePointer, restore, staged, tourDockPose, visible])
 
   return {
     parked,

@@ -16,6 +16,7 @@ export {
   OfficialVerifiedDot,
 } from './storeAppMeta'
 
+export { StoreCatalogSkeleton } from './StoreCatalogSkeleton'
 export { StoreCatalogView } from './StoreCatalogView'
 
 export {
@@ -45,6 +46,8 @@ export type {
   UnifiedAppItem,
 } from './types'
 export {
+  CATALOG_SKELETON_DISCOVER_ALL_ROWS,
+  CATALOG_SKELETON_LIST_ROWS,
   CATEGORY_ICONS,
   DISCOVER_ALL_PREVIEW_LIMIT,
   DISCOVER_LATEST_LIMIT,

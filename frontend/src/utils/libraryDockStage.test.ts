@@ -2,9 +2,18 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
+  CONTROL_PANEL_COLLAPSED_HEIGHT_REM,
+  CONTROL_PANEL_COLLAPSED_RADIUS_REM,
+  CONTROL_PANEL_COLLAPSED_WIDTH_PX,
+  CONTROL_PANEL_EXPANDED_RADIUS_REM,
   CONTROL_PANEL_EXPANDED_WIDTH_PX,
+  CONTROL_PANEL_HEIGHT_COMPENSATION,
   CONTROL_PANEL_INSET_REM,
+  CONTROL_PANEL_MOBILE_INSET_REM,
+  CONTROL_PANEL_MOBILE_MAX_PX,
   fallbackControlPanelEdge,
+  predictCollapsedControlPanelBox,
+  predictExpandedControlPanelBox,
   LIBRARY_BESIDE_PANEL_GAP_REM,
   LIBRARY_DOCK_BOTTOM_REM,
   LIBRARY_DOCK_CHROME_ATTR,
@@ -17,6 +26,7 @@ import {
   libraryBesidePanelBox,
   libraryDockIslandBoxStyle,
   libraryDockIslandSize,
+  predictRestoredLibraryDockBox,
   libraryDockStageBadgePos,
   libraryDockStageLeft,
   libraryDockStageOffset,
@@ -216,6 +226,19 @@ describe('libraryBesidePanelBox', () => {
   })
 })
 
+describe('predictRestoredLibraryDockBox', () => {
+  it('matches the rest pose: centered, bottom 5.25rem', () => {
+    const island = libraryDockIslandSize(1920, 1080, 16)
+    const box = predictRestoredLibraryDockBox(1920, 1080, 16)
+    assert.deepEqual(box, {
+      width: island.width,
+      height: island.height,
+      left: 1920 / 2 - island.width / 2,
+      top: 1080 - 5.25 * 16 - island.height,
+    })
+  })
+})
+
 describe('libraryDockIslandBoxStyle', () => {
   it('matches park math so CSS does not own a second size', () => {
     const island = libraryDockIslandSize(1920, 1080, 16)
@@ -238,6 +261,7 @@ describe('library dock chrome contract', () => {
     assert.match(LIBRARY_DOCK_POINTER_CHROME, /\[data-sticker-pick\]/)
     assert.match(LIBRARY_DOCK_POINTER_CHROME, /\.nav-container/)
     assert.match(LIBRARY_DOCK_POINTER_CHROME, /\.global-control-bar/)
+    assert.match(LIBRARY_DOCK_POINTER_CHROME, /\.tour-overlay/)
     assert.equal(LIBRARY_DOCK_POINTER_CHROME.includes('home-layout-rail'), false)
     assert.equal(
       LIBRARY_DOCK_POINTER_CHROME.includes('title-font-selector-panel'),
@@ -298,5 +322,61 @@ describe('library dock chrome contract', () => {
     assert.match(css, /width:\s*400px/)
     assert.equal(CONTROL_PANEL_INSET_REM, 1)
     assert.equal(CONTROL_PANEL_EXPANDED_WIDTH_PX, 400)
+    assert.equal(CONTROL_PANEL_EXPANDED_RADIUS_REM, 1.5)
+    assert.equal(CONTROL_PANEL_HEIGHT_COMPENSATION, 1.08)
+    assert.equal(CONTROL_PANEL_MOBILE_MAX_PX, 640)
+    assert.equal(CONTROL_PANEL_MOBILE_INSET_REM, 0.75)
+    assert.match(css, /@media \(width <= 640px\)/)
+    assert.match(css, /top:\s*0\.75rem/)
+    assert.match(css, /width:\s*calc\(100vw - 1\.5rem\)/)
+    assert.match(css, /border-radius:\s*1\.5rem/)
+    assert.equal(CONTROL_PANEL_COLLAPSED_WIDTH_PX, 160)
+    assert.equal(CONTROL_PANEL_COLLAPSED_HEIGHT_REM, 3)
+    assert.equal(CONTROL_PANEL_COLLAPSED_RADIUS_REM, 2)
+    assert.match(css, /width:\s*160px/)
+    assert.match(css, /height:\s*3rem/)
+    assert.match(css, /border-radius:\s*2rem/)
+  })
+})
+
+describe('predictExpandedControlPanelBox', () => {
+  it('uses desktop chrome: 1rem inset, 400px wide', () => {
+    const box = predictExpandedControlPanelBox(1920, 500, 16)
+    assert.deepEqual(box, {
+      top: 16,
+      left: 1920 - 16 - 400,
+      width: 400,
+      height: Math.ceil(500 * 1.08),
+    })
+  })
+
+  it('uses mobile chrome: 0.75rem inset, remaining viewport width', () => {
+    const box = predictExpandedControlPanelBox(390, 400, 16)
+    assert.deepEqual(box, {
+      top: 12,
+      left: 12,
+      width: 390 - 24,
+      height: Math.ceil(400 * 1.08),
+    })
+  })
+})
+
+describe('predictCollapsedControlPanelBox', () => {
+  it('uses desktop chrome: 1rem inset, 160×3rem', () => {
+    assert.deepEqual(predictCollapsedControlPanelBox(1920, 16), {
+      top: 16,
+      left: 1920 - 16 - 160,
+      width: 160,
+      height: 48,
+    })
+  })
+
+  it('uses mobile inset and keeps the collapsed island size', () => {
+    assert.deepEqual(predictCollapsedControlPanelBox(390, 16), {
+      top: 12,
+      left: 390 - 12 - 160,
+      width: 160,
+      height: 48,
+    })
   })
 })

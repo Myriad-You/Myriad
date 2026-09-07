@@ -71,13 +71,19 @@ import {
   registerStorageHandlers,
   registerUIHandlers,
   registerUserHandlers,
+  registerWidgetInvalidateTargetHandler,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
 import { TappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
 import { widgetPerfMark } from './WidgetLoadPerf'
-import { onTappSharedChange, onTappStorageChange } from './WidgetRuntimeSignals'
+import {
+  isForeignTappKvChange,
+  onTappSettingsChange,
+  onTappSharedChange,
+  onTappStorageChange,
+} from './WidgetRuntimeSignals'
 
 export interface TappWidgetSandboxProps {
   /** Tapp 实例 */
@@ -402,13 +408,7 @@ export const TappWidgetSandbox = memo(
       () =>
         onTappStorageChange((change) => {
           const bridge = bridgeRef.current
-          if (
-            !bridge ||
-            change.tappId !== tappInstance.id ||
-            change.source === bridge
-          ) {
-            return
-          }
+          if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
           bridge.emit('storageChanged', {
             key: change.key,
             operation: change.operation,
@@ -422,18 +422,26 @@ export const TappWidgetSandbox = memo(
       () =>
         onTappSharedChange((change) => {
           const bridge = bridgeRef.current
-          if (
-            !bridge ||
-            change.tappId !== tappInstance.id ||
-            change.source === bridge
-          ) {
-            return
-          }
+          if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
           bridge.emit('sharedChanged', {
             key: change.key,
             operation: change.operation,
           })
           invalidateRef.current?.('shared-changed')
+        }),
+      [tappInstance.id],
+    )
+
+    // settings 落盘只通知活着的沙箱，不拆 iframe。
+    useEffect(
+      () =>
+        onTappSettingsChange((change) => {
+          const bridge = bridgeRef.current
+          if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
+          bridge.emit('settingsChanged', {
+            key: change.key,
+            operation: change.operation,
+          })
         }),
       [tappInstance.id],
     )
@@ -672,6 +680,9 @@ export const TappWidgetSandbox = memo(
           typeof rawReason === 'string' ? rawReason.slice(0, 256) : 'requested'
         invalidateRef.current?.(reason)
         return { success: true, data: null }
+      })
+      registerWidgetInvalidateTargetHandler(bridge, currentTappInstance, {
+        preview: previewMode,
       })
       registerAnimationHandlers(bridge)
 

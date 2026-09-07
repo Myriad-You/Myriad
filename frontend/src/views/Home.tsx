@@ -11,23 +11,36 @@ import type {
 } from '../components/widgetGridTypes'
 import type { StickerCrop } from '../utils/homeStickerCrop'
 import type { HomeDashboardLayouts, HomeLayoutMode } from '../utils/homeLayout'
+import type { HomeLayoutAssetMap } from '../utils/homeLayoutTransfer'
 
 import { FaCog, FaCompress, FaEdit, FaExpand, LuSparkles } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
+import type { ReactNode } from 'react'
 import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AnimatedView from '../components/AnimatedView'
 import { Avatar } from '../components/Avatar'
 import { TitleFontSelector } from '../components/TitleFontSelector'
+import { HomeLayoutTransferButtons } from '../components/home/HomeLayoutTransfer'
 import { HomeStickerDialog } from '../components/home/HomeStickerDialog'
 import '../components/home/HomeStickerDialog.css'
 import { generateHomeSticker, uploadHomeSticker } from '../utils/homeStickers'
+import {
+  getTourSnapshot,
+  stopTour,
+  subscribeTour,
+} from '../components/tour/tourEngine'
+import {
+  homeEditTourDockPose,
+  setHomeEditSurface,
+} from '../components/tour/tourLogic'
 import WidgetGrid, { startGridLibraryDrag } from '../components/WidgetGrid'
 import WidgetLibraryIsland from '../components/WidgetLibraryIsland'
 import {
@@ -69,12 +82,41 @@ import {
 import { stickerAspectKey } from '../utils/homeStickerSize'
 import { widgetSizeSpan } from '../utils/widgetSizeScale'
 import { stickerCropForSlot } from '../utils/homeStickerCrop'
+import { restoreStickerAssets } from '../utils/homeLayoutStickerAssets'
 import { buildHomePageSeo } from '../utils/modulePageSeo'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import { hasSessionHint } from '../utils/sessionDetection'
-import { showError } from '../utils/toastManager'
+import { showError, showSuccess, showWarning } from '../utils/toastManager'
 import { userFacingError } from '../utils/userFacingError'
 import './Home.css'
+
+function readHomeEditTourDockPose() {
+  const snapshot = getTourSnapshot()
+  return homeEditTourDockPose(snapshot.tourId, snapshot.step?.id ?? null)
+}
+
+function HomeStatusBarSlot({
+  open,
+  side,
+  children,
+}: {
+  open: boolean
+  side: 'before' | 'after'
+  children: ReactNode
+}) {
+  return (
+    <div
+      className={`home-status-bar__slot${open ? ' is-open' : ''}`}
+      data-side={side}
+      inert={!open ? true : undefined}
+      aria-hidden={!open || undefined}
+    >
+      <div className="home-status-bar__slot-inner">
+        <div className="home-status-bar__tools">{children}</div>
+      </div>
+    </div>
+  )
+}
 
 export default function Home() {
   // 🆕 初始化首页调度器（Visibility + Resize + RAF + Idle）
@@ -103,6 +145,11 @@ export default function Home() {
       : peekStoredHomeLayoutMode(window.localStorage),
   )
   const [isEditMode, setIsEditMode] = useState(false)
+  const tourDockPose = useSyncExternalStore(
+    subscribeTour,
+    readHomeEditTourDockPose,
+    readHomeEditTourDockPose,
+  )
   const [layoutFade, setLayoutFade] = useState<'out' | 'in' | null>(null)
   const layoutFadeTimersRef = useRef<{ out?: number; in?: number }>({})
   useEffect(() => {
@@ -117,9 +164,21 @@ export default function Home() {
   }, [])
   const [stickerPicking, setStickerPicking] = useState(false)
   const layoutSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const layoutImportInFlightRef = useRef(false)
   const gridRef = useRef<WidgetGridHandle>(null)
   useImmersiveChrome('home-edit-mode', isEditMode)
-  useEditModeEscape(isEditMode, () => setIsEditMode(false))
+  useEditModeEscape(isEditMode, () => {
+    if (getTourSnapshot().active) stopTour('abort')
+    setIsEditMode(false)
+  })
+  useEffect(() => {
+    setHomeEditSurface(isEditMode)
+    return () => setHomeEditSurface(false)
+  }, [isEditMode])
+  const toggleEditMode = useCallback(() => {
+    if (getTourSnapshot().active) stopTour('abort')
+    setIsEditMode((current) => !current)
+  }, [])
   useEffect(() => {
     if (!stickerPicking) return
     const onKey = (event: KeyboardEvent) => {
@@ -408,6 +467,94 @@ export default function Home() {
     })()
   }
 
+  const applyImportedHomeLayout = useCallback(
+    async (payload: {
+      layouts: HomeDashboardLayouts
+      mode: HomeLayoutMode | null
+      assets?: HomeLayoutAssetMap
+    }) => {
+      if (!isAdmin) return
+      layoutImportInFlightRef.current = true
+      if (layoutSaveTimerRef.current) {
+        clearTimeout(layoutSaveTimerRef.current)
+        layoutSaveTimerRef.current = null
+      }
+      try {
+        const { getCSRFToken } = await import('../utils/csrf')
+        const { clearDedupCache } = await import('../utils/requestDedup')
+        const token = (await getCSRFToken(true)) || csrfToken
+        if (!token) {
+          showError(t.errors.csrfUnavailable)
+          return
+        }
+        if (token !== csrfToken) setCsrfToken(token)
+        const restored = await restoreStickerAssets(
+          payload.layouts,
+          payload.assets ?? {},
+          async (image) => {
+            const uploaded = await uploadHomeSticker({
+              image,
+              csrfToken: token,
+            })
+            return uploaded.imageUrl
+          },
+        )
+        const next = restored.layouts
+        const res = await fetch(`${API_URL}/api/config/dashboard`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': token,
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            layout: serializeDashboardLayout(next),
+            ...(payload.mode ? { layout_mode: payload.mode } : {}),
+          }),
+        })
+        if (!res.ok) {
+          throw new Error(
+            `Failed to import dashboard layout: HTTP ${res.status}`,
+          )
+        }
+        if (layoutSaveTimerRef.current) {
+          clearTimeout(layoutSaveTimerRef.current)
+          layoutSaveTimerRef.current = null
+        }
+        layoutApplyGenerationRef.current += 1
+        setRawLayouts(next)
+        setLayouts(next)
+        if (payload.mode) {
+          persistHomeLayoutMode(
+            payload.mode,
+            typeof window === 'undefined' ? null : window.localStorage,
+          )
+          setLayoutMode(payload.mode)
+        }
+        void preloadBuiltinWidgets(
+          [...next.standard, ...next.free].map((widget) => widget.type),
+        )
+        clearDedupCache(`${API_URL}/api/config/ui`)
+        if (restored.failed.length > 0) {
+          showWarning(
+            t.home.importLayoutPartial.replace(
+              '{count}',
+              String(restored.failed.length),
+            ),
+          )
+        } else {
+          showSuccess(t.home.importLayoutSuccess)
+        }
+      } catch (err) {
+        console.error('导入首页布局失败:', err)
+        showError(userFacingError(err, t.home.importLayoutFailed))
+      } finally {
+        layoutImportInFlightRef.current = false
+      }
+    },
+    [csrfToken, isAdmin, t],
+  )
+
   const handleLayoutModeToggle = () => {
     if (layoutFade) return
     const next: HomeLayoutMode =
@@ -441,6 +588,7 @@ export default function Home() {
 
   // 保存小组件配置到后端（防抖 500ms，与控制面板一致；UI 立即更新）
   const handleWidgetsChange = (newWidgets: WidgetConfig[]) => {
+    if (layoutImportInFlightRef.current) return
     const registeredWidgetIds = new Set(ALL_AVAILABLE_WIDGETS.map((w) => w.id))
     let validWidgets = isTappWidgetsLoading
       ? newWidgets
@@ -681,6 +829,7 @@ export default function Home() {
             : 'h-screen overflow-hidden'
           : ''
       }`}
+      data-tour="home-agent"
       data-home-band={
         isDesktopBand ? 'desktop' : isPhoneBand ? 'phone' : 'tablet'
       }
@@ -696,6 +845,7 @@ export default function Home() {
             layoutMode={effectiveMode}
             onNewWidgetDragStart={onLibraryDragStart}
             pausePointer={stickerPicking || Boolean(stickerDraft)}
+            tourDockPose={tourDockPose}
           />
           <WidgetGrid
             ref={gridRef}
@@ -705,7 +855,7 @@ export default function Home() {
             isEditMode={isEditMode}
             layoutMode={effectiveMode}
             tourAnchor="home-grid"
-            tourFit=".widget-grid-item"
+            tourFit={isFreeLayout ? undefined : '.widget-grid-item'}
             stickerPickActive={stickerPicking}
             stickerHighlight={
               stickerDraft
@@ -777,106 +927,121 @@ export default function Home() {
                     delay: isPageReady ? 0.1 : 0,
                   }}
                 >
-                  {/* 用户信息卡片 */}
-                  <motion.div
-                    className="h-full glass rounded-xl px-4 py-1 flex items-center gap-3 shadow-sm relative z-10"
-                    whileHover={{ scale: 1.02 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    {userInfo ? (
-                      <>
-                        <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 dark:border-white/10">
-                          <Avatar
-                            // avatarEpoch：强制刷新后即使代理 URL 未变也 remount，避开 <img> 磁盘缓存
-                            key={`${userInfo.avatar ?? ''}:${avatarEpoch}`}
-                            src={userInfo.avatar}
-                            name={userInfo.name}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="flex flex-col justify-center">
-                          <div className="text-sm font-bold text-gray-800 dark:text-gray-200 leading-tight">
-                            {userInfo.name}
+                  {/* 用户信息卡片：编辑槽位 0fr↔1fr，条子 fit-content 跟着变长 */}
+                  <div className="home-status-bar glass shadow-sm">
+                    <div className="home-status-bar__row">
+                      {userInfo ? (
+                        <>
+                          <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 dark:border-white/10">
+                            <Avatar
+                              // avatarEpoch：强制刷新后即使代理 URL 未变也 remount，避开 <img> 磁盘缓存
+                              key={`${userInfo.avatar ?? ''}:${avatarEpoch}`}
+                              src={userInfo.avatar}
+                              name={userInfo.name}
+                              className="w-full h-full object-cover"
+                            />
                           </div>
-                          {userInfo.bio && (
-                            <div className="text-[10px] text-gray-500 dark:text-gray-400 max-w-50 truncate leading-tight">
-                              {userInfo.bio}
+                          <div className="flex flex-col justify-center">
+                            <div className="text-sm font-bold text-gray-800 dark:text-gray-200 leading-tight">
+                              {userInfo.name}
                             </div>
-                          )}
+                            {userInfo.bio && (
+                              <div className="text-[10px] text-gray-500 dark:text-gray-400 max-w-50 truncate leading-tight">
+                                {userInfo.bio}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-white/5 animate-pulse" />
+                          <div className="flex flex-col gap-1">
+                            <div className="w-20 h-3 bg-gray-200 dark:bg-white/5 rounded animate-pulse" />
+                            <div className="w-32 h-2 bg-gray-200 dark:bg-white/5 rounded animate-pulse" />
+                          </div>
                         </div>
-                      </>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-white/5 animate-pulse" />
-                        <div className="flex flex-col gap-1">
-                          <div className="w-20 h-3 bg-gray-200 dark:bg-white/5 rounded animate-pulse" />
-                          <div className="w-32 h-2 bg-gray-200 dark:bg-white/5 rounded animate-pulse" />
-                        </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* 编辑按钮 - 管理员 + desktop 档（≥1078，与 16 列网格同阈值） */}
-                    {showHomeAdminActions && (
-                      <>
-                        <div className="h-6 w-px bg-gray-200 dark:bg-white/10 mx-1" />
+                      {/* 编辑按钮 - 管理员 + desktop 档（≥1078，与 16 列网格同阈值） */}
+                      {showHomeAdminActions && (
+                        <div className="home-status-bar__actions">
+                          <div className="home-status-bar__sep" />
 
-                        {/* 字体选择器 - 仅在编辑模式下显示 */}
-                        {isEditMode && (
-                          <TitleFontSelector csrfToken={csrfToken} />
-                        )}
+                          <HomeStatusBarSlot open={isEditMode} side="before">
+                            <TitleFontSelector csrfToken={csrfToken} />
+                          </HomeStatusBarSlot>
 
-                        <button
-                          type="button"
-                          data-tour="home-edit"
-                          onClick={() => setIsEditMode(!isEditMode)}
-                          className={`
-                          flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all
-                          ${
-                            isEditMode
-                              ? 'text-white shadow-md hover:opacity-90'
-                              : 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
-                          }
-                        `}
-                          style={{
-                            backgroundColor: isEditMode
-                              ? 'var(--color-primary)'
-                              : undefined,
-                            color: isEditMode ? '#fff' : 'var(--color-primary)',
-                          }}
-                        >
-                          <FaEdit size={12} />
-                          {isEditMode ? t.common.done : t.common.edit}
-                        </button>
-
-                        {isEditMode && (
                           <button
                             type="button"
-                            onClick={handleLayoutModeToggle}
+                            data-tour="home-edit"
+                            onClick={toggleEditMode}
+                            className={`flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all ${
+                              isEditMode
+                                ? 'text-white shadow-md hover:opacity-90'
+                                : 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
+                            }`}
+                            style={{
+                              backgroundColor: isEditMode
+                                ? 'var(--color-primary)'
+                                : undefined,
+                              color: isEditMode
+                                ? '#fff'
+                                : 'var(--color-primary)',
+                            }}
+                            aria-label={
+                              isEditMode ? t.common.done : t.common.edit
+                            }
+                          >
+                            <FaEdit size={12} aria-hidden />
+                            <span className="home-status-bar__mode" aria-hidden>
+                              <span data-on={!isEditMode || undefined}>
+                                {t.common.edit}
+                              </span>
+                              <span data-on={isEditMode || undefined}>
+                                {t.common.done}
+                              </span>
+                            </span>
+                          </button>
+
+                          <HomeStatusBarSlot open={isEditMode} side="after">
+                            <button
+                              type="button"
+                              data-tour="home-free-layout"
+                              onClick={handleLayoutModeToggle}
+                              className="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
+                              style={{ color: 'var(--color-primary)' }}
+                              aria-pressed={false}
+                              aria-label={t.home.switchToFreeLayout}
+                              title={t.home.switchToFreeLayout}
+                            >
+                              <FaExpand size={12} />
+                              {t.home.freeLayout}
+                            </button>
+                            <HomeLayoutTransferButtons
+                              buttonClassName="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-50"
+                              buttonStyle={{ color: 'var(--color-primary)' }}
+                              layouts={layouts}
+                              mode={resolvedLayoutMode}
+                              disabled={layoutFade !== null}
+                              onImport={applyImportedHomeLayout}
+                            />
+                          </HomeStatusBarSlot>
+
+                          <button
+                            type="button"
+                            onClick={() => navigate('/config')}
                             className="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
                             style={{ color: 'var(--color-primary)' }}
-                            aria-pressed={false}
-                            aria-label={t.home.switchToFreeLayout}
-                            title={t.home.switchToFreeLayout}
+                            title={t.nav.config}
+                            aria-label={t.nav.config}
                           >
-                            <FaExpand size={12} />
-                            {t.home.freeLayout}
+                            <FaCog size={12} />
+                            {t.nav.config}
                           </button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => navigate('/config')}
-                          className="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-                          style={{ color: 'var(--color-primary)' }}
-                          title={t.nav.config}
-                          aria-label={t.nav.config}
-                        >
-                          <FaCog size={12} />
-                          {t.nav.config}
-                        </button>
-                      </>
-                    )}
-                  </motion.div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </motion.div>
               </div>
             )}
@@ -898,6 +1063,7 @@ export default function Home() {
               <div className="home-layout-rail__cluster">
                 <button
                   type="button"
+                  data-tour="home-free-layout"
                   className={`home-layout-rail__btn ${
                     isFreeLayout ? 'is-active' : ''
                   }`}
@@ -924,6 +1090,7 @@ export default function Home() {
                 {isFreeLayout && showHomeAdminActions ? (
                   <button
                     type="button"
+                    data-tour="home-sticker"
                     className={`home-layout-rail__btn ${
                       stickerPicking ? 'is-active' : ''
                     }`}
@@ -935,6 +1102,13 @@ export default function Home() {
                     {t.home.createSticker}
                   </button>
                 ) : null}
+                <HomeLayoutTransferButtons
+                  buttonClassName="home-layout-rail__btn"
+                  layouts={layouts}
+                  mode={resolvedLayoutMode}
+                  disabled={layoutFade !== null}
+                  onImport={applyImportedHomeLayout}
+                />
               </div>
             ) : null}
             {isEditMode && isFreeLayout && showHomeAdminActions ? (
@@ -955,7 +1129,7 @@ export default function Home() {
                   className={`home-layout-rail__btn ${
                     isEditMode ? 'is-active' : ''
                   }`}
-                  onClick={() => setIsEditMode(!isEditMode)}
+                  onClick={toggleEditMode}
                   aria-pressed={isEditMode}
                   aria-label={isEditMode ? t.common.done : t.common.edit}
                   title={isEditMode ? t.common.done : t.common.edit}

@@ -202,6 +202,8 @@ function createShim(tag: SupportedTag) {
       props?.whileTap ||
       props?.whileFocus ||
       props?.whileDrag ||
+      props?.layout ||
+      props?.layoutId ||
       props?.exit
     const { motion } = useLazyMotion(Boolean(hasAnimation))
 

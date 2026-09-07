@@ -23,23 +23,32 @@ import {
 import {
   getTourSnapshot,
   startTour,
+  stopTour,
   subscribeTour,
 } from './tourEngine'
+import {
+  fillTourHint,
+  getConfigTourSurface,
+  getLibraryTourSurfaceSnapshot,
+  isTourStepAvailable,
+  LIBRARY_FILTER_EXPAND_WAIT_MS,
+  waitForTourAnchor,
+  isHomeEditSurface,
+  pageNameForPath,
+  readTourSurface,
+  refreshConfigTourSurface,
+  revealTourAnchor,
+  shouldAbortLibraryTour,
+  subscribeConfigTourSurface,
+  subscribeHomeEditSurface,
+  subscribeLibraryCanvasTourSurface,
+} from './tourLogic'
+import {
+  shouldAutoHideTourHint,
+  TOUR_HINT_AUTO_HIDE_MS,
+} from './tourHintLogic'
 import { pickRegisteredTour } from './tourRegistry'
 import './TourHint.css'
-
-function pageNameForPath(
-  pathname: string,
-  nav: { home: string; library: string; brew: string; reports: string; tapp: string; config: string },
-): string {
-  const path = pathname.replace(/\/+$/, '') || '/'
-  if (path === '/library' || path.startsWith('/library')) return nav.library
-  if (path === '/brew' || path.startsWith('/brew')) return nav.brew
-  if (path === '/reports' || path.startsWith('/reports')) return nav.reports
-  if (path === '/tapp' || path.startsWith('/tapp')) return nav.tapp
-  if (path === '/config' || path.startsWith('/config')) return nav.config
-  return nav.home
-}
 
 function skipTourHintMotion(): boolean {
   if (prefersReducedMotion()) return true
@@ -47,35 +56,57 @@ function skipTourHintMotion(): boolean {
   return document.documentElement.dataset.perfMode === 'exlight'
 }
 
+function getTourActive(): boolean {
+  return getTourSnapshot().active
+}
+
 export function TourHint() {
-  const { t, format } = useI18n()
+  const { t } = useI18n()
   const location = useLocation()
   const { isAdmin, hasChecked } = useAuth()
   const meta = getCurrentMetadata()
   const siteName = meta.site_title.trim() || 'Myriad'
   const siteLogo = meta.site_favicon.trim() || '/favicon.webp'
-  const pageName = pageNameForPath(location.pathname, t.nav)
-  const tour = useSyncExternalStore(
+  const editingHome = useSyncExternalStore(
+    subscribeHomeEditSurface,
+    isHomeEditSurface,
+    isHomeEditSurface,
+  )
+  useSyncExternalStore(
+    subscribeConfigTourSurface,
+    getConfigTourSurface,
+    getConfigTourSurface,
+  )
+  const librarySurface = useSyncExternalStore(
+    subscribeLibraryCanvasTourSurface,
+    getLibraryTourSurfaceSnapshot,
+    getLibraryTourSurfaceSnapshot,
+  )
+  const surface = readTourSurface(editingHome, location.pathname)
+  const pageName =
+    surface === 'persona' || surface === 'ai-persona'
+      ? t.widgets.agentPersona
+      : pageNameForPath(
+          location.pathname,
+          t.nav,
+          t.common.editMode,
+          editingHome,
+        )
+  const tourActive = useSyncExternalStore(
     subscribeTour,
-    getTourSnapshot,
-    getTourSnapshot,
+    getTourActive,
+    getTourActive,
   )
   useSyncExternalStore(subscribeTourDone, getTourDoneSnapshot, getTourDoneSnapshot)
   const [leaving, setLeaving] = useState<'dismiss' | 'start' | null>(null)
+  const [snoozedId, setSnoozedId] = useState<string | null>(null)
   const leaveTimer = useRef(0)
+  const autoHideTimer = useRef(0)
   const leaveAction = useRef<(() => void) | null>(null)
+  const leavingRef = useRef(leaving)
+  leavingRef.current = leaving
 
-  const def = pickRegisteredTour(location.pathname, isAdmin)
-
-  useEffect(() => {
-    setLeaving(null)
-    leaveAction.current = null
-    return () => window.clearTimeout(leaveTimer.current)
-  }, [def?.id])
-
-  if (!hasChecked || tour.active) return null
-  if (!def) return null
-  if (isTourDone(def.id)) return null
+  const def = pickRegisteredTour(location.pathname, isAdmin, surface)
 
   const finishLeaveAction = () => {
     const action = leaveAction.current
@@ -85,7 +116,8 @@ export function TourHint() {
   }
 
   const finishLeave = (kind: 'dismiss' | 'start', action: () => void) => {
-    if (leaving) return
+    if (leavingRef.current) return
+    window.clearTimeout(autoHideTimer.current)
     if (skipTourHintMotion()) {
       action()
       return
@@ -98,6 +130,61 @@ export function TourHint() {
       SETTINGS_DURATION_MS.slow + 80,
     )
   }
+
+  useEffect(() => {
+    refreshConfigTourSurface()
+  }, [location.pathname, location.search])
+
+  useEffect(() => {
+    setLeaving(null)
+    setSnoozedId(null)
+    leaveAction.current = null
+    return () => {
+      window.clearTimeout(leaveTimer.current)
+      window.clearTimeout(autoHideTimer.current)
+    }
+  }, [def?.id])
+
+  useEffect(() => {
+    window.clearTimeout(autoHideTimer.current)
+    if (!shouldAutoHideTourHint()) return
+    if (!def?.id || !hasChecked || tourActive || leaving) return
+    if (isTourDone(def.id) || snoozedId === def.id) return
+    autoHideTimer.current = window.setTimeout(() => {
+      finishLeave('dismiss', () => setSnoozedId(def.id))
+    }, TOUR_HINT_AUTO_HIDE_MS)
+    return () => window.clearTimeout(autoHideTimer.current)
+  }, [def?.id, hasChecked, tourActive, snoozedId, leaving])
+
+  useEffect(() => {
+    const snapshot = getTourSnapshot()
+    if (!snapshot.active || !snapshot.tourId) return
+    if (surface === 'none') {
+      stopTour('abort')
+      return
+    }
+    if (snapshot.tourId === 'config-owner' && surface !== 'browse') {
+      stopTour('abort')
+      return
+    }
+    if (snapshot.tourId === 'config-ai-persona-owner' && surface !== 'ai-persona') {
+      stopTour('abort')
+      return
+    }
+    if (snapshot.tourId === 'config-persona-owner' && surface !== 'persona') {
+      stopTour('abort')
+      return
+    }
+    if (shouldAbortLibraryTour(snapshot.tourId, librarySurface)) {
+      stopTour('abort')
+    }
+  }, [librarySurface, surface])
+
+  if (!hasChecked || tourActive) return null
+  if (librarySurface === 'pending') return null
+  if (!def) return null
+  if (isTourDone(def.id)) return null
+  if (snoozedId === def.id && !leaving) return null
 
   const handleLeaveEnd = (event: AnimationEvent<HTMLElement>) => {
     if (event.target !== event.currentTarget) return
@@ -131,16 +218,39 @@ export function TourHint() {
         <div className="tour-hint__main">
           <div className="tour-hint__copy">
             <h2 className="tour-hint__title">
-              {format(t.tour.hintWelcome, { site: siteName })}
+              {fillTourHint(t.tour.hintWelcome, 'site', siteName)}
             </h2>
             <p className="tour-hint__body">
-              {format(t.tour.hintTitle, { page: pageName })}
+              {fillTourHint(t.tour.hintTitle, 'page', pageName) || t.tour.hintBody}
             </p>
           </div>
           <button
             type="button"
             className="tour-hint__go"
-            onClick={() => finishLeave('start', () => startTour(def))}
+            onClick={() => {
+              if (def.route === '/library') {
+                window.dispatchEvent(
+                  new CustomEvent('nav-expand-secondary', {
+                    detail: { path: '/library' },
+                  }),
+                )
+              }
+              const first = def.steps.find((step) => isTourStepAvailable(step))
+              if (first) revealTourAnchor(first.anchor, first.id)
+              finishLeave('start', () => {
+                const begin = () => {
+                  if (!startTour(def)) setLeaving(null)
+                }
+                if (def.route !== '/library') {
+                  begin()
+                  return
+                }
+                void waitForTourAnchor(
+                  'library-filters',
+                  LIBRARY_FILTER_EXPAND_WAIT_MS,
+                ).then(begin)
+              })
+            }}
           >
             <span>{t.tour.begin || t.common.go}</span>
             <LuArrowRight aria-hidden />

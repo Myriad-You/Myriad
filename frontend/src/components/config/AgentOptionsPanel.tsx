@@ -54,6 +54,8 @@ export function AgentNestedSection({
   toggle,
   guide,
   guidePath,
+  tourAnchor,
+  toggleTourAnchor,
   children,
 }: {
   title: string
@@ -69,14 +71,17 @@ export function AgentNestedSection({
   }
   guide?: ReactNode
   guidePath?: string
+  tourAnchor?: string
+  toggleTourAnchor?: string
   children?: ReactNode
 }) {
   return (
     <div
       className={`ai-llm-tier${guidePath ? ' has-guide-anchor' : ''}`}
+      data-tour={tourAnchor}
       {...guideDomProps(guidePath)}
     >
-      <div className="ai-llm-tier-head">
+      <div className="ai-llm-tier-head" data-tour={toggleTourAnchor}>
         <div className="ai-llm-tier-copy">
           <h3 className="ai-llm-tier-title">
             {title}

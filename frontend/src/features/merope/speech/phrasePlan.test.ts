@@ -4,6 +4,7 @@ import { HumanPerformanceRuntime } from '../motion/humanPerformanceRuntime'
 import { compileSpeechBehaviorPlan } from '../motion/speechBehaviorPlan'
 import {
   directorPhraseCoverage,
+  mergeSpeechPhrases,
   refineSpeechPhrases,
   sanitizeSpeechPhrases,
 } from './phrasePlan'
@@ -20,6 +21,36 @@ const phrases = sanitizeSpeechPhrases([
   { text: '其实可以先解释清楚。', intent: 'explain' },
   { text: '你觉得呢？', intent: 'check-in' },
 ])
+
+test('fragment revisions retain queued phrases, replace exact matches and stay bounded', () => {
+  const first = mergeSpeechPhrases(
+    [],
+    [{ text: '你真的这么想吗？', intent: 'tease' }],
+  )
+  const next = mergeSpeechPhrases(first, [
+    { text: '你觉得呢？', intent: 'check-in' },
+  ])
+  assert.equal(next.length, 2)
+  assert.equal(next[0]!.intent, 'tease')
+  const corrected = mergeSpeechPhrases(next, [
+    { text: '你真的这么想吗？', intent: 'none' },
+  ])
+  assert.equal(corrected.length, 2)
+  assert.equal(corrected.at(-1)!.intent, 'none')
+  assert.deepEqual(mergeSpeechPhrases(corrected, []), corrected)
+  assert.deepEqual(
+    mergeSpeechPhrases(corrected, [{ text: 'x', intent: 'laugh' }]),
+    corrected,
+  )
+  let bounded = first
+  for (let i = 0; i < 40; i++) {
+    bounded = mergeSpeechPhrases(bounded, [
+      { text: `句段${i}`, intent: 'explain' },
+    ])
+  }
+  assert.equal(bounded.length, 24)
+  assert.equal(bounded.at(-1)!.text, '句段39')
+})
 
 test('a discourse sequence selects one delivery per fragment, without new timestamps', () => {
   const result = refineSpeechPhrases(base, text, phrases, [], null, [], 1_000)

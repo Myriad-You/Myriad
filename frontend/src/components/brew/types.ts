@@ -7,8 +7,6 @@ import type {
   BrewItem,
   BrewSource,
   CardSize,
-  FeedType,
-  SourceType,
 } from '../../types/brew'
 
 // 排序类型
@@ -180,26 +178,7 @@ export interface ControlIslandProps {
 
 // 导入/导出类型
 
-/** Brew 导出清单 */
-export interface BrewExportManifest {
-  version: string
-  exported_at: string
-  sources: Array<{
-    url: string
-    name: string
-    category: string | null
-    icon_file: string | null
-    icon_url: string | null
-    source_type: SourceType
-    feed_type: FeedType
-    theme_color: string | null
-    update_interval: number
-    card_size: string | null
-    rsshub_route: string | null
-    ai_style_tags: string[] | null
-    admin_only: boolean
-  }>
-}
+export type { BrewExportManifest } from '../../types/brew'
 
 /** 导入进度 */
 export interface ImportProgress {

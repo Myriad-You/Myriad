@@ -598,12 +598,4 @@ html[data-nav-layout='desktop'] .dynamic-island::before {
   backdrop-filter: none !important;
 }
 
-html[data-tour-active] .nav-container.immersive .dynamic-island {
-  /* stylelint-disable-next-line property-no-vendor-prefix -- Safari < 16.4 */
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-}
-
-html[data-tour-active] .nav-container.immersive {
-  opacity: 1 !important;
-}
+/* 教程不得把沉浸态导航岛拉回来：首页编辑会藏岛，编辑教程也不讲导航。 */

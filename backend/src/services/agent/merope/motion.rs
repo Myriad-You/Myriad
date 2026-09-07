@@ -242,7 +242,7 @@ async fn direct_motion_inner(
         context.response_text.as_deref(),
         rig_state.as_ref(),
     );
-    if plan_is_empty(&plan) {
+    if plan_is_empty(&plan) && phrases.is_empty() {
         tracing::debug!(
             phase,
             elapsed_ms,
@@ -365,7 +365,28 @@ fn parse_motion_decision(raw: &str) -> Option<MotionDecision> {
         }
         _ => {}
     }
-    parse_performance_plan(stripped).map(MotionDecision::Perform)
+    if let Some(plan) = parse_performance_plan(stripped) {
+        return Some(MotionDecision::Perform(plan));
+    }
+    // A grounded phrase refinement does not need to replace the standing face.
+    // Do not turn an invalid baseline/cue payload into a phrase-only success.
+    let empty_plan = object.get("baseline").is_none_or(Value::is_null)
+        && object
+            .get("cues")
+            .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty));
+    let valid_phrase = object
+        .get("phrases")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().take(6).any(|item| {
+                !grounded_speech_phrases(
+                    &serde_json::json!([item]),
+                    item.get("text").and_then(Value::as_str),
+                )
+                .is_empty()
+            })
+        });
+    (empty_plan && valid_phrase).then(|| MotionDecision::Perform(ChatPerformancePlan::default()))
 }
 
 fn motion_payload_present(object: &serde_json::Map<String, serde_json::Value>) -> bool {
@@ -1181,8 +1202,7 @@ mod tests {
         );
     }
 
-    /// Chat reacts immediately and only refines delivery once it has actual
-    /// spoken context. Short replies do not trigger a second director call.
+    /// Chat speaks plain prose; the director observes it on a separate task.
     #[test]
     fn streaming_chat_refines_actual_delivery_without_delaying_text() {
         let src = include_str!("../process_chat.rs");
@@ -1191,55 +1211,56 @@ mod tests {
             .find("stream_strict_lite_chat_response")
             .expect("chat lite call");
         let local_reaction = src
-            .find("publish_local_motion(&reaction_context")
+            .find("local_directive(&reaction_context)")
             .expect("local reaction");
         assert!(
             local_reaction < chat,
             "Chat must react before the reply stream starts"
         );
-        let end = src[chat..]
-            .find("return Ok(AgentResponse")
-            .map(|offset| chat + offset)
-            .unwrap();
-        let chat = &src[chat..end];
-        assert!(chat.contains("motion_refinements.drain(..)"));
-        assert!(chat.contains("delivery_publication.max(guard.stop().await)"));
-        assert!(!src.contains("motion_start_tx"));
-        assert!(
-            include_str!("../motion_overlay.rs").contains("context.response_text = Some(preview)")
-        );
+        assert!(src.contains("spawn_chat_motion_refinement(reaction_context"));
         let streaming = include_str!("../confirmation_and_tasks/chat_stream.rs");
-        let preview_send = streaming.find("tx.try_send(preview)").unwrap();
-        assert!(streaming[..preview_send].contains("emit_stream_delta(&tx, delta).await"));
+        assert!(streaming.contains("emit_chat_delta(&tx, delta, speech_delivery.as_ref()).await"));
+        assert!(!streaming.contains("SpeechDeliveryStream"));
+        assert!(!include_str!("../chat_prompt.rs").contains("[[delivery:"));
     }
 
     #[test]
-    fn immediate_reaction_and_delivery_precede_stream_close() {
+    fn immediate_reaction_precedes_text_and_landing_cannot_delay_stream_close() {
         let src = include_str!("../process_chat.rs");
-        let floor = src.find("publish_local_motion(&reaction_context").unwrap();
-        let delivery = src
-            .find("landing_motion(&delivery_context, delivery_publication)")
-            .unwrap();
+        let floor = src.find("local_directive(&reaction_context)").unwrap();
+        let delivery = src.find("local_directive(&delivery_context)").unwrap();
         assert!(floor < delivery);
         let diary = src[floor..].find("note_chat_diary").unwrap() + floor;
         let chat = src[floor..]
             .find("stream_strict_lite_chat_response")
             .unwrap()
             + floor;
-        let stopped = src[floor..].find("guard.stop().await").unwrap() + floor;
         assert!(floor < diary && diary < chat);
-        assert!(chat < stopped && stopped < delivery);
+        assert!(chat < delivery);
         let finish = src
             .find("response_agent::finish_stream(&progress_tx)")
             .unwrap();
-        assert!(delivery < finish);
+        assert!(finish < delivery);
+        let stop = src.find("guard.stop().await").unwrap();
+        assert!(finish < stop && stop < delivery);
         let overlay = include_str!("../motion_overlay.rs");
         assert!(overlay.contains("self.task.abort();"));
-        let landing = overlay.split("fn landing_motion(").nth(1).unwrap();
-        let landing = landing.split("fn spawn_motion_refinement(").next().unwrap();
-        assert!(landing.contains("publication == MotionPublication::Refined"));
-        assert!(landing.contains("publication == MotionPublication::Local"));
-        assert!(landing.contains("performance.plan.cues.clear()"));
+        assert!(src[delivery..].contains("performance.plan.cues.clear()"));
+    }
+
+    #[test]
+    fn chat_director_phrase_only_decision_needs_no_replacement_pose() {
+        assert_eq!(
+            parse_motion_decision(r#"{"phrases":[{"text":"你觉得呢？","intent":"check-in"}]}"#),
+            Some(MotionDecision::Perform(ChatPerformancePlan::default()))
+        );
+        for invalid in [
+            r#"{"phrases":[{"text":"你觉得呢？","intent":"driver"}]}"#,
+            r#"{"baseline":{},"phrases":[{"text":"你觉得呢？","intent":"ask"}]}"#,
+            r#"{"continue":true,"phrases":[{"text":"你觉得呢？","intent":"ask"}]}"#,
+        ] {
+            assert_eq!(parse_motion_decision(invalid), None);
+        }
     }
 
     /// Production dropped 196 of 217 calls sitting exactly on the old 4s wall;

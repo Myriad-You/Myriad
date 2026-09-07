@@ -1,0 +1,50 @@
+[
+  {
+    "id": "reading",
+    "route": "/brew/one", "pageConsent": true,
+    "page": { "type": "brew_article", "title": "纸灯笼", "summary": "关于手工纸的短文", "plainText": "BODY_NOT_REQUESTED" },
+    "selection": "", "song": null, "playing": false,
+    "contains": ["在看：纸灯笼"], "liveContains": ["关于手工纸的短文"], "absent": ["BODY_NOT_REQUESTED"]
+  },
+  {
+    "id": "selection-and-track",
+    "route": "/brew/one", "pageConsent": true,
+    "page": { "type": "brew_article", "title": "纸灯笼", "summary": "关于手工纸的短文" },
+    "selection": "光穿过纸纤维", "song": "夜航", "playing": true,
+    "contains": ["选中：光穿过纸纤维", "在听：夜航", "在看：纸灯笼"], "liveContains": ["光穿过纸纤维", "夜航", "关于手工纸的短文"], "absent": ["PRIVATE_MEDIA_URL", "PRIVATE_COVER_URL"]
+  },
+  {
+    "id": "switch-page-and-track",
+    "route": "/brew/two", "pageConsent": true,
+    "page": { "type": "brew_article", "title": "雨后花园", "summary": "园艺观察" },
+    "selection": "", "song": "朝露", "playing": true,
+    "contains": ["在看：雨后花园", "在听：朝露"], "liveContains": ["园艺观察", "朝露"], "absent": ["纸灯笼", "关于手工纸的短文", "光穿过纸纤维", "夜航"]
+  },
+  {
+    "id": "pause-track",
+    "route": "/brew/two", "pageConsent": true,
+    "page": { "type": "brew_article", "title": "雨后花园", "summary": "园艺观察" },
+    "selection": "", "song": "朝露", "playing": false,
+    "contains": ["在听：已暂停 朝露"], "liveContains": ["已暂停 朝露"], "absent": ["夜航"]
+  },
+  {
+    "id": "revoke-page-consent",
+    "route": "/brew/two", "pageConsent": false,
+    "page": { "type": "brew_article", "title": "雨后花园", "summary": "园艺观察" },
+    "selection": "", "song": "朝露", "playing": false,
+    "contains": [], "liveContains": [], "absent": ["雨后花园", "园艺观察", "朝露", "纸灯笼"]
+  },
+  {
+    "id": "explicit-selection-without-page-consent",
+    "route": "/brew/two", "pageConsent": false,
+    "page": { "type": "brew_article", "title": "雨后花园", "summary": "园艺观察" },
+    "selection": "只讨论我选中的句子", "song": "朝露", "playing": false,
+    "contains": ["选中：只讨论我选中的句子"], "liveContains": ["只讨论我选中的句子"], "absent": ["雨后花园", "园艺观察", "朝露"]
+  },
+  {
+    "id": "clear-everything",
+    "route": "/", "pageConsent": true, "page": null,
+    "selection": "", "song": null, "playing": false,
+    "contains": [], "liveContains": [], "absent": ["纸灯笼", "雨后花园", "朝露", "只讨论我选中的句子"]
+  }
+]

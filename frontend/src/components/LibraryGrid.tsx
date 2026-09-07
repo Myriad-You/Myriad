@@ -26,7 +26,6 @@ import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { useSharedResize } from '../hooks/useSharedEventListener'
 import {
   buildCenterOutCanvasLayout,
-  getLibraryCanvasFocusScale,
   getLibraryCanvasViewportBinKey,
 } from '../utils/libraryCanvas'
 import { slimLibraryItems } from '../utils/libraryItemSlim'
@@ -49,9 +48,20 @@ import {
   claimCanvasCardEnter,
   computeLibraryListLayout,
   LIBRARY_PAGE_SIZE,
+  pickLibraryTourCardId,
+  pinLibraryTourCard,
   queryCanvasVisibleItems,
   readCanvasDefaultScale,
 } from './library/libraryCanvasVisible'
+import {
+  canvasCardPaintCacheIsCurrent,
+  canvasFollowTargetsNeedPaint,
+  createCanvasCardPaintCache,
+  paintCanvasCardFocus,
+  refreshCanvasCardPaintCache,
+  resetCanvasCardPaintCache,
+  sameLibraryItemIds,
+} from './library/libraryCanvasPaint'
 import {
   LibraryCardLyrics,
   useLibraryMusicIdentity,
@@ -72,6 +82,7 @@ import { LibraryPlayingWaveBorder } from './library/libraryWaveBorder'
 import PlatformIcon from './PlatformIcon'
 import { QuickTransition } from './SkeletonTransition'
 import { Spinner } from './Spinner'
+import { getLibraryTourSurfaceSnapshot, isTourDomActive } from './tour/tourLogic'
 
 function injectLibraryStyle(id: string, css: string) {
   if (typeof document === 'undefined') return
@@ -182,105 +193,102 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     bins: Map<string, LibraryItem[]>
     order: Map<string, number>
   }>({ bins: new Map(), order: new Map() })
-  const lastCanvasVisibleSigRef = useRef('')
+  const lastCanvasVisibleItemsRef = useRef<LibraryItem[] | null>(null)
+  const lastCanvasPaintPoseRef = useRef<{
+    x: number
+    y: number
+    scale: number
+  } | null>(null)
+  const lastCanvasPaintWorldRef = useRef<HTMLElement | null>(null)
+  const canvasPaintCacheRef = useRef(createCanvasCardPaintCache())
+  const tourCardIdRef = useRef<string | null>(null)
   /** Tracks prior canvas effective mode for one-shot paint cleanup on leave. */
   const wasCanvasLayoutRef = useRef(false)
+  const canvasTourNotifiedRef = useRef(false)
   const [canvasLiveVisibleItems, setCanvasLiveVisibleItems] = useState<
     LibraryItem[]
   >([])
 
-  const paintCanvasTransform = useCallback((t: LibraryCanvasTransform) => {
-    const surface = containerRef.current
-    const world = worldRef.current
-    if (world) {
-      world.style.transform = `translate3d(${t.x}px, ${t.y}px, 0) scale(${t.scale})`
-    }
-    if (surface) {
-      surface.style.backgroundSize = `${28 * t.scale}px ${28 * t.scale}px`
-      surface.style.backgroundPosition = `calc(50% + ${t.x}px) calc(50% + ${t.y}px)`
-    }
+  const paintCanvasTransform = useCallback(
+    (t: LibraryCanvasTransform, syncCards = false) => {
+      const surface = containerRef.current
+      const world = worldRef.current
+      const lastPose = lastCanvasPaintPoseRef.current
+      const poseChanged =
+        !lastPose ||
+        lastPose.x !== t.x ||
+        lastPose.y !== t.y ||
+        lastPose.scale !== t.scale
+      const followChanged = canvasFollowTargetsNeedPaint(
+        lastPose,
+        t,
+        lastCanvasPaintWorldRef.current,
+        world,
+      )
 
-    const viewport = canvasViewportRef.current
-    if (world && viewport.width > 0 && viewport.height > 0) {
-      const cards = world.querySelectorAll<HTMLElement>('[data-canvas-card]')
-      for (let i = 0; i < cards.length; i++) {
-        const el = cards[i]
-        const left = Number(el.dataset.layoutLeft)
-        const top = Number(el.dataset.layoutTop)
-        const width = Number(el.dataset.layoutWidth)
-        const height = Number(el.dataset.layoutHeight)
-        if (
-          !Number.isFinite(left) ||
-          !Number.isFinite(top) ||
-          !Number.isFinite(width) ||
-          !Number.isFinite(height)
-        ) {
-          continue
+      if (followChanged) {
+        if (world) {
+          world.style.transform = `translate3d(${t.x}px, ${t.y}px, 0) scale(${t.scale})`
         }
-        const focus = getLibraryCanvasFocusScale(
-          {
-            left,
-            top,
-            width,
-            height,
-            gridX: 0,
-            gridY: 0,
-            gridW: 1,
-            gridH: 1,
-          },
+        if (surface) {
+          surface.style.backgroundSize = `${28 * t.scale}px ${28 * t.scale}px`
+          surface.style.backgroundPosition = `calc(50% + ${t.x}px) calc(50% + ${t.y}px)`
+        }
+        lastCanvasPaintPoseRef.current = { x: t.x, y: t.y, scale: t.scale }
+        lastCanvasPaintWorldRef.current = world
+      }
+
+      const viewport = canvasViewportRef.current
+      if (poseChanged || syncCards) {
+        const cache = canvasPaintCacheRef.current
+        if (world && viewport.width > 0 && viewport.height > 0) {
+          if (syncCards || !canvasCardPaintCacheIsCurrent(cache, world)) {
+            refreshCanvasCardPaintCache(cache, world)
+          }
+          paintCanvasCardFocus(cache.nodes, t, viewport)
+        }
+
+        const nextVisible = queryCanvasVisibleItems(
           t,
           viewport,
+          layoutsRef.current,
+          canvasSpatialIndexRef.current,
+          laidOutItemsRef.current,
         )
-        el.style.transform = `scale(${focus})`
-        el.style.zIndex = String(Math.round(focus * 100))
+        if (!sameLibraryItemIds(lastCanvasVisibleItemsRef.current, nextVisible)) {
+          lastCanvasVisibleItemsRef.current = nextVisible
+          setCanvasLiveVisibleItems(nextVisible)
+        }
+
+        syncLibraryCanvasChrome(t, {
+          minScale: CANVAS_MIN_SCALE,
+          maxScale: CANVAS_MAX_SCALE,
+          defaultScale: canvasDefaultScaleRef.current,
+        })
       }
-    }
 
-    // Live virtualization: mount/unmount only when membership changes.
-    const nextVisible = queryCanvasVisibleItems(
-      t,
-      viewport,
-      layoutsRef.current,
-      canvasSpatialIndexRef.current,
-      laidOutItemsRef.current,
-    )
-    let sig = ''
-    for (let i = 0; i < nextVisible.length; i++) {
-      if (i) sig += '\n'
-      sig += nextVisible[i].id
-    }
-    if (sig !== lastCanvasVisibleSigRef.current) {
-      lastCanvasVisibleSigRef.current = sig
-      setCanvasLiveVisibleItems(nextVisible)
-    }
-
-    // Chrome lives in a portal — update labels/disabled without React.
-    syncLibraryCanvasChrome(t, {
-      minScale: CANVAS_MIN_SCALE,
-      maxScale: CANVAS_MAX_SCALE,
-      defaultScale: canvasDefaultScaleRef.current,
-    })
-
-    // Edge preload without waiting for a React transform commit.
-    if (
-      libraryHasMoreRef.current &&
-      canvasLoadedRadiusRef.current > 0 &&
-      viewport.width > 0 &&
-      viewport.height > 0
-    ) {
-      const worldCenterX = -t.x / t.scale
-      const worldCenterY = -t.y / t.scale
-      const viewportRadius =
-        Math.hypot(viewport.width, viewport.height) / 2 / t.scale
-      const preloadBoundary = Math.max(
-        0,
-        canvasLoadedRadiusRef.current - viewportRadius * 1.25,
-      )
-      if (Math.hypot(worldCenterX, worldCenterY) >= preloadBoundary) {
-        loadNextLibraryPageLiveRef.current()
+      if (
+        poseChanged &&
+        libraryHasMoreRef.current &&
+        canvasLoadedRadiusRef.current > 0 &&
+        viewport.width > 0 &&
+        viewport.height > 0
+      ) {
+        const worldCenterX = -t.x / t.scale
+        const worldCenterY = -t.y / t.scale
+        const viewportRadius =
+          Math.hypot(viewport.width, viewport.height) / 2 / t.scale
+        const preloadBoundary = Math.max(
+          0,
+          canvasLoadedRadiusRef.current - viewportRadius * 1.25,
+        )
+        if (Math.hypot(worldCenterX, worldCenterY) >= preloadBoundary) {
+          loadNextLibraryPageLiveRef.current()
+        }
       }
-    }
-  }, [])
+    },
+    [],
+  )
 
   // React transform commits when spatial bins change (chrome props) or on force flush.
   const shouldCommitCanvasTransform = useCallback(
@@ -342,14 +350,22 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     if (active) {
       root.dataset.libraryCanvas = 'active'
       softLockWallpaperForLibraryCanvas()
-    } else {
+    } else if (
+      root.dataset.libraryCanvas === 'active' ||
+      root.dataset.libraryCanvasSurface ||
+      root.dataset.libraryEmpty
+    ) {
       delete root.dataset.libraryCanvas
+      delete root.dataset.libraryCanvasSurface
+      delete root.dataset.libraryEmpty
+      window.dispatchEvent(new Event('libraryCanvasModeChanged'))
     }
-    window.dispatchEvent(new Event('libraryCanvasModeChanged'))
 
     return () => {
       if (active && root.dataset.libraryCanvas === 'active') {
         delete root.dataset.libraryCanvas
+        delete root.dataset.libraryCanvasSurface
+        delete root.dataset.libraryEmpty
         window.dispatchEvent(new Event('libraryCanvasModeChanged'))
       }
     }
@@ -584,6 +600,24 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     visibleCount,
   ])
 
+  const tourCardId = useMemo(() => {
+    const picked = pickLibraryTourCardId(
+      visibleItems,
+      layoutMode === 'canvas' ? layouts : undefined,
+    )
+    if (isTourDomActive() && tourCardIdRef.current) return tourCardIdRef.current
+    tourCardIdRef.current = picked
+    return picked
+  }, [layoutMode, layouts, visibleItems])
+
+  const renderItems = useMemo(
+    () =>
+      layoutMode === 'canvas'
+        ? pinLibraryTourCard(visibleItems, laidOutItems, tourCardId)
+        : visibleItems,
+    [laidOutItems, layoutMode, tourCardId, visibleItems],
+  )
+
   // 动态计算容器高度
   const containerHeight = useMemo(() => {
     if (layoutMode === 'canvas') return 0
@@ -724,11 +758,15 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   useLayoutEffect(() => {
     if (layoutMode === 'canvas') {
       wasCanvasLayoutRef.current = true
-      paintCanvasTransform(canvasTransformRef.current)
+      paintCanvasTransform(canvasTransformRef.current, true)
       return
     }
     if (!wasCanvasLayoutRef.current) return
     wasCanvasLayoutRef.current = false
+    resetCanvasCardPaintCache(canvasPaintCacheRef.current)
+    lastCanvasPaintPoseRef.current = null
+    lastCanvasPaintWorldRef.current = null
+    lastCanvasVisibleItemsRef.current = null
     const surface = containerRef.current
     if (!surface) return
     surface.style.removeProperty('background-size')
@@ -737,7 +775,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
 
   useEffect(() => {
     if (layoutMode !== 'canvas') return
-    lastCanvasVisibleSigRef.current = ''
+    lastCanvasVisibleItemsRef.current = null
     resetCanvasView()
   }, [filter, layoutMode, resetCanvasView])
 
@@ -763,6 +801,32 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
 
   const emptyTitle = error ? t.library.emptyLibrary : t.library.emptyCategory
   const showEmpty = !loading && filteredAllItems.length === 0
+
+  // 画布 surface 在首屏加载后才挂上；偏好已在上一拍写下，这里补 surface 再通知。
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined') return
+    if (layoutMode !== 'canvas') {
+      canvasTourNotifiedRef.current = false
+      return
+    }
+    const root = document.documentElement
+    const surfaceLive =
+      !error && !showEmpty && !(loading && allItems.length === 0)
+    const prev = getLibraryTourSurfaceSnapshot()
+    if (surfaceLive) {
+      root.dataset.libraryCanvasSurface = '1'
+      delete root.dataset.libraryEmpty
+    } else {
+      delete root.dataset.libraryCanvasSurface
+      if (showEmpty) root.dataset.libraryEmpty = '1'
+      else delete root.dataset.libraryEmpty
+    }
+    const changed = getLibraryTourSurfaceSnapshot() !== prev
+    if (changed || !canvasTourNotifiedRef.current) {
+      canvasTourNotifiedRef.current = true
+      window.dispatchEvent(new Event('libraryCanvasModeChanged'))
+    }
+  }, [allItems.length, error, layoutMode, loading, showEmpty])
 
   const needsTransition = (from: string, to: string) => {
     return from !== 'all' && to !== 'all' && from !== to
@@ -878,6 +942,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
               data-library-canvas-surface={
                 layoutMode === 'canvas' ? 'true' : undefined
               }
+              data-tour={layoutMode === 'canvas' ? 'library-grid' : undefined}
               aria-label={
                 layoutMode === 'canvas' ? t.library.canvasAriaLabel : undefined
               }
@@ -915,7 +980,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                     : undefined
                 }
               >
-                {visibleItems.map((item, itemIndex) => {
+                {renderItems.map((item, itemIndex) => {
                   const layout = layouts.get(item.id)
                   if (!layout) return null
 
@@ -1009,6 +1074,9 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                     <div
                       key={item.id}
                       className={`absolute group library-card-container${hoverLocked ? ' is-hover-locked' : ''}`}
+                      data-tour={
+                        tourCardId === item.id ? 'library-card' : undefined
+                      }
                       data-canvas-card={
                         layoutMode === 'canvas' ? '' : undefined
                       }

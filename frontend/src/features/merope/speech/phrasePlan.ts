@@ -59,6 +59,20 @@ export function sanitizeSpeechPhrases(value: unknown): SpeechPhrase[] {
   return result
 }
 
+/** Updates describe fragments, not a replacement for queued spoken segments. */
+export function mergeSpeechPhrases(
+  previous: readonly SpeechPhrase[],
+  incoming: unknown,
+): SpeechPhrase[] {
+  const phrases = new Map(previous.map((phrase) => [phrase.text, phrase]))
+  for (const phrase of sanitizeSpeechPhrases(incoming)) {
+    // A correction (including `none`) replaces and refreshes just this fragment.
+    phrases.delete(phrase.text)
+    phrases.set(phrase.text, phrase)
+  }
+  return [...phrases.values()].slice(-24)
+}
+
 export function directorPhraseCoverage(
   plan: BehaviorPlan | null,
   active: readonly BehaviorSnapshot[] = [],

@@ -38,6 +38,7 @@ export const zhCN: TranslationKeys = {
     durationSeconds: '{sec} 秒',
     durationMinutes: '{min} 分',
     durationMinutesSeconds: '{min} 分 {sec} 秒',
+    editMode: '编辑模式',
   },
 
   // 导航
@@ -431,71 +432,237 @@ export const zhCN: TranslationKeys = {
   },
 
   tour: {
-    start: '教程',
-    startHint: '讲解这一页',
+    start: '导览',
+    startHint: '本页控件说明',
     next: '下一步',
     back: '上一步',
     done: '完成',
     skip: '跳过',
-    hint: '了解一下',
-    hintBody: '用一两分钟看清这一页上能点的地方。',
-    hintTitle: '了解一下 {page}',
+    skipHold: '长按跳过',
+    stepOf: '第 {current} 步，共 {total} 步',
+    hint: '页面导览',
+    hintBody: '说明本页的主要控件。',
+    hintTitle: '说明「{page}」的主要控件。',
     hintWelcome: '欢迎访问 {site}',
     begin: '开始',
-    noTourOnThisPage: '这一页还没有教程',
-    couldNotStart: '没找到这一页要讲解的位置',
+    noTourOnThisPage: '本页没有导览',
+    couldNotStart: '未找到本页导览的目标控件',
     steps: {
       nav: {
         title: '导航',
-        body: '从这里切换首页、资料库、Brew、报告和 Tapp。',
+        body: '切换首页、资料库、Brew 阅读、平台报告与 Tapp 应用。',
       },
       'home-grid': {
         title: '宫格',
-        body: '小组件都排在这里，打开站点时最先看到的就是这块看板。',
+        body: '站点打开后首先显示的小组件看板。',
+      },
+      'home-agent': {
+        title: 'Agent',
+        body: '长按任意空白处呼出。按钮、链接与导航上无效。呼出后继续。',
+      },
+      'home-agent-panel': {
+        title: 'Agent',
+        body: '在此输入并发送。点面板外收起。',
       },
       'home-edit': {
         title: '编辑',
-        body: '点这里可以改布局、加减小组件。只有站长能改。',
+        body: '进入编辑模式，以调整布局并增减小组件。',
+      },
+      'home-edit-grid': {
+        title: '宫格',
+        body: '拖动以移动或缩放。长按打开设置。角上可删除。',
+      },
+      'home-widget-library': {
+        title: '小组件库',
+        body: '将小组件拖入宫格以添加。',
+      },
+      'home-free-layout': {
+        title: '自由布局',
+        body: '在标准布局与自由布局之间切换。格子大小相同。自由画布为 16×8，两套位置分别保存。',
+      },
+      'home-sticker': {
+        title: '贴纸',
+        body: '选择空位后生成或上传。不计入小组件格子配额。',
       },
       'control-island': {
         title: '控制岛',
-        body: '外观、语言、壁纸和登录都在右上角。站长还可以进系统配置。',
+        body: '收缩态轮播站点信息。点开后展开控制面板。',
+      },
+      'control-island-owner': {
+        title: '控制岛',
+        body: '收缩态轮播站点信息。点开后展开控制面板。',
+      },
+      'control-panel': {
+        title: '控制面板',
+        body: '外观、动效与语言。可登录。可播放站内音乐。可切换「控制」与通知。',
+      },
+      'control-panel-owner': {
+        title: '控制面板',
+        body: '外观、动效与语言。可进入系统配置。可播放站内音乐。可切换「控制」与通知。',
+      },
+      'library-filters': {
+        title: '分类',
+        body: '按全部、游戏、视频、音乐、追番、追剧、书籍筛选。收起后再次点击资料库即可展开。',
       },
       'library-grid': {
         title: '收藏',
-        body: '游戏、影视、音乐、追番和书都排在这里。点导航里的资料库可以按类型筛选。',
+        body: '已同步的条目。向下滚动加载更多。',
+      },
+      'library-grid-canvas': {
+        title: '收藏',
+        body: '已同步的条目从中心向外铺开。拖拽平移画布。',
+      },
+      'library-card': {
+        title: '卡片',
+        body: '打开卡片进入来源平台。网易云在站内播放。角标显示来源与评分。',
+      },
+      'library-canvas': {
+        title: '画布',
+        body: '缩放无限画布，或重置到中心。',
       },
       'reports-status': {
         title: '状态条',
-        body: '这里会轮播这一页的状态。有报告时可以从这里一键播放。',
+        body: '轮播本页各平台与播放状态。',
+      },
+      'reports-play': {
+        title: '播放',
+        body: '按顺序播放已有报告。',
       },
       'reports-cards': {
         title: '平台卡',
-        body: '每个平台一张卡。有报告就点开看，站长还可以在这里生成。',
+        body: '每个平台一张。打开已有报告。',
       },
-      'tapp-toolbar': {
-        title: '工具条',
-        body: '去商店、切换我的/站点应用、安装都在这条上。',
+      'reports-cards-owner': {
+        title: '平台卡',
+        body: '每个平台一张。打开已有报告，或在此生成。',
+      },
+      'tapp-store-entry': {
+        title: '商店',
+        body: '前往商店浏览并安装应用。',
+      },
+      'tapp-scope': {
+        title: '范围',
+        body: '在「我的应用」与「站点应用」之间切换。',
+      },
+      'tapp-open-playground': {
+        title: '游乐场',
+        body: '用自然语言生成应用。运行于临时沙箱，无授予权限。',
+      },
+      'tapp-install': {
+        title: '安装',
+        body: '上传 .tapp 文件以安装。',
       },
       'tapp-grid': {
         title: '已装应用',
-        body: '点卡片打开应用。站长可以改排列和大小。',
+        body: '打开卡片以运行应用。',
       },
-      'tapp-store-nav': {
-        title: '分类',
-        body: '按发现、已装和分类浏览商店。',
+      'tapp-grid-owner': {
+        title: '已装应用',
+        body: '打开卡片以运行。可启动、停止、打开设置或卸载。可调整排列与尺寸。',
       },
-      'tapp-store-catalog': {
-        title: '目录',
-        body: '应用都列在这里，点进去看详情和安装。',
+      'config-search': {
+        title: '搜索',
+        body: '按名称或指南正文查找设置。',
       },
       'config-sidebar': {
-        title: '目录',
-        body: '按分组找设置，也可以搜索。',
+        title: '分组',
+        body: '设置按组排列。',
       },
       'config-content': {
         title: '设置',
-        body: '改完记得保存。这里只给站长用。',
+        body: '修改后需保存。',
+      },
+      'config-ai-persona-toggle': {
+        title: '人设',
+        body: '打开后 Agent 用这份设定说话。写设定需要 Pro。',
+      },
+      'config-ai-persona-card': {
+        title: '形象',
+        body: '未设定时开始设定。已有形象时打开人物设定或删除。',
+      },
+      'config-ai-persona-speech': {
+        title: '说话',
+        body: '朗读聊天回复。人设关闭时不可用。',
+      },
+      'config-persona-tabs': {
+        title: '分页',
+        body: '在概览、人格、衣柜与动作调整之间切换。',
+      },
+      'config-persona-portrait': {
+        title: '主立绘',
+        body: '当前形象预览。有骨骼时在此播放。',
+      },
+      'config-persona-overview': {
+        title: '概览',
+        body: '名字、心情与活动、贴纸头像、勿扰。',
+      },
+      'config-persona-identity': {
+        title: '人格',
+        body: '气质、喜好、驱动力、社交与表达。可导入或逐项编辑。仅站长可写。',
+      },
+      'config-persona-wardrobe': {
+        title: '衣柜',
+        body: '点一套衣服可管理该套立绘。脸和发型固定。可做新衣服。',
+      },
+      'config-persona-motion': {
+        title: '动作调整',
+        body: '导入骨骼后可预览并调整动作。',
+      },
+      'tapp-detail-overview': {
+        title: '概览',
+        body: '应用信息。可导出。有权限时可启动、停止或卸载。',
+      },
+      'tapp-detail-settings': {
+        title: '应用设置',
+        body: '本次安装的配置。已登录可见。可见性仅站长可改。',
+      },
+      'tapp-detail-permissions': {
+        title: '权限',
+        body: '只读列出本次安装的授予权限。',
+      },
+      'tapp-playground-toolbar': {
+        title: '工具条',
+        body: '返回应用列表。此处为无授予权限的临时沙箱。',
+      },
+      'tapp-playground-preview': {
+        title: '页面预览',
+        body: '未生成时为占位。生成后在临时沙箱中运行。',
+      },
+      'tapp-playground-widget': {
+        title: '小组件预览',
+        body: '按声明的尺寸渲染。',
+      },
+      'tapp-playground-code': {
+        title: '源码',
+        body: '生成的源码。可切换文件并直接编辑。有多个版本时可对比。',
+      },
+      'tapp-playground-prompt': {
+        title: '指令',
+        body: '用自然语言描述要生成或修改的内容。空会话时可点示例填入。Enter 发送，Shift+Enter 换行。',
+      },
+      'tapp-playground-generate': {
+        title: '生成',
+        body: '提交后生成或应用修改，并在临时沙箱中运行。',
+      },
+      'tapp-playground-history': {
+        title: '历史',
+        body: '查看本会话的修改记录。可切换、新建或删除会话。',
+      },
+      'tapp-playground-revisions': {
+        title: '版本',
+        body: '在已生成的版本之间前后移动。',
+      },
+      'tapp-playground-clear': {
+        title: '清空会话',
+        body: '清空当前会话。',
+      },
+      'tapp-playground-export': {
+        title: '导出',
+        body: '下载 .tapp 包。',
+      },
+      'tapp-playground-install': {
+        title: '安装',
+        body: '安装到本站。安装后才有授予权限。',
       },
     },
   },
@@ -2566,6 +2733,20 @@ export const zhCN: TranslationKeys = {
     stickerDownload: '下载图片',
     stickerDownloadHint: '保存生成或上传的原图',
     stickerFile: '图片',
+    exportLayout: '导出',
+    importLayout: '导入',
+    exportLayoutSuccess: '已导出首页布局',
+    exportLayoutFailed: '首页布局没能导出',
+    exportLayoutPartial: '已导出首页布局，但有 {count} 张贴纸原图没带上',
+    importLayoutSuccess: '已导入首页布局',
+    importLayoutFailed: '首页布局没能导入',
+    importLayoutPartial: '已导入首页布局，但有 {count} 张贴纸原图没能写入',
+    importLayoutConfirm:
+      '导入会替换当前的标准布局和自由布局。带上的贴纸原图会重新写入本站。确定导入？',
+    importLayoutInvalid: '这不是首页布局文件',
+    importLayoutSettingsBackup: '这是站点设置备份，请到系统配置里导入',
+    importLayoutTooLarge: '布局文件太大',
+    importLayoutTooMany: '布局文件里的格子太多',
   },
 
   // 资料库

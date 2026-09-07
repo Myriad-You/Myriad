@@ -10,7 +10,11 @@ import type { MeropeRigManifest } from './rig/types'
 import type { MeropeActivity } from './types'
 import type { WardrobeItem } from './wardrobe'
 import { LuRefreshCw, LuSparkles } from '@lib/icons'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  getTourSnapshot,
+  subscribeTour,
+} from '../../components/tour/tourEngine'
 import { createPortal } from 'react-dom'
 import { LuChevronLeft } from 'react-icons/lu'
 import {
@@ -135,6 +139,14 @@ export default function SiteMotionWorkbench({
   const [wardrobeItems, setWardrobeItems] = useState<WardrobeItem[]>([])
   const [activeOutfitId, setActiveOutfitId] = useState<string | null>(null)
   const [managingOutfitId, setManagingOutfitId] = useState<string | null>(null)
+  const personaTouring = useSyncExternalStore(
+    subscribeTour,
+    () =>
+      getTourSnapshot().active &&
+      getTourSnapshot().tourId === 'config-persona-owner',
+    () => false,
+  )
+  const managingId = personaTouring ? null : managingOutfitId
   const [rigManifest, setRigManifest] = useState<MeropeRigManifest | null>(null)
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null)
   const [generationFingerprint, setGenerationFingerprint] = useState<
@@ -1213,7 +1225,7 @@ export default function SiteMotionWorkbench({
   )
 
   const managingOutfit = wardrobeItems.find(
-    (item) => item.id === managingOutfitId,
+    (item) => item.id === managingId,
   )
   const wearingManaged = managingOutfit?.id === activeOutfitId
   const managingIdentity =
@@ -1390,6 +1402,7 @@ export default function SiteMotionWorkbench({
       <aside
         className="merope-motion-page__stage"
         aria-label={t.merope.visualTitle}
+        data-tour="config-persona-portrait"
       >
         {portraitStage}
       </aside>

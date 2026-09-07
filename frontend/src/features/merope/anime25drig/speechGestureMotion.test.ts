@@ -111,7 +111,11 @@ test('a restated laugh retains its phase and cancellation releases the whole ges
   const now = peak + 130
   const before = { ...motion.sample(now / 1_000).coSpeechGesture }
   motion.replace(units, now, now / 1_000)
-  assert.deepEqual(motion.sample(now / 1_000).coSpeechGesture, before)
+  const restated = motion.sample(now / 1_000).coSpeechGesture
+  for (const key of Object.keys(before) as Array<keyof typeof before>) {
+    // Wall-clock ms → player seconds can differ by one floating-point ULP.
+    assert.ok(Math.abs(restated[key] - before[key]) < 1e-12, key)
+  }
   motion.clear(now / 1_000)
   const later = motion.sample(now / 1_000 + 1)
   assert.equal(later.coSpeech, 0)

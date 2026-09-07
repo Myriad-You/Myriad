@@ -238,13 +238,15 @@ async fn configured_lite_appraises_synthetic_scenarios_without_state_writes() {
         .unwrap()
         .expect("existing persona required");
     db.close().await.unwrap();
-    if std::env::var("MEROPE_LITE_CHAIN_PROBE").as_deref() == Ok("1") {
+    let chain_probe = std::env::var("MEROPE_LITE_CHAIN_PROBE").unwrap_or_default();
+    if matches!(chain_probe.as_str(), "1" | "memory") {
         chain::run(
             &mut report,
             &model,
             &persona,
             model_override.as_deref(),
             exact_policy,
+            chain_probe == "memory",
         )
         .await;
         return;

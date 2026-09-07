@@ -99,6 +99,12 @@ export const DISCOVER_ALL_PREVIEW_LIMIT = 10
 /** Discover home “最新” section size. */
 export const DISCOVER_LATEST_LIMIT = 2
 
+/** Skeleton rows for category / search while remote catalog is pending. */
+export const CATALOG_SKELETON_LIST_ROWS = 6
+
+/** Discover “全部” skeleton rows (keep shorter than the live preview cap). */
+export const CATALOG_SKELETON_DISCOVER_ALL_ROWS = 6
+
 export interface InstalledTappInfo {
   userRole: string
   isTemporary?: boolean

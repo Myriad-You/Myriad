@@ -176,7 +176,7 @@ Agent 不会声称把所有文档永久放进模型上下文。
 | Page iframe / CSP / SDK | 有可用 Page 时与正式沙箱同构 | 正式沙箱 |
 | Widget 沙箱 | 有 Widget 时挂载（可交互） | 主页 / 运行态按宿主策略 |
 | Runtime Grant | **不签发** | 按可见安装与当前角色签发 |
-| `Tapp.storage` / `settings` / `shared` | 当前**标签页内存**；预览需声明 `storage:read` / `storage:write` | 正式命名空间 |
+| `Tapp.storage` / `settings` / `shared` | 当前**标签页内存**；预览需声明 `storage:read` / `storage:write`；三种 KV 都有 `onChanged`（settings 不拆卡） | 正式命名空间 |
 | 主题、语言、`openUrl` | Page / Widget 预览可用（通知禁用；`openUrl` 需声明 `ui:openUrl` + `openUrls`） | 按授予权限 |
 | 标题、确认、全屏 | **仅 Page 预览**（Widget SDK 没有这些方法） | 按授予权限；仍仅 Page |
 | `Tapp.assets` | 工作区 `code.assets` 内存；与安装后同一 `list` / `get` / `getUrlMap` | 安装包资源 |

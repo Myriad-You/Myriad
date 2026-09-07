@@ -206,6 +206,7 @@ interface FloatingPaneProps {
   interactive: boolean
   /** 静态模式下的高度 class */
   staticClassName?: string
+  tourAnchor?: string
 }
 
 function FloatingPane({
@@ -217,6 +218,7 @@ function FloatingPane({
   children,
   interactive,
   staticClassName,
+  tourAnchor,
 }: FloatingPaneProps) {
   const paneRef = useRef<HTMLDivElement>(null)
   const [rect, setRect] = useState<Rect>(() => defaultRect)
@@ -340,6 +342,7 @@ function FloatingPane({
     return (
       <div
         className={`relative flex flex-col overflow-hidden rounded-xl w-full ${staticClassName || ''}`}
+        data-tour={tourAnchor}
         style={{
           border: '1px solid var(--border-color)',
           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
@@ -367,6 +370,7 @@ function FloatingPane({
     <div
       ref={paneRef}
       className="absolute flex flex-col overflow-hidden rounded-xl"
+      data-tour={tourAnchor}
       style={{
         top: 0,
         left: 0,
@@ -1988,7 +1992,7 @@ export function TappPlaygroundPage() {
       data-no-ripple
     >
       {/* 顶部工具栏 - 与多窗口运行页一致的浮动样式 */}
-      <div className="absolute top-3.5 left-3.5 z-40">
+      <div className="absolute top-3.5 left-3.5 z-40" data-tour="tapp-playground-toolbar">
         <div
           className="flex items-center gap-1.5 rounded-xl pl-1.5 pr-3 py-1.5 glass-surface glass-80"
           style={{
@@ -2038,6 +2042,7 @@ export function TappPlaygroundPage() {
       </div>
 
       {/* 工作区窗格 */}
+      <div className="absolute inset-0">
       {interactive ? (
         defaultLayout && (
           <>
@@ -2056,6 +2061,7 @@ export function TappPlaygroundPage() {
                 onFocus={() => setActivePane('preview')}
                 header={previewHeader}
                 interactive
+                tourAnchor="tapp-playground-preview"
               >
                 {previewContent}
               </FloatingPane>
@@ -2069,6 +2075,7 @@ export function TappPlaygroundPage() {
                 onFocus={() => setActivePane('widget')}
                 header={widgetHeader}
                 interactive
+                tourAnchor="tapp-playground-widget"
               >
                 {widgetContent}
               </FloatingPane>
@@ -2080,6 +2087,7 @@ export function TappPlaygroundPage() {
               onFocus={() => setActivePane('code')}
               header={codeHeader}
               interactive
+              tourAnchor="tapp-playground-code"
             >
               {codeContent}
             </FloatingPane>
@@ -2096,6 +2104,7 @@ export function TappPlaygroundPage() {
               header={previewHeader}
               interactive={false}
               staticClassName="h-[56vh]"
+              tourAnchor="tapp-playground-preview"
             >
               {previewContent}
             </FloatingPane>
@@ -2109,6 +2118,7 @@ export function TappPlaygroundPage() {
               header={widgetHeader}
               interactive={false}
               staticClassName={isWidgetOnly ? 'h-[56vh]' : 'h-[36vh]'}
+              tourAnchor="tapp-playground-widget"
             >
               {widgetContent}
             </FloatingPane>
@@ -2122,6 +2132,7 @@ export function TappPlaygroundPage() {
               header={previewHeader}
               interactive={false}
               staticClassName="h-[56vh]"
+              tourAnchor="tapp-playground-preview"
             >
               {previewContent}
             </FloatingPane>
@@ -2134,11 +2145,13 @@ export function TappPlaygroundPage() {
             header={codeHeader}
             interactive={false}
             staticClassName="h-[42vh]"
+            tourAnchor="tapp-playground-code"
           >
             {codeContent}
           </FloatingPane>
         </div>
       )}
+      </div>
 
       {/* 底部控制岛（Composer） */}
       <PlaygroundComposer

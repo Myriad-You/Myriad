@@ -57,7 +57,7 @@ pub fn chat_safe_content(content: &str) -> String {
 /// into a short, warm assistant.
 const CHAT_REPLY_INSTRUCTION: &str = "\
 请以你的角色回复。用对方的语言。说话风格必须由设定里的性格决定，并被心情调节。\
-接住这一句。禁止输出 AI 味的文本，也不要改成攻击。只输出纯文本，不要 JSON。\
+接住这一句。禁止输出 AI 味的文本，也不要改成攻击。正文用纯文本，不要 JSON。\
 若衣服段或播放器段要求写 [[wear:…]] / [[music:…]]，写在全文最后，不要念出来。\
 对方要你查资料、生成、订阅、改设置或处理整页正文时，不要假装已经做完。";
 
@@ -115,7 +115,11 @@ pub fn format_chat_scene(perception: Option<&Value>, page: Option<&Value>, input
             let Some(obj) = item.as_object() else {
                 continue;
             };
-            if obj.get("ttlMs").and_then(Value::as_i64) == Some(0) {
+            if obj
+                .get("ttlMs")
+                .and_then(Value::as_i64)
+                .is_none_or(|ttl| ttl <= 0)
+            {
                 continue;
             }
             let source = obj.get("sourceId").and_then(Value::as_str).unwrap_or("");

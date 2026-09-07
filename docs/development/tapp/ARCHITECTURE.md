@@ -252,6 +252,9 @@ SDK 的 `lifecycle.onDestroy` 同时监听 `pagehide` 与 `beforeunload`，并�
   给公开部署展示站长数据。`GET` 同样 optional_auth；写仅 owner/管理员。
 - 三者都不能互相伪装：settings / shared 路由不能当任意 storage 用，storage 也不能读写
   `_settings.*` 或 `_shared.*`。
+- 三种 KV 写入成功后向同 Tapp 其他活着的沙箱广播 `onChanged`（写者不回声）。storage /
+  shared 额外 remount 可见 Widget；settings 只广播。详情页宿主编辑器的 settings 落盘
+  也走同一条 `onChanged`，不经过 `Tapp.settings.set`。
 
 storage 批量读取使用 `storage.getAll` 对应的单次数据库查询，不能退回 `keys + N 次 get`。
 
@@ -491,8 +494,10 @@ sequenceDiagram
   加载，并取消旧路由的迟到状态写回。
 - Manifest、最终权限和用户角色使用独立运行契约指纹；同 ID 更新声明或授权后必须重建 SDK、
   Bridge 与订阅 handler，不能因代码内容未变而继续运行旧权限面。
-- Widget 默认由 storage 变更或显式 `invalidate` 事件驱动刷新；可选 interval 仅在页面与
-  Widget 可见时计时。Page、Widget、headless core 间的同 Tapp storage 变更由宿主广播。
+- Widget 默认由 storage / shared 变更或显式 `invalidate` 驱动刷新（会重建 iframe）；
+  `Tapp.settings` 变更只广播 `onChanged`，不重建 iframe。可选 interval 仅在页面与
+  Widget 可见时额外计时。Page / headless 的定向 `invalidate({ widgetId })` 需要授予的
+  `storage:write`，并受 15s / 2 次/分限制。
 - Manifest 顶层 `settings` 是 Tapp 全局设置；`widgets[].settings` 保存到 Dashboard
   布局中的实例 `config`，同类 Widget 的多个实例互不覆盖。
 - Manifest Widget 是安装控制面注册：安装/更新时后端按 Manifest 完整 upsert，并删除旧

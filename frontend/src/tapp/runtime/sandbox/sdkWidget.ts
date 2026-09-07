@@ -609,6 +609,9 @@ function buildWidgetSdkBody(
       else if (msg.action === 'storageChanged') {
         eventListeners.get('storageChanged')?.forEach(function(cb) { try { cb(msg.payload); } catch(e) {} });
       }
+      else if (msg.action === 'settingsChanged') {
+        eventListeners.get('settingsChanged')?.forEach(function(cb) { try { cb(msg.payload); } catch(e) {} });
+      }
       else if (msg.action === 'sharedChanged') {
         eventListeners.get('sharedChanged')?.forEach(function(cb) { try { cb(msg.payload); } catch(e) {} });
       }
@@ -672,8 +675,11 @@ function buildWidgetSdkBody(
       updateInstanceSettings: function(patch) {
         return sendRequest('widget', 'instanceSettings.update', [patch]);
       },
-      invalidate: function(reason) {
-        return sendRequest('widget', 'invalidate', [reason]);
+      invalidate: function(reason, options) {
+        if (options == null) {
+          return sendRequest('widget', 'invalidate', [reason]);
+        }
+        return sendRequest('widget', 'invalidateTarget', [reason, options]);
       }
     },
 
@@ -714,7 +720,8 @@ function buildWidgetSdkBody(
     settings: {
       get: function(k) { validateStorageKey(k); return sendRequest('settings', 'get', [k]); },
       set: function(k, v) { validateStorageKey(k); return sendRequest('settings', 'set', [k, v]); },
-      getAll: function() { return sendRequest('settings', 'getAll', []); }
+      getAll: function() { return sendRequest('settings', 'getAll', []); },
+      onChanged: function(cb) { return addEventListener('settingsChanged', cb); }
     },
 
     shared: {

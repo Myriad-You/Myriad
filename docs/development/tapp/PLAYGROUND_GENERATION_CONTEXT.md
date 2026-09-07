@@ -129,6 +129,7 @@ await Tapp.storage.clear();
 await Tapp.settings.get('compact');
 await Tapp.settings.set('compact', true);
 await Tapp.settings.getAll();
+Tapp.settings.onChanged(({ key, operation }) => {});
 
 await Tapp.shared.get('posts');
 await Tapp.shared.set('posts', []);

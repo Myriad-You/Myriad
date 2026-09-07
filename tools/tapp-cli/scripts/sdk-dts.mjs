@@ -76,6 +76,7 @@ function localMembers() {
     get(key: string): Promise<unknown>
     set(key: string, value: unknown): Promise<unknown>
     getAll(): Promise<Record<string, unknown>>
+    onChanged(callback: (event: { key?: string; operation?: string }) => void): () => void
   }
 
   ui: {

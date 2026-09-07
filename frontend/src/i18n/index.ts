@@ -40,6 +40,7 @@ export interface TranslationKeys {
     durationSeconds: string
     durationMinutes: string
     durationMinutesSeconds: string
+    editMode: string
   }
 
   // 导航
@@ -407,6 +408,10 @@ export interface TranslationKeys {
     back: string
     done: string
     skip: string
+    /** 长按「下一步」跳过时的提示 */
+    skipHold: string
+    /** 读屏用的步骤位置，占位符 {current} / {total} */
+    stepOf: string
     hint: string
     hintBody: string
     hintTitle: string
@@ -417,17 +422,58 @@ export interface TranslationKeys {
     steps: {
       nav: { title: string; body: string }
       'home-grid': { title: string; body: string }
+      'home-agent': { title: string; body: string }
+      'home-agent-panel': { title: string; body: string }
       'home-edit': { title: string; body: string }
+      'home-edit-grid': { title: string; body: string }
+      'home-widget-library': { title: string; body: string }
+      'home-free-layout': { title: string; body: string }
+      'home-sticker': { title: string; body: string }
       'control-island': { title: string; body: string }
+      'control-island-owner': { title: string; body: string }
+      'control-panel': { title: string; body: string }
+      'control-panel-owner': { title: string; body: string }
+      'library-filters': { title: string; body: string }
       'library-grid': { title: string; body: string }
+      'library-grid-canvas': { title: string; body: string }
+      'library-card': { title: string; body: string }
+      'library-canvas': { title: string; body: string }
       'reports-status': { title: string; body: string }
+      'reports-play': { title: string; body: string }
       'reports-cards': { title: string; body: string }
-      'tapp-toolbar': { title: string; body: string }
+      'reports-cards-owner': { title: string; body: string }
+      'tapp-store-entry': { title: string; body: string }
+      'tapp-scope': { title: string; body: string }
+      'tapp-open-playground': { title: string; body: string }
+      'tapp-install': { title: string; body: string }
       'tapp-grid': { title: string; body: string }
-      'tapp-store-nav': { title: string; body: string }
-      'tapp-store-catalog': { title: string; body: string }
+      'tapp-grid-owner': { title: string; body: string }
+      'config-search': { title: string; body: string }
       'config-sidebar': { title: string; body: string }
       'config-content': { title: string; body: string }
+      'config-ai-persona-toggle': { title: string; body: string }
+      'config-ai-persona-card': { title: string; body: string }
+      'config-ai-persona-speech': { title: string; body: string }
+      'config-persona-tabs': { title: string; body: string }
+      'config-persona-portrait': { title: string; body: string }
+      'config-persona-overview': { title: string; body: string }
+      'config-persona-identity': { title: string; body: string }
+      'config-persona-wardrobe': { title: string; body: string }
+      'config-persona-motion': { title: string; body: string }
+      'tapp-detail-overview': { title: string; body: string }
+      'tapp-detail-settings': { title: string; body: string }
+      'tapp-detail-permissions': { title: string; body: string }
+      'tapp-playground-toolbar': { title: string; body: string }
+      'tapp-playground-preview': { title: string; body: string }
+      'tapp-playground-widget': { title: string; body: string }
+      'tapp-playground-code': { title: string; body: string }
+      'tapp-playground-prompt': { title: string; body: string }
+      'tapp-playground-generate': { title: string; body: string }
+      'tapp-playground-history': { title: string; body: string }
+      'tapp-playground-revisions': { title: string; body: string }
+      'tapp-playground-clear': { title: string; body: string }
+      'tapp-playground-export': { title: string; body: string }
+      'tapp-playground-install': { title: string; body: string }
     }
   }
 
@@ -2296,6 +2342,19 @@ export interface TranslationKeys {
     stickerDownload: string
     stickerDownloadHint: string
     stickerFile: string
+    exportLayout: string
+    importLayout: string
+    exportLayoutSuccess: string
+    exportLayoutFailed: string
+    exportLayoutPartial: string
+    importLayoutSuccess: string
+    importLayoutFailed: string
+    importLayoutPartial: string
+    importLayoutConfirm: string
+    importLayoutInvalid: string
+    importLayoutSettingsBackup: string
+    importLayoutTooLarge: string
+    importLayoutTooMany: string
   }
 
   // 资料库

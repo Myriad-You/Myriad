@@ -1,5 +1,6 @@
 import type { SpeechViseme } from '../rig/articulation'
 import {
+  MAX_VISUAL_SPEECH_TEXT_UNITS,
   VISUAL_SPEECH_ARTICULATION_SCALE,
   visualSpeechPauseSeconds,
 } from '../speech/textTiming'
@@ -10,7 +11,6 @@ export interface TextVisemeCue {
   emphasis: boolean
 }
 
-const MAX_COMPILED_CUES = 192
 const HAN_RUN = /\p{Script=Han}+/gu
 const HAN_CHAR = /\p{Script=Han}/u
 const JAPANESE_CHAR = /[\p{Script=Hiragana}\p{Script=Katakana}ー]/u
@@ -24,12 +24,14 @@ export async function compileTextVisemes(
   text: string,
   locale?: string,
 ): Promise<TextVisemeCue[]> {
-  const normalized = text.normalize('NFKC').slice(0, 2_000)
+  const normalized = text
+    .normalize('NFKC')
+    .slice(0, MAX_VISUAL_SPEECH_TEXT_UNITS)
   const output: TextVisemeCue[] = []
   const language = locale?.toLowerCase() || ''
   if (language.startsWith('ja')) {
     compileNonHan(normalized, language, output)
-    return coalesce(output).slice(0, MAX_COMPILED_CUES)
+    return coalesce(output)
   }
   let pinyin: (typeof import('pinyin-pro'))['pinyin'] | null = null
   if (HAN_CHAR.test(normalized)) {
@@ -55,7 +57,9 @@ export async function compileTextVisemes(
     cursor = index + match[0].length
   }
   compileNonHan(normalized.slice(cursor), language, output)
-  return coalesce(output).slice(0, MAX_COMPILED_CUES)
+  // Input is bounded; a separate cue cap would silently drop the final words
+  // while the body and speech lifecycle continue along the complete text.
+  return coalesce(output)
 }
 
 function compileUnknownHan(text: string, output: TextVisemeCue[]): void {
@@ -248,7 +252,9 @@ function push(
   output.push({
     viseme,
     duration:
-      viseme === 'rest' ? duration : duration * VISUAL_SPEECH_ARTICULATION_SCALE,
+      viseme === 'rest'
+        ? duration
+        : duration * VISUAL_SPEECH_ARTICULATION_SCALE,
     emphasis,
   })
 }

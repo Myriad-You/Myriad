@@ -149,6 +149,7 @@ export interface TappSdk {
     get(key: string): Promise<unknown>
     set(key: string, value: unknown): Promise<unknown>
     getAll(): Promise<Record<string, unknown>>
+    onChanged(callback: (event: { key?: string; operation?: string }) => void): () => void
   }
 
   ui: {
@@ -544,6 +545,7 @@ export interface TappSdk {
   }
   widget: {
     invalidate(...args: unknown[]): Promise<unknown>
+    invalidateTarget(...args: unknown[]): Promise<unknown> // permission: storage:write
     listRegistered(...args: unknown[]): Promise<unknown> // permission: widget:register
     register(...args: unknown[]): Promise<unknown> // permission: widget:register
     unregister(...args: unknown[]): Promise<unknown> // permission: widget:register

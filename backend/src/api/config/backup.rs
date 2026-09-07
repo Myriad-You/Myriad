@@ -1,4 +1,4 @@
-//! Settings backup export / preview / restore and the configuration-key registry.
+//! Settings backup export / preview / restore and the retired-key denylist.
 use axum::{extract::State, http::StatusCode, Json};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use super::build::{build_config, reconcile_platform_auto_refresh};
 use super::extras::{HitokotoConfig, ReportSettings, HITOKOTO_CONFIG_KEY, REPORT_SETTINGS_KEY};
 use super::save::collect_database_updates;
 use super::types::ConfigResponse;
+use crate::services::retired_configuration::is_retired_configuration_key;
 use myriad_module_visibility::{ModuleVisibilityPreferences, MODULE_VISIBILITY_PREFERENCES_KEY};
 
 pub(crate) const SETTINGS_BACKUP_FORMAT: &str = "myriad-settings-backup";
@@ -25,228 +26,14 @@ pub(crate) struct SettingDescriptor {
     introduced_in_backup_version: u32,
 }
 
-// 这是配置备份唯一的后端注册表。新增或删除非 ConfigResponse 设置时只需要改这里；
-// 恢复、预检和导出过滤全部从该注册表派生。
-/// 备份/恢复 registry：含仍在用的键。已下线的 `pet_*` / `ui_wallpaper_parallax` /
-/// `github_client_*` / `github_redirect_url` 不在表里——旧备份里这些键会进 ignored。
-pub(crate) const REGISTERED_CONFIGURATION_KEYS_V1: &[&str] = &[
-    "merope_enabled",
-    "merope_speech_enabled",
-    "agent_rig_asset_id",
-    "ai_image_model",
-    "ai_image_openai_api_key",
-    "ai_image_openai_base_url",
-    "ai_image_openrouter_api_key",
-    "ai_image_provider",
-    "ai_image_volcengine_api_key",
-    "ai_image_source",
-    "ai_image_volcengine_base_url",
-    "ai_provider",
-    "ai_source",
-    "ai_vendor_sources",
-    "lite_ai_source",
-    "pro_ai_source",
-    "speech_source",
-    "agora_api_base",
-    "agora_app_certificate",
-    "agora_app_id",
-    "agora_convo_enabled",
-    "agora_customer_id",
-    "agora_customer_secret",
-    "allow_local_registration",
-    "analytics_enabled",
-    "tapp_private_install_cleanup",
-    "tapp_private_install_inactivity_days",
-    "bangumi_access_token",
-    "bangumi_enabled",
-    "bangumi_user_agent",
-    "bangumi_username",
-    "base_url",
-    "bilibili_enabled",
-    "bilibili_uid",
-    "cloud_sponsors",
-    "control_panel_layout",
-    "control_panel_rows",
-    "custom_platforms",
-    "dashboard_layout",
-    "dashboard_layout_mode",
-    "dashboard_title",
-    "discord_access_token",
-    "discord_enabled",
-    "discord_refresh_token",
-    "discord_token_expires_at",
-    "discord_user_id",
-    "enable_auto_fetch",
-    "fetch_interval_hours",
-    "ga_measurement_id",
-    "gemini_api_key",
-    "gemini_base_url",
-    "gemini_model",
-    "github_api_base_url",
-    "github_enabled",
-    "github_token",
-    "github_username",
-    "guest_ai_cooldown_seconds",
-    "guest_ai_daily_calls",
-    "guest_ai_daily_tokens",
-    "guest_perm_ai_analyze",
-    "guest_perm_ai_chat",
-    "guest_perm_ai_generate",
-    "guest_perm_ai_image",
-    "guest_perm_ai_search",
-    "guest_perm_3d_generate",
-    "guest_perm_component_theme",
-    "guest_perm_event_publish",
-    "guest_perm_media_control",
-    "guest_perm_network_fetch",
-    "lite_ai_provider",
-    "lite_enabled",
-    "lite_gemini_api_key",
-    "lite_gemini_model",
-    "lite_openai_api_key",
-    "lite_openai_base_url",
-    "lite_openai_model",
-    "guest_perm_report_write",
-    "guest_perm_scheduler_register",
-    "guest_perm_shortcut_register",
-    "guest_perm_speech_asr",
-    "guest_perm_speech_tts",
-    "hitokoto_config",
-    "library_source_preferences",
-    "mal_client_id",
-    "mal_enabled",
-    "mal_username",
-    "module_visibility_preferences",
-    "music_enabled",
-    "music_playlist_id",
-    "music_source",
-    "netease_enabled",
-    "netease_user_id",
-    "oauth_providers",
-    "openai_api_key",
-    "openai_base_url",
-    "openai_max_tokens",
-    "openai_model",
-    "openxbl_api_key",
-    "platform_order",
-    "provider_gemini_api_key",
-    "provider_openai_api_key",
-    "provider_openai_base_url",
-    "provider_openrouter_api_key",
-    "provider_tinyfish_api_key",
-    "provider_volcengine_api_key",
-    "provider_volcengine_base_url",
-    "pro_ai_provider",
-    "pro_enabled",
-    "pro_gemini_api_key",
-    "pro_gemini_model",
-    "pro_openai_api_key",
-    "pro_openai_base_url",
-    "pro_openai_model",
-    "memory_saver_enabled",
-    "proxy_bypass",
-    "proxy_enabled",
-    "proxy_url",
-    "psn_enabled",
-    "psn_npsso",
-    "psn_online_id",
-    "pwa_enabled",
-    "qq_bot_app_id",
-    "qq_bot_app_secret",
-    "qq_bot_enabled",
-    "report_settings",
-    "site_description",
-    "site_favicon",
-    "site_footer_custom",
-    "site_gongan",
-    "site_icp",
-    "site_ai_intro",
-    "google_site_verification",
-    "site_keywords",
-    "site_noindex",
-    "site_og_image",
-    "site_title",
-    "site_visibility_policy",
-    "speech_openai_api_key",
-    "speech_openai_base_url",
-    "speech_openrouter_api_key",
-    "speech_provider",
-    "speech_stt_model",
-    "speech_tts_model",
-    "speech_tts_voice",
-    "steam_api_key",
-    "steam_enabled",
-    "steam_id",
-    "youtube_api_key",
-    "youtube_channel_id",
-    "youtube_enabled",
-    "tapp_window_schemes",
-    "tencent_region",
-    "tencent_secret_id",
-    "tencent_secret_key",
-    "title_color",
-    "title_font",
-    "title_font_size",
-    "topic_style",
-    "tripo_api_key",
-    "tripo_base_url",
-    "tripo_enabled",
-    "tripo_face_limit",
-    "tripo_max_download_mb",
-    "tripo_model",
-    "tripo_poll_interval_seconds",
-    "tripo_task_timeout_seconds",
-    "ui_evocative_dynamic_blur",
-    "ui_evocative_fps",
-    "ui_evocative_parallax",
-    "ui_evocative_ripple",
-    "ui_evocative_ripple_quality",
-    "ui_primary_color",
-    "ui_secondary_color",
-    "ui_theme",
-    "ui_wallpaper_blur",
-    "ui_wallpaper_url",
-    "umami_script_url",
-    "umami_website_id",
-    "user_ai_cooldown_seconds",
-    "user_ai_daily_calls",
-    "user_ai_daily_tokens",
-    "user_perm_ai_analyze",
-    "user_perm_ai_chat",
-    "user_perm_ai_generate",
-    "user_perm_ai_image",
-    "user_perm_ai_search",
-    "user_perm_3d_generate",
-    "user_perm_component_theme",
-    "user_perm_event_publish",
-    "user_perm_media_control",
-    "user_perm_network_fetch",
-    "user_perm_report_write",
-    "user_perm_scheduler_register",
-    "user_perm_shortcut_register",
-    "user_perm_speech_asr",
-    "user_perm_speech_tts",
-    "widget_theme",
-    "x_bearer_token",
-    "x_enabled",
-    "x_username",
-    "xbox_enabled",
-    "xbox_gamertag",
-];
-
-pub(crate) fn settings_registry() -> std::collections::HashMap<&'static str, SettingDescriptor> {
-    REGISTERED_CONFIGURATION_KEYS_V1
-        .iter()
-        .map(|key| {
-            (
-                *key,
-                SettingDescriptor {
-                    schema_version: 1,
-                    introduced_in_backup_version: 1,
-                },
-            )
-        })
-        .collect()
+fn live_setting_descriptor(key: &str) -> Option<SettingDescriptor> {
+    if is_retired_configuration_key(key) {
+        return None;
+    }
+    Some(SettingDescriptor {
+        schema_version: 1,
+        introduced_in_backup_version: 1,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -338,19 +125,18 @@ fn is_sensitive_configuration_key(key: &str) -> bool {
 fn merge_settings_backup_entries(
     backup: &SettingsBackup,
 ) -> std::collections::HashMap<String, SettingsBackupEntry> {
-    let registry = settings_registry();
     let mut entries: std::collections::HashMap<String, SettingsBackupEntry> = backup
         .configurations
         .iter()
         .cloned()
+        .filter(|entry| !is_retired_configuration_key(&entry.key))
         .map(|entry| (entry.key.clone(), entry))
         .collect();
 
-    // v1 deployments may source values from environment variables. Only settings which already
-    // existed in that backup version may be filled from its effective legacy snapshot; settings
-    // introduced later must keep the current installation's value/default.
+    // v1 部署可能从环境变量取值。快照里有、备份行里没有的键在这里补上；
+    // 下线键不补。`collect_database_updates` 只发出快照 bag 里实际存在的字段。
     for (key, value) in collect_database_updates(&backup.effective_config) {
-        let Some(descriptor) = registry.get(key.as_str()) else {
+        let Some(descriptor) = live_setting_descriptor(&key) else {
             continue;
         };
         if descriptor.introduced_in_backup_version > backup.version {
@@ -424,15 +210,19 @@ fn normalize_registered_setting_value(key: &str, value: Value) -> Result<Value, 
 }
 
 pub(crate) fn build_settings_restore_plan(backup: &SettingsBackup) -> SettingsRestorePlan {
-    let registry = settings_registry();
     let merged = merge_settings_backup_entries(backup);
     let mut entries = Vec::new();
-    let mut ignored_keys = Vec::new();
+    let mut ignored_keys: Vec<String> = backup
+        .configurations
+        .iter()
+        .filter(|entry| is_retired_configuration_key(&entry.key))
+        .map(|entry| entry.key.clone())
+        .collect();
     let mut invalid_keys = Vec::new();
     let mut migrated_count = 0;
 
     for (_, entry) in merged {
-        let Some(descriptor) = registry.get(entry.key.as_str()).copied() else {
+        let Some(descriptor) = live_setting_descriptor(&entry.key) else {
             ignored_keys.push(entry.key);
             continue;
         };
@@ -448,14 +238,15 @@ pub(crate) fn build_settings_restore_plan(backup: &SettingsBackup) -> SettingsRe
 
     entries.sort_by(|left, right| left.key.cmp(&right.key));
     ignored_keys.sort();
+    ignored_keys.dedup();
     invalid_keys.sort();
-    let preserve_count = registry.len().saturating_sub(entries.len());
     let preview = SettingsRestorePreview {
         backup_version: backup.version,
         current_version: SETTINGS_BACKUP_VERSION,
         // Notification preferences are normalized and restored as one registered user setting.
         restore_count: entries.len() + 1,
-        preserve_count,
+        // 没有当前实例键表时无法知道会留下多少；预览/恢复路径会再填。
+        preserve_count: 0,
         ignored_count: ignored_keys.len(),
         migrated_count,
         invalid_count: invalid_keys.len(),
@@ -466,13 +257,38 @@ pub(crate) fn build_settings_restore_plan(backup: &SettingsBackup) -> SettingsRe
     SettingsRestorePlan { entries, preview }
 }
 
+fn apply_preserve_from_current(plan: &mut SettingsRestorePlan, current_keys: &[String]) {
+    let restore_keys: std::collections::HashSet<&str> = plan
+        .entries
+        .iter()
+        .map(|entry| entry.key.as_str())
+        .collect();
+    plan.preview.preserve_count = current_keys
+        .iter()
+        .filter(|key| !is_retired_configuration_key(key) && !restore_keys.contains(key.as_str()))
+        .count();
+}
+
+async fn load_configuration_keys(db: &DatabaseConnection) -> Result<Vec<String>, sea_orm::DbErr> {
+    let rows = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT key FROM configurations".to_string(),
+        ))
+        .await?;
+    let mut keys = Vec::with_capacity(rows.len());
+    for row in rows {
+        keys.push(row.try_get::<String>("", "key")?);
+    }
+    Ok(keys)
+}
+
 // merged from settings.rs
 
 pub async fn export_settings(
     State(db): State<DatabaseConnection>,
     user_id: i32,
 ) -> (StatusCode, Json<Value>) {
-    let registry = settings_registry();
     let effective_config = build_config(&db, true).await;
     let rows = match db
         .query_all_raw(Statement::from_string(
@@ -506,8 +322,7 @@ pub async fn export_settings(
                 );
             }
         };
-        let Some(descriptor) = registry.get(key.as_str()) else {
-            // Stale rows from removed settings are intentionally not re-exported.
+        let Some(descriptor) = live_setting_descriptor(&key) else {
             continue;
         };
         let entry = SettingsBackupEntry {
@@ -542,7 +357,7 @@ pub async fn export_settings(
         .map(|entry| entry.key.clone())
         .collect();
     for (key, value) in collect_database_updates(&effective_config) {
-        let Some(descriptor) = registry.get(key.as_str()) else {
+        let Some(descriptor) = live_setting_descriptor(&key) else {
             continue;
         };
         if !exported_keys.insert(key.clone()) {
@@ -578,13 +393,29 @@ pub async fn export_settings(
 }
 
 pub async fn preview_settings_restore(
+    State(db): State<DatabaseConnection>,
     Json(backup): Json<SettingsBackup>,
 ) -> (StatusCode, Json<Value>) {
     if let Err(message) = validate_settings_backup(&backup) {
         return (StatusCode::BAD_REQUEST, Json(json!({"error": message})));
     }
 
-    let plan = build_settings_restore_plan(&backup);
+    let mut plan = build_settings_restore_plan(&backup);
+    match load_configuration_keys(&db).await {
+        Ok(current_keys) => apply_preserve_from_current(&mut plan, &current_keys),
+        Err(error) => {
+            tracing::error!(
+                "Failed to read current settings for restore preview: {}",
+                error
+            );
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    json!({"error": "Failed to preview settings restore", "code": "settings_backup_failed"}),
+                ),
+            );
+        }
+    }
     (
         StatusCode::OK,
         Json(json!({
@@ -604,7 +435,19 @@ pub async fn restore_settings(
         return (StatusCode::BAD_REQUEST, Json(json!({"error": message})));
     }
 
-    let plan = build_settings_restore_plan(&backup);
+    let mut plan = build_settings_restore_plan(&backup);
+    match load_configuration_keys(&db).await {
+        Ok(current_keys) => apply_preserve_from_current(&mut plan, &current_keys),
+        Err(error) => {
+            tracing::error!("Failed to read current settings before restore: {}", error);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    json!({"error": "Failed to start settings restore", "code": "settings_backup_failed"}),
+                ),
+            );
+        }
+    }
     let preview = plan.preview.clone();
     let entries = plan.entries;
     let notification_preferences = backup
@@ -893,14 +736,47 @@ mod settings_backup_tests {
     }
 
     #[test]
-    fn restore_plan_ignores_removed_keys_and_preserves_missing_current_keys() {
-        let backup = backup_with_entries(vec![entry("github_enabled"), entry("removed_setting")]);
-        let plan = build_settings_restore_plan(&backup);
+    fn retired_denylist_does_not_match_live_github_keys() {
+        assert!(is_retired_configuration_key("pet_enabled"));
+        assert!(is_retired_configuration_key("github_client_secret"));
+        assert!(is_retired_configuration_key("github_redirect_url"));
+        assert!(!is_retired_configuration_key("github_token"));
+        assert!(!is_retired_configuration_key("github_enabled"));
+        assert!(!is_retired_configuration_key("island_show_tapp"));
+    }
 
-        assert_eq!(plan.entries.len(), 1);
-        assert_eq!(plan.entries[0].key, "github_enabled");
-        assert_eq!(plan.preview.ignored_keys, vec!["removed_setting"]);
-        assert!(plan.preview.preserve_count > 0);
+    #[test]
+    fn restore_plan_writes_unknown_live_keys_and_counts_preserve_from_current() {
+        let backup = backup_with_entries(vec![
+            entry("github_enabled"),
+            entry("island_show_tapp"),
+            entry("user_perm_federation_post"),
+            entry("see_through_hf_token"),
+            entry("removed_setting"),
+            entry("pet_enabled"),
+        ]);
+        let mut plan = build_settings_restore_plan(&backup);
+
+        assert!(plan.entries.iter().any(|e| e.key == "github_enabled"));
+        assert!(plan.entries.iter().any(|e| e.key == "island_show_tapp"));
+        assert!(plan
+            .entries
+            .iter()
+            .any(|e| e.key == "user_perm_federation_post"));
+        assert!(plan.entries.iter().any(|e| e.key == "see_through_hf_token"));
+        assert!(plan.entries.iter().any(|e| e.key == "removed_setting"));
+        assert_eq!(plan.preview.ignored_keys, vec!["pet_enabled"]);
+        assert_eq!(plan.preview.preserve_count, 0);
+
+        apply_preserve_from_current(
+            &mut plan,
+            &[
+                "github_enabled".to_string(),
+                "site_title".to_string(),
+                "pet_enabled".to_string(),
+            ],
+        );
+        assert_eq!(plan.preview.preserve_count, 1);
     }
 
     #[test]
@@ -1047,7 +923,10 @@ mod settings_backup_tests {
         let set = collect_database_updates(&config);
         assert_eq!(set.get("qq_bot_enabled"), Some(&json!(true)));
         assert_eq!(set.get("qq_bot_app_id"), Some(&json!("102123456")));
-        assert_eq!(set.get("qq_bot_app_secret"), Some(&json!("qq-secret-value")));
+        assert_eq!(
+            set.get("qq_bot_app_secret"),
+            Some(&json!("qq-secret-value"))
+        );
 
         config.ai_config.config_fields = vec![
             ui_field("qq_bot_enabled", "true"),

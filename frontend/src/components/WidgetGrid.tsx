@@ -10,7 +10,7 @@ import type {
   WidgetSize,
   WidgetType,
 } from './widgetGridTypes'
-import { FaTimes, LuSparkles } from '@lib/icons'
+import { LuSparkles, LuX } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
 
 import React, {
@@ -62,8 +62,24 @@ import { WidgetInstanceSettings } from './widgets/shared/WidgetInstanceSettings'
 import { WidgetLongPressHint } from './widgets/shared/WidgetLongPressHint'
 import { resolveHomeGridColumns } from '../utils/viewportBands'
 import { setWidgetDragCursor, useWidgetDragCursor } from '../utils/widgetDragCursor'
-import { WIDGET_SIZE_KEYS, widgetSizeSpan } from '../utils/widgetSizeScale'
+import {
+  GRID_WIDGET_PAD_PX,
+  WIDGET_SIZE_KEYS,
+  widgetSizeSpan,
+} from '../utils/widgetSizeScale'
 import { widgetDisplayLabel, widgetHostConfig } from './widgetLibraryModel'
+import {
+  coveringWidgetId,
+  dragGhostContentSize,
+  dragGhostHandoffDelays,
+  gridCellFromPoint,
+  heldWidgetId,
+  placementHasCommitted,
+  resolveDragGhostWidget,
+  shouldSkipWidgetEntrance,
+  widgetDragGhostBox,
+  type WidgetDragSession,
+} from './widgetPlacementPreview'
 import StickerWidget, {
   stickerFloatMode,
   stickerFloatPatch,
@@ -121,11 +137,13 @@ const WidgetGridItemBody = React.memo(
     widget,
     widgetType,
     isEditMode,
+    isPreview,
     onConfigChange,
   }: {
     widget: WidgetConfig
     widgetType: WidgetType
     isEditMode: boolean
+    isPreview?: boolean
     onConfigChange?: (newConfig: any) => void
   }) => {
     const WidgetComponent = widgetType.component
@@ -134,6 +152,7 @@ const WidgetGridItemBody = React.memo(
         <WidgetComponent
           config={widget}
           isEditMode={isEditMode}
+          isPreview={isPreview}
           onConfigChange={onConfigChange}
         />
       </Suspense>
@@ -145,6 +164,7 @@ const WidgetGridItemBody = React.memo(
     prev.widget.size === next.widget.size &&
     prev.widget.config === next.widget.config &&
     prev.isEditMode === next.isEditMode &&
+    prev.isPreview === next.isPreview &&
     prev.widgetType === next.widgetType,
 )
 
@@ -154,6 +174,9 @@ const WidgetGridItem = React.memo(
     widget,
     widgetType,
     isEditMode,
+    isPreview,
+    isHeld,
+    isCovered,
     isHovered,
     onDragStart,
     onMouseEnter,
@@ -171,6 +194,9 @@ const WidgetGridItem = React.memo(
     widget: WidgetConfig
     widgetType: WidgetType
     isEditMode: boolean
+    isPreview?: boolean
+    isHeld?: boolean
+    isCovered?: boolean
     isHovered: boolean
     onDragStart: (e: React.MouseEvent, id: string) => void
     onMouseEnter: (id: string) => void
@@ -233,12 +259,14 @@ const WidgetGridItem = React.memo(
 
     // 使用统一动画协调系统；exlight 模式直接显示且不进入调度队列。
     // Entrance timing intentionally eased after feedback that 80ms / stiff-300 felt too fast.
+    // Edit mode skips stagger: a tile dropped from the library must paint now.
     const animationsEnabled = !isExlight(anim)
+    const skipEntrance = shouldSkipWidgetEntrance(isEditMode)
     const { canAnimate, onComplete } = useStaggerAnimation({
       groupId: 'widget-grid',
       index: index || 0,
       baseDelay: 115,
-      enabled: animationsEnabled,
+      enabled: animationsEnabled && !skipEntrance,
     })
 
     const dim = widgetSizeSpan(widget.size)
@@ -254,10 +282,10 @@ const WidgetGridItem = React.memo(
       top: `${(widget.position.y / gh) * 100}%`,
       width: `${(dim.w / gw) * 100}%`,
       height: `${(dim.h / gh) * 100}%`,
-      zIndex: stickerCropOpen || isHovered ? 40 : 10,
+      zIndex: stickerCropOpen || (isHovered && !isCovered) ? 40 : 10,
       // 只提示 transform：left/top 是布局属性，will-change 对它们没有
       // 加速作用，写上去只是让编辑模式下每个小组件白白多提升一层合成层。
-      willChange: isEditMode && isHovered ? 'transform' : 'auto',
+      willChange: isEditMode && isHovered && !isCovered ? 'transform' : 'auto',
     }
 
     useLayoutEffect(() => {
@@ -306,9 +334,13 @@ const WidgetGridItem = React.memo(
             : ''
         }`}
         style={style}
-        initial={animationsEnabled ? { opacity: 0, scale: 0.9, y: 14 } : false}
+        initial={
+          animationsEnabled && !skipEntrance
+            ? { opacity: 0, scale: 0.9, y: 14 }
+            : false
+        }
         animate={
-          !animationsEnabled || canAnimate
+          !animationsEnabled || skipEntrance || canAnimate
             ? { opacity: 1, scale: 1, y: 0 }
             : { opacity: 0, scale: 0.9, y: 14 }
         }
@@ -329,6 +361,8 @@ const WidgetGridItem = React.memo(
         <div
           className={`relative h-full w-full group ${
             isHomeStickerItem(widget) ? 'p-0' : 'p-1'
+          }${isHeld ? ' widget-grid-item-handoff is-held' : ''}${
+            isCovered ? ' widget-grid-item-handoff is-covered' : ''
           }`}
         >
           <div
@@ -336,12 +370,12 @@ const WidgetGridItem = React.memo(
             className={`relative h-full w-full rounded-xl transition-shadow ${
               isHomeStickerItem(widget) ? 'overflow-visible' : 'overflow-hidden'
             } ${
-              isEditMode && !isHomeStickerItem(widget)
+              isEditMode && !isHomeStickerItem(widget) && !isCovered
                 ? 'cursor-move ring-1 ring-transparent hover:ring-blue-400/50'
                 : isEditMode
                   ? 'cursor-move'
                   : ''
-            } ${isHovered && isEditMode && !isHomeStickerItem(widget) ? 'ring-blue-400/50 shadow-lg' : ''}`}
+            } ${isHovered && isEditMode && !isHomeStickerItem(widget) && !isCovered ? 'ring-blue-400/50 shadow-lg' : ''}`}
             onMouseDown={(event) => {
               if (stickerCropOpen || showSettings) {
                 event.stopPropagation()
@@ -485,6 +519,7 @@ const WidgetGridItem = React.memo(
               widget={widget}
               widgetType={widgetType}
               isEditMode={isEditMode}
+              isPreview={isPreview}
               onConfigChange={onConfigChange}
             />
             {isEditMode && isHomeStickerItem(widget) && stickerSrc ? (
@@ -509,6 +544,41 @@ const WidgetGridItem = React.memo(
                   setShowSettings(true)
                 }}
               />
+            ) : null}
+            {isEditMode && !stickerCropOpen ? (
+              <>
+                <button
+                  type="button"
+                  className="widget-grid-item-remove"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemove(widget.id)
+                  }}
+                  title={t.widgetGrid.deleteWidget}
+                  aria-label={t.widgetGrid.deleteWidget}
+                >
+                  <LuX className="widget-grid-item-remove__icon" aria-hidden />
+                </button>
+                {allowSticker && onRequestSticker && isHomeWidgetItem(widget) ? (
+                  <button
+                    type="button"
+                    className="widget-grid-item-sticker"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onRequestSticker(widget)
+                    }}
+                    title={t.widgetGrid.createSticker}
+                    aria-label={t.widgetGrid.createSticker}
+                  >
+                    <LuSparkles
+                      className="widget-grid-item-sticker__icon"
+                      aria-hidden
+                    />
+                  </button>
+                ) : null}
+              </>
             ) : null}
             {stickerCropOpen && stickerSrc ? (
               <div
@@ -544,60 +614,26 @@ const WidgetGridItem = React.memo(
             />
           </div>
 
-          {/* 删除按钮（编辑模式） */}
-          {isEditMode && !stickerCropOpen && (
-            <>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onRemove(widget.id)
-                }}
-                className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-red-500/90 hover:bg-red-600 text-white flex items-center justify-center shadow-md z-30 transition-all hover:scale-110 opacity-0 group-hover:opacity-100"
-                title={t.widgetGrid.deleteWidget}
-                aria-label={t.widgetGrid.deleteWidget}
-              >
-                <FaTimes size={10} />
-              </button>
-
-              {allowSticker && onRequestSticker && isHomeWidgetItem(widget) ? (
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onRequestSticker(widget)
-                  }}
-                  className="absolute top-1.5 right-8 flex h-5 w-5 items-center justify-center rounded-full bg-neutral-700/85 text-white opacity-0 shadow-md transition-all hover:scale-110 hover:bg-neutral-800 group-hover:opacity-100 z-30"
-                  title={t.widgetGrid.createSticker}
-                  aria-label={t.widgetGrid.createSticker}
-                >
-                  <LuSparkles size={10} />
-                </button>
-              ) : null}
-
-              {/* 调整大小手柄 - 明显的倒L型设计，触控时区域更大 */}
-              {canResize && (
-                <div
-                  className={`absolute bottom-0 right-0 cursor-se-resize z-50 flex items-end justify-end transition-transform hover:scale-110 active:scale-95 group/resize touch-none ${
-                    widget.size === '1x1'
-                      ? 'w-8 h-8 p-0.5 md:w-6 md:h-6'
-                      : 'w-14 h-14 p-2 md:w-12 md:h-12'
-                  }`}
-                  onMouseDown={(e) => onResizeStart(e, widget.id, 'se')}
-                  onTouchStart={(e) => onResizeStart(e, widget.id, 'se')}
-                >
-                  {/* L 型条 - 适配主题色，1x1组件更小 */}
-                  <div
-                    className={`border-b-8 border-r-8 rounded-br-xl drop-shadow-[0_4px_4px_color-mix(in_srgb,var(--color-primary),transparent_70%)] opacity-60 group-hover/resize:opacity-100 transition-all duration-200 border-[color-mix(in_srgb,var(--color-primary),white_60%)] group-hover/resize:border-[color-mix(in_srgb,var(--color-primary),white_30%)] dark:border-[color-mix(in_srgb,var(--color-primary),black_60%)] dark:group-hover/resize:border-[color-mix(in_srgb,var(--color-primary),black_30%)] ${
-                      widget.size === '1x1'
-                        ? 'w-4 h-4 border-b-5 border-r-5'
-                        : 'w-6 h-6'
-                    }`}
-                  />
-                </div>
-              )}
-            </>
-          )}
+          {isEditMode && !stickerCropOpen && canResize ? (
+            <div
+              className={`absolute bottom-0 right-0 cursor-se-resize z-50 flex items-end justify-end transition-transform hover:scale-110 active:scale-95 group/resize touch-none ${
+                widget.size === '1x1'
+                  ? 'w-8 h-8 p-0.5 md:w-6 md:h-6'
+                  : 'w-14 h-14 p-2 md:w-12 md:h-12'
+              }`}
+              onMouseDown={(e) => onResizeStart(e, widget.id, 'se')}
+              onTouchStart={(e) => onResizeStart(e, widget.id, 'se')}
+            >
+              {/* L 型条 - 适配主题色，1x1组件更小 */}
+              <div
+                className={`border-b-8 border-r-8 rounded-br-xl drop-shadow-[0_4px_4px_color-mix(in_srgb,var(--color-primary),transparent_70%)] opacity-60 group-hover/resize:opacity-100 transition-all duration-200 border-[color-mix(in_srgb,var(--color-primary),white_60%)] group-hover/resize:border-[color-mix(in_srgb,var(--color-primary),white_30%)] dark:border-[color-mix(in_srgb,var(--color-primary),black_60%)] dark:group-hover/resize:border-[color-mix(in_srgb,var(--color-primary),black_30%)] ${
+                  widget.size === '1x1'
+                    ? 'w-4 h-4 border-b-5 border-r-5'
+                    : 'w-6 h-6'
+                }`}
+              />
+            </div>
+          ) : null}
         </div>
         {instanceSettings.length > 0 && onConfigChange ? (
           <WidgetInstanceSettings
@@ -624,6 +660,9 @@ const WidgetGridItem = React.memo(
     return (
       prev.widget === next.widget &&
       prev.isEditMode === next.isEditMode &&
+      prev.isPreview === next.isPreview &&
+      prev.isHeld === next.isHeld &&
+      prev.isCovered === next.isCovered &&
       prev.isHovered === next.isHovered &&
       prev.widgetType === next.widgetType &&
       prev.gridWidth === next.gridWidth &&
@@ -715,15 +754,25 @@ function checkCollision(
 
 const WidgetDragGhost = React.memo(({
   active,
+  settling,
+  exiting,
+  reducedMotion,
   dragPreview,
   gridWidth,
   gridHeight,
   gridRectRef,
 }: {
   active: boolean
+  settling: boolean
+  exiting: boolean
+  reducedMotion: boolean
   dragPreview: {
     size: { w: number; h: number }
     hasCollision: boolean
+    position?: { x: number; y: number } | null
+    settleCell?: { x: number; y: number } | null
+    fromLibrary?: boolean
+    padded?: boolean
     widgetType?: WidgetType
     widgetConfig?: WidgetConfig
   } | null
@@ -732,6 +781,17 @@ const WidgetDragGhost = React.memo(({
   gridRectRef: React.RefObject<DOMRect | null>
 }) => {
   const pos = useWidgetDragCursor()
+  const [settleLanded, setSettleLanded] = useState(false)
+  useLayoutEffect(() => {
+    if (!settling || reducedMotion) {
+      setSettleLanded(settling)
+      return
+    }
+    setSettleLanded(false)
+    const frame = requestAnimationFrame(() => setSettleLanded(true))
+    return () => cancelAnimationFrame(frame)
+  }, [reducedMotion, settling])
+
   if (
     !active ||
     !pos ||
@@ -743,26 +803,49 @@ const WidgetDragGhost = React.memo(({
   const gridRect = gridRectRef.current
   const cellWidth = gridRect ? gridRect.width / gridWidth : 100
   const cellHeight = gridRect ? gridRect.height / gridHeight : 100
-  const previewWidth = dragPreview.size.w * cellWidth
-  const previewHeight = dragPreview.size.h * cellHeight
+  const padPx = dragPreview.padded === false ? 0 : GRID_WIDGET_PAD_PX
+  const settleBox =
+    settling &&
+    settleLanded &&
+    dragPreview.settleCell &&
+    gridRect
+      ? widgetDragGhostBox({
+          gridRect,
+          cell: dragPreview.settleCell,
+          size: dragPreview.size,
+          gridWidth,
+          gridHeight,
+          padPx,
+        })
+      : null
+  const floating = dragGhostContentSize(
+    cellWidth,
+    cellHeight,
+    dragPreview.size,
+    padPx,
+  )
+  const left = settleBox?.x ?? pos.x
+  const top = settleBox?.y ?? pos.y
+  const width = settleBox?.width ?? floating.width
+  const height = settleBox?.height ?? floating.height
   const WidgetComponent = dragPreview.widgetType.component
+  const tileState = dragPreview.hasCollision
+    ? 'is-blocked'
+    : exiting
+      ? 'is-exiting'
+      : settling
+        ? 'is-settling'
+        : 'is-floating'
   return createPortal(
     <div
-      className="widget-grid-drag-ghost"
-      style={{ left: pos.x, top: pos.y }}
+      className={`widget-grid-drag-ghost${
+        settling ? ' is-settling' : ''
+      }${exiting ? ' is-exiting' : ''}`}
+      style={{ left, top }}
     >
       <div
-        className={`absolute rounded-xl shadow-2xl ring-2 ${
-          dragPreview.hasCollision ? 'ring-red-500/70' : 'ring-blue-500/70'
-        }`}
-        style={{
-          left: '50%',
-          top: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: previewWidth,
-          height: previewHeight,
-          opacity: 0.95,
-        }}
+        className={`widget-grid-drag-ghost-tile ${tileState}`}
+        style={{ width, height }}
       >
         <Suspense fallback={null}>
           <WidgetComponent
@@ -1057,11 +1140,13 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
     return () => window.clearTimeout(timer)
   }, [currentGridHeight])
 
-  const [draggedWidget, setDraggedWidget] = useState<{
-    type: 'existing' | 'new'
-    widgetId?: string
-    widgetTypeId?: string
-  } | null>(null)
+  const [draggedWidget, setDraggedWidget] = useState<WidgetDragSession | null>(
+    null,
+  )
+  const [dragSettling, setDragSettling] = useState(false)
+  const [previewUncovered, setPreviewUncovered] = useState(false)
+  const [previewExiting, setPreviewExiting] = useState(false)
+  const settleStartedAtRef = useRef(0)
   const [resizingWidget, setResizingWidget] = useState<{
     widgetId: string
     startPos: { x: number; y: number }
@@ -1111,6 +1196,8 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
     historyIndex,
     isFreeLayout,
     widgetTypeById,
+    currentGridWidth: GRID_WIDTH,
+    currentGridHeight: GRID_HEIGHT,
   })
   latestRef.current = {
     widgets,
@@ -1119,6 +1206,8 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
     historyIndex,
     isFreeLayout,
     widgetTypeById,
+    currentGridWidth,
+    currentGridHeight,
   }
 
   // 保存到历史记录
@@ -1147,8 +1236,8 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
     () => ({
       startNewWidgetDrag(widgetTypeId, point) {
         const latest = latestRef.current
+        const widgetType = latest.widgetTypeById.get(widgetTypeId)
         if (latest.isFreeLayout) {
-          const widgetType = latest.widgetTypeById.get(widgetTypeId)
           const extra = homeWidgetCellCount(widgetType?.defaultSize ?? '2x2')
           if (
             !freeLayoutFitsCellBudget(
@@ -1160,11 +1249,26 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
           }
         }
         updateGridRectCache()
+        setDragSettling(false)
+        setPreviewUncovered(false)
+        setPreviewExiting(false)
         setWidgetDragCursor(point)
         setDraggedWidget({
           type: 'new',
           widgetTypeId,
         })
+        const gridRect = gridRectRef.current
+        if (!gridRect || !widgetType) return
+        const size = widgetSizeSpan(widgetType.defaultSize)
+        setHoveredCell(
+          gridCellFromPoint({
+            point,
+            gridRect,
+            gridWidth: latest.currentGridWidth,
+            gridHeight: latest.currentGridHeight,
+            size,
+          }),
+        )
       },
     }),
     [updateGridRectCache],
@@ -1310,13 +1414,28 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
       // 拖拽开始时更新 gridRect 缓存
       updateGridRectCache()
 
-      // 立即设置光标位置
+      setDragSettling(false)
+      setPreviewUncovered(false)
+      setPreviewExiting(false)
       setWidgetDragCursor({ x: e.clientX, y: e.clientY })
 
       setDraggedWidget({
         type: 'existing',
         widgetId,
       })
+      const gridRect = gridRectRef.current
+      if (gridRect) {
+        const latest = latestRef.current
+        setHoveredCell(
+          gridCellFromPoint({
+            point: { x: e.clientX, y: e.clientY },
+            gridRect,
+            gridWidth: latest.currentGridWidth,
+            gridHeight: latest.currentGridHeight,
+            size: widgetSizeSpan(widget.size),
+          }),
+        )
+      }
     },
     [isEditMode, stickerPickActive, updateGridRectCache],
   )
@@ -1525,11 +1644,6 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
         // 更新光标位置（用于渲染跟随光标的预览）
         setWidgetDragCursor({ x: clientX, y: clientY })
 
-        // 计算单元格尺寸
-        const cellWidth = gridRect.width / currentGridWidth
-        const cellHeight = gridRect.height / currentGridHeight
-
-        // 获取当前拖拽的小组件尺寸
         let size: WidgetSize = '1x1'
         if (draggedWidget.type === 'existing' && draggedWidget.widgetId) {
           const widget = widgets.find((w) => w.id === draggedWidget.widgetId)
@@ -1539,27 +1653,17 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
           size = widgetType?.defaultSize || '1x1'
         }
         const dim = widgetSizeSpan(size)
-
-        // 计算鼠标在网格中的位置
-        let mouseX = clientX - gridRect.left
-        let mouseY = clientY - gridRect.top
-
-        // 所有小组件都以中心点为参考
-        // 减去小组件尺寸的一半，使光标位于中心
-        mouseX -= (dim.w * cellWidth) / 2
-        mouseY -= (dim.h * cellHeight) / 2
-
-        // 转换为网格坐标
-        let gridX = Math.floor(mouseX / cellWidth)
-        let gridY = Math.floor(mouseY / cellHeight)
-
-        // 确保小组件不会超出边界（考虑小组件尺寸）
-        gridX = Math.max(0, Math.min(currentGridWidth - dim.w, gridX))
-        gridY = Math.max(0, Math.min(currentGridHeight - dim.h, gridY))
+        const nextCell = gridCellFromPoint({
+          point: { x: clientX, y: clientY },
+          gridRect,
+          gridWidth: currentGridWidth,
+          gridHeight: currentGridHeight,
+          size: dim,
+        })
 
         setHoveredCell((prev) => {
-          if (prev?.x === gridX && prev?.y === gridY) return prev
-          return { x: gridX, y: gridY }
+          if (prev?.x === nextCell.x && prev?.y === nextCell.y) return prev
+          return nextCell
         })
 
         rafRef.current = null
@@ -1576,6 +1680,7 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
 
   // 结束拖拽
   const handleDragEnd = useCallback(() => {
+    if (dragSettling) return
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
@@ -1584,6 +1689,9 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
     if (!draggedWidget || !hoveredCell) {
       setDraggedWidget(null)
       setHoveredCell(null)
+      setDragSettling(false)
+      setPreviewUncovered(false)
+      setPreviewExiting(false)
       setWidgetDragCursor(null)
       return
     }
@@ -1617,6 +1725,15 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
         )
         onWidgetsChange?.(updatedWidgets)
         saveToHistory(updatedWidgets)
+        settleStartedAtRef.current = performance.now()
+        setDraggedWidget({
+          ...draggedWidget,
+          pendingId: widget.id,
+          pendingCell: hoveredCell,
+        })
+        setHoveredCell(null)
+        setDragSettling(true)
+        return
       }
     } else if (draggedWidget.type === 'new' && draggedWidget.widgetTypeId) {
       // 添加新小组件
@@ -1652,14 +1769,27 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
         const newWidgets = [...widgets, newWidget]
         onWidgetsChange?.(newWidgets)
         saveToHistory(newWidgets)
+        settleStartedAtRef.current = performance.now()
+        setDraggedWidget({
+          ...draggedWidget,
+          pendingId: newWidget.id,
+          pendingCell: hoveredCell,
+        })
+        setHoveredCell(null)
+        setDragSettling(true)
+        return
       }
     }
 
     setDraggedWidget(null)
     setHoveredCell(null)
+    setDragSettling(false)
+    setPreviewUncovered(false)
+    setPreviewExiting(false)
     setWidgetDragCursor(null)
   }, [
     draggedWidget,
+    dragSettling,
     hoveredCell,
     widgets,
     widgetTypeById,
@@ -1728,7 +1858,7 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
   // 注册拖拽事件（鼠标和触屏）- 使用 ref 避免频繁重建监听器
   // 关键优化: 移动端禁用编辑模式,避免 passive: false 破坏滚动性能
   useEffect(() => {
-    if (draggedWidget) {
+    if (draggedWidget && !dragSettling) {
       const isMobile = getIsMobile()
       const moveHandler = (e: MouseEvent | TouchEvent) =>
         handleDragMoveRef.current(e)
@@ -1757,10 +1887,56 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
           cancelAnimationFrame(rafRef.current)
           rafRef.current = null
         }
-        setWidgetDragCursor(null)
       }
     }
-  }, [draggedWidget]) // 只依赖 draggedWidget 是否存在
+  }, [draggedWidget, dragSettling])
+
+  const wasEditModeRef = useRef(isEditMode)
+  useEffect(() => {
+    const wasEditMode = wasEditModeRef.current
+    wasEditModeRef.current = isEditMode
+    if (!wasEditMode || isEditMode) return
+    setDraggedWidget(null)
+    setHoveredCell(null)
+    setDragSettling(false)
+    setPreviewUncovered(false)
+    setPreviewExiting(false)
+    setWidgetDragCursor(null)
+  }, [isEditMode])
+
+  const handoffId = draggedWidget?.pendingId
+  const handoffCommitted = placementHasCommitted(widgets, draggedWidget)
+  useEffect(() => {
+    if (!dragSettling || !handoffId || !handoffCommitted) return
+    const reduced =
+      isExlight(anim) ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const delays = dragGhostHandoffDelays(
+      reduced,
+      performance.now() - settleStartedAtRef.current,
+    )
+    const uncoverTimer = window.setTimeout(
+      () => setPreviewUncovered(true),
+      delays.uncoverMs,
+    )
+    const exitTimer = window.setTimeout(
+      () => setPreviewExiting(true),
+      delays.exitMs,
+    )
+    const clearTimer = window.setTimeout(() => {
+      setDraggedWidget(null)
+      setHoveredCell(null)
+      setDragSettling(false)
+      setPreviewUncovered(false)
+      setPreviewExiting(false)
+      setWidgetDragCursor(null)
+    }, delays.clearMs)
+    return () => {
+      window.clearTimeout(uncoverTimer)
+      window.clearTimeout(exitTimer)
+      window.clearTimeout(clearTimer)
+    }
+  }, [anim, dragSettling, handoffCommitted, handoffId])
 
   // 注册调整大小事件 - 使用 ref 避免频繁重建监听器
   // 关键优化: 移动端使用 passive 监听避免阻塞滚动
@@ -1823,53 +1999,40 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
 
   // 预览拖拽位置和组件信息
   const dragPreview = useMemo(() => {
-    if (!draggedWidget || !hoveredCell) return null
-
-    let size: WidgetSize = '1x1'
-    let widgetType: WidgetType | undefined
-    let widgetConfig: WidgetConfig | undefined
-
-    if (draggedWidget.type === 'existing' && draggedWidget.widgetId) {
-      const widget = widgets.find((w) => w.id === draggedWidget.widgetId)
-      size = widget?.size || '1x1'
-      widgetConfig = widget
-      widgetType = widget ? widgetTypeById.get(widget.type) : undefined
-    } else if (draggedWidget.type === 'new' && draggedWidget.widgetTypeId) {
-      widgetType = widgetTypeById.get(draggedWidget.widgetTypeId)
-      size = widgetType?.defaultSize || '1x1'
-
-      // 创建预览配置
-      widgetConfig = {
-        id: 'drag-preview',
-        type: draggedWidget.widgetTypeId,
-        size,
-        position: hoveredCell,
-        config: widgetHostConfig(draggedWidget.widgetTypeId),
-      }
-    }
-
-    const dim = widgetSizeSpan(size)
-    const testWidget: WidgetConfig = {
-      id: 'preview',
-      type: widgetConfig?.type || '',
-      size,
-      position: hoveredCell,
-    }
-
-    const hasCollision = checkCollision(
-      testWidget,
+    if (!draggedWidget) return null
+    const ghost = resolveDragGhostWidget({
+      dragged: draggedWidget,
       widgets,
-      currentGridWidth,
-      currentGridHeight,
-      draggedWidget.type === 'existing' ? draggedWidget.widgetId : undefined,
-    )
+      widgetTypeById,
+    })
+    if (!ghost) return null
+
+    const hasCollision = hoveredCell
+      ? checkCollision(
+          {
+            id: 'preview',
+            type: ghost.widgetConfig?.type || '',
+            size: ghost.widgetConfig?.size || '1x1',
+            position: hoveredCell,
+          },
+          widgets,
+          currentGridWidth,
+          currentGridHeight,
+          draggedWidget.type === 'existing' ? draggedWidget.widgetId : undefined,
+        )
+      : false
 
     return {
       position: hoveredCell,
-      size: dim,
+      settleCell: draggedWidget.pendingCell ?? hoveredCell ?? null,
+      size: ghost.size,
       hasCollision,
-      widgetType,
-      widgetConfig,
+      fromLibrary: ghost.fromLibrary,
+      padded: ghost.widgetConfig
+        ? !isHomeStickerItem(ghost.widgetConfig)
+        : true,
+      widgetType: ghost.widgetType,
+      widgetConfig: ghost.widgetConfig,
     }
   }, [
     draggedWidget,
@@ -1954,15 +2117,10 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
             {isEditMode && !isCompact && gridBackground}
 
             {/* 拖拽位置指示器 - 网格中的目标位置预览 */}
-            {dragPreview && !isCompact && (
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                className={`absolute z-20 overflow-visible rounded-xl transition-all pointer-events-none ${
-                  dragPreview.hasCollision
-                    ? 'bg-red-500/10 ring-2 ring-red-500/50'
-                    : 'bg-blue-500/10 ring-2 ring-blue-500/50'
+            {dragPreview?.position && !isCompact && (
+              <div
+                className={`widget-grid-drop-slot${
+                  dragPreview.hasCollision ? ' is-blocked' : ''
                 }`}
                 style={{
                   left: `${(dragPreview.position.x / currentGridWidth) * 100}%`,
@@ -1971,25 +2129,12 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
                   height: `${(dragPreview.size.h / currentGridHeight) * 100}%`,
                 }}
               >
-                {/* 状态提示：1x1 格子窄，强制单行并允许溢出，避免「位置冲突」折行 */}
-                <div className="absolute inset-0 flex items-center justify-center overflow-visible">
-                  <div
-                    className={`rounded-full font-bold shadow-lg whitespace-nowrap ${
-                      dragPreview.size.w === 1 && dragPreview.size.h === 1
-                        ? 'px-1.5 py-0.5 text-[9px] leading-none'
-                        : 'px-3 py-1 text-xs'
-                    } ${
-                      dragPreview.hasCollision
-                        ? 'bg-red-500/90 text-white'
-                        : 'bg-blue-500/90 text-white'
-                    }`}
-                  >
-                    {dragPreview.hasCollision
-                      ? t.widgetGrid.positionConflict
-                      : t.widgetGrid.canPlace}
+                {dragPreview.hasCollision ? (
+                  <div className="widget-grid-drop-slot-flag">
+                    {t.widgetGrid.positionConflict}
                   </div>
-                </div>
-              </motion.div>
+                ) : null}
+              </div>
             )}
 
 
@@ -2160,6 +2305,19 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
                     widget={widget}
                     widgetType={widgetType}
                     isEditMode={isEditMode && !isCompact}
+                    isHeld={
+                      heldWidgetId({
+                        dragged: draggedWidget,
+                        settling: dragSettling,
+                        uncovered: previewUncovered || previewExiting,
+                      }) === widget.id
+                    }
+                    isCovered={
+                      coveringWidgetId({
+                        dragged: draggedWidget,
+                        settling: dragSettling,
+                      }) === widget.id
+                    }
                     isHovered={hoveredWidgetId === widget.id}
                     onDragStart={handleWidgetDragStart}
                     onMouseEnter={setHoveredWidgetId}
@@ -2225,6 +2383,9 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
 
       <WidgetDragGhost
         active={Boolean(draggedWidget)}
+        settling={dragSettling}
+        exiting={previewExiting}
+        reducedMotion={isExlight(anim)}
         dragPreview={dragPreview}
         gridWidth={currentGridWidth}
         gridHeight={currentGridHeight}

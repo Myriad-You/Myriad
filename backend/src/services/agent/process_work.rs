@@ -369,7 +369,6 @@ impl Agent {
             motion_refinements.push(spawn_motion_refinement(
                 reaction_context,
                 progress_tx.clone(),
-                None,
             ));
         }
 

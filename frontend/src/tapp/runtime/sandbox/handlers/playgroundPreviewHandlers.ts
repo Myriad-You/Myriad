@@ -1,6 +1,7 @@
 import type { TappInstance, TappMessage } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
 import {
+  emitTappSettingsChange,
   emitTappSharedChange,
   emitTappStorageChange,
 } from '../../WidgetRuntimeSignals'
@@ -250,6 +251,12 @@ export function registerPlaygroundPreviewHandlers(
     const key = validateKey(rawKey)
     if (!key) return { success: false, error: 'Invalid setting key' }
     settings.set(key, sanitizeStorageValue(rawValue))
+    emitTappSettingsChange({
+      tappId: tappInstance.id,
+      key,
+      operation: 'set',
+      source: bridge,
+    })
     return { success: true, data: null }
   })
   bridge.registerHandler('settings.getAll', async () => ({

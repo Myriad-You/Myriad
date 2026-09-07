@@ -1,10 +1,14 @@
 import type { TourDefinition, TourStepDef } from './tourTypes'
 import { markTourDone } from './tourDone'
+import type { TourSurfacePick } from './tourTypes'
 import {
   firstVisibleIndex,
-  hasTourAnchor,
+  isTourStepAvailable,
+  nextIndexAfterTourAction,
   previousVisibleIndex,
+  revealTourAnchor,
   setTourDomActive,
+  tourStepBlocksAdvance,
 } from './tourLogic'
 import { pickRegisteredTour } from './tourRegistry'
 
@@ -45,6 +49,7 @@ function showIndex(index: number): void {
     stopInternal()
     return
   }
+  revealTourAnchor(step.anchor, step.id)
   emit({
     active: true,
     tourId: snapshot.tourId,
@@ -67,17 +72,23 @@ export function getTourSnapshot(): TourSnapshot {
 
 export type StartTourResult = 'started' | 'no-tour' | 'no-targets'
 
+function stepAvailable(_anchor: string, step: TourStepDef): boolean {
+  return isTourStepAvailable(step)
+}
+
 export function startTour(def: TourDefinition): boolean {
-  const steps = def.steps.filter((step) => hasTourAnchor(step.anchor))
-  if (steps.length === 0) return false
-  visible = steps
+  const first = firstVisibleIndex(def.steps, stepAvailable, 0)
+  if (first < 0) return false
+  const step = def.steps[first]!
+  revealTourAnchor(step.anchor, step.id)
+  visible = [...def.steps]
   setTourDomActive(true)
   emit({
     active: true,
     tourId: def.id,
-    index: 0,
-    total: steps.length,
-    step: steps[0]!,
+    index: first,
+    total: def.steps.length,
+    step,
   })
   return true
 }
@@ -85,8 +96,9 @@ export function startTour(def: TourDefinition): boolean {
 export function startTourForRoute(
   pathname: string,
   isOwner: boolean,
+  surface: TourSurfacePick = 'browse',
 ): StartTourResult {
-  const def = pickRegisteredTour(pathname, isOwner)
+  const def = pickRegisteredTour(pathname, isOwner, surface)
   if (!def) return 'no-tour'
   return startTour(def) ? 'started' : 'no-targets'
 }
@@ -103,7 +115,28 @@ export function stopTour(reason: StopTourReason = 'abort'): void {
 
 export function nextTourStep(): void {
   if (!snapshot.active) return
-  const next = firstVisibleIndex(visible, hasTourAnchor, snapshot.index + 1)
+  if (snapshot.step?.action) {
+    completeTourAction()
+    return
+  }
+  const next = firstVisibleIndex(visible, stepAvailable, snapshot.index + 1)
+  if (next < 0) {
+    stopTour('done')
+    return
+  }
+  showIndex(next)
+}
+
+/** 实操完成：紧后介绍步还没挂上就等，不要跨到后面。 */
+export function completeTourAction(): void {
+  if (!snapshot.active || !snapshot.step?.action) return
+  if (tourStepBlocksAdvance(snapshot.step)) return
+  const next = nextIndexAfterTourAction(
+    visible,
+    snapshot.index,
+    isTourStepAvailable,
+  )
+  if (next === 'wait') return
   if (next < 0) {
     stopTour('done')
     return
@@ -113,16 +146,17 @@ export function nextTourStep(): void {
 
 export function previousTourStep(): void {
   if (!snapshot.active) return
-  const prev = previousVisibleIndex(visible, hasTourAnchor, snapshot.index)
+  const prev = previousVisibleIndex(visible, stepAvailable, snapshot.index)
   if (prev < 0) return
   showIndex(prev)
 }
 
-/** If the current anchor vanished, jump forward or stop. */
+/** If the current anchor vanished or cannot be measured, jump forward or stop. */
 export function recoverTourStep(): void {
   if (!snapshot.active || !snapshot.step) return
-  if (hasTourAnchor(snapshot.step.anchor)) return
-  const next = firstVisibleIndex(visible, hasTourAnchor, snapshot.index)
+  if (isTourStepAvailable(snapshot.step)) return
+  if (snapshot.step.after) return
+  const next = firstVisibleIndex(visible, stepAvailable, snapshot.index + 1)
   if (next < 0) {
     stopInternal()
     return

@@ -168,7 +168,15 @@ await Tapp.settings.set("refreshInterval", 60);
 // 获取所有已保存声明键
 const allSettings = await Tapp.settings.getAll();
 // 返回: { refreshInterval: 60, showDetails: true, ... }
+
+// 同一 Tapp 的其他沙箱或详情页宿主编辑器写入后触发；写者自己不会收到
+const unsubscribe = Tapp.settings.onChanged(({ key, operation }) => {
+  console.log(key, operation); // operation: set
+});
 ```
+
+`set` 的返回值只表示落盘成功。`onChanged` 是数据信号，**不会**因此 remount Widget
+iframe；需要重跑 `render()` 时用 `Tapp.widget.invalidate`。跨标签页的落盘不会进这条总线。
 
 设置是 Manifest 声明的 **installation owner** 级配置，不是当前用户的私有 storage：
 
@@ -735,8 +743,7 @@ await Tapp.widget.updateConfig("my-widget", {
 });
 ```
 
-在 **Widget 沙箱**内还提供当前 Dashboard 实例专用 API（无需 `widget:register`）。
-这些方法 **不在** Page / headless 的 `Tapp.widget` 上：
+在 **Widget 沙箱**内还提供当前 Dashboard 实例专用 API（无需 `widget:register`）：
 
 ```javascript
 // 仅 Widget 沙箱
@@ -745,14 +752,23 @@ await Tapp.widget.updateInstanceSettings({ compact: true });
 await Tapp.widget.invalidate("data-ready");
 ```
 
+Page / headless（以及带 `options` 的 Widget 调用）可以定向刷新本 Tapp 的一张可见
+Widget。需要授予的 **`storage:write`**，必须写出本地 `widgetId`，没有 `target: "all"`，
+每张卡至少间隔 15 秒，每个 Tapp 每分钟最多 2 次：
+
+```javascript
+await Tapp.widget.invalidate("config-saved", { target: { widgetId: "stats" } });
+```
+
 | 沙箱 | `Tapp.widget` |
 | ---- | ------------- |
-| Page | `register` / `unregister` / `listRegistered` / `updateConfig` |
-| Widget | `getInstanceSettings` / `updateInstanceSettings` / `invalidate` |
-| headless | 无（对象被删除） |
+| Page | `register` / `unregister` / `listRegistered` / `updateConfig`；`invalidate(reason, { target: { widgetId } })` |
+| Widget | `getInstanceSettings` / `updateInstanceSettings` / `invalidate(reason)`（自己）；带 `target` 时走与 Page 相同的定向路径 |
+| headless | 仅 `invalidate(reason, { target: { widgetId } })` |
 
-跨 Page ↔ Widget 同步数据请用 `Tapp.storage.set`（宿主广播 + `refreshPolicy`），
-不要在 core 里调用 `invalidate`。
+跨 Page ↔ Widget 传数据仍用 `Tapp.storage.set`（会广播并 remount 可见卡）。
+`Tapp.settings.set` 只发 `onChanged`，不拆 iframe。定向 invalidate 只负责触发表面刷新，
+且不能过滤一次 storage 广播。省略 `target` 在 Page/headless 会失败。
 
 `updateInstanceSettings()` 只能更新当前 Widget 的 `widgets[].settings` 已声明字段，宿主会
 按类型、select 选项和数值范围校验，然后写入 Dashboard 布局。顶层 `settings` 仍是整个
@@ -1822,7 +1838,7 @@ Page 完整面当前包含以下命名空间（`analytics` / `agent` 也挂在 `
 | `analytics`                                | 站点访问统计聚合（admin 完整 / 非 admin 访客卡片）  | `analytics:read`                   |
 | `ai`, `report`                             | 服务端治理的 AI Task 与报告读写                     | `ai:*`（含 `ai:search`）, `report:*` |
 | `model3d`                                  | Tripo 图生 3D / rig / retarget；`getUrl` 回沙箱 blob | `3d:generate`（资产读取 public） |
-| `widget`                                   | Page：动态注册；Widget 沙箱：实例设置 / `invalidate` | `widget:register`（仅 register 系列） |
+| `widget`                                   | Page：动态注册 + 定向 `invalidate`；Widget 沙箱：实例设置 / 自刷 `invalidate` | `widget:register`（仅 register 系列）；定向 `invalidate` 要 `storage:write` |
 | `media`                                    | 播放器读取和控制                                    | `media:*`                          |
 | `context`, `user`                          | 应用、用户、导航、系统和地理上下文                  | public                             |
 | `persona`                                  | Agent 人设只读名片（名字、心情带、主立绘路径）      | public                             |
@@ -1846,8 +1862,9 @@ Page 完整面当前包含以下命名空间（`analytics` / `agent` 也挂在 `
 | `ui` 主题 / 语言 / 通知 | ✅ | ✅ | ✅ |
 | `ui.openUrl` / `listOpenUrls` | ✅ | ✅ | ❌ 不可用 |
 | `ui` title / confirm / fullscreen | ✅ | ❌ | ❌ |
-| `widget` register 系列 | ✅ | ❌ | ❌ 无此对象 |
-| `widget` 实例设置 / `invalidate` | ❌ | ✅ | ❌ |
+| `widget` register 系列 | ✅ | ❌ | ❌ |
+| `widget` 实例设置 / 自刷 `invalidate` | ❌ | ✅ | ❌ |
+| `widget` 定向 `invalidate({ widgetId })` | ✅ 需 `storage:write` | ✅ 需 `storage:write` | ✅ 需 `storage:write` |
 | `tappList`, `component`, `shortcut`, `dynamicContent` | ✅ | ❌ | ❌ 无此对象 |
 | `dom`, `file` | ✅ | ✅ | ❌ 无此对象 |
 | `model3d` | ✅ | 调用会报缺权限 | ❌ 无此对象 |

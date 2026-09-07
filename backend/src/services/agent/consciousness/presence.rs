@@ -29,11 +29,48 @@ pub fn remember_live_presence(user_id: i32, live: SelfLivePresence) -> bool {
 }
 
 pub fn last_live_presence(user_id: i32) -> SelfLivePresence {
-    LIVE.read()
+    let mut live = LIVE
+        .read()
         .ok()
         .and_then(|map| map.get(&user_id).cloned())
         .filter(presence_is_fresh)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // The page-presence lease is longer than individual observations. Age a
+    // copy on read, never renew the stored TTL by repeatedly reading it.
+    let elapsed = live.captured_at.map_or(0, |at| {
+        Utc::now()
+            .signed_duration_since(at)
+            .num_milliseconds()
+            .max(0)
+    });
+    for item in &mut live.perception_payload {
+        let remaining = item
+            .get("ttlMs")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .saturating_sub(elapsed)
+            .max(0);
+        item["ttlMs"] = remaining.into();
+    }
+    live.perception_payload.retain(|item| {
+        item.get("ttlMs")
+            .and_then(Value::as_i64)
+            .is_some_and(|ttl| ttl > 0)
+    });
+    refresh_perception_text(&mut live);
+    live
+}
+
+fn refresh_perception_text(live: &mut SelfLivePresence) {
+    live.perception = live
+        .perception_payload
+        .iter()
+        .filter_map(Value::as_object)
+        .map(crate::services::agent::perception_view::perception_reader_text)
+        .filter(|text| !text.is_empty())
+        .map(|text| text.chars().take(160).collect())
+        .take(crate::services::agent::perception_view::MAX_PERCEPTION_ITEMS)
+        .collect();
 }
 
 pub fn live_presence_is_on_page(user_id: i32) -> bool {
@@ -104,15 +141,7 @@ fn apply_whitelisted_presence(live: &mut SelfLivePresence, data: &Value) {
             .filter_map(sanitize_perception)
             .take(crate::services::agent::perception_view::MAX_PERCEPTION_ITEMS)
             .collect();
-        live.perception = live
-            .perception_payload
-            .iter()
-            .filter_map(Value::as_object)
-            .map(crate::services::agent::perception_view::perception_reader_text)
-            .filter(|text| !text.is_empty())
-            .map(|text| text.chars().take(160).collect())
-            .take(crate::services::agent::perception_view::MAX_PERCEPTION_ITEMS)
-            .collect();
+        refresh_perception_text(live);
     }
     if let Some(music) = data.get("musicStatus") {
         live.music_status = sanitize_music_status(music);
@@ -273,6 +302,10 @@ mod tests {
         let mut live = SelfLivePresence {
             speaking: true,
             perception: vec!["hours-old".into()],
+            perception_payload: vec![serde_json::json!({
+                "sourceId": "page", "kind": "page", "privacy": "consented",
+                "summary": "hours-old", "ttlMs": 90_000,
+            })],
             captured_at: Some(Utc::now() - Duration::seconds(120)),
             ..Default::default()
         };

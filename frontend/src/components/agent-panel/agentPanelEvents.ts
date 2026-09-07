@@ -126,6 +126,12 @@ export function agentPanelOpenView(event: Event): AgentPanelOpenView {
   return raw === 'manage' ? 'manage' : 'messages'
 }
 
+export const AGENT_PANEL_CLOSE_EVENT = 'agent-panel-close'
+
+export function dispatchAgentPanelClose(): void {
+  window.dispatchEvent(new Event(AGENT_PANEL_CLOSE_EVENT))
+}
+
 // 界面上的两个动作：开新对话、停下手里的活。执行方接住。
 
 export const AGENT_PANEL_COMMAND_EVENT = 'agent-panel-command'

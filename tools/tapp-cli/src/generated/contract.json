@@ -1791,6 +1791,7 @@
       "widget.updateConfig": "widget:register",
       "widget.instanceSettings.update": "public",
       "widget.invalidate": "public",
+      "widget.invalidateTarget": "storage:write",
       "tappList.list": "tappList:read",
       "tappList.get": "tappList:read",
       "tappList.getRecent": "tappList:read",

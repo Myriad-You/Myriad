@@ -10,6 +10,19 @@ import {
   sanitizePerformanceDirective,
 } from './performanceEvents'
 
+test('phrase-only delivery crosses the event boundary without inventing a baseline', () => {
+  const wire = {
+    phase: 'delivery', moodRevision: 1, motionStyle: 'even',
+    plan: { cues: [] }, phrases: [{ text: '你觉得呢？', intent: 'check-in' }],
+  }
+  const parsed = sanitizePerformanceDirective(wire)
+  assert.ok(parsed)
+  assert.equal(parsed.plan.baseline, undefined)
+  assert.deepEqual(parsed.phrases, [{ text: '你觉得呢?', intent: 'check-in' }])
+  assert.equal(sanitizePerformanceDirective({ ...wire, phrases: [] }), null)
+  assert.equal(sanitizePerformanceDirective({ ...wire, phrases: [{ text: '你觉得呢？', intent: 'driver' }] }), null)
+})
+
 test('state streams and late GETs converge on the newest mood, and reset between owners', () => {
   resetMeropeState()
   const initial = { mood: 30, arousal: 70, moodRevision: 10, activity: 'idle' }

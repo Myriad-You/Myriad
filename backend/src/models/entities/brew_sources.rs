@@ -133,6 +133,8 @@ pub struct UpdateSourceRequest {
     pub theme_color: Option<String>,
     /// 自定义图标 URL 或 Base64 数据
     pub icon: Option<String>,
+    pub description: Option<String>,
+    pub site_url: Option<String>,
     /// 自定义排序顺序
     pub sort_order: Option<i32>,
     /// 来源类型: link, rss, brewlia

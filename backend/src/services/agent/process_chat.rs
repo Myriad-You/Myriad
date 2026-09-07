@@ -4,8 +4,7 @@ use serde_json::{json, Value};
 
 use super::agent_header::Agent;
 use super::motion_overlay::{
-    attach_motion_to_result, landing_motion, motion_context, publish_local_motion,
-    spawn_motion_refinement, MotionPublication,
+    attach_motion_to_result, motion_context, spawn_chat_motion_refinement, try_publish_motion,
 };
 use super::response_agent;
 use super::types::*;
@@ -16,6 +15,7 @@ impl Agent {
         request: UserRequest,
         mood_transition: Option<crate::services::agent::merope::MoodTransition>,
         round_motion_style: String,
+        memory_input_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     ) -> Result<AgentResponse, String> {
         let user_id = request.user_id;
         crate::services::agent::merope::note_chat_diary(&self.db, user_id, &request.raw_input)
@@ -33,6 +33,7 @@ impl Agent {
             user_id,
             request.raw_input.clone(),
             reply.clone(),
+            memory_input_at,
         );
         return attach_motion_to_result(
             Ok(AgentResponse {
@@ -59,12 +60,9 @@ impl Agent {
         progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
         mood_transition: Option<crate::services::agent::merope::MoodTransition>,
         round_motion_style: String,
+        memory_input_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     ) -> Result<AgentResponse, String> {
         let user_id = request.user_id;
-
-        // Refinements are scoped to this turn. Dropping the guards aborts any
-        // Lite call that has outlived the meaning of its reaction.
-        let mut motion_refinements = Vec::new();
 
         let _ = progress_tx
             .send(AgentProgressEvent::Progress {
@@ -75,10 +73,10 @@ impl Agent {
             })
             .await;
 
-        // The reaction ships immediately. Short replies stay entirely on
-        // the local path. Longer replies offer actual spoken text to Lite;
-        // it refines delivery, not a reaction to input that is now over.
-        let mut motion_preview_tx = None;
+        // React without waiting on the model or the action queue. The director
+        // observes emitted prose on its own task, never on the token callback.
+        let mut speech_delivery = None;
+        let mut motion_refinement = None;
         if let Some(mood) = mood_transition.clone() {
             let reaction_context = motion_context(
                 &request,
@@ -89,16 +87,15 @@ impl Agent {
                 None,
                 None,
             );
-            publish_local_motion(&reaction_context, &progress_tx).await;
-            // At most two updates: first stable sentence, then one bounded
-            // long-reply refinement. Neither can be lost to a full slot.
-            let (preview_tx, preview_rx) = tokio::sync::mpsc::channel(2);
-            motion_preview_tx = Some(preview_tx);
-            motion_refinements.push(spawn_motion_refinement(
-                reaction_context,
-                progress_tx.clone(),
-                Some(preview_rx),
-            ));
+            if let Some(performance) =
+                crate::services::agent::merope::local_directive(&reaction_context)
+            {
+                try_publish_motion(&progress_tx, performance);
+            }
+            let (delivery, guard) =
+                spawn_chat_motion_refinement(reaction_context, progress_tx.clone());
+            speech_delivery = Some(std::sync::Arc::new(std::sync::Mutex::new(delivery)));
+            motion_refinement = Some(guard);
         }
 
         // Persistence still precedes chat context construction, but must
@@ -107,7 +104,7 @@ impl Agent {
             .await;
 
         let reply = match self
-            .stream_strict_lite_chat_response(&request, &progress_tx, motion_preview_tx)
+            .stream_strict_lite_chat_response(&request, &progress_tx, speech_delivery)
             .await
         {
             Ok(reply) => {
@@ -121,37 +118,14 @@ impl Agent {
             }
         };
 
-        // A refinement that has not arrived by the end of generation is
-        // stale. Never retain its sender beyond the run's terminal event.
-        let mut delivery_publication = MotionPublication::None;
-        for guard in motion_refinements.drain(..) {
-            delivery_publication = delivery_publication.max(guard.stop().await);
-        }
-        // Do not overwrite a richer, already-visible baseline with the
-        // generic landing floor (or replay its body beat).
-        if let Some(mood) = mood_transition.clone() {
-            let delivery_context = motion_context(
-                &request,
-                user_id,
-                crate::services::agent::merope::MotionPhase::Delivery,
-                mood,
-                round_motion_style.clone(),
-                Some(reply.clone()),
-                None,
-            );
-            if let Some(performance) = landing_motion(&delivery_context, delivery_publication) {
-                let _ = progress_tx
-                    .send(AgentProgressEvent::PerformancePlan { performance })
-                    .await;
-            }
-        }
-        // Close the text stream only after the delivery beat is visible to
-        // the client. This aligns it with TTS enqueue without delaying text.
+        // Close text without waiting for the director. Already-published plans
+        // remain owned by the client's playback clock, not this generation task.
         response_agent::finish_stream(&progress_tx).await;
         crate::services::agent::merope::spawn_chat_remember(
             user_id,
             request.raw_input.clone(),
             reply.clone(),
+            memory_input_at,
         );
         let performance = None;
 
@@ -164,6 +138,37 @@ impl Agent {
                 message: response_agent::done_status(),
             })
             .await;
+
+        // Run transport rejects post-terminal events. Abort outstanding model
+        // work at the round boundary, not inside the text-generation callback.
+        // This is a cancellation barrier, never a wait for model completion.
+        let refined = if let Some(guard) = motion_refinement {
+            guard.stop().await == super::motion_overlay::MotionPublication::Refined
+        } else {
+            false
+        };
+        // The abort barrier above makes this choice race-free: a local landing
+        // cannot overwrite a semantic baseline published concurrently. No cues
+        // are replayed, and none of this stands in front of text completion.
+        if !refined {
+            if let Some(mood) = mood_transition {
+                let delivery_context = motion_context(
+                    &request,
+                    user_id,
+                    crate::services::agent::merope::MotionPhase::Delivery,
+                    mood,
+                    round_motion_style,
+                    Some(reply.clone()),
+                    None,
+                );
+                if let Some(mut performance) =
+                    crate::services::agent::merope::local_directive(&delivery_context)
+                {
+                    performance.plan.cues.clear();
+                    try_publish_motion(&progress_tx, performance);
+                }
+            }
+        }
 
         return Ok(AgentResponse {
             response_type: AgentResponseType::Answer,

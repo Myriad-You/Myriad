@@ -38,6 +38,7 @@ export const enUS: TranslationKeys = {
     durationSeconds: '{sec}s',
     durationMinutes: '{min}m',
     durationMinutesSeconds: '{min}m {sec}s',
+    editMode: 'Edit mode',
   },
 
   // Navigation
@@ -449,70 +450,236 @@ export const enUS: TranslationKeys = {
 
   tour: {
     start: 'Tour',
-    startHint: 'Walk through this page',
+    startHint: 'Controls on this page',
     next: 'Next',
     back: 'Back',
     done: 'Done',
     skip: 'Skip',
-    hint: 'Take a tour',
-    hintBody: 'A minute to see what you can tap on this page.',
-    hintTitle: 'Take a look at {page}',
+    skipHold: 'Hold to skip',
+    stepOf: 'Step {current} of {total}',
+    hint: 'Page tour',
+    hintBody: 'Explains the main controls on this page.',
+    hintTitle: 'Explains the main controls on {page}.',
     hintWelcome: 'Welcome to {site}',
     begin: 'Start',
-    noTourOnThisPage: 'This page does not have a tour yet',
-    couldNotStart: 'Could not find the controls this page tour points to',
+    noTourOnThisPage: 'This page has no tour',
+    couldNotStart: 'No tour targets were found on this page',
     steps: {
       nav: {
         title: 'Navigation',
-        body: 'Switch between Home, Library, Brew, Reports, and Tapp here.',
+        body: 'Switch among Home, Library, Brew Reader, Platform Reports, and Tapp Apps.',
       },
       'home-grid': {
         title: 'Widget grid',
-        body: 'This is the homepage board — the widgets visitors see first.',
+        body: 'The widget board shown first when the site opens.',
+      },
+      'home-agent': {
+        title: 'Agent',
+        body: 'Long-press any empty area to open it. Buttons, links, and navigation do not trigger it. Continues after it opens.',
+      },
+      'home-agent-panel': {
+        title: 'Agent',
+        body: 'Type and send here. Click outside the panel to dismiss it.',
       },
       'home-edit': {
         title: 'Edit',
-        body: 'Change the layout and add or remove widgets. Only the site owner can edit.',
+        body: 'Enter edit mode to change the layout and add or remove widgets.',
+      },
+      'home-edit-grid': {
+        title: 'Tiles',
+        body: 'Drag to move or resize. Long-press opens settings. Delete from the corner.',
+      },
+      'home-widget-library': {
+        title: 'Widget library',
+        body: 'Drag a widget onto the grid to add it.',
+      },
+      'home-free-layout': {
+        title: 'Free layout',
+        body: 'Switch between standard and free layout. Cell size is the same. The free canvas is 16×8; each layout stores its own positions.',
+      },
+      'home-sticker': {
+        title: 'Stickers',
+        body: 'Pick an empty slot, then generate or upload. They do not count toward the widget cell budget.',
       },
       'control-island': {
         title: 'Control island',
-        body: 'Appearance, language, wallpaper, and sign-in live up here. Owners can also open system config.',
+        body: 'Collapsed, it cycles site info. Open it to expand the control panel.',
+      },
+      'control-island-owner': {
+        title: 'Control island',
+        body: 'Collapsed, it cycles site info. Open it to expand the control panel.',
+      },
+      'control-panel': {
+        title: 'Control panel',
+        body: 'Appearance, Animation, and language. Sign in here. Play music on this site. Switch between Controls and Notifications.',
+      },
+      'control-panel-owner': {
+        title: 'Control panel',
+        body: 'Appearance, Animation, and language. Open system config. Play music on this site. Switch between Controls and Notifications.',
+      },
+      'library-filters': {
+        title: 'Filters',
+        body: 'Filter by All, Games, Videos, Music, Anime, TV Series, or Books. If collapsed, open Library again.',
       },
       'library-grid': {
         title: 'Collection',
-        body: 'Games, videos, music, anime, and books live here. Expand Library in the nav to filter by type.',
+        body: 'Synced items. Scroll down to load more.',
+      },
+      'library-grid-canvas': {
+        title: 'Collection',
+        body: 'Synced items spread out from the center. Drag to pan the canvas.',
+      },
+      'library-card': {
+        title: 'Card',
+        body: 'Open a card to go to the source site. NetEase plays on this site. Corners show the source and rating.',
+      },
+      'library-canvas': {
+        title: 'Canvas',
+        body: 'Zoom the infinite canvas, or reset to center.',
       },
       'reports-status': {
         title: 'Status bar',
-        body: 'This bar cycles through the page state. When reports exist, you can play them from here.',
+        body: 'Cycles through platform and playback status on this page.',
+      },
+      'reports-play': {
+        title: 'Play',
+        body: 'Play existing reports in sequence.',
       },
       'reports-cards': {
         title: 'Platform cards',
-        body: 'One card per platform. Open a report to view it; the owner can also generate one here.',
+        body: 'One card per platform. Open an existing report.',
       },
-      'tapp-toolbar': {
-        title: 'Toolbar',
-        body: 'Store, mine/site scope, and install all live on this bar.',
+      'reports-cards-owner': {
+        title: 'Platform cards',
+        body: 'One card per platform. Open an existing report, or generate one here.',
+      },
+      'tapp-store-entry': {
+        title: 'Store',
+        body: 'Open the store to browse and install apps.',
+      },
+      'tapp-scope': {
+        title: 'Scope',
+        body: 'Switch between My apps and Site apps.',
+      },
+      'tapp-open-playground': {
+        title: 'Playground',
+        body: 'Generate an app from natural language. Runs in a temporary sandbox with no granted permissions.',
+      },
+      'tapp-install': {
+        title: 'Install',
+        body: 'Install by uploading a .tapp file.',
       },
       'tapp-grid': {
         title: 'Installed apps',
-        body: 'Open an app from its card. The owner can reorder and resize them.',
+        body: 'Open a card to run the app.',
       },
-      'tapp-store-nav': {
-        title: 'Categories',
-        body: 'Browse by Discover, installed, or category.',
+      'tapp-grid-owner': {
+        title: 'Installed apps',
+        body: 'Open a card to run it. Start, stop, open settings, or uninstall. Reorder and resize cards here.',
       },
-      'tapp-store-catalog': {
-        title: 'Catalog',
-        body: 'Apps are listed here. Open one for details and install.',
+      'config-search': {
+        title: 'Search',
+        body: 'Find settings by name or guide text.',
       },
       'config-sidebar': {
-        title: 'Index',
-        body: 'Find settings by group, or search.',
+        title: 'Groups',
+        body: 'Settings grouped by section.',
       },
       'config-content': {
         title: 'Settings',
-        body: 'Save after you change something. This page is for the owner only.',
+        body: 'Save after changes.',
+      },
+      'config-ai-persona-toggle': {
+        title: 'Persona',
+        body: 'When on, Agent speaks with this persona. Writing it needs Pro.',
+      },
+      'config-ai-persona-card': {
+        title: 'Character',
+        body: 'Start setup if empty. Open character settings or delete when one exists.',
+      },
+      'config-ai-persona-speech': {
+        title: 'Speak',
+        body: 'Read chat replies aloud. Unavailable while the persona is off.',
+      },
+      'config-persona-tabs': {
+        title: 'Tabs',
+        body: 'Switch among Overview, Persona, Wardrobe, and Motion.',
+      },
+      'config-persona-portrait': {
+        title: 'Portrait',
+        body: 'Current face preview. Plays here once a rig exists.',
+      },
+      'config-persona-overview': {
+        title: 'Overview',
+        body: 'Name, mood and activity, sticker avatar, and Do not disturb.',
+      },
+      'config-persona-identity': {
+        title: 'Persona',
+        body: 'Temperament, likes, drives, social style, and speech. Import or edit each field. Owner-only write.',
+      },
+      'config-persona-wardrobe': {
+        title: 'Wardrobe',
+        body: 'Open a set to manage its portrait. Face and hair stay fixed. New outfits can be added.',
+      },
+      'config-persona-motion': {
+        title: 'Motion',
+        body: 'Preview and adjust motion after a rig is imported.',
+      },
+      'tapp-detail-overview': {
+        title: 'Overview',
+        body: 'App info. Export is available. Start, stop, or uninstall when you have permission.',
+      },
+      'tapp-detail-settings': {
+        title: 'App settings',
+        body: 'This installation’s config. Visible when signed in. Visibility is owner-only.',
+      },
+      'tapp-detail-permissions': {
+        title: 'Permissions',
+        body: 'Read-only list of granted permissions for this installation.',
+      },
+      'tapp-playground-toolbar': {
+        title: 'Toolbar',
+        body: 'Return to the app list. This sandbox has no granted permissions.',
+      },
+      'tapp-playground-preview': {
+        title: 'Page preview',
+        body: 'Placeholder until something is generated. After generation it runs in the temporary sandbox.',
+      },
+      'tapp-playground-widget': {
+        title: 'Widget preview',
+        body: 'Rendered at the declared size.',
+      },
+      'tapp-playground-code': {
+        title: 'Code',
+        body: 'Generated source. Switch files and edit them. Compare versions when more than one exists.',
+      },
+      'tapp-playground-prompt': {
+        title: 'Prompt',
+        body: 'Describe what to generate or change in natural language. Empty sessions can fill from examples. Enter sends, Shift+Enter inserts a line break.',
+      },
+      'tapp-playground-generate': {
+        title: 'Generate',
+        body: 'Submit to generate or apply changes, then run in the temporary sandbox.',
+      },
+      'tapp-playground-history': {
+        title: 'History',
+        body: 'Session change history. Switch, create, or delete sessions.',
+      },
+      'tapp-playground-revisions': {
+        title: 'Revisions',
+        body: 'Move between generated versions.',
+      },
+      'tapp-playground-clear': {
+        title: 'Clear session',
+        body: 'Clear the current session.',
+      },
+      'tapp-playground-export': {
+        title: 'Export',
+        body: 'Download a .tapp package.',
+      },
+      'tapp-playground-install': {
+        title: 'Install',
+        body: 'Install on this site. Granted permissions exist only after install.',
       },
     },
   },
@@ -2729,6 +2896,23 @@ export const enUS: TranslationKeys = {
     stickerDownload: 'Download image',
     stickerDownloadHint: 'Save the original generated or uploaded file',
     stickerFile: 'Image',
+    exportLayout: 'Export',
+    importLayout: 'Import',
+    exportLayoutSuccess: 'Home layout exported',
+    exportLayoutFailed: 'Could not export the home layout',
+    exportLayoutPartial:
+      'Home layout exported, but {count} sticker original(s) could not be included',
+    importLayoutSuccess: 'Home layout imported',
+    importLayoutFailed: 'Could not import the home layout',
+    importLayoutPartial:
+      'Home layout imported, but {count} sticker original(s) could not be stored',
+    importLayoutConfirm:
+      'This replaces the current standard and free layouts. Sticker originals in the file will be stored on this site. Import?',
+    importLayoutInvalid: 'That file is not a home layout',
+    importLayoutSettingsBackup:
+      'That is a site settings backup. Import it from system configuration.',
+    importLayoutTooLarge: 'That layout file is too large',
+    importLayoutTooMany: 'That layout file has too many tiles',
   },
 
   // Library

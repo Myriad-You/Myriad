@@ -107,6 +107,45 @@ export function queryCanvasVisibleItems(
   )
 }
 
+/** 教程只钉一张卡：列表取第一张，画布取距世界原点最近的可见卡。 */
+export function pickLibraryTourCardId(
+  items: readonly { id: string }[],
+  layouts?: ReadonlyMap<
+    string,
+    Pick<LibraryCanvasLayout, 'left' | 'top' | 'width' | 'height'>
+  >,
+): string | null {
+  if (items.length === 0) return null
+  if (!layouts || layouts.size === 0) return items[0]!.id
+  let bestId: string | null = null
+  let bestDist = Infinity
+  for (const item of items) {
+    const layout = layouts.get(item.id)
+    if (!layout) continue
+    const cx = layout.left + layout.width / 2
+    const cy = layout.top + layout.height / 2
+    const dist = cx * cx + cy * cy
+    if (dist < bestDist) {
+      bestDist = dist
+      bestId = item.id
+    }
+  }
+  return bestId ?? items[0]!.id
+}
+
+/** Keep the tour card mounted when virtualization would drop it. */
+export function pinLibraryTourCard<T extends { id: string }>(
+  visible: readonly T[],
+  laidOut: readonly T[],
+  tourCardId: string | null,
+): T[] {
+  if (!tourCardId || visible.some((item) => item.id === tourCardId)) {
+    return visible as T[]
+  }
+  const pinned = laidOut.find((item) => item.id === tourCardId)
+  return pinned ? [...visible, pinned] : (visible as T[])
+}
+
 export function readCanvasDefaultScale(): number {
   // Align with nav island: touch tablets in 768–1023 use compact chrome too.
   if (typeof window === 'undefined') return CANVAS_DEFAULT_SCALE_DESKTOP

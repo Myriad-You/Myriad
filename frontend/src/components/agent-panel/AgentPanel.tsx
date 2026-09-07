@@ -31,6 +31,7 @@ import {
 import { useAgentMessageCount } from './agentMessages'
 import { AgentPanelComposer } from './AgentPanelComposer'
 import {
+  AGENT_PANEL_CLOSE_EVENT,
   AGENT_PANEL_OPEN_EVENT,
   agentPanelOpenView,
   dispatchAgentPanelAction,
@@ -163,6 +164,12 @@ export const AgentPanel: React.FC = () => {
     return () => window.removeEventListener(AGENT_PANEL_OPEN_EVENT, onOpen)
   }, [])
 
+  useEffect(() => {
+    const onClose = () => dispatch({ type: 'close' })
+    window.addEventListener(AGENT_PANEL_CLOSE_EVENT, onClose)
+    return () => window.removeEventListener(AGENT_PANEL_CLOSE_EVENT, onClose)
+  }, [])
+
   // 要人拍板的时候自动展开。这不算抢占：确认是用户自己那条指令的下一步，
   // 而且它有时限，不展开就会过期。
   useEffect(() => {
@@ -247,7 +254,9 @@ export const AgentPanel: React.FC = () => {
     if (!open) return
     const onPointerDown = (event: MouseEvent) => {
       const node = overlayRef.current
-      if (node && !node.contains(event.target as Node)) {
+      const target = event.target
+      if (target instanceof Element && target.closest('.tour-overlay')) return
+      if (node && !node.contains(target as Node)) {
         dispatch({ type: 'close' })
       }
     }
@@ -309,6 +318,7 @@ export const AgentPanel: React.FC = () => {
           <div
             ref={overlayRef}
             className="agent-panel-overlay-anchor"
+            data-tour="home-agent-panel"
             data-phase={stage.phase}
             data-stage={stage.stage}
             data-mode={mode}

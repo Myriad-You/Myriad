@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { meropeSpeechEventDetail } from '../speechEvents'
 import {
   alignTextProsody,
   continueTextProsody,
@@ -48,6 +49,28 @@ test('plain text still receives one non-periodic phrase accent', () => {
   })
   assert.equal(plan.accents.length, 1)
   assert.ok(plan.accents[0]!.offsetMs > plan.durationMs * 0.4)
+})
+
+test('long replies retain late semantic beats on an advancing, prefix-stable clock', () => {
+  const prefix = '这一句说完了。'.repeat(16)
+  const input = {
+    utteranceId: 'long',
+    text: prefix,
+    startedAtMs: 0,
+    streaming: true,
+  }
+  const first = predictTextProsody(input)
+  const next = predictTextProsody({
+    ...input,
+    text: `${prefix}不过还可以换个办法。你觉得呢？`,
+  })
+  assert.ok(first.accents.length > 12)
+  assert.ok(next.accents.at(-1)!.offsetMs > 12_000)
+  assert.equal(next.accents.at(-1)!.gesture, 'question')
+  assert.deepEqual(next.accents.slice(0, first.accents.length), first.accents)
+  for (let i = 1; i < next.accents.length; i++) {
+    assert.ok(next.accents[i]!.offsetMs - next.accents[i - 1]!.offsetMs >= 380)
+  }
 })
 
 test('later streamed sentences preserve every earlier text boundary and time', () => {
@@ -152,15 +175,36 @@ test('audio phrasing keeps text identities and uses the decoded duration, withou
       refined.accents.find((item) => item.textOffset === accent.textOffset),
       accent,
     )
-}
+  }
   for (let index = 1; index < refined.accents.length; index++) {
     assert.ok(
       refined.accents[index]!.offsetMs - refined.accents[index - 1]!.offsetMs >=
         380,
     )
-}
+  }
   assert.deepEqual(alignTextProsody(input, { durationMs: 0, accents: [] }), {
     durationMs: 0,
     accents: [],
   })
+})
+
+test('later audio phrase anchors survive alignment and the production event boundary', () => {
+  const text = `${'这一句说完了。'.repeat(16)}你觉得呢？`
+  const aligned = alignTextProsody(
+    { text, utteranceId: 'audio-tail', startedAtMs: 0 },
+    { durationMs: 28_000, accents: [] },
+  )
+  const event = meropeSpeechEventDetail({
+    phase: 'prosody',
+    messageId: 'message',
+    utteranceId: 'audio-tail',
+    source: 'reply',
+    text,
+    prosody: { ...aligned, startedAtMs: 0 },
+  })
+  assert.equal(event?.phase, 'prosody')
+  if (event?.phase !== 'prosody') return
+  assert.ok(event.prosody.accents.length > 12)
+  assert.equal(event.prosody.accents.at(-1)!.gesture, 'question')
+  assert.deepEqual(event.prosody.accents, aligned.accents)
 })

@@ -353,12 +353,14 @@ Widget 实例，因此同一种 Widget 添加两次时可以采用不同配置�
 设置面板保存并通过 `props.config`、`Tapp.widget.getInstanceSettings()` 提供给沙箱。
 
 `refreshPolicy.mode` 默认为事件驱动语义：同一 Tapp 的其他运行实例发生
-`Tapp.storage` 变更时，宿主会通知并刷新可见 Widget（**跨沙箱首选路径**）。
-当前 **Widget 沙箱**还可用 `Tapp.widget.invalidate()` 对本实例显式 re-render；
-Page / headless **没有**该方法——共用 core 里调用会抛错。确实需要轮询时可设为
+`Tapp.storage` / `Tapp.shared` 变更时，宿主会通知并刷新可见 Widget（兼容垫，与 `mode`
+无关）。`Tapp.settings.set` 只广播 `onChanged`，不拆 iframe。Widget 沙箱可用
+`Tapp.widget.invalidate(reason)` 刷自己；Page / headless 可用
+`Tapp.widget.invalidate(reason, { target: { widgetId } })` 定向刷一张
+（需授予的 `storage:write`，15s / 2 次/分，没有 `all`）。确实需要轮询时可设为
 `interval` 并提供 `intervalSeconds`（15–86400 秒）；计时器仅在页面和 Widget 可见
-且 Tapp 运行时工作。`refreshOnVisible` 默认为 `true`。后台同步应使用
-scheduler/headless core，而不是依赖 Widget 的可见计时器。
+且 Tapp 运行时工作，是额外节拍而不是关掉 storage 刷新。`refreshOnVisible` 默认为
+`true`。后台同步应使用 scheduler/headless core，而不是依赖 Widget 的可见计时器。
 
 模板按 `Widget ID + 尺寸` 隔离。同一个 Tapp 的多个 Widget 可以各自声明不同的 `2x2`
 模板，不会互相覆盖。商店索引中的 `download.widget_templates` 也必须使用

@@ -29,6 +29,145 @@
   padding-bottom: var(--home-standard-pad-bottom);
 }
 
+/* 标准布局状态条：编辑槽位 0fr↔1fr，条子 fit-content 跟着变长。
+   进入：先拉宽度，字晚 70ms 淡入；退出：字先隐，宽度再收。
+   右侧槽晚 40ms，从「编辑」往两边打开。 */
+.home-status-bar {
+  --home-status-bar-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --home-status-bar-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --home-status-bar-dur: 320ms;
+  --home-status-bar-fade: 180ms;
+  --home-status-bar-gap: 0.75rem;
+  position: relative;
+  z-index: 10;
+  height: 100%;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 0.75rem;
+}
+
+.home-status-bar__row {
+  display: flex;
+  align-items: center;
+  gap: var(--home-status-bar-gap);
+  height: 100%;
+  width: max-content;
+  padding: 0.25rem 1rem;
+  white-space: nowrap;
+}
+
+/* 动作区不用 gap：收起的 0fr 槽仍是 flex 子项，gap 会在「编辑」两侧多出空档。 */
+.home-status-bar__actions {
+  display: flex;
+  align-items: center;
+}
+
+.home-status-bar__sep {
+  width: 1px;
+  height: 1.5rem;
+  margin-left: 0.25rem;
+  margin-right: calc(0.25rem + var(--home-status-bar-gap));
+  background: rgb(229 231 235 / 1);
+}
+
+html.dark .home-status-bar__sep {
+  background: rgb(255 255 255 / 10%);
+}
+
+.home-status-bar__actions > button {
+  margin-right: var(--home-status-bar-gap);
+}
+
+.home-status-bar__actions > button:last-child {
+  margin-right: 0;
+}
+
+.home-status-bar__slot {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 0fr;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    grid-template-columns var(--home-status-bar-dur) var(--home-status-bar-ease),
+    margin var(--home-status-bar-dur) var(--home-status-bar-ease);
+}
+
+.home-status-bar__slot.is-open {
+  grid-template-columns: 1fr;
+  margin-right: var(--home-status-bar-gap);
+  pointer-events: auto;
+}
+
+.home-status-bar__slot[data-side='after'].is-open {
+  transition-delay: 40ms;
+}
+
+.home-status-bar__slot-inner {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.home-status-bar__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--home-status-bar-gap);
+  width: max-content;
+  opacity: 0;
+  transform: translateX(6px);
+  transition:
+    opacity var(--home-status-bar-fade) var(--home-status-bar-ease-exit),
+    transform var(--home-status-bar-fade) var(--home-status-bar-ease-exit);
+}
+
+.home-status-bar__slot[data-side='before'] .home-status-bar__tools {
+  transform: translateX(-6px);
+}
+
+.home-status-bar__slot.is-open .home-status-bar__tools {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 220ms var(--home-status-bar-ease) 70ms,
+    transform 220ms var(--home-status-bar-ease) 70ms;
+}
+
+.home-status-bar__mode {
+  display: inline-grid;
+  justify-items: start;
+}
+
+.home-status-bar__mode > span {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity 140ms var(--home-status-bar-ease);
+}
+
+.home-status-bar__mode > [data-on] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-status-bar {
+    --home-status-bar-dur: 1ms;
+    --home-status-bar-fade: 1ms;
+  }
+
+  .home-status-bar__slot,
+  .home-status-bar__tools,
+  .home-status-bar__mode > span {
+    transition: none !important;
+    transition-delay: 0ms !important;
+  }
+
+  .home-status-bar__tools {
+    transform: none;
+  }
+}
+
 .home-shell[data-home-layout='free'] .home-shell__inner {
   padding-top: var(--home-free-pad-y);
   padding-bottom: var(--home-free-pad-y);
@@ -152,6 +291,15 @@ html.dark .home-layout-rail__island {
     color: #fff;
     background: color-mix(in srgb, var(--color-primary, #8b5cf6) 88%, black);
   }
+}
+
+.home-layout-rail__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.home-layout-rail__btn:disabled:active {
+  transform: none;
 }
 
 .home-layout-rail__btn:active {

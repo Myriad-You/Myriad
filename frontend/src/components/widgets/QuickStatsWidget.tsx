@@ -169,37 +169,24 @@ const StatCard = memo(
 
     return (
       <div
-        className="flex flex-col items-center justify-center glass-surface glass-60 rounded-lg relative overflow-hidden p-1.5"
-        style={{ padding: `${6 * scale}px` }}
+        className="flex flex-col items-center justify-center glass-surface glass-60 rounded-lg p-1.5"
+        style={{ padding: `${6 * scale}px`, gap: `${2 * scale}px` }}
       >
-        <div
-          className="absolute top-0 right-0 rounded-full blur-xl opacity-20 w-6 h-6"
-          style={{
-            background: cat.color,
-            width: `${24 * scale}px`,
-            height: `${24 * scale}px`,
-          }}
-        />
-        <div
-          className="relative z-10 flex flex-col items-center gap-0.5"
-          style={{ gap: `${2 * scale}px` }}
-        >
-          <div className="text-gray-700 dark:text-white/60">
-            {renderIcon(cat.key)}
-          </div>
-          <span
-            className="text-base font-black text-gray-800 dark:text-gray-200 leading-none"
-            style={{ fontSize: `${16 * fontScale}px` }}
-          >
-            {loading ? '-' : value}
-          </span>
-          <span
-            className="text-[7px] text-gray-500 dark:text-gray-400 uppercase tracking-wider font-bold"
-            style={{ fontSize: `${7 * fontScale}px` }}
-          >
-            {cat.label}
-          </span>
+        <div className="text-gray-700 dark:text-white/60">
+          {renderIcon(cat.key)}
         </div>
+        <span
+          className="text-base font-black text-gray-800 dark:text-gray-200 leading-none"
+          style={{ fontSize: `${16 * fontScale}px` }}
+        >
+          {loading ? '-' : value}
+        </span>
+        <span
+          className="text-[7px] text-gray-500 dark:text-gray-400 uppercase tracking-wider font-bold"
+          style={{ fontSize: `${7 * fontScale}px` }}
+        >
+          {cat.label}
+        </span>
       </div>
     )
   },
@@ -330,12 +317,12 @@ export const QuickStatsWidget = memo(
 
     const categories = useMemo(
       () => [
-        { key: 'game', label: t.quickStats.game, color: '#1b2838' },
-        { key: 'video', label: t.quickStats.video, color: '#00A1D6' },
-        { key: 'music', label: t.quickStats.music, color: '#d33a31' },
-        { key: 'anime', label: t.quickStats.anime, color: '#fb7299' },
-        { key: 'tv_series', label: t.quickStats.tvSeries, color: '#6366f1' },
-        { key: 'book', label: t.quickStats.book, color: '#059669' },
+        { key: 'game', label: t.quickStats.game },
+        { key: 'video', label: t.quickStats.video },
+        { key: 'music', label: t.quickStats.music },
+        { key: 'anime', label: t.quickStats.anime },
+        { key: 'tv_series', label: t.quickStats.tvSeries },
+        { key: 'book', label: t.quickStats.book },
       ],
       [t],
     )

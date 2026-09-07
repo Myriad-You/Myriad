@@ -88,7 +88,8 @@ fn bullet_facts(contents: &[String]) -> Vec<String> {
 
 /// Pick remembered facts for a turn. With a query, overlapping facts come first;
 /// if nothing overlaps, keep recency. `facts` is newest-first.
-pub fn rank_remembered(facts: &[String], query: Option<&str>, limit: usize) -> Vec<String> {
+#[cfg(test)]
+fn rank_remembered(facts: &[String], query: Option<&str>, limit: usize) -> Vec<String> {
     let mut ranker = RememberedRanker::new(query, limit);
     for fact in facts {
         ranker.push(fact);
@@ -138,6 +139,10 @@ impl RememberedRanker {
             .map(|(_, text)| text)
             .collect()
     }
+
+    pub fn is_full(&self) -> bool {
+        self.best.len() >= self.limit
+    }
 }
 
 fn tokens(value: &str) -> Vec<String> {
@@ -149,11 +154,14 @@ fn tokens(value: &str) -> Vec<String> {
             continue;
         }
         flush_latin(&mut latin, &mut out);
-        if !ch.is_whitespace() && !ch.is_ascii_punctuation() {
+        if ch.is_alphanumeric() {
             out.push(ch.to_string());
         }
     }
     flush_latin(&mut latin, &mut out);
+    // Repeating a word (or Chinese character) is not extra retrieval evidence.
+    out.sort_unstable();
+    out.dedup();
     out
 }
 
@@ -353,5 +361,28 @@ mod tests {
             vec!["tea with milk", "tea without sugar"]
         );
         assert!(rank_remembered(&facts, Some("tea"), 0).is_empty());
+    }
+
+    #[test]
+    fn repeated_query_words_do_not_outvote_more_relevant_facts() {
+        let facts = vec!["tea".into(), "saffron milk".into()];
+        assert_eq!(
+            rank_remembered(&facts, Some("tea tea tea saffron milk"), 1),
+            vec!["saffron milk"]
+        );
+        let chinese = vec!["喝水".into(), "咖啡".into()];
+        assert_eq!(
+            rank_remembered(&chinese, Some("喝喝喝咖啡"), 1),
+            vec!["咖啡"]
+        );
+    }
+
+    #[test]
+    fn unicode_punctuation_is_not_retrieval_evidence() {
+        let facts = vec!["likes coffee".into(), "prefers tea。".into()];
+        assert_eq!(
+            rank_remembered(&facts, Some("天气。"), 1),
+            vec!["likes coffee"]
+        );
     }
 }

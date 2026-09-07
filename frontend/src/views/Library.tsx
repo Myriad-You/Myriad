@@ -5,9 +5,13 @@
 
 import type { SecondaryNavItem } from '../contexts/NavigationContext'
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import AnimatedView from '../components/AnimatedView'
 import LibraryGrid from '../components/LibraryGrid'
+import {
+  isLibraryCanvasTourSurface,
+  subscribeLibraryCanvasTourSurface,
+} from '../components/tour/tourLogic'
 import { useI18n } from '../contexts/I18nContext'
 import { useSecondaryNav } from '../contexts/NavigationContext'
 import { useLibraryScheduler } from '../hooks/animation'
@@ -140,6 +144,11 @@ type FilterType =
 export default function Library() {
   // 🆕 初始化资料库调度器（Resize + Intersection + Idle）
   useLibraryScheduler()
+  const canvasTour = useSyncExternalStore(
+    subscribeLibraryCanvasTourSurface,
+    isLibraryCanvasTourSurface,
+    isLibraryCanvasTourSurface,
+  )
 
   const { t } = useI18n()
   const { preferences: moduleVisibility } = useModuleVisibilityPreferences()
@@ -262,8 +271,10 @@ export default function Library() {
     <AnimatedView className="min-h-screen px-3 xs:px-4 sm:px-6 pt-20 pb-28 sm:pb-24 md:pb-12">
       <div
         className="max-w-7xl mx-auto w-full"
-        data-tour="library-grid"
-        data-tour-fit=".library-card-container, .library-empty"
+        data-tour={canvasTour ? undefined : 'library-grid'}
+        data-tour-fit={
+          canvasTour ? undefined : '.library-card-container, .library-empty'
+        }
       >
         <LibraryGrid filter={activeId as FilterType} />
       </div>

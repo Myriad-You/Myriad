@@ -2,7 +2,10 @@ import type { SpeechArticulation } from './rig/articulation'
 import type { SpeechProsodyPlan } from './speech/prosody'
 import type { MeropeSpeechEventDetail } from './speechEvents'
 import { isLiveMotionGeneration } from './motion/liveGeneration'
-import { estimateVisualSpeechDurationMs } from './speech/textTiming'
+import {
+  estimateVisualSpeechTailMs,
+  MAX_VISUAL_SPEECH_TEXT_UNITS,
+} from './speech/textTiming'
 import { noteTurnTraceDrop } from './turnTrace'
 
 export interface SpeechLifecycleTarget {
@@ -29,8 +32,7 @@ export interface SpeechOccupancy {
 export type SpeechLifecycleDisposition = 'active' | 'finished' | 'ignored'
 
 const MIN_END_TAIL_MS = 180
-const MAX_UTTERANCE_MS = 12_000
-const MAX_BUFFERED_TEXT = 2_000
+const STALLED_SPEECH_TIMEOUT_MS = 12_000
 
 const defaultScheduler: SpeechLifecycleScheduler = {
   now: () => performance.now(),
@@ -46,7 +48,7 @@ const defaultScheduler: SpeechLifecycleScheduler = {
 export class SpeechLifecycleController {
   private activeMessageId: string | null = null
   private activeUtteranceId: string | null = null
-  private startedAt = 0
+  private visualEndsAt = 0
   private bufferedText = ''
   private activeLocale: string | undefined
   private authored = false
@@ -103,11 +105,25 @@ export class SpeechLifecycleController {
 
     if (event.phase === 'chunk') {
       if (event.locale) this.activeLocale = event.locale
-      this.target.enqueueSpeechText(event.text, event.locale)
-      this.bufferedText = `${this.bufferedText}${event.text}`.slice(
+      const accepted = event.text.slice(
         0,
-        MAX_BUFFERED_TEXT,
+        Math.max(0, MAX_VISUAL_SPEECH_TEXT_UNITS - this.bufferedText.length),
       )
+      if (accepted) {
+        const previousMs = this.bufferedText
+          ? estimateAutoSpeechDurationMs(this.bufferedText, this.activeLocale)
+          : 0
+        this.bufferedText += accepted
+        const addedMs = Math.max(
+          0,
+          estimateAutoSpeechDurationMs(this.bufferedText, this.activeLocale) -
+            previousMs,
+        )
+        // Token stalls consume silence, not the duration of words yet to arrive.
+        this.visualEndsAt =
+          Math.max(this.scheduler.now(), this.visualEndsAt) + addedMs
+        this.target.enqueueSpeechText(accepted, event.locale)
+      }
       this.scheduleWatchdog()
       return 'active'
     }
@@ -136,10 +152,7 @@ export class SpeechLifecycleController {
       this.finishNow()
       return 'finished'
     }
-    const elapsed = Math.max(0, this.scheduler.now() - this.startedAt)
-    const remaining =
-      estimateAutoSpeechDurationMs(this.bufferedText, this.activeLocale) -
-      elapsed
+    const remaining = this.visualEndsAt - this.scheduler.now()
     this.scheduleFinish(Math.max(MIN_END_TAIL_MS, remaining))
     return 'active'
   }
@@ -152,7 +165,7 @@ export class SpeechLifecycleController {
     this.finishNow()
     this.activeMessageId = messageId
     this.activeUtteranceId = utteranceId
-    this.startedAt = this.scheduler.now()
+    this.visualEndsAt = this.scheduler.now()
     this.bufferedText = ''
     this.activeLocale = locale
     this.authored = false
@@ -181,12 +194,19 @@ export class SpeechLifecycleController {
   }
 
   private scheduleWatchdog(): void {
-    this.scheduleFinish(MAX_UTTERANCE_MS)
+    // Queued visual speech is still productive work. Only an empty/stalled
+    // producer (or missing audio callbacks) uses the short watchdog.
+    this.scheduleFinish(
+      Math.max(
+        STALLED_SPEECH_TIMEOUT_MS,
+        this.authored ? 0 : this.visualEndsAt - this.scheduler.now(),
+      ),
+    )
   }
 
   private scheduleFinish(delayMs: number): void {
     this.clearTimer()
-    const boundedDelay = clamp(delayMs, MIN_END_TAIL_MS, MAX_UTTERANCE_MS)
+    const boundedDelay = Math.max(MIN_END_TAIL_MS, delayMs)
     this.timer = this.scheduler.setTimeout(() => this.finishNow(), boundedDelay)
   }
 
@@ -207,7 +227,7 @@ export class SpeechLifecycleController {
     this.setOccupancy(false)
     this.activeMessageId = null
     this.activeUtteranceId = null
-    this.startedAt = 0
+    this.visualEndsAt = 0
     this.bufferedText = ''
     this.activeLocale = undefined
     this.authored = false
@@ -233,12 +253,8 @@ export function estimateAutoSpeechDurationMs(
   text: string,
   locale?: string,
 ): number {
-  return estimateVisualSpeechDurationMs(
-    text.slice(0, MAX_BUFFERED_TEXT),
+  return estimateVisualSpeechTailMs(
+    text.slice(0, MAX_VISUAL_SPEECH_TEXT_UNITS),
     locale,
   )
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
 }

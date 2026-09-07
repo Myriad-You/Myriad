@@ -55,6 +55,8 @@ describe('generateWidgetSDK permission trim', () => {
   it('keeps namespace shape with denied stubs when permissions are empty', () => {
     const sdk = generateWidgetSDK(makeInstance([]), 'tok')
     assert.match(sdk, /storage:\s*\{/)
+    assert.match(sdk, /onChanged: function\(cb\) \{ return addEventListener\('settingsChanged'/)
+    assert.match(sdk, /msg\.action === 'settingsChanged'/)
     assert.match(sdk, /lifecycle:\s*\{/)
     assert.match(sdk, /sendRequest\('persona'/)
     // Shape preserved for DX; heavy sendRequest bodies omitted

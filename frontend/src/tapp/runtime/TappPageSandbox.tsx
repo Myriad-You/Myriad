@@ -66,6 +66,7 @@ import {
   registerUIHandlers,
   registerUserHandlers,
   registerWidgetHandlers,
+  registerWidgetInvalidateTargetHandler,
 } from './sandbox/handlers'
 import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playgroundPreviewHandlers'
 import {
@@ -76,7 +77,12 @@ import { onSpaNavigation } from './spaNavigation'
 import { createTappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
-import { onTappSharedChange, onTappStorageChange } from './WidgetRuntimeSignals'
+import {
+  isForeignTappKvChange,
+  onTappSettingsChange,
+  onTappSharedChange,
+  onTappStorageChange,
+} from './WidgetRuntimeSignals'
 
 // 核心模块
 
@@ -465,13 +471,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     () =>
       onTappStorageChange((change) => {
         const bridge = bridgeRef.current
-        if (
-          !bridge ||
-          change.tappId !== tappInstance.id ||
-          change.source === bridge
-        ) {
-          return
-        }
+        if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
         bridge.emit('storageChanged', {
           key: change.key,
           operation: change.operation,
@@ -484,14 +484,21 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     () =>
       onTappSharedChange((change) => {
         const bridge = bridgeRef.current
-        if (
-          !bridge ||
-          change.tappId !== tappInstance.id ||
-          change.source === bridge
-        ) {
-          return
-        }
+        if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
         bridge.emit('sharedChanged', {
+          key: change.key,
+          operation: change.operation,
+        })
+      }),
+    [tappInstance.id],
+  )
+
+  useEffect(
+    () =>
+      onTappSettingsChange((change) => {
+        const bridge = bridgeRef.current
+        if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
+        bridge.emit('settingsChanged', {
           key: change.key,
           operation: change.operation,
         })
@@ -731,6 +738,9 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         currentCode.assets || {},
         previewStores?.shared,
       )
+      registerWidgetInvalidateTargetHandler(bridge, currentTappInstance, {
+        preview: true,
+      })
     } else {
       // Always mount the hot path; gate heavy optional capabilities by
       // grantedPermissions (same pattern as TappWidgetSandbox).
@@ -784,6 +794,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       registerStorageHandlers(bridge, currentTappInstance.id)
       registerAssetHandlers(bridge, currentTappInstance)
       if (!headless) registerWidgetHandlers(bridge, currentTappInstance)
+      registerWidgetInvalidateTargetHandler(bridge, currentTappInstance)
       if (hasPlatform) {
         registerPlatformHandlers(bridge, currentTappInstance)
       }

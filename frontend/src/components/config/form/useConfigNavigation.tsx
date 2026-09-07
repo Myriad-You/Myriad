@@ -6,6 +6,7 @@ import {
   scrollToSettingGuide,
 } from '../../settings/guides/guideAnchor'
 import MyriadConfigIcon from '../MyriadConfigIcon'
+import { refreshConfigTourSurface } from '../../tour/tourLogic'
 import {
   loadConfigNavPersisted,
   resolveInitialConfigSection,
@@ -192,6 +193,7 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
       platformFocus,
     })
     syncConfigSectionToUrl(activeSection)
+    refreshConfigTourSurface()
   }, [activeSection, mobilePane, platformFocus])
 
   // 节流记录滚动，供硬刷新后恢复

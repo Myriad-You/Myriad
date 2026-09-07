@@ -10,6 +10,10 @@ describe('widget library / grid boundary', () => {
     assert.equal(grid.includes('onToggleEditMode'), false)
     assert.equal(grid.includes("variant === 'default'"), false)
     assert.equal(grid.includes("variant === 'panel'"), false)
+    assert.equal(grid.includes('shouldRenderLibraryPlacementPreview'), false)
+    assert.match(grid, /shouldSkipWidgetEntrance/)
+    assert.match(grid, /previewExiting/)
+    assert.match(grid, /previewUncovered/)
   })
 
   it('keeps library chrome CSS out of the grid stylesheet', () => {
@@ -20,6 +24,11 @@ describe('widget library / grid boundary', () => {
     assert.equal(gridCss.includes('widget-library-island'), false)
     assert.ok(gridCss.includes('widget-grid-host'))
     assert.ok(gridCss.includes('widget-grid-drag-ghost'))
+    assert.ok(gridCss.includes('widget-grid-drag-ghost-tile'))
+    assert.ok(gridCss.includes('widget-grid-drop-slot'))
+    assert.ok(gridCss.includes('is-exiting'))
+    assert.ok(gridCss.includes('widget-grid-item-handoff'))
+    assert.ok(gridCss.includes('widget-grid-item-remove'))
   })
 
   it('pages mount the dock island as a grid sibling', () => {

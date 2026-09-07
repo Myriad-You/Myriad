@@ -635,7 +635,7 @@ const ModernConfigForm: React.FC = () => {
             </div>
 
             <div className="config-sidebar-search">
-              <div className="search-input-wrapper">
+              <div className="search-input-wrapper" data-tour="config-search">
                 <FaSearch className="search-icon" />
                 <input
                   type="search"

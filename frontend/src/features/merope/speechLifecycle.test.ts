@@ -230,7 +230,82 @@ test('occupancy stays busy after end until the auto-speech tail finishes', () =>
 test('bounds local duration estimates for short and very long replies', () => {
   assert.equal(estimateAutoSpeechDurationMs('好'), 650)
   assert.ok(estimateAutoSpeechDurationMs('This is a short answer.') >= 1_500)
-  assert.equal(estimateAutoSpeechDurationMs('长'.repeat(2_000)), 12_000)
+  assert.ok(estimateAutoSpeechDurationMs('长'.repeat(2_000)) > 12_000)
+  assert.equal(
+    estimateAutoSpeechDurationMs('长'.repeat(20_000)),
+    estimateAutoSpeechDurationMs('长'.repeat(2_000)),
+  )
+})
+
+test('a long visual reply finishes its bounded text instead of hitting the stalled-stream timeout', () => {
+  const scheduler = new FakeScheduler()
+  const rig = fakeTarget()
+  const controller = new SpeechLifecycleController(rig.target, scheduler)
+  const base = {
+    messageId: 'long',
+    utteranceId: 'long',
+    source: 'reply' as const,
+  }
+  const text = '这句已经说完了。'.repeat(20)
+  controller.handle({ ...base, phase: 'start' })
+  controller.handle({ ...base, phase: 'chunk', text })
+  // Even when end has not arrived, already queued words are not a dead stream.
+  scheduler.advance(12_001)
+  assert.equal(rig.active.at(-1), true)
+  controller.handle({ ...base, phase: 'end' })
+  scheduler.advance(estimateAutoSpeechDurationMs(text) - scheduler.time - 1)
+  assert.equal(rig.active.at(-1), true)
+  scheduler.advance(2)
+  assert.equal(rig.active.at(-1), false)
+  assert.equal(scheduler.activeTimerCount, 0)
+})
+
+test('late streamed words get their own tail while silence and cancellation still release ownership', () => {
+  const scheduler = new FakeScheduler()
+  const rig = fakeTarget()
+  const controller = new SpeechLifecycleController(rig.target, scheduler)
+  const base = {
+    messageId: 'late',
+    utteranceId: 'late',
+    source: 'reply' as const,
+  }
+  controller.handle({ ...base, phase: 'start' })
+  controller.handle({ ...base, phase: 'chunk', text: '好的。' })
+  scheduler.advance(10_000)
+  controller.handle({
+    ...base,
+    phase: 'chunk',
+    text: '不过这句话现在才到，我们还得说完。',
+  })
+  controller.handle({ ...base, phase: 'end' })
+  scheduler.advance(500)
+  assert.equal(rig.active.at(-1), true)
+  controller.handle({ ...base, phase: 'cancel' })
+  assert.equal(rig.active.at(-1), false)
+  assert.equal(scheduler.activeTimerCount, 0)
+  controller.handle({ ...base, phase: 'start' })
+  scheduler.advance(12_001)
+  assert.equal(rig.active.at(-1), false)
+})
+
+test('the same text budget reaches the mouth and the lifecycle estimate', () => {
+  const scheduler = new FakeScheduler()
+  const rig = fakeTarget()
+  const controller = new SpeechLifecycleController(rig.target, scheduler)
+  const base = {
+    messageId: 'budget',
+    utteranceId: 'budget',
+    source: 'reply' as const,
+  }
+  controller.handle({ ...base, phase: 'start' })
+  controller.handle({ ...base, phase: 'chunk', text: '字'.repeat(1_999) })
+  controller.handle({ ...base, phase: 'chunk', text: '你好。' })
+  controller.handle({ ...base, phase: 'chunk', text: '后续不应延长。' })
+  assert.equal(
+    rig.text.map((item) => item.text).join(''),
+    `${'字'.repeat(1_999)}你`,
+  )
+  controller.dispose()
 })
 
 test('uses punctuation and locale to estimate natural visual speech phrasing', () => {

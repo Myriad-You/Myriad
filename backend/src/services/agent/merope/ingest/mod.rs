@@ -17,7 +17,7 @@ use sea_orm::DatabaseConnection;
 
 use super::gates::IngestSight;
 use super::is_logged_in_addressee;
-use super::store::{insert_diary, latest_open_session, list_remembered};
+use super::store::{insert_diary, insert_remembered_if_new, latest_open_session};
 use super::{activity_is_busy, current_activity, effective_do_not_disturb};
 use crate::models::entities::agent_addressee_state;
 use crate::services::agent::consciousness::last_live_presence;
@@ -108,17 +108,9 @@ pub(crate) async fn persist_persona_remember(
     let Some(candidate) = candidate else {
         return;
     };
-    let existing = match list_remembered(db, user_id, 32).await {
-        Ok(notes) => notes
-            .into_iter()
-            .map(|note| note.content)
-            .collect::<Vec<_>>(),
-        Err(_) => return,
-    };
-    let Some(fact) = persona_remember_insert(candidate, &existing) else {
-        return;
-    };
-    let _ = insert_diary(db, user_id, &fact, super::store::DIARY_SOURCE_REMEMBER).await;
+    if let Err(error) = insert_remembered_if_new(db, user_id, candidate).await {
+        tracing::debug!(%error, user_id, "[Merope] persona memory write skipped");
+    }
 }
 
 pub fn compact_summary(summary: &str) -> String {
@@ -239,8 +231,7 @@ mod tests {
     #[test]
     fn persist_remember_writes_persona_memory_not_event_ledger() {
         let src = include_str!("mod.rs");
-        assert!(src.contains("DIARY_SOURCE_REMEMBER"));
-        assert!(src.contains("persona_remember_insert(candidate, &existing)"));
+        assert!(src.contains("insert_remembered_if_new(db, user_id, candidate)"));
         assert!(!src.contains("insert_diary(db, user_id, memory, \"event\")"));
         assert!(!src.contains("insert_diary(db, user_id, &memory, \"event\")"));
     }

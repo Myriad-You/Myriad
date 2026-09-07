@@ -3,6 +3,7 @@
  * Sibling of WidgetGrid — the page that owns edit mode mounts both.
  */
 
+import type { HomeEditTourDockPose } from './tour/tourLogic'
 import type { TappCategory } from '../tapp/types'
 import type { HomeLayoutMode } from '../utils/homeLayout'
 import type { WidgetType } from './widgetGridTypes'
@@ -241,6 +242,8 @@ export interface WidgetLibraryIslandProps {
   parkable?: boolean
   /** Home sticker pick: do not restore/park from grid clicks. */
   pausePointer?: boolean
+  /** 编辑教程只在小组件库那一步拉开。 */
+  tourDockPose?: HomeEditTourDockPose
 }
 
 export default function WidgetLibraryIsland({
@@ -250,6 +253,7 @@ export default function WidgetLibraryIsland({
   layoutMode,
   parkable = true,
   pausePointer = false,
+  tourDockPose,
 }: WidgetLibraryIslandProps) {
   const { t } = useI18n()
   const anim = useAnimationLevel()
@@ -263,6 +267,7 @@ export default function WidgetLibraryIsland({
     windowHeight,
     reducedMotion: isExlight(anim),
     pausePointer,
+    tourDockPose,
   })
   const {
     parked: libraryParked,
@@ -477,6 +482,7 @@ export default function WidgetLibraryIsland({
                 )
               }
               className={libraryIslandClassName}
+              data-tour="home-widget-library"
               data-library-stage={libraryParked ? 'parked' : undefined}
               onAnimationComplete={onIslandAnimationComplete}
               style={{
@@ -538,7 +544,7 @@ export default function WidgetLibraryIsland({
               </div>
             </motion.div>
           </div>
-          {libraryParked && parkMotionDone ? (
+          {libraryParked && parkMotionDone && tourDockPose !== 'parked' ? (
             <button
               type="button"
               className="widget-library-stage-hit"
@@ -565,7 +571,9 @@ export default function WidgetLibraryIsland({
               }}
               onPointerEnter={() => setStageHovered(true)}
               onPointerLeave={() => setStageHovered(false)}
-              onClick={restoreLibraryDock}
+              onClick={
+                tourDockPose === 'parked' ? undefined : restoreLibraryDock
+              }
               aria-label={t.widgetGrid.restoreWidgetLibrary}
             >
               <img

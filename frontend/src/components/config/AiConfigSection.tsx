@@ -1045,6 +1045,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           title={t.config.agentPersona}
           description={personaGateLead}
           {...personaGuide}
+          toggleTourAnchor="config-ai-persona-toggle"
           badge={
             <SettingTitleTag variant="beta">
               {t.config.agentPersonaBeta}
@@ -1060,6 +1061,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           }}
         >
         {meropeOn ? (
+          <div data-tour="config-ai-persona-card">
           <InfoActionCard
             copyable={false}
             tone={!liteEnabled ? 'info' : 'default'}
@@ -1128,12 +1130,14 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
               </p>
             )}
           </InfoActionCard>
+          </div>
         ) : null}
         </AgentNestedSection>
         <AgentNestedSection
           title={t.config.agentPersonaSpeech}
           description={t.config.agentPersonaSpeechHint}
           {...bindGuide('ai.agentPersonaSpeech', g.ai.agentPersonaSpeech)}
+          tourAnchor="config-ai-persona-speech"
           toggle={{
             checked: agentPersonaSpeechEnabled,
             onChange: (value) =>

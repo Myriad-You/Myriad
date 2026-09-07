@@ -117,7 +117,11 @@ test('panel and widget share face presence, not a second WebGL', () => {
     'utf8',
   )
   const ui = readFileSync(new URL('./FacePresence.tsx', import.meta.url), 'utf8')
-  const css = readFileSync(new URL('./merope.css', import.meta.url), 'utf8')
+  const css = readFileSync(
+    new URL('./facePresence.css', import.meta.url),
+    'utf8',
+  )
+  const shell = readFileSync(new URL('./merope.css', import.meta.url), 'utf8')
   const panel = readFileSync(
     new URL('../../components/agent-panel/AgentPanelFace.tsx', import.meta.url),
     'utf8',
@@ -128,21 +132,28 @@ test('panel and widget share face presence, not a second WebGL', () => {
   )
   assert.match(presence, /copySurfaceFrame/)
   assert.match(ui, /copySurfaceFrame/)
+  assert.match(ui, /import '\.\/facePresence\.css'/)
+  assert.doesNotMatch(ui, /import '\.\/merope\.css'/)
   assert.match(ui, /data-phase=\{state.phase\}/)
+  assert.match(ui, /data-vacant=\{showVacant \? '' : undefined\}/)
+  assert.match(ui, /hostRef/)
+  assert.match(ui, /dataset.facePhase/)
+  assert.doesNotMatch(ui, /setReduceMotion/)
+  assert.doesNotMatch(ui, /data-reduced/)
+  assert.match(ui, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/)
+  assert.doesNotMatch(css, /will-change/)
+  assert.doesNotMatch(css, /@keyframes/)
+  assert.doesNotMatch(css, /blur\(/)
+  assert.doesNotMatch(css, /filter:/)
+  assert.match(shell, /@import '\.\/facePresence\.css'/)
+  assert.doesNotMatch(shell, /@keyframes face-presence-enter/)
   assert.match(css, /--face-presence-enter-ms:\s*540ms/)
   assert.match(css, /--face-presence-exit-ms:\s*360ms/)
   assert.match(css, /--face-presence-rest-ms:\s*100ms/)
-  assert.match(css, /@keyframes face-presence-enter/)
-  assert.match(css, /@keyframes face-presence-exit/)
-  assert.doesNotMatch(
+  assert.match(css, /--face-presence-lift:\s*10px/)
+  assert.match(
     css,
-    /@keyframes face-presence-enter[\s\S]*?scale:/,
-    'enter must not zoom',
-  )
-  assert.doesNotMatch(
-    css,
-    /@keyframes face-presence-exit[\s\S]*?scale:/,
-    'exit must not zoom',
+    /\.face-presence \{[\s\S]*?translate:\s*0 var\(--face-presence-lift\)/,
   )
   assert.doesNotMatch(css, /\.face-presence__live \{[\s\S]*?scale:/)
   assert.doesNotMatch(presence, /'replace'/)

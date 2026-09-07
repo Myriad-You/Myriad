@@ -52,7 +52,7 @@ test('accepted director evidence reaches upcoming TTS segments and stays message
       })!
       runtime.speech.handleForTest(detail)
       return runtime
-        .frame()
+        .frame(prosody.startedAtMs)
         .speech!.behaviorPlan!.behaviors.map((item) => item.form.id)
     }
     assert.ok(speak('message', 'tts-first').includes('tease'))
@@ -90,6 +90,7 @@ test('matching message ids cannot borrow phrases across sources or turn generati
         utteranceId: `${source}-${generation}`,
       }
       runtime.speech.handleForTest({ ...event, phase: 'start' })
+      const startedAtMs = performance.now() + 5_000
       runtime.speech.handleForTest({
         ...event,
         phase: 'prosody',
@@ -97,11 +98,11 @@ test('matching message ids cannot borrow phrases across sources or turn generati
         prosody: predictTextProsody({
           text,
           utteranceId: event.utteranceId,
-          startedAtMs: performance.now() + 5_000,
+          startedAtMs,
         }),
       })
       return runtime
-        .frame()
+        .frame(startedAtMs)
         .speech!.behaviorPlan!.behaviors.map((item) => item.form.id)
     }
     assert.ok(!speak('proactive', 0).includes('tease'))
@@ -152,6 +153,50 @@ test('late director can revise future text beats, while cancel removes cached di
           (item) => item.form.id === 'question',
         ),
     )
+  } finally {
+    release()
+  }
+})
+
+test('text completion preserves playback; late direction changes only uncommitted beats', (t) => {
+  let now = 1_000
+  t.mock.method(performance, 'now', () => now)
+  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const release = runtime.retain()
+  const event = {
+    source: 'reply' as const,
+    messageId: 'completed-text',
+    utteranceId: 'completed-text',
+  }
+  const tail = '不过先把原因说清楚。你觉得呢？'
+  try {
+    runtime.speech.handleForTest({ ...event, phase: 'start' })
+    runtime.speech.handleForTest({
+      ...event,
+      phase: 'chunk',
+      text: text + tail,
+    })
+    const original = runtime.speech.current().prosody!
+    runtime.frame(now)
+    now = original.startedAtMs + original.accents[0]!.offsetMs + 1
+    runtime.frame(now)
+    runtime.speech.handleForTest({ ...event, phase: 'end' })
+    assert.ok(runtime.speech.current().behaviorPlan)
+    runtime.performance.handleForTest(
+      {
+        ...directive,
+        phrases: [
+          { text, intent: 'tease' },
+          { text: '你觉得呢？', intent: 'check-in' },
+        ],
+      },
+      { ...event, text: '' },
+    )
+    const revised = runtime.speech.current().prosody!
+    assert.deepEqual(revised.accents[0], original.accents[0])
+    assert.ok(revised.accents.some((accent) => accent.gesture === 'check-in'))
+    runtime.speech.handleForTest({ ...event, phase: 'cancel' })
+    assert.equal(runtime.speech.current().behaviorPlan, null)
   } finally {
     release()
   }

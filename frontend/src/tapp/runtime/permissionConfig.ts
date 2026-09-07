@@ -129,6 +129,7 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['widget.updateConfig', 'widget:register'],
     ['widget.instanceSettings.update', 'public'],
     ['widget.invalidate', 'public'],
+    ['widget.invalidateTarget', 'storage:write'],
 
     // 内容列表权限 — Tapp
     ['tappList.list', 'tappList:read'],

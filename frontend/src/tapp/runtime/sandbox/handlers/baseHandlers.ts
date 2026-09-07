@@ -19,6 +19,7 @@ import {
   resolveOpenUrl,
 } from '../../../utils/openUrlAllowlist'
 import {
+  emitTappSettingsChange,
   emitTappSharedChange,
   emitTappStorageChange,
 } from '../../WidgetRuntimeSignals'
@@ -490,6 +491,12 @@ export function registerStorageHandlers(
         key as string,
         sanitizeStorageValue(value),
       )
+      emitTappSettingsChange({
+        tappId,
+        key: key as string,
+        operation: 'set',
+        source: bridge,
+      })
       return { success: true, data: null }
     } catch (error) {
       return {

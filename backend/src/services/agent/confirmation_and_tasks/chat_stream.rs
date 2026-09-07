@@ -4,6 +4,94 @@ use super::super::agent_header::*;
 use super::super::response_agent;
 use super::super::types::*;
 
+type ChatDelivery =
+    std::sync::Arc<std::sync::Mutex<super::super::motion_overlay::ChatMotionDelivery>>;
+
+#[cfg(test)]
+mod chat_director_tests {
+    use super::super::super::motion_overlay::{
+        motion_refinement_tests::context, spawn_chat_motion_refinement_with,
+    };
+    use super::*;
+
+    #[tokio::test]
+    async fn chat_director_stalled_model_cannot_delay_prose_or_stream_completion() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+        let signal = entered.clone();
+        let (delivery, guard) =
+            spawn_chat_motion_refinement_with(context(), tx.clone(), move |_| {
+                let signal = signal.clone();
+                async move {
+                    signal.notify_one();
+                    std::future::pending().await
+                }
+            });
+        let delivery = std::sync::Arc::new(std::sync::Mutex::new(delivery));
+        // A single-slot transport is full after each prose emission. Both the
+        // immediate floor and the director observer must return without waits.
+        for token in ["第一句话。", "下一句不等导演。", "末句照常到达。"] {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                emit_chat_delta(
+                    &tx,
+                    crate::services::analyzer::StreamDelta::Text(token.into()),
+                    Some(&delivery),
+                ),
+            )
+            .await
+            .unwrap();
+            assert!(
+                matches!(rx.recv().await, Some(AgentProgressEvent::SummaryToken { token: actual, done: false }) if actual == token)
+            );
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(1), entered.notified())
+            .await
+            .unwrap();
+        let finish = response_agent::finish_stream(&tx);
+        let consume = async {
+            assert!(matches!(
+                rx.recv().await,
+                Some(AgentProgressEvent::ThinkingToken { done: true, .. })
+            ));
+            assert!(matches!(
+                rx.recv().await,
+                Some(AgentProgressEvent::SummaryToken { done: true, .. })
+            ));
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            tokio::join!(finish, consume);
+        })
+        .await
+        .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), guard.stop())
+            .await
+            .unwrap();
+    }
+}
+
+/// Prose reaches the transport first. Observing it cannot wait on a model or
+/// an action send, even when the director's mailbox/transport is congested.
+async fn emit_chat_delta(
+    tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    delta: crate::services::analyzer::StreamDelta,
+    delivery: Option<&ChatDelivery>,
+) {
+    let spoken = match &delta {
+        crate::services::analyzer::StreamDelta::Text(text) if delivery.is_some() => {
+            Some(text.clone())
+        }
+        _ => None,
+    };
+    response_agent::emit_stream_delta(tx, delta).await;
+    if let (Some(delivery), Some(text)) = (delivery, spoken) {
+        delivery
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .observe(&text, tx);
+    }
+}
+
 struct WearStreamFilter {
     user_input: String,
     raw: String,
@@ -200,16 +288,12 @@ impl Agent {
         &self,
         request: &UserRequest,
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
-        motion_preview_tx: Option<
-            tokio::sync::mpsc::Sender<
-                crate::services::agent::merope::motion_preview::MotionPreviewUpdate,
-            >,
-        >,
+        speech_delivery: Option<ChatDelivery>,
     ) -> Result<String, String> {
         let analyzer = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(None)
             .await
             .ok_or_else(|| "Lite model is not configured for Chat mode".to_string())?;
-        self.stream_chat_response_with_analyzer(request, progress_tx, analyzer, motion_preview_tx)
+        self.stream_chat_response_with_analyzer(request, progress_tx, analyzer, speech_delivery)
             .await
     }
 
@@ -307,16 +391,9 @@ impl Agent {
         request: &UserRequest,
         progress_tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
         analyzer: crate::services::analyzer::AiAnalyzer,
-        motion_preview_tx: Option<
-            tokio::sync::mpsc::Sender<
-                crate::services::agent::merope::motion_preview::MotionPreviewUpdate,
-            >,
-        >,
+        speech_delivery: Option<ChatDelivery>,
     ) -> Result<String, String> {
         let prompt = self.chat_response_prompt(request).await;
-        let motion_preview = std::sync::Arc::new(std::sync::Mutex::new(
-            crate::services::agent::merope::motion_preview::MotionPreview::default(),
-        ));
 
         let tx = progress_tx.clone();
         let wear = std::sync::Arc::new(std::sync::Mutex::new(WearStreamFilter::new(
@@ -331,8 +408,7 @@ impl Agent {
         match analyzer
             .analyze_stream_parts(&prompt, |delta| {
                 let tx = tx.clone();
-                let motion_preview_tx = motion_preview_tx.clone();
-                let motion_preview = motion_preview.clone();
+                let speech_delivery = speech_delivery.clone();
                 let wear = wear.clone();
                 let db = db.clone();
                 let session_id = session_id.clone();
@@ -362,21 +438,7 @@ impl Agent {
                         }
                         other => other,
                     };
-                    let preview = if let crate::services::analyzer::StreamDelta::Text(text) = &delta
-                    {
-                        motion_preview_tx.as_ref().and_then(|_| {
-                            motion_preview
-                                .lock()
-                                .unwrap_or_else(|p| p.into_inner())
-                                .push(text)
-                        })
-                    } else {
-                        None
-                    };
-                    response_agent::emit_stream_delta(&tx, delta).await;
-                    if let (Some(tx), Some(preview)) = (motion_preview_tx, preview) {
-                        let _ = tx.try_send(preview);
-                    }
+                    emit_chat_delta(&tx, delta, speech_delivery.as_ref()).await;
                     true
                 }
             })
@@ -400,13 +462,20 @@ impl Agent {
                     spawn_chat_music_control(music, progress_tx.clone());
                 }
                 if !leftover.is_empty() {
-                    response_agent::emit_stream_delta(
+                    emit_chat_delta(
                         progress_tx,
                         crate::services::analyzer::StreamDelta::Text(leftover),
+                        speech_delivery.as_ref(),
                     )
                     .await;
                 }
-                Ok(full_text.trim().to_string())
+                if let Some(delivery) = speech_delivery.as_ref() {
+                    delivery
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .finish(progress_tx);
+                }
+                Ok(full_text.trim().to_owned())
             }
             Ok(_) => Err("Chat model returned an empty response".to_string()),
             Err(error) => Err(error.to_string()),

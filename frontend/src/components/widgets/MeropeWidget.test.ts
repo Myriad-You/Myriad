@@ -25,15 +25,34 @@ test('nameplate follows face presence instead of popping with the live lease', (
   assert.match(widget, /\{agentName \? \(/)
   assert.doesNotMatch(widget, /agentName && wantLive/)
   assert.match(widget, /notifyLiveFaceUnmounted\(playbackId\)/)
-  assert.match(css, /\.merope-widget:has\(\.face-presence\) \.merope-widget__identity/)
+  assert.match(widget, /hostRef=\{surfaceRef\}/)
   assert.match(
     css,
-    /\.merope-widget:has\(\.face-presence\[data-phase='enter'\]\) \.merope-widget__identity/,
+    /\.merope-widget__surface\[data-face-phase\] \.merope-widget__identity/,
   )
   assert.match(
     css,
-    /\.merope-widget:has\(\.face-presence\[data-phase='exit'\]\) \.merope-widget__identity/,
+    /\.merope-widget__surface\[data-face-phase='enter'\] \.merope-widget__identity/,
   )
+  assert.match(
+    css,
+    /\.merope-widget__surface\[data-face-phase='exit'\] \.merope-widget__identity/,
+  )
+})
+
+test('the live widget sinks and rises from below with the face', () => {
+  const presence = readFileSync(
+    new URL('../../features/merope/facePresence.css', import.meta.url),
+    'utf8',
+  )
+  assert.match(presence, /--face-presence-lift:\s*10px/)
+  assert.match(
+    presence,
+    /\.face-presence \{[\s\S]*?translate:\s*0 var\(--face-presence-lift\)/,
+  )
+  assert.match(widget, /data-rig-quality=/)
+  assert.doesNotMatch(css, /:has\(/)
+  assert.doesNotMatch(css, /--merope-face-lift/)
 })
 
 test('4x4 mood label is secondary to the name and the level ticks', () => {

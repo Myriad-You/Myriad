@@ -34,8 +34,8 @@ const THRESHOLD = 0.05 // 静止检测阈值
 const PARALLAX_SCALE = 1.02
 const PARALLAX_MAX_OFFSET = 8
 const GYRO_SENS = 0.5
-/** 特效从全关恢复 / 关停时的 scale·位移过渡（资料库画布等场景避免硬切） */
-const EFFECT_EDGE_MS = 420
+/** 进资料库画布 / 离场恢复：soft-lock 与 soft-restore 的 scale·位移过渡 */
+const EFFECT_EDGE_MS = 960
 const EFFECT_EDGE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 const EFFECT_EDGE_TRANSITION = `transform ${EFFECT_EDGE_MS}ms ${EFFECT_EDGE_EASE}`
 const IDENTITY_TF = 'scale(1) translate3d(0,0,0)'

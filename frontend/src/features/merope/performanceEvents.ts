@@ -233,8 +233,8 @@ export function sanitizePerformanceDirective(
         .map(sanitizeCue)
         .filter((cue): cue is PerformanceCue => cue !== null)
     : []
-  if (!baseline && cues.length === 0) return null
   const phrases = sanitizeSpeechPhrases(value.phrases)
+  if (!baseline && cues.length === 0 && phrases.length === 0) return null
   return {
     phase: value.phase as PerformanceDirective['phase'],
     moodRevision: Math.max(0, Math.trunc(value.moodRevision)),

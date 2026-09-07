@@ -2,7 +2,7 @@
  * ControlIsland 模式组件共享类型
  */
 
-import type { BrewSource, FeedType, SourceType } from '../../../../types/brew'
+import type { BrewSource } from '../../../../types/brew'
 
 /** 排序模式 */
 export type SortMode = 'update' | 'custom' | 'category' | 'random' | 'pinyin'
@@ -74,23 +74,4 @@ export interface StarredModeConfig {
   isProcessing?: boolean
 }
 
-/** Brew 导出清单 */
-export interface BrewExportManifest {
-  version: string
-  exported_at: string
-  sources: Array<{
-    url: string
-    name: string
-    category: string | null
-    icon_file: string | null
-    icon_url: string | null
-    source_type: SourceType
-    feed_type: FeedType
-    theme_color: string | null
-    update_interval: number
-    card_size: string | null
-    rsshub_route: string | null
-    ai_style_tags: string[] | null
-    admin_only: boolean
-  }>
-}
+export type { BrewExportManifest } from '../../../../types/brew'

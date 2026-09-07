@@ -8,7 +8,12 @@ import type { RigCharacterHandle } from '../rig/RigCharacter'
 import type { Anime25DDriver } from './driver'
 import type { Anime25DMotionEnvelopeProbeId } from './motionEnvelope'
 import type { Anime25DDebugSnapshot } from './player'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  getTourSnapshot,
+  subscribeTour,
+} from '../../../components/tour/tourEngine'
+import { personaTourPanel } from '../../../components/tour/tourLogic'
 import { generationFailureMessage } from '../../../components/agent/onboarding/generationError'
 import {
   GitHubProjectBadge,
@@ -224,7 +229,17 @@ export default function Anime25DWorkbench({
   const labels = t.merope
   type FacePanel = 'overview' | 'persona' | 'wardrobe' | 'motion'
   type RigPath = 'upload' | 'seeThrough'
-  const [panel, setPanel] = useState<FacePanel>('overview')
+  const [userPanel, setUserPanel] = useState<FacePanel>('overview')
+  const tourPanel = useSyncExternalStore(
+    subscribeTour,
+    () =>
+      personaTourPanel(
+        getTourSnapshot().tourId,
+        getTourSnapshot().step?.id ?? null,
+      ),
+    () => undefined,
+  )
+  const panel = tourPanel ?? userPanel
   const [rigPath, setRigPath] = useState<RigPath>('upload')
   const panels: Array<{ value: FacePanel; label: string }> = [
     { value: 'overview', label: labels.overviewGroup },
@@ -754,14 +769,17 @@ export default function Anime25DWorkbench({
 
   return (
     <>
+      <div data-tour="config-persona-tabs">
       {panel === 'wardrobe' && outfitLead ? null : (
         <FaceTabs
           ariaLabel={labels.assetGroup}
           value={panel}
           options={panels}
-          onChange={setPanel}
+          onChange={setUserPanel}
         />
       )}
+      </div>
+      <div data-tour="config-persona-overview">
       {panel === 'overview' ? (
         <SettingGroup
           title={labels.overviewGroup}
@@ -771,6 +789,8 @@ export default function Anime25DWorkbench({
           {overviewLead}
         </SettingGroup>
       ) : null}
+      </div>
+      <div data-tour="config-persona-identity">
       {panel === 'persona' ? (
         <SettingGroup
           title={labels.personaGroup}
@@ -780,6 +800,8 @@ export default function Anime25DWorkbench({
           {personaLead}
         </SettingGroup>
       ) : null}
+      </div>
+      <div data-tour="config-persona-wardrobe">
       {panel === 'wardrobe' && !outfitLead ? (
         <SettingGroup
           title={labels.wardrobeTitle}
@@ -1041,6 +1063,8 @@ export default function Anime25DWorkbench({
           )}
         </SettingGroup>
       ) : null}
+      </div>
+      <div data-tour="config-persona-motion">
       {panel === 'motion' ? (
         <>
           <SettingGroup
@@ -1331,6 +1355,7 @@ export default function Anime25DWorkbench({
           </SettingGroup>
         </>
       ) : null}
+      </div>
     </>
   )
 }

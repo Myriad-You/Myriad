@@ -212,6 +212,7 @@ export function LibraryCanvasChrome({
         </div>
       )}
       <div
+        data-tour="library-canvas"
         className={
           isMobile
             ? 'fixed z-40 flex flex-col items-center gap-0.5 rounded-xl border border-white/35 glass p-1 shadow-xl dark:border-white/10'
@@ -326,6 +327,39 @@ export function LibraryCanvasChrome({
   )
 }
 
+interface LibraryCanvasChromePaint {
+  zoomLabel: HTMLElement
+  zoomOut: HTMLButtonElement | null
+  zoomIn: HTMLButtonElement | null
+  resetBtn: HTMLButtonElement | null
+}
+
+let chromePaint: LibraryCanvasChromePaint | null = null
+
+function readLibraryCanvasChromePaint(): LibraryCanvasChromePaint | null {
+  if (chromePaint && chromePaint.zoomLabel.isConnected) return chromePaint
+  const zoomLabel = document.querySelector<HTMLElement>(
+    '[data-library-canvas-zoom-percent]',
+  )
+  if (!zoomLabel) {
+    chromePaint = null
+    return null
+  }
+  chromePaint = {
+    zoomLabel,
+    zoomOut: document.querySelector<HTMLButtonElement>(
+      '[data-library-canvas-zoom-out]',
+    ),
+    zoomIn: document.querySelector<HTMLButtonElement>(
+      '[data-library-canvas-zoom-in]',
+    ),
+    resetBtn: document.querySelector<HTMLButtonElement>(
+      '[data-library-canvas-reset]',
+    ),
+  }
+  return chromePaint
+}
+
 export function syncLibraryCanvasChrome(
   t: LibraryCanvasTransform,
   opts: {
@@ -334,25 +368,27 @@ export function syncLibraryCanvasChrome(
     defaultScale: number
   },
 ) {
-  const pct = Math.round(t.scale * 100)
-  const zoomLabel = document.querySelector('[data-library-canvas-zoom-percent]')
-  if (zoomLabel) zoomLabel.textContent = `${pct}%`
-  const zoomOut = document.querySelector(
-    '[data-library-canvas-zoom-out]',
-  ) as HTMLButtonElement | null
-  const zoomIn = document.querySelector(
-    '[data-library-canvas-zoom-in]',
-  ) as HTMLButtonElement | null
-  const resetBtn = document.querySelector(
-    '[data-library-canvas-reset]',
-  ) as HTMLButtonElement | null
-  if (zoomOut) zoomOut.disabled = t.scale <= opts.minScale + 0.001
-  if (zoomIn) zoomIn.disabled = t.scale >= opts.maxScale - 0.001
-  if (resetBtn) {
+  const chrome = readLibraryCanvasChromePaint()
+  if (!chrome) return
+  const label = `${Math.round(t.scale * 100)}%`
+  if (chrome.zoomLabel.textContent !== label) {
+    chrome.zoomLabel.textContent = label
+  }
+  const outDisabled = t.scale <= opts.minScale + 0.001
+  if (chrome.zoomOut && chrome.zoomOut.disabled !== outDisabled) {
+    chrome.zoomOut.disabled = outDisabled
+  }
+  const inDisabled = t.scale >= opts.maxScale - 0.001
+  if (chrome.zoomIn && chrome.zoomIn.disabled !== inDisabled) {
+    chrome.zoomIn.disabled = inDisabled
+  }
+  if (chrome.resetBtn) {
     const isDefault =
       Math.abs(t.x) < 0.5 &&
       Math.abs(t.y) < 0.5 &&
       Math.abs(t.scale - opts.defaultScale) < 0.001
-    resetBtn.disabled = isDefault
+    if (chrome.resetBtn.disabled !== isDefault) {
+      chrome.resetBtn.disabled = isDefault
+    }
   }
 }

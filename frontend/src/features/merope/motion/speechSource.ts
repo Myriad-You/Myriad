@@ -6,15 +6,17 @@ import type { MeropePerformanceEventDetail } from '../performanceEvents'
 import type { SpeechArticulation } from '../rig/articulation'
 import type { PhraseCoverage } from '../speech/phrasePlan'
 import type { SpeechProsodyPlan } from '../speech/prosody'
+import type { SpeechLifecycleScheduler } from '../speechLifecycle'
 import type { BehaviorPlan, BehaviorSnapshot } from './behavior'
 import type { MotionLeaseHandle, RigMotionCoordinator } from './coordinator'
 import type { SpeechIntent, SpeechTextChunk } from './intents'
 import {
   directorPhraseCoverage,
+  mergeSpeechPhrases,
   refineSpeechPhrases,
-  sanitizeSpeechPhrases,
 } from '../speech/phrasePlan'
 import { continueTextProsody, predictTextProsody } from '../speech/textProsody'
+import { MAX_VISUAL_SPEECH_TEXT_UNITS } from '../speech/textTiming'
 import { MEROPE_SPEECH_EVENT, meropeSpeechEventDetail } from '../speechEvents'
 import { SpeechLifecycleController } from '../speechLifecycle'
 import { compileSpeechBehaviorPlan } from './speechBehaviorPlan'
@@ -22,6 +24,9 @@ import { SpeechMotionLease } from './speechLease'
 
 const REST: SpeechArticulation = { energy: 0, viseme: 'rest', amount: 0 }
 const MAX_QUEUED_TEXT = 32
+const SPEECH_LOOKAHEAD_MS = 4_000
+// Longest co-speech recovery: laugh hold (580) + relax (84) + release (360).
+const SPEECH_RECOVERY_MS = 1_100
 
 /**
  * One speech producer for a coordinator. Publishes semantic mouth intent
@@ -43,6 +48,7 @@ export class SpeechMotionSource {
   private messageKey: string | null = null
   private rawProsody: SpeechProsodyPlan | null = null
   private prosodyText = ''
+  private scheduledWindow = ''
   private readonly direction = new Map<
     string,
     { phrases: SpeechPhrase[]; coverage: PhraseCoverage[] }
@@ -65,11 +71,13 @@ export class SpeechMotionSource {
     private readonly coordinator: RigMotionCoordinator,
     private readonly onChange: (intent: SpeechIntent) => void,
     private readonly activeBehaviors: () => readonly BehaviorSnapshot[] = () => [],
+    private readonly scheduler?: SpeechLifecycleScheduler,
   ) {
     this.mouth = new SpeechMotionLease(coordinator)
   }
 
-  current(_nowMs: number = currentNow()): SpeechIntent {
+  current(nowMs: number = this.now()): SpeechIntent {
+    this.scheduleProsodyWindow(nowMs)
     return this.intent
   }
 
@@ -128,7 +136,7 @@ export class SpeechMotionSource {
           this.flush()
         },
       },
-      undefined,
+      this.scheduler,
       undefined,
       (busy) => {
         this.mouth.setBusy(busy)
@@ -213,7 +221,7 @@ export class SpeechMotionSource {
       this.activeUtteranceId !== detail.utteranceId
     ) {
       this.activeUtteranceId = detail.utteranceId
-      this.speechStartedAtMs = currentNow()
+      this.speechStartedAtMs = this.now()
       this.behaviorText = ''
       this.textComplete = false
       this.behaviorLocale = detail.locale
@@ -227,7 +235,10 @@ export class SpeechMotionSource {
       return
     }
     if (detail.phase === 'chunk') {
-      this.behaviorText = `${this.behaviorText}${detail.text}`.slice(0, 2_000)
+      this.behaviorText = `${this.behaviorText}${detail.text}`.slice(
+        0,
+        MAX_VISUAL_SPEECH_TEXT_UNITS,
+      )
     }
     if (detail.phase === 'end') this.textComplete = true
     if (this.externalProsody) return
@@ -249,7 +260,7 @@ export class SpeechMotionSource {
         streaming: !this.textComplete,
       }),
       this.rawProsody,
-      currentNow(),
+      this.now(),
     )
     this.publishProsody(predictedProsody, this.behaviorText)
   }
@@ -262,13 +273,12 @@ export class SpeechMotionSource {
     if (!event?.messageId) return
     const key = speechMessageKey({ ...event, messageId: event.messageId })
     const old = this.direction.get(key)
-    const phrases = sanitizeSpeechPhrases(directive.phrases)
     const coverage = [
       ...(old?.coverage ?? []),
       ...directorPhraseCoverage(plan, this.activeBehaviors()),
     ].slice(-12)
     this.direction.set(key, {
-      phrases: phrases.length ? phrases : (old?.phrases ?? []),
+      phrases: mergeSpeechPhrases(old?.phrases ?? [], directive.phrases),
       coverage,
     })
     while (this.direction.size > 8)
@@ -294,14 +304,37 @@ export class SpeechMotionSource {
       direction?.coverage ?? [],
       this.intent.prosody,
       this.activeBehaviors(),
-      currentNow(),
+      this.now(),
     )
-    this.speechBehaviorPlan = compileSpeechBehaviorPlan(prosody)
     this.intent = {
       ...this.intent,
       prosody,
-      behaviorPlan: this.speechBehaviorPlan,
     }
+    this.scheduledWindow = ''
+    this.scheduleProsodyWindow(this.now())
+  }
+
+  private scheduleProsodyWindow(nowMs: number): void {
+    const prosody = this.intent.prosody
+    if (!prosody) return
+    const elapsed = nowMs - prosody.startedAtMs
+    const first = prosody.accents.findIndex(
+      (accent) => accent.offsetMs + SPEECH_RECOVERY_MS >= elapsed,
+    )
+    const start = first < 0 ? prosody.accents.length : first
+    let end = start
+    while (
+      end < prosody.accents.length &&
+      prosody.accents[end]!.offsetMs <= elapsed + SPEECH_LOOKAHEAD_MS
+    ) {
+      end += 1
+    }
+    const key = `${start}:${end}`
+    if (key === this.scheduledWindow) return
+    this.scheduledWindow = key
+    // Original accent indices preserve audio IDs as this window advances.
+    this.speechBehaviorPlan = compileSpeechBehaviorPlan(prosody, { start, end })
+    this.intent = { ...this.intent, behaviorPlan: this.speechBehaviorPlan }
   }
 
   private claimCoSpeech(): void {
@@ -336,6 +369,10 @@ export class SpeechMotionSource {
 
   private flush(): void {
     this.onChange(this.intent)
+  }
+
+  private now(): number {
+    return this.scheduler?.now() ?? currentNow()
   }
 }
 

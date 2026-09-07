@@ -2232,6 +2232,11 @@ html.dark .platform-status-dot.is-unconfigured {
   min-width: 0;
 }
 
+/* 开关本身 40×22，低于教程洞的 24px 下限；锚在整行上并保证能量到。 */
+.ai-llm-tier-head[data-tour] {
+  min-height: 2rem;
+}
+
 .ai-llm-tier-switch {
   display: flex;
   align-items: center;

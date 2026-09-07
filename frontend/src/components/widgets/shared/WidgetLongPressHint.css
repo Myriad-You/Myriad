@@ -1,14 +1,14 @@
 .widget-longpress-hint {
   position: absolute;
-  top: 0.4rem;
-  left: 0.4rem;
+  top: var(--widget-edit-chip-inset, 0.4rem);
+  left: var(--widget-edit-chip-inset, 0.4rem);
   z-index: 30;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.55rem;
-  height: 1.55rem;
-  border-radius: 0.45rem;
+  width: var(--widget-edit-chip-size, 1.55rem);
+  height: var(--widget-edit-chip-size, 1.55rem);
+  border-radius: var(--widget-edit-chip-radius, 0.45rem);
   background: rgb(0 0 0 / 18%);
   color: rgb(55 65 81);
   pointer-events: auto;
@@ -24,8 +24,8 @@ html.dark .widget-longpress-hint {
 }
 
 .widget-longpress-hint__icon {
-  width: 0.9rem;
-  height: 0.9rem;
+  width: var(--widget-edit-chip-icon, 0.9rem);
+  height: var(--widget-edit-chip-icon, 0.9rem);
   transform-origin: 50% 50%;
 }
 

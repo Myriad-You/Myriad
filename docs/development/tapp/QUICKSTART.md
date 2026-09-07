@@ -82,7 +82,7 @@ manifest {
 | -------- | -------------------------------- | ---------- |
 | Widget   | `core` + 该 widget               | 精简 SDK：生命周期、模板与 `render`；没有联邦 / 对局 / Tapp·Brew 管理 |
 | Page     | `core` + `page`                  | 完整 SDK、生命周期和页面 UI |
-| headless | 仅 `core`（常驻用这一套）        | 无可见 UI；没有 `widget` / `tappList` / 组件 / 快捷键 / 动态内容 / DOM / 文件下载 / `model3d` |
+| headless | 仅 `core`（常驻用这一套）        | 无可见 UI；`Tapp.widget` 只有定向 `invalidate({ widgetId })`；没有 register / `tappList` / 组件 / 快捷键 / 动态内容 / DOM / 文件下载 / `model3d` |
 
 三种沙箱都会触发 `Tapp.lifecycle`（`onReady` / `onDestroy` / `onPause` / `onResume`），不能把
 “是否有 onReady”当作分层边界。`onPause` 是**隐藏**，不是销毁。共享与调度逻辑放在 `core`；可见界面放在
@@ -402,8 +402,8 @@ Widget: render() 里 Tapp.storage.get(key)   （或 onChanged 局部更新）
 
 ```javascript
 // core.js — 三种模式都会先加载共享层
-// ⚠️ 只写 storage 即可；不要在 core/Page/headless 里调用 Tapp.widget.invalidate
-//    （该方法仅存在于 Widget 沙箱，见下表）
+// ⚠️ 只写 storage 即可。无 options 的 invalidate 只存在于 Widget 沙箱；
+//    Page/headless 必须带 { target: { widgetId } }，且已有 storage:write。
 async function pullFeed() {
   const data = await Tapp.api("feed", {});
   await Tapp.storage.set("feed.latest", data);
@@ -429,19 +429,20 @@ Tapp.widgets["feed"] = {
 
 | 触发 | 用法 | 谁能用 | 说明 |
 | ---- | ---- | ------ | ---- |
-| storage 写入 | `await Tapp.storage.set(k, v)` | **Page / Widget / headless** | **默认路径**：同 Tapp 广播，event 模式可见 Widget 自动 re-render |
-| 显式 invalidate | `await Tapp.widget.invalidate("reason")` | **仅 Widget 沙箱** | 当前实例请求 re-render；**core/Page/headless 没有此方法**，调用会抛错并中断同步 |
-| 订阅变更 | `Tapp.storage.onChanged(cb)` | Page / Widget / headless | 局部改 DOM；一般不必再 invalidate |
-| 可见轮询 | `refreshPolicy.mode: "interval"` | 宿主计时器 | 仅页面+Widget 可见时计时；**不要**当后台同步 |
+| storage 写入 | `await Tapp.storage.set(k, v)` | **Page / Widget / headless** | **默认路径**：同 Tapp 广播，刷新全部可见 Widget（与 `mode` 无关） |
+| 显式 invalidate（自己） | `await Tapp.widget.invalidate("reason")` | **仅 Widget 沙箱** | 当前实例 remount |
+| 定向 invalidate | `await Tapp.widget.invalidate("reason", { target: { widgetId } })` | Page / headless / Widget | 需授予的 `storage:write`；每卡 15s、每 Tapp 2 次/分；没有 `all` |
+| 订阅变更 | `Tapp.storage` / `settings` / `shared.onChanged(cb)` | Page / Widget / headless | 局部改 DOM；`settings` **只通知不拆卡**；写者自己不会收到 |
+| 可见轮询 | `refreshPolicy.mode: "interval"` | 宿主计时器 | 额外的可见节拍；**不要**当后台同步 |
 | 后台同步 | `backgroundRequirements` + scheduler / headless | headless core | 离开 UI 后仍要跑的任务 |
 
 要点：
 
 - `render` 保持幂等：优先读 storage，避免每次 re-render 都打外部 API。
 - 平台只读接口（如 `Tapp.platform.*`）≠ 你声明的业务 `apis`。
-- Page 的 `Tapp.widget` 是 **register/unregister/listRegistered/updateConfig**（需要
-  `widget:register`）；与 Widget 沙箱里的实例 API（`getInstanceSettings` /
-  `updateInstanceSettings` / `invalidate`）不是同一套方法。
+- Page 的 `Tapp.widget` 是 **register 系列**（`widget:register`）加上定向
+  `invalidate({ widgetId })`（`storage:write`）。headless 只有后者。Widget 沙箱里
+  无 options 的 `invalidate` 仍只刷自己。
 - 完整示例与注意项见 [WIDGET — 数据加载与更新](WIDGET.md#数据加载与更新)；
   API 细节见 [API 参考](API_REFERENCE.md)；`refreshPolicy` 字段见 [Manifest](MANIFEST.md)。
 

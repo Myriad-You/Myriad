@@ -38,6 +38,7 @@ export const jaJP: TranslationKeys = {
     durationSeconds: '{sec}秒',
     durationMinutes: '{min}分',
     durationMinutesSeconds: '{min}分 {sec}秒',
+    editMode: '編集モード',
   },
 
   // ナビゲーション
@@ -449,71 +450,237 @@ export const jaJP: TranslationKeys = {
   },
 
   tour: {
-    start: 'チュートリアル',
-    startHint: 'このページを案内',
+    start: '案内',
+    startHint: 'このページの操作説明',
     next: '次へ',
     back: '戻る',
     done: '完了',
     skip: 'スキップ',
-    hint: 'ガイド',
-    hintBody: 'このページで触れる場所を短く案内します。',
-    hintTitle: '{page}を見てみる',
+    skipHold: '長押しでスキップ',
+    stepOf: 'ステップ {current} / {total}',
+    hint: 'ページ案内',
+    hintBody: 'このページの主な操作を示します。',
+    hintTitle: '{page}の主な操作を示します。',
     hintWelcome: '{site}へようこそ',
-    begin: '始める',
-    noTourOnThisPage: 'このページにはまだチュートリアルがありません',
-    couldNotStart: 'このページの案内対象が見つかりませんでした',
+    begin: '開始',
+    noTourOnThisPage: 'このページに案内はありません',
+    couldNotStart: 'このページの案内対象が見つかりません',
     steps: {
       nav: {
         title: 'ナビゲーション',
-        body: 'ホーム、ライブラリ、Brew、レポート、Tapp はここから切り替えます。',
+        body: 'ホーム、ライブラリ、Brew リーダー、プラットフォームレポート、Tapp アプリを切り替えます。',
       },
       'home-grid': {
         title: 'ウィジェット',
-        body: '訪問者が最初に見るホームのボードです。',
+        body: 'サイトを開いたとき最初に表示されるウィジェットボードです。',
+      },
+      'home-agent': {
+        title: 'Agent',
+        body: '余白のどこでも長押しして呼び出します。ボタン、リンク、ナビゲーションでは反応しません。呼び出したあと続きます。',
+      },
+      'home-agent-panel': {
+        title: 'Agent',
+        body: 'ここで入力して送信します。パネルの外をクリックすると閉じます。',
       },
       'home-edit': {
         title: '編集',
-        body: 'レイアウトの変更やウィジェットの追加・削除はここから。サイト管理者だけが編集できます。',
+        body: '編集モードでレイアウトの変更とウィジェットの追加・削除ができます。',
+      },
+      'home-edit-grid': {
+        title: 'タイル',
+        body: 'ドラッグで移動または拡大縮小します。長押しで設定を開きます。角から削除できます。',
+      },
+      'home-widget-library': {
+        title: 'ウィジェット庫',
+        body: 'ウィジェットをグリッドへドラッグして追加します。',
+      },
+      'home-free-layout': {
+        title: 'フリーレイアウト',
+        body: '標準とフリーを切り替えます。マスの大きさは同じです。フリーのキャンバスは 16×8 で、位置は別に保存します。',
+      },
+      'home-sticker': {
+        title: 'ステッカー',
+        body: '空きマスを選んで生成またはアップロードします。ウィジェットのマス数には入りません。',
       },
       'control-island': {
         title: 'コントロール',
-        body: '外観、言語、壁紙、ログインは右上にあります。管理者はシステム設定にも入れます。',
+        body: '収納時はサイト情報を順に表示します。開くとコントロールパネルが展開します。',
+      },
+      'control-island-owner': {
+        title: 'コントロール',
+        body: '収納時はサイト情報を順に表示します。開くとコントロールパネルが展開します。',
+      },
+      'control-panel': {
+        title: 'コントロールパネル',
+        body: '外観、アニメーション、言語。ログインできます。このサイトで音楽を再生できます。「コントロール」と通知を切り替えます。',
+      },
+      'control-panel-owner': {
+        title: 'コントロールパネル',
+        body: '外観、アニメーション、言語。システム設定を開けます。このサイトで音楽を再生できます。「コントロール」と通知を切り替えます。',
+      },
+      'library-filters': {
+        title: '分類',
+        body: 'すべて、ゲーム、動画、音楽、アニメ、ドラマ、書籍で絞り込みます。閉じているときはライブラリをもう一度開きます。',
       },
       'library-grid': {
         title: 'コレクション',
-        body: 'ゲーム、映像、音楽、アニメ、本がここに並びます。ナビのライブラリを開くと種類で絞れます。',
+        body: '同期済みの項目。下へスクロールすると続きを読み込みます。',
+      },
+      'library-grid-canvas': {
+        title: 'コレクション',
+        body: '同期済みの項目が中央から広がります。ドラッグしてキャンバスを移動します。',
+      },
+      'library-card': {
+        title: 'カード',
+        body: 'カードを開くと出典サイトへ移動します。网易雲音楽はこのサイトで再生します。角に出典と評価を表示します。',
+      },
+      'library-canvas': {
+        title: 'キャンバス',
+        body: '無限キャンバスを拡大縮小するか、中央へ戻します。',
       },
       'reports-status': {
         title: 'ステータス',
-        body: 'このバーがページの状態を順に見せます。レポートがあればここから再生できます。',
+        body: 'このページのプラットフォームと再生状態を順に表示します。',
+      },
+      'reports-play': {
+        title: '再生',
+        body: '既存のレポートを順に再生します。',
       },
       'reports-cards': {
         title: 'プラットフォーム',
-        body: 'プラットフォームごとに1枚です。あれば開いて見られ、管理者はここで生成もできます。',
+        body: 'プラットフォームごとに1枚。既存レポートを開きます。',
       },
-      'tapp-toolbar': {
-        title: 'ツールバー',
-        body: 'ストア、自分／サイトの切替、インストールはこのバーにあります。',
+      'reports-cards-owner': {
+        title: 'プラットフォーム',
+        body: 'プラットフォームごとに1枚。既存レポートを開くか、ここで生成します。',
+      },
+      'tapp-store-entry': {
+        title: 'ストア',
+        body: 'ストアでアプリを閲覧してインストールします。',
+      },
+      'tapp-scope': {
+        title: '範囲',
+        body: '「自分のアプリ」と「サイトのアプリ」を切り替えます。',
+      },
+      'tapp-open-playground': {
+        title: 'プレイグラウンド',
+        body: '自然言語でアプリを生成します。付与権限のない一時サンドボックスで実行します。',
+      },
+      'tapp-install': {
+        title: 'インストール',
+        body: '.tapp ファイルをアップロードしてインストールします。',
       },
       'tapp-grid': {
         title: 'インストール済み',
-        body: 'カードを開くとアプリが起動します。管理者は並べ替えとサイズ変更ができます。',
+        body: 'カードを開くとアプリが起動します。',
       },
-      'tapp-store-nav': {
-        title: '分類',
-        body: '発見、インストール済み、カテゴリから探せます。',
+      'tapp-grid-owner': {
+        title: 'インストール済み',
+        body: 'カードを開くと起動します。開始、停止、設定、アンインストールができます。並びと大きさを変えられます。',
       },
-      'tapp-store-catalog': {
-        title: 'カタログ',
-        body: 'アプリはここに並びます。開くと詳細とインストールがあります。',
+      'config-search': {
+        title: '検索',
+        body: '名前またはガイド本文で設定を探します。',
       },
       'config-sidebar': {
-        title: '目次',
-        body: 'グループで探すか、検索します。',
+        title: 'グループ',
+        body: '設定はグループごとに並びます。',
       },
       'config-content': {
         title: '設定',
-        body: '変更したら保存してください。このページは管理者専用です。',
+        body: '変更後は保存が必要です。',
+      },
+      'config-ai-persona-toggle': {
+        title: 'ペルソナ',
+        body: 'オンにすると Agent はこの設定で話します。設定の作成には Pro が必要です。',
+      },
+      'config-ai-persona-card': {
+        title: '姿',
+        body: '未設定なら設定を開始します。姿があるときは人物設定を開くか削除します。',
+      },
+      'config-ai-persona-speech': {
+        title: '話す',
+        body: 'チャットの返信を読み上げます。ペルソナがオフのときは使えません。',
+      },
+      'config-persona-tabs': {
+        title: 'タブ',
+        body: '概要、人格、衣装箪笥、動作調整を切り替えます。',
+      },
+      'config-persona-portrait': {
+        title: '主立ち絵',
+        body: '現在の姿のプレビュー。リグがあるときここで再生します。',
+      },
+      'config-persona-overview': {
+        title: '概要',
+        body: '名前、気分と活動、ステッカーアバター、取り込み中。',
+      },
+      'config-persona-identity': {
+        title: '人格',
+        body: '気質、好み、原動力、社交と話し方。取り込み、または項目ごとに編集できます。管理者のみ書き込めます。',
+      },
+      'config-persona-wardrobe': {
+        title: '衣装箪笥',
+        body: 'セットを開くと、その立ち絵を管理できます。顔と髪型は固定です。新しい服を作れます。',
+      },
+      'config-persona-motion': {
+        title: '動作調整',
+        body: 'リグを入れたあと、動作をプレビューして調整できます。',
+      },
+      'tapp-detail-overview': {
+        title: '概要',
+        body: 'アプリ情報。書き出せます。権限があるとき開始、停止、アンインストールができます。',
+      },
+      'tapp-detail-settings': {
+        title: 'アプリ設定',
+        body: 'このインストールの設定。ログイン時に表示されます。公開範囲は管理者のみ変更できます。',
+      },
+      'tapp-detail-permissions': {
+        title: '権限',
+        body: 'このインストールの付与権限を読み取り専用で表示します。',
+      },
+      'tapp-playground-toolbar': {
+        title: 'ツールバー',
+        body: 'アプリ一覧に戻ります。このサンドボックスに付与権限はありません。',
+      },
+      'tapp-playground-preview': {
+        title: 'ページプレビュー',
+        body: '未生成時はプレースホルダです。生成後は一時サンドボックスで実行します。',
+      },
+      'tapp-playground-widget': {
+        title: 'ウィジェットプレビュー',
+        body: '宣言されたサイズで描画します。',
+      },
+      'tapp-playground-code': {
+        title: 'コード',
+        body: '生成されたソース。ファイルを切り替えて直接編集できます。複数バージョンがあるときは比較できます。',
+      },
+      'tapp-playground-prompt': {
+        title: '指示',
+        body: '生成または変更したい内容を自然言語で記述します。空のセッションでは例をタップして入力できます。Enter で送信、Shift+Enter で改行します。',
+      },
+      'tapp-playground-generate': {
+        title: '生成',
+        body: '送信すると生成または変更を適用し、一時サンドボックスで実行します。',
+      },
+      'tapp-playground-history': {
+        title: '履歴',
+        body: 'このセッションの変更履歴。セッションの切替、新規作成、削除ができます。',
+      },
+      'tapp-playground-revisions': {
+        title: '版',
+        body: '生成済みバージョンを前後に移動します。',
+      },
+      'tapp-playground-clear': {
+        title: 'セッションを消去',
+        body: '現在のセッションを消去します。',
+      },
+      'tapp-playground-export': {
+        title: 'エクスポート',
+        body: '.tapp パッケージをダウンロードします。',
+      },
+      'tapp-playground-install': {
+        title: 'インストール',
+        body: 'このサイトにインストールします。付与権限はインストール後にあります。',
       },
     },
   },
@@ -2699,6 +2866,23 @@ export const jaJP: TranslationKeys = {
     stickerDownload: '画像をダウンロード',
     stickerDownloadHint: '生成またはアップロードした原画像を保存',
     stickerFile: '画像',
+    exportLayout: '書き出す',
+    importLayout: '読み込む',
+    exportLayoutSuccess: 'ホームのレイアウトを書き出しました',
+    exportLayoutFailed: 'ホームのレイアウトを書き出せませんでした',
+    exportLayoutPartial:
+      'ホームのレイアウトを書き出しましたが、ステッカー原画像 {count} 枚を含められませんでした',
+    importLayoutSuccess: 'ホームのレイアウトを読み込みました',
+    importLayoutFailed: 'ホームのレイアウトを読み込めませんでした',
+    importLayoutPartial:
+      'ホームのレイアウトを読み込みましたが、ステッカー原画像 {count} 枚を保存できませんでした',
+    importLayoutConfirm:
+      '現在の標準レイアウトとフリーレイアウトを置き換えます。ファイル内のステッカー原画像はこのサイトに書き戻します。読み込みますか？',
+    importLayoutInvalid: 'これはホームのレイアウトファイルではありません',
+    importLayoutSettingsBackup:
+      'これはサイト設定のバックアップです。システム設定から読み込んでください',
+    importLayoutTooLarge: 'レイアウトファイルが大きすぎます',
+    importLayoutTooMany: 'レイアウトファイルのタイルが多すぎます',
   },
 
   // ライブラリ

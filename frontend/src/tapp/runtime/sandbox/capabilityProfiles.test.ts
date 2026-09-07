@@ -87,6 +87,14 @@ describe('sandbox capability profiles', () => {
   it('keeps the full Page control surface', () => {
     const tapp = evaluateSdk('page')
     assert.ok(tapp.widget)
+    assert.equal(
+      typeof (tapp.settings as Record<string, unknown>).onChanged,
+      'function',
+    )
+    assert.equal(
+      typeof (tapp.widget as Record<string, unknown>).invalidate,
+      'function',
+    )
     assert.ok(tapp.tappList)
     assert.ok(tapp.component)
     assert.ok(tapp.dynamicContent)
@@ -95,14 +103,32 @@ describe('sandbox capability profiles', () => {
     assert.equal(typeof (tapp.ui as Record<string, unknown>).confirm, 'function')
   })
 
+  it('exposes targeted invalidate on Page and headless, not Widget self-invalidate', () => {
+    const pageSdk = generateFullSDK(instance, 'session-token', 'page')
+    const headlessSdk = generateFullSDK(instance, 'session-token', 'headless')
+    assert.match(pageSdk, /sendRequest\('widget', 'invalidateTarget'/)
+    assert.match(headlessSdk, /sendRequest\('widget', 'invalidateTarget'/)
+    assert.doesNotMatch(pageSdk, /sendRequest\('widget', 'invalidate'(?!Target)/)
+    assert.doesNotMatch(
+      headlessSdk,
+      /sendRequest\('widget', 'invalidate'(?!Target)/,
+    )
+  })
+
   it('keeps background APIs but removes visible/control-plane APIs in headless core', () => {
     const tapp = evaluateSdk('headless')
     assert.ok(tapp.storage)
+    assert.equal(
+      typeof (tapp.settings as Record<string, unknown>).onChanged,
+      'function',
+    )
     assert.ok(tapp.scheduler)
     assert.ok(tapp.event)
     assert.ok(tapp.federation)
     assert.ok(tapp.persona)
-    assert.equal(tapp.widget, undefined)
+    const widget = tapp.widget as Record<string, unknown>
+    assert.equal(typeof widget.invalidate, 'function')
+    assert.equal(widget.register, undefined)
     assert.equal(tapp.tappList, undefined)
     assert.equal(tapp.component, undefined)
     assert.equal(tapp.dynamicContent, undefined)

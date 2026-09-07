@@ -350,7 +350,7 @@ export function HomeStickerDialog({
               id={uploadFileId}
               ref={uploadFileRef}
               type="file"
-              accept="image/png,image/jpeg"
+              accept="image/png,image/jpeg,image/webp"
               hidden
               disabled={busy || mode !== 'upload'}
               onChange={(event) => setUploadFromFiles(event.target.files)}

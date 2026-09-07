@@ -1377,7 +1377,7 @@ export function PlaygroundComposer({
           </AnimatePresence>
 
           {/* ---------- 输入区 ---------- */}
-          <div className="px-4 pt-3">
+          <div className="px-4 pt-3" data-tour="tapp-playground-prompt">
             <textarea
               ref={textareaRef}
               value={instruction}
@@ -1440,7 +1440,10 @@ export function PlaygroundComposer({
           {/* ---------- 工具栏 ---------- */}
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5 pt-1">
             {revisionCount > 0 && (
-              <div className="flex items-center rounded-full bg-black/5 dark:bg-white/10 p-0.5 shrink-0">
+              <div
+                className="flex items-center rounded-full bg-black/5 dark:bg-white/10 p-0.5 shrink-0"
+                data-tour="tapp-playground-revisions"
+              >
                 <motion.button
                   onClick={() => onMoveRevision(-1)}
                   disabled={revisionIndex <= 0 || busy}
@@ -1482,6 +1485,7 @@ export function PlaygroundComposer({
               title={t.tapp.playgroundHistory}
               aria-label={t.tapp.playgroundHistory}
               aria-expanded={historyOpen}
+              data-tour="tapp-playground-history"
             >
               <FaHistory className="w-3 h-3" />
             </motion.button>
@@ -1493,6 +1497,7 @@ export function PlaygroundComposer({
                 disabled={busy}
                 className="shrink-0 px-2.5 h-7 rounded-full text-[10px] font-semibold text-red-500/90 bg-red-500/10 hover:bg-red-500/15 hover:text-red-500 transition-colors disabled:opacity-30"
                 title={t.tapp.playgroundClear}
+                data-tour="tapp-playground-clear"
               >
                 {t.tapp.playgroundClear}
               </button>
@@ -1532,6 +1537,7 @@ export function PlaygroundComposer({
                   }}
                   title={t.tapp.playgroundExport}
                   aria-label={t.tapp.playgroundExport}
+                  data-tour="tapp-playground-export"
                 >
                   {exporting ? (
                     <Spinner size="xs" color="current" />
@@ -1562,6 +1568,7 @@ export function PlaygroundComposer({
                   className="h-8 shrink-0 rounded-full px-3 flex items-center gap-1.5 text-xs font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 shadow-sm disabled:opacity-40 transition-opacity"
                   title={t.tapp.playgroundInstall}
                   aria-label={t.tapp.playgroundInstall}
+                  data-tour="tapp-playground-install"
                 >
                   {installing ? (
                     <Spinner size="xs" color="current" />
@@ -1615,6 +1622,7 @@ export function PlaygroundComposer({
                     ? t.tapp.playgroundApplyChange
                     : t.tapp.playgroundGenerate
                 }
+                data-tour="tapp-playground-generate"
               >
                 {busy ? (
                   <Spinner size="xs" color="white" />

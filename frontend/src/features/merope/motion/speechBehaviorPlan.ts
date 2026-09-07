@@ -4,6 +4,10 @@ import type { BehaviorPlan, ScheduledBehavior, TimePeg } from './behavior'
 /** Future co-speech accents share the same lifecycle as other behaviors. */
 export function compileSpeechBehaviorPlan(
   plan: SpeechProsodyPlan,
+  window: { start: number; end: number } = {
+    start: 0,
+    end: plan.accents.length,
+  },
 ): BehaviorPlan {
   const planId = `speech:${plan.utteranceId}`
   const pegs: TimePeg[] = []
@@ -50,6 +54,7 @@ export function compileSpeechBehaviorPlan(
     confidence: 1,
   })
   plan.accents.forEach((accent, index) => {
+    if (index < window.start || index >= window.end) return
     if (accent.gesture === 'none') return
     const prefix = speechAccentBehaviorId(plan.utteranceId, accent, index)
     const strokePeakAt = plan.startedAtMs + accent.offsetMs

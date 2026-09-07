@@ -1,6 +1,10 @@
 import type { SpeechProsodyPlan, SpeechProsodyTimeline } from './prosody'
 import { speechPhraseGestures } from './phraseGestures'
-import { estimateVisualSpeechDurationMs } from './textTiming'
+import { MAX_AUDIO_PROSODY_ACCENTS } from './prosody'
+import {
+  MAX_VISUAL_SPEECH_TEXT_UNITS,
+  visualSpeechPrefixMs,
+} from './textTiming'
 
 export interface TextProsodyInput {
   utteranceId: string
@@ -11,7 +15,6 @@ export interface TextProsodyInput {
   streaming?: boolean
 }
 
-const MAX_ACCENTS = 12
 const MIN_ACCENT_GAP_MS = 380
 const SEMANTIC_FOCUS =
   /但是|不过|其实|重点|关键|一定|必须|特别|因此|所以|\b(?:because|but|however|actually|important|must|especially|therefore)\b/giu
@@ -21,9 +24,12 @@ const SEMANTIC_FOCUS =
  * Stable utterance hashing adds correlated variation without frame randomness.
  */
 export function predictTextProsody(input: TextProsodyInput): SpeechProsodyPlan {
-  const text = input.text.normalize('NFKC').slice(0, 2_000)
+  const text = input.text
+    .normalize('NFKC')
+    .slice(0, MAX_VISUAL_SPEECH_TEXT_UNITS)
   const symbols = [...text]
-  const durationMs = estimateVisualSpeechDurationMs(text, input.locale)
+  const clock = visualSpeechPrefixMs(text, input.locale)
+  const durationMs = clock.at(-1)!
   const candidates: Array<{
     textOffset: number
     intensity: number
@@ -91,15 +97,7 @@ export function predictTextProsody(input: TextProsodyInput): SpeechProsodyPlan {
     // Prefix timing is independent of later sentences. In particular, do not
     // squeeze old accents along a new whole-reply character/duration ratio.
     const offsetMs = Math.round(
-      Math.max(
-        100,
-        estimateVisualSpeechDurationMs(
-          text.slice(0, candidate.textOffset),
-          input.locale,
-        ) -
-          150 +
-          variation * 52,
-      ),
+      Math.max(100, clock[candidate.textOffset]! - 150 + variation * 52),
     )
     const previous = accents.at(-1)
     if (previous && offsetMs - previous.offsetMs < MIN_ACCENT_GAP_MS) {
@@ -113,7 +111,8 @@ export function predictTextProsody(input: TextProsodyInput): SpeechProsodyPlan {
       offsetMs,
       intensity: clamp(candidate.intensity + variation * 0.06, 0.58, 1),
     })
-    if (accents.length >= MAX_ACCENTS) break
+    // Retain the bounded text's whole timeline. The speech source admits only
+    // a rolling window to the scheduler; later clauses must not disappear.
   }
   return {
     utteranceId: input.utteranceId,
@@ -168,7 +167,7 @@ export function alignTextProsody(
     durationMs: audio.durationMs,
     accents: accents
       .sort((a, b) => a.offsetMs - b.offsetMs)
-      .slice(0, MAX_ACCENTS),
+      .slice(0, MAX_AUDIO_PROSODY_ACCENTS),
   }
 }
 

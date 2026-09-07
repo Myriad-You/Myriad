@@ -283,6 +283,11 @@ export function useNavAutoHide(selector = '.nav-container') {
 
     const handleTourActive = () => {
       if (isTourDomActive()) {
+        // Edit mode (and other immersive chrome) keeps the island hidden.
+        // Do not snap it back just because a tour started.
+        if (navContainer.classList.contains('immersive')) {
+          return
+        }
         // Snap to the shown pose. A 300ms transform transition would leave
         // getBoundingClientRect mid-slide, and the tour hole/card would lock
         // onto the idle-hide offset (translateX(-20px) on desktop).

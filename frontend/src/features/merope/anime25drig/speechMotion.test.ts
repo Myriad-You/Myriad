@@ -14,6 +14,31 @@ function seededRandom(initialSeed: number): () => number {
   }
 }
 
+test('a queued long phrase still articulates after the old 256-cue cutoff', async () => {
+  const speech = new AutoSpeechController(
+    () => 0.5,
+    async () => [
+      ...Array.from({ length: 300 }, () => ({
+        viseme: 'rest' as const,
+        duration: 0.02,
+        emphasis: false,
+      })),
+      { viseme: 'open' as const, duration: 0.25, emphasis: false },
+    ],
+  )
+  speech.sample(0, true)
+  speech.enqueueText('长句')
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  let tailOpen = 0
+  for (let time = 0; time < 8; time += 0.01) {
+    const pose = speech.sample(time, true)
+    if (time > 5) tailOpen = Math.max(tailOpen, pose.mouthOpen)
+  }
+  assert.ok(tailOpen > 0.3)
+  speech.clear(8)
+  assert.equal(speech.sample(9, false).mouthOpen, 0)
+})
+
 test('shapes phrase onset, center, and ending without exceeding unity', () => {
   const onset = speechPhraseAmplitudeScale(0)
   const center = speechPhraseAmplitudeScale(0.5)

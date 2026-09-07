@@ -67,6 +67,7 @@ import { PERMISSION_CONFIG } from '../constants/permissions'
 import { useTappShellPresence } from '../hooks/useTappShellPresence'
 import { getTappRuntime } from '../runtime'
 import { PERMISSION_LEVELS } from '../runtime/permissionConfig'
+import { emitHostSettingsChange } from '../runtime/WidgetRuntimeSignals'
 import * as TappApiService from '../services/TappApiService'
 import {
   summarizeCredentialBindings,
@@ -250,6 +251,7 @@ export function TappDetailPage() {
       setSettingsSaving(key)
       try {
         await TappApiService.setTappSetting(tappId, key, value)
+        emitHostSettingsChange(tappId, key)
         setSettingsValues((prev) => ({ ...prev, [key]: value }))
         delete pendingChangesRef.current[key]
         if (showHint) {
@@ -1014,6 +1016,7 @@ export function TappDetailPage() {
         }
       >
         {/* 应用信息 + 主操作 */}
+        <div data-tour="tapp-detail-overview">
         <SettingGroup
           id="tapp-overview"
           title={t.tapp.appInfo}
@@ -1026,9 +1029,11 @@ export function TappDetailPage() {
             actions={overviewActions}
           />
         </SettingGroup>
+        </div>
 
         {/* 应用设置 */}
         {showSettingsGroup && (
+          <div data-tour="tapp-detail-settings">
           <SettingGroup
             id="tapp-app-settings"
             title={t.tapp.appSettings}
@@ -1074,6 +1079,7 @@ export function TappDetailPage() {
                   </p>
                 )}
           </SettingGroup>
+          </div>
         )}
 
         {canManageSettings && hasManifestCredentials && (
@@ -1297,6 +1303,7 @@ export function TappDetailPage() {
         )}
 
         {/* 权限：按等级分组，等级内部三列 */}
+        <div data-tour="tapp-detail-permissions">
         <SettingGroup
           id="tapp-permissions"
           title={t.tapp.permissions}
@@ -1389,6 +1396,7 @@ export function TappDetailPage() {
             </div>
           )}
         </SettingGroup>
+        </div>
       </SettingSection>
 
       {toastMessage && (

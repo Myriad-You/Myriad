@@ -125,8 +125,8 @@ export function capturePerceptionSnapshots(input: {
       sourceId: 'screen',
       kind: 'screen',
       expiresAt: now + PAGE_TTL_MS,
-      summary: 'screen share allowed; pixels stay local',
-      safeFacts: { consented: true, pixels: false },
+      summary: 'screen permission enabled; no visual observation available',
+      safeFacts: { consented: true, pixels: false, observed: false },
       privacy: 'consented',
     })
   } else {

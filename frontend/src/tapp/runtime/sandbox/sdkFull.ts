@@ -346,6 +346,7 @@ export function generateFullSDK(
       unregister: (id) => sendRequest('widget', 'unregister', [id]),
       listRegistered: () => sendRequest('widget', 'listRegistered', []),
       updateConfig: (id, cfg) => sendRequest('widget', 'updateConfig', [id, cfg]),
+      invalidate: (reason, options) => sendRequest('widget', 'invalidateTarget', [reason, options]),
     },
 
     tappList: {
@@ -517,6 +518,7 @@ export function generateFullSDK(
       get: (k) => { validateStorageKey(k); return sendRequest('settings', 'get', [k]); },
       set: (k, v) => { validateStorageKey(k); return sendRequest('settings', 'set', [k, v]); },
       getAll: () => sendRequest('settings', 'getAll', []),
+      onChanged: (cb) => addEventListener('settingsChanged', cb),
     },
 
     shared: {
@@ -949,7 +951,9 @@ export function generateFullSDK(
       onLocaleChange: Tapp.ui.onLocaleChange,
       showNotification: Tapp.ui.showNotification,
     };
-    delete Tapp.widget;
+    Tapp.widget = {
+      invalidate: Tapp.widget.invalidate,
+    };
     delete Tapp.tappList;
     delete Tapp.component;
     delete Tapp.shortcut;

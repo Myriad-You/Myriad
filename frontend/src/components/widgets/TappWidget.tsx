@@ -31,6 +31,7 @@ import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { loadWidgetResources } from '../../tapp/runtime/sandbox/resourceLoader'
 import { getTappRuntime } from '../../tapp/runtime/TappRuntime'
 import { TappWidgetSandbox } from '../../tapp/runtime/TappWidgetSandbox'
+import { onTappWidgetInvalidate } from '../../tapp/runtime/WidgetRuntimeSignals'
 import { widgetPerfMark } from '../../tapp/runtime/WidgetLoadPerf'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
 import { getTappIconStyle } from '../../tapp/utils/tappColors'
@@ -531,6 +532,18 @@ function TappWidgetRuntime({
     },
     [],
   )
+
+  useEffect(() => {
+    if (!tappInstance || !widget) return
+    const localWidgetId =
+      widget.config.id || widget.id.split('.').pop() || ''
+    if (!localWidgetId) return
+    return onTappWidgetInvalidate((event) => {
+      if (event.tappId !== tappInstance.id) return
+      if (event.widgetId !== localWidgetId) return
+      requestRefresh()
+    })
+  }, [tappInstance, widget, requestRefresh])
 
   // ⚡ 监听尺寸变化，重新加载资源
   useEffect(() => {

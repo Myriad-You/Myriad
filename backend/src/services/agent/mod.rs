@@ -43,6 +43,12 @@ pub mod types;
 pub mod ui_analysis;
 pub mod web_search;
 
+#[cfg(test)]
+mod behavior_contract;
+
+#[cfg(test)]
+mod semantic_eval;
+
 // 重新导出核心类型
 pub use types::*;
 

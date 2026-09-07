@@ -14,6 +14,7 @@ pub async fn capture_self_snapshot(
     db: &DatabaseConnection,
     user_id: i32,
     interaction_mode: AgentInteractionMode,
+    memory_query: &str,
 ) -> Result<SelfSnapshot, anyhow::Error> {
     let enabled = merope::is_enabled().await;
     let persona = merope::get_persona(db).await?;
@@ -24,13 +25,9 @@ pub async fn capture_self_snapshot(
         .collect::<Vec<_>>();
     granted_permissions.sort_unstable();
 
-    let remembered = merope::list_remembered(db, user_id, 8)
+    let remembered = merope::store::recall_remembered(db, user_id, Some(memory_query), 8)
         .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|note| merope::ingest::compact_summary(&note.content))
-        .filter(|content| !content.is_empty())
-        .collect();
+        .unwrap_or_default();
 
     Ok(SelfSnapshot {
         persona_name: merope::public_persona_name(

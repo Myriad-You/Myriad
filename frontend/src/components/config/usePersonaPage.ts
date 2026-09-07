@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { SETTINGS_DURATION_MS } from '../settings'
+import { refreshConfigTourSurface } from '../tour/tourLogic'
 import { saveConfigNavPersisted } from './form/configNavPersistence'
 
 export type AiSubpage = 'merope' | 'merope-setup'
@@ -39,6 +40,7 @@ export function useAiSubpage(
     setNavDir(next && !prev ? 'forward' : !next && prev ? 'back' : 'forward')
     setPage(next)
     onNavigateRef.current?.(next)
+    refreshConfigTourSurface()
   }, [])
 
   useEffect(() => {

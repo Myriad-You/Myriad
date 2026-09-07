@@ -68,7 +68,6 @@ pub(super) fn utterance_index_in_session(request: &UserRequest) -> u32 {
 #[repr(u8)]
 pub(super) enum MotionPublication {
     None,
-    Local,
     Refined,
 }
 
@@ -78,6 +77,11 @@ pub(super) struct MotionRefinementGuard {
 }
 
 impl MotionRefinementGuard {
+    #[cfg(test)]
+    fn has_refinement(&self) -> bool {
+        self.published.load(std::sync::atomic::Ordering::Acquire) != MotionPublication::None as u8
+    }
+
     pub(super) async fn stop(mut self) -> MotionPublication {
         self.task.abort();
         // Abort is a request, not a completion barrier. A concurrent send can
@@ -86,7 +90,6 @@ impl MotionRefinementGuard {
         let _ = (&mut self.task).await;
         match self.published.load(std::sync::atomic::Ordering::Acquire) {
             0 => MotionPublication::None,
-            1 => MotionPublication::Local,
             _ => MotionPublication::Refined,
         }
     }
@@ -111,48 +114,21 @@ pub(super) async fn publish_local_motion(
     false
 }
 
-pub(super) fn landing_motion(
-    context: &crate::services::agent::merope::MotionContext,
-    publication: MotionPublication,
-) -> Option<crate::services::agent::merope::PerformanceDirective> {
-    if publication == MotionPublication::Refined {
-        return None;
-    }
-    let mut performance = crate::services::agent::merope::local_directive(context)?;
-    if publication == MotionPublication::Local {
-        // The spoken preview already started the body beat. The full reply
-        // may update the standing face, but must not restart that gesture.
-        performance.plan.cues.clear();
-    }
-    Some(performance)
-}
-
-/** Refines a floor, optionally after a bounded preview of a longer reply. */
+/// Work's one asynchronous reaction refinement.
 pub(super) fn spawn_motion_refinement(
     context: crate::services::agent::merope::MotionContext,
     progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
-    preview_rx: Option<
-        tokio::sync::mpsc::Receiver<
-            crate::services::agent::merope::motion_preview::MotionPreviewUpdate,
-        >,
-    >,
 ) -> MotionRefinementGuard {
     spawn_motion_refinement_with(
         context,
         progress_tx,
-        preview_rx,
         crate::services::agent::merope::refine_motion,
     )
 }
 
 fn spawn_motion_refinement_with<F, Fut>(
-    mut context: crate::services::agent::merope::MotionContext,
+    context: crate::services::agent::merope::MotionContext,
     progress_tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
-    mut preview_rx: Option<
-        tokio::sync::mpsc::Receiver<
-            crate::services::agent::merope::motion_preview::MotionPreviewUpdate,
-        >,
-    >,
     refine: F,
 ) -> MotionRefinementGuard
 where
@@ -166,38 +142,8 @@ where
     ));
     let did_publish = published.clone();
     let task = tokio::spawn(async move {
-        if let Some(preview_rx) = preview_rx.as_mut() {
-            let preview = loop {
-                let Some(update) = preview_rx.recv().await else {
-                    return;
-                };
-                if let Some(spoken) = update.local {
-                    context.phase = crate::services::agent::merope::MotionPhase::Delivery;
-                    context.activity = context.phase.activity().to_string();
-                    context.response_text = Some(spoken);
-                    if publish_local_motion(&context, &progress_tx).await {
-                        did_publish.store(
-                            MotionPublication::Local as u8,
-                            std::sync::atomic::Ordering::Release,
-                        );
-                    }
-                    if progress_tx.is_closed() {
-                        return;
-                    }
-                }
-                if let Some(preview) = update.refinement {
-                    break preview;
-                }
-            };
-            // A provider may emit a whole answer in one delta. Give the caller
-            // one short cancellation window before opening another request.
-            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-            context.phase = crate::services::agent::merope::MotionPhase::Delivery;
-            context.activity = context.phase.activity().to_string();
-            context.response_text = Some(preview);
-            if progress_tx.is_closed() {
-                return;
-            }
+        if progress_tx.is_closed() {
+            return;
         }
         if let Some(performance) = refine(context).await {
             if progress_tx
@@ -213,6 +159,124 @@ where
         }
     });
     MotionRefinementGuard { task, published }
+}
+
+/// Motion is expendable under transport pressure; reserve room for prose.
+/// Never await an action send from the speaking path or queue stale actions.
+pub(super) fn try_publish_motion(
+    tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    performance: crate::services::agent::merope::PerformanceDirective,
+) -> bool {
+    let Ok(permit) = tx.try_reserve() else {
+        tracing::debug!("[MeropeMotion] Optional motion dropped: transport unavailable");
+        return false;
+    };
+    if tx.capacity() == 0 {
+        tracing::debug!("[MeropeMotion] Optional motion dropped: reserved prose capacity");
+        return false;
+    }
+    permit.send(AgentProgressEvent::PerformancePlan { performance });
+    true
+}
+
+/// The speaking path owns only a bounded observer and a latest-value mailbox.
+/// The round owns the task guard: dropping a cancelled round aborts the model.
+pub(super) struct ChatMotionDelivery {
+    context: crate::services::agent::merope::MotionContext,
+    preview: crate::services::agent::merope::motion_preview::MotionPreview,
+    latest: tokio::sync::watch::Sender<Option<String>>,
+    floor_sent: bool,
+}
+
+impl ChatMotionDelivery {
+    pub fn observe(&mut self, text: &str, tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>) {
+        if let Some(text) = self.preview.push(text) {
+            self.publish(text, tx);
+        }
+    }
+
+    pub fn finish(&mut self, tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>) {
+        if let Some(text) = self.preview.finish() {
+            self.publish(text, tx);
+        }
+    }
+
+    fn publish(&mut self, text: String, tx: &tokio::sync::mpsc::Sender<AgentProgressEvent>) {
+        if !self.floor_sent {
+            self.context.response_text = Some(text.clone());
+            if let Some(performance) =
+                crate::services::agent::merope::local_directive(&self.context)
+            {
+                self.floor_sent = try_publish_motion(tx, performance);
+            }
+        }
+        // send_replace is synchronous; a slow director sees the latest window,
+        // not an unbounded backlog of requests. No watch borrow crosses await.
+        self.latest.send_replace(Some(text));
+    }
+}
+
+pub(super) fn spawn_chat_motion_refinement(
+    context: crate::services::agent::merope::MotionContext,
+    tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
+) -> (ChatMotionDelivery, MotionRefinementGuard) {
+    spawn_chat_motion_refinement_with(context, tx, crate::services::agent::merope::refine_motion)
+}
+
+pub(super) fn spawn_chat_motion_refinement_with<F, Fut>(
+    mut context: crate::services::agent::merope::MotionContext,
+    tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
+    mut refine: F,
+) -> (ChatMotionDelivery, MotionRefinementGuard)
+where
+    F: FnMut(crate::services::agent::merope::MotionContext) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Option<crate::services::agent::merope::PerformanceDirective>>
+        + Send
+        + 'static,
+{
+    context.phase = crate::services::agent::merope::MotionPhase::Delivery;
+    context.activity = context.phase.activity().to_owned();
+    let (latest, mut updates) = tokio::sync::watch::channel(None);
+    let delivery = ChatMotionDelivery {
+        context: context.clone(),
+        preview: Default::default(),
+        latest,
+        floor_sent: false,
+    };
+    let published = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(
+        MotionPublication::None as u8,
+    ));
+    let did_publish = published.clone();
+    let task = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                biased;
+                _ = tx.closed() => break,
+                update = updates.changed() => if update.is_err() { break },
+            }
+            let text = updates.borrow_and_update().clone();
+            context.response_text = text;
+            // One in flight per round. New evidence replaces the pending value,
+            // but doesn't repeatedly cancel a model that is about to finish.
+            let result = tokio::select! {
+                biased;
+                _ = tx.closed() => break,
+                result = refine(context.clone()) => result,
+            };
+            if let Some(mut performance) = result {
+                // Spoken beats must use grounded phrase timing. Unanchored cues
+                // from an old window must not replay the immediate local beat.
+                performance.plan.cues.clear();
+                if try_publish_motion(&tx, performance) {
+                    did_publish.store(
+                        MotionPublication::Refined as u8,
+                        std::sync::atomic::Ordering::Release,
+                    );
+                }
+            }
+        }
+    });
+    (delivery, MotionRefinementGuard { task, published })
 }
 
 pub(super) async fn attach_motion_to_result(
@@ -251,24 +315,13 @@ pub(super) async fn attach_motion_to_result(
 }
 
 #[cfg(test)]
-mod motion_refinement_tests {
+pub(super) mod motion_refinement_tests {
     use super::*;
-    use crate::services::agent::merope::motion_preview::MotionPreviewUpdate;
     use crate::services::agent::merope::{MoodTransition, MotionContext, MotionPhase};
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    };
+    use std::sync::Arc;
     use std::time::Duration;
 
-    fn preview(text: &str) -> MotionPreviewUpdate {
-        MotionPreviewUpdate {
-            local: Some(text.into()),
-            refinement: Some(text.into()),
-        }
-    }
-
-    fn context() -> MotionContext {
+    pub(in crate::services::agent) fn context() -> MotionContext {
         MotionContext {
             user_id: 1,
             phase: MotionPhase::Reaction,
@@ -293,66 +346,141 @@ mod motion_refinement_tests {
     }
 
     #[tokio::test]
-    async fn short_or_single_chunk_turn_never_starts_lite() {
-        for emit_preview in [false, true] {
-            let calls = Arc::new(AtomicUsize::new(0));
-            let observed = calls.clone();
-            let (tx, mut events) = tokio::sync::mpsc::channel(4);
-            let (preview_tx, preview_rx) = tokio::sync::mpsc::channel(1);
-            let guard = spawn_motion_refinement_with(
-                context(),
-                tx,
-                Some(preview_rx),
-                move |_| async move {
-                    observed.fetch_add(1, Ordering::Relaxed);
-                    None
-                },
-            );
-            if emit_preview {
-                preview_tx
-                    .send(preview("a whole buffered answer"))
-                    .await
-                    .unwrap();
-            }
-            tokio::task::yield_now().await;
-            let publication = guard.stop().await;
-            assert_ne!(publication, MotionPublication::Refined);
-            assert_eq!(
-                publication == MotionPublication::Local,
-                events.recv().await.is_some()
-            );
-            assert!(events.recv().await.is_none());
-            assert_eq!(calls.load(Ordering::Relaxed), 0);
+    async fn chat_director_coalesces_updates_and_never_runs_two_calls_at_once() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let (started, mut calls) = tokio::sync::mpsc::unbounded_channel();
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let blocked = gate.clone();
+        let (mut delivery, guard) =
+            spawn_chat_motion_refinement_with(context(), tx.clone(), move |context| {
+                let started = started.clone();
+                let blocked = blocked.clone();
+                async move {
+                    started
+                        .send(context.response_text.clone().unwrap())
+                        .unwrap();
+                    blocked.acquire().await.unwrap().forget();
+                    crate::services::agent::merope::local_directive(&context)
+                }
+            });
+        delivery.observe("第一句话。", &tx);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), calls.recv())
+                .await
+                .unwrap()
+                .unwrap(),
+            "第一句话。"
+        );
+        for _ in 0..100 {
+            delivery.observe("中间句子。", &tx);
         }
+        delivery.observe("这是最新的一句。", &tx);
+        assert!(calls.try_recv().is_err());
+        gate.add_permits(1);
+        let second = tokio::time::timeout(Duration::from_secs(1), calls.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(second.ends_with("这是最新的一句。"));
+        assert!(second.chars().count() <= 900);
+        assert!(calls.try_recv().is_err());
+        // Stopping is a cancellation barrier, not a wait on the second model.
+        tokio::time::timeout(Duration::from_secs(1), guard.stop())
+            .await
+            .unwrap();
+        while rx.try_recv().is_ok() {}
+        gate.add_permits(1);
+        tokio::task::yield_now().await;
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]
-    async fn long_reply_refines_delivery_using_spoken_context_and_marks_publication() {
-        let (tx, mut events) = tokio::sync::mpsc::channel(4);
-        let (preview_tx, preview_rx) = tokio::sync::mpsc::channel(1);
-        let guard =
-            spawn_motion_refinement_with(context(), tx, Some(preview_rx), |context| async move {
-                assert_eq!(context.phase, MotionPhase::Delivery);
-                assert_eq!(context.activity, "talking");
-                assert_eq!(
-                    context.response_text.as_deref(),
-                    Some("the actual spoken preview")
-                );
-                crate::services::agent::merope::local_directive(&context)
+    async fn chat_director_full_transport_drops_actions_and_reserves_text_capacity() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(2);
+        let performance = crate::services::agent::merope::local_directive(&context()).unwrap();
+        assert!(try_publish_motion(&tx, performance.clone()));
+        assert!(!try_publish_motion(&tx, performance.clone()));
+        tx.try_send(AgentProgressEvent::SummaryToken {
+            token: "正文".into(),
+            done: false,
+        })
+        .unwrap();
+        assert!(!try_publish_motion(&tx, performance.clone()));
+        assert!(matches!(
+            rx.recv().await,
+            Some(AgentProgressEvent::PerformancePlan { .. })
+        ));
+        assert!(
+            matches!(rx.recv().await, Some(AgentProgressEvent::SummaryToken { token, .. }) if token == "正文")
+        );
+        assert!(
+            rx.try_recv().is_err(),
+            "dropped actions must not appear later"
+        );
+        drop(rx);
+        assert!(!try_publish_motion(&tx, performance));
+    }
+
+    #[tokio::test]
+    async fn chat_director_model_failure_does_not_prevent_the_next_window() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(32);
+        let (started, mut calls) = tokio::sync::mpsc::unbounded_channel();
+        let (mut delivery, guard) =
+            spawn_chat_motion_refinement_with(context(), tx.clone(), move |context| {
+                let started = started.clone();
+                async move {
+                    started.send(context.response_text.unwrap()).unwrap();
+                    None // Production timeout/error/continue are all no refinement.
+                }
             });
-        preview_tx
-            .send(preview("the actual spoken preview"))
+        delivery.observe("第一句话。", &tx);
+        tokio::time::timeout(Duration::from_secs(1), calls.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        delivery.observe("第二句话。", &tx);
+        assert!(tokio::time::timeout(Duration::from_secs(1), calls.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .ends_with("第二句话。"));
+        assert!(!guard.has_refinement());
+        guard.stop().await;
+    }
+
+    #[tokio::test]
+    async fn chat_director_round_drop_aborts_inflight_work() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let signal = entered.clone();
+        let (mut delivery, guard) =
+            spawn_chat_motion_refinement_with(context(), tx.clone(), move |_| {
+                let signal = signal.clone();
+                async move {
+                    signal.notify_one();
+                    std::future::pending().await
+                }
+            });
+        delivery.observe("现在说话。", &tx);
+        tokio::time::timeout(Duration::from_secs(1), entered.notified())
             .await
             .unwrap();
-        // The deterministic delivery precedes its optional refinement.
-        for _ in 0..2 {
-            let event = tokio::time::timeout(Duration::from_secs(2), events.recv())
-                .await
-                .unwrap()
-                .unwrap();
-            assert!(matches!(event, AgentProgressEvent::PerformancePlan { .. }));
-        }
-        assert_eq!(guard.stop().await, MotionPublication::Refined);
+        drop(guard);
+        delivery.observe("取消后的文本。", &tx);
+        drop(delivery);
+        drop(tx);
+        // Only the immediate floor can remain. The worker drops its sender.
+        let drain = async {
+            while let Some(event) = rx.recv().await {
+                let AgentProgressEvent::PerformancePlan { performance } = event else {
+                    panic!("unexpected event")
+                };
+                assert!(performance.phrases.is_empty());
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(1), drain)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -360,7 +488,7 @@ mod motion_refinement_tests {
         let (tx, mut events) = tokio::sync::mpsc::channel(4);
         let entered = Arc::new(tokio::sync::Notify::new());
         let signal = entered.clone();
-        let guard = spawn_motion_refinement_with(context(), tx, None, move |_| async move {
+        let guard = spawn_motion_refinement_with(context(), tx, move |_| async move {
             signal.notify_one();
             std::future::pending().await
         });
@@ -378,7 +506,7 @@ mod motion_refinement_tests {
     async fn stopping_at_publication_boundary_reports_exactly_what_was_sent() {
         for _ in 0..128 {
             let (tx, mut events) = tokio::sync::mpsc::channel(1);
-            let guard = spawn_motion_refinement_with(context(), tx, None, |context| async move {
+            let guard = spawn_motion_refinement_with(context(), tx, |context| async move {
                 crate::services::agent::merope::local_directive(&context)
             });
             tokio::task::yield_now().await;
@@ -389,126 +517,5 @@ mod motion_refinement_tests {
             );
             assert!(events.recv().await.is_none());
         }
-    }
-
-    #[tokio::test]
-    async fn spoken_delivery_does_not_wait_for_a_stalled_director() {
-        let (tx, mut events) = tokio::sync::mpsc::channel(4);
-        let (preview_tx, preview_rx) = tokio::sync::mpsc::channel(1);
-        let entered = Arc::new(tokio::sync::Notify::new());
-        let signal = entered.clone();
-        let guard =
-            spawn_motion_refinement_with(context(), tx, Some(preview_rx), move |_| async move {
-                signal.notify_one();
-                std::future::pending().await
-            });
-        preview_tx
-            .send(preview("the actual spoken preview"))
-            .await
-            .unwrap();
-        tokio::time::timeout(Duration::from_secs(2), entered.notified())
-            .await
-            .unwrap();
-        let Some(AgentProgressEvent::PerformancePlan { performance }) = events.try_recv().ok()
-        else {
-            panic!("delivery must already be queued before the director starts");
-        };
-        assert_eq!(performance.phase, MotionPhase::Delivery);
-        assert!(!performance.plan.cues.is_empty());
-        assert_eq!(guard.stop().await, MotionPublication::Local);
-        assert!(events.recv().await.is_none());
-    }
-
-    #[tokio::test]
-    async fn backpressured_refinement_does_not_claim_publication() {
-        // Local delivery fills the channel. Cancellation must not mistake the
-        // director's blocked send for an already-visible refinement.
-        let (tx, mut events) = tokio::sync::mpsc::channel(1);
-        let (preview_tx, preview_rx) = tokio::sync::mpsc::channel(1);
-        let entered = Arc::new(tokio::sync::Notify::new());
-        let signal = entered.clone();
-        let guard = spawn_motion_refinement_with(
-            context(),
-            tx,
-            Some(preview_rx),
-            move |context| async move {
-                signal.notify_one();
-                crate::services::agent::merope::local_directive(&context)
-            },
-        );
-        preview_tx
-            .send(preview("the actual spoken preview"))
-            .await
-            .unwrap();
-        tokio::time::timeout(Duration::from_secs(2), entered.notified())
-            .await
-            .unwrap();
-        assert_eq!(guard.stop().await, MotionPublication::Local);
-        assert!(events.recv().await.is_some());
-        assert!(events.recv().await.is_none());
-    }
-
-    #[tokio::test]
-    async fn disconnected_preview_does_not_start_a_director() {
-        let (tx, events) = tokio::sync::mpsc::channel(1);
-        let (preview_tx, preview_rx) = tokio::sync::mpsc::channel(1);
-        drop(events);
-        let calls = Arc::new(AtomicUsize::new(0));
-        let observed = calls.clone();
-        let guard =
-            spawn_motion_refinement_with(context(), tx, Some(preview_rx), move |_| async move {
-                observed.fetch_add(1, Ordering::Relaxed);
-                None
-            });
-        preview_tx
-            .send(preview("the actual spoken preview"))
-            .await
-            .unwrap();
-        tokio::time::timeout(Duration::from_secs(2), preview_tx.closed())
-            .await
-            .unwrap();
-        assert_eq!(guard.stop().await, MotionPublication::None);
-        assert_eq!(calls.load(Ordering::Relaxed), 0);
-    }
-
-    #[test]
-    fn landing_updates_full_reply_baseline_without_replaying_or_overwriting_refinement() {
-        let mut context = context();
-        context.phase = MotionPhase::Delivery;
-        context.response_text = Some("the full spoken reply".into());
-        let initial = landing_motion(&context, MotionPublication::None).unwrap();
-        assert!(!initial.plan.cues.is_empty());
-        let landing = landing_motion(&context, MotionPublication::Local).unwrap();
-        assert_eq!(landing.plan.baseline, initial.plan.baseline);
-        assert!(landing.plan.cues.is_empty());
-        assert!(landing_motion(&context, MotionPublication::Refined).is_none());
-    }
-
-    #[tokio::test]
-    async fn first_sentence_plays_without_waiting_for_long_preview_or_director() {
-        let (tx, mut events) = tokio::sync::mpsc::channel(2);
-        let (preview_tx, preview_rx) = tokio::sync::mpsc::channel(2);
-        let calls = Arc::new(AtomicUsize::new(0));
-        let observed = calls.clone();
-        let guard =
-            spawn_motion_refinement_with(context(), tx, Some(preview_rx), move |_| async move {
-                observed.fetch_add(1, Ordering::Relaxed);
-                None
-            });
-        preview_tx
-            .send(MotionPreviewUpdate {
-                local: Some("你好，很高兴见到你！".into()),
-                refinement: None,
-            })
-            .await
-            .unwrap();
-        let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(matches!(event, AgentProgressEvent::PerformancePlan { .. }));
-        assert_eq!(calls.load(Ordering::Relaxed), 0);
-        assert_eq!(guard.stop().await, MotionPublication::Local);
-        assert!(events.recv().await.is_none());
     }
 }

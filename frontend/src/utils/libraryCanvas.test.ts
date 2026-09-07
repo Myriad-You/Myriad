@@ -4,6 +4,7 @@ import { describe, it } from 'node:test'
 import {
   buildCenterOutCanvasLayout,
   getLibraryCanvasFocusScale,
+  getLibraryCanvasFocusScaleAt,
   getLibraryCanvasViewportBinKey,
   getLibraryCanvasViewportBounds,
   LIBRARY_CANVAS_FOCUS_MAX_SCALE,
@@ -66,6 +67,10 @@ describe('library canvas geometry', () => {
     assert.equal(
       getLibraryCanvasFocusScale(distant, transform, viewport),
       LIBRARY_CANVAS_FOCUS_MIN_SCALE,
+    )
+    assert.equal(
+      getLibraryCanvasFocusScaleAt(0, 0, transform, viewport),
+      getLibraryCanvasFocusScale(centered, transform, viewport),
     )
   })
 

@@ -31,10 +31,10 @@ pub use store::{
     clear_persona_on, complete_avatar_generation, complete_portrait_generation,
     credit_music_listening, generation_inputs_changed, get_or_create_state, get_persona,
     get_persona_on, insert_diary, insert_proactive, latest_diary, list_diary_from_sources,
-    list_remembered, normalize_persona_fields, portrait_generation_is_pending, promote_activity,
-    recent_proactive, release_avatar_generation, release_portrait_generation, set_activity,
-    set_dnd_schedule, set_do_not_disturb, sticker_avatar_asset_id, update_affect,
-    upsert_persona_on, JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate,
+    normalize_persona_fields, portrait_generation_is_pending, promote_activity, recent_proactive,
+    release_avatar_generation, release_portrait_generation, set_activity, set_dnd_schedule,
+    set_do_not_disturb, sticker_avatar_asset_id, update_affect, upsert_persona_on,
+    JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate,
 };
 
 /// Logged-in users only. Guests use negative ids; heartbeat is `SYSTEM_USER_ID` (0).
@@ -126,7 +126,7 @@ pub async fn note_user_turn(
     db: &sea_orm::DatabaseConnection,
     request: &crate::services::agent::UserRequest,
     utterance_index: u32,
-) -> Option<MoodTransition> {
+) -> Option<(MoodTransition, chrono::DateTime<chrono::FixedOffset>)> {
     let user_id = request.user_id;
     let text = &request.raw_input;
     if !is_logged_in_addressee(user_id) {
@@ -163,7 +163,7 @@ pub async fn note_user_turn(
     } else {
         "user_turn"
     };
-    Some(MoodTransition::from_affect(
+    let transition = MoodTransition::from_affect(
         &previous,
         &store::affect_from_state(&saved),
         cause,
@@ -171,7 +171,9 @@ pub async fn note_user_turn(
             .updated_at
             .with_timezone(&chrono::Utc)
             .timestamp_millis(),
-    ))
+    );
+    // Carry the actual persisted input anchor, not a later mood revision.
+    Some((transition, saved.last_user_message_at?))
 }
 
 /// After planning, so this turn is not already sitting in the diary the model just read.
@@ -263,7 +265,7 @@ pub async fn resolve_addressee_label(db: &sea_orm::DatabaseConnection, user_id: 
 pub use speaking_prompts::{
     addressee_speaking_section, format_activity_section, format_mood_section, format_persona,
     format_recent_section, format_remembered_section, guest_speaking_section,
-    mood_tone_instruction, rank_remembered,
+    mood_tone_instruction,
 };
 
 /// Prompt sections for whoever this turn is speaking to. Empty when Merope is off.
