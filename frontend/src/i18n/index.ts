@@ -1561,6 +1561,15 @@ export interface TranslationKeys {
     qqBotAppId: string
     qqBotAppSecret: string
     qqBotHint: string
+    qqBotPhaseOffline: string
+    qqBotPhaseConnecting: string
+    qqBotPhaseOnline: string
+    qqBotPhaseRejected: string
+    qqBotPhaseReconnecting: string
+    qqBotTest: string
+    qqBotTesting: string
+    qqBotTestOk: string
+    qqBotTestFailed: string
     enableProxy: string
     enableProxyHint: string
     proxyUrl: string

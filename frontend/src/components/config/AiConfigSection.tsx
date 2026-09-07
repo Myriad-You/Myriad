@@ -28,6 +28,7 @@ import {
 } from '../../features/merope/events'
 import SiteMotionWorkbench from '../../features/merope/SiteMotionWorkbench'
 import { agentService } from '../../services/agent'
+import type { QqBotPhase, QqBotStatus } from '../../services/agent/agentApi'
 import { invalidatePublicConfigCache } from '../../utils/requestDedup'
 import { userFacingError } from '../../utils/userFacingError'
 import {
@@ -314,6 +315,9 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     success: boolean
     message: string
   } | null>(null)
+  const [qqBotStatus, setQqBotStatus] = useState<QqBotStatus | null>(null)
+  const [qqBotTesting, setQqBotTesting] = useState(false)
+  const [qqBotTestMessage, setQqBotTestMessage] = useState<string | null>(null)
 
   // 辅助函数：获取配置字段值
   const getFieldValue = useCallback(
@@ -692,6 +696,53 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       setSpeechTesting(false)
     }
   }, [onSpeechTest, t.config.speechTestFailed])
+
+  const loadQqBotStatus = useCallback(async () => {
+    try {
+      setQqBotStatus(await agentService.getQqBotStatus())
+    } catch {
+      setQqBotStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadQqBotStatus()
+    const timer = window.setInterval(() => {
+      void loadQqBotStatus()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [loadQqBotStatus])
+
+  const handleQqBotTest = useCallback(async () => {
+    setQqBotTesting(true)
+    setQqBotTestMessage(null)
+    try {
+      await agentService.testQqBot()
+      setQqBotTestMessage(t.config.qqBotTestOk)
+      await loadQqBotStatus()
+    } catch (error) {
+      setQqBotTestMessage(
+        userFacingError(error, t.config.qqBotTestFailed),
+      )
+    } finally {
+      setQqBotTesting(false)
+    }
+  }, [loadQqBotStatus, t.config.qqBotTestFailed, t.config.qqBotTestOk])
+
+  const qqPhaseLabel = (phase: QqBotPhase | undefined) => {
+    switch (phase) {
+      case 'online':
+        return t.config.qqBotPhaseOnline
+      case 'connecting':
+        return t.config.qqBotPhaseConnecting
+      case 'reconnecting':
+        return t.config.qqBotPhaseReconnecting
+      case 'rejected':
+        return t.config.qqBotPhaseRejected
+      default:
+        return t.config.qqBotPhaseOffline
+    }
+  }
 
   const o = t.agentPersona.onboarding
   const paneKey = aiSubpage ?? 'ai'
@@ -1154,6 +1205,16 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           title={t.config.qqBotTitle}
           description={t.config.qqBotDesc}
           {...bindGuide('ai.qqBot', g.ai.qqBot)}
+          badge={
+            <SettingTitleTag
+              variant={
+                qqBotStatus?.phase === 'rejected' ? 'danger' : 'muted'
+              }
+              title={qqBotTestMessage || t.config.qqBotHint}
+            >
+              {qqPhaseLabel(qqBotStatus?.phase)}
+            </SettingTitleTag>
+          }
           toggle={{
             checked: getFieldValue('qq_bot_enabled') === 'true',
             onChange: (value) =>
@@ -1182,6 +1243,19 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             layout="vertical"
             {...bindGuide('ai.qqBot', g.ai.qqBot)}
           />
+          <SettingsButton
+            size="sm"
+            loading={qqBotTesting}
+            disabled={qqBotTesting}
+            onClick={() => void handleQqBotTest()}
+          >
+            {qqBotTesting
+              ? t.config.qqBotTesting
+              : t.config.qqBotTest}
+          </SettingsButton>
+          {qqBotTestMessage ? (
+            <p className="ai-llm-tier-desc">{qqBotTestMessage}</p>
+          ) : null}
         </AgentNestedSection>
         <AgentOptionsPanel />
       </SettingGroup>

@@ -6,6 +6,7 @@
 //! Close-code permanence follows the official Node SDK table.
 //! Pairing codes bind C2C openid onto `user_identities`. Work ingest is a later ticket.
 
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use futures::{SinkExt, StreamExt};
@@ -14,9 +15,9 @@ use myriad_agent_rules::channel::{
     ConnectFailureKind, InboundC2cText, WorkerIntent, GROUP_AND_C2C_EVENT,
 };
 use myriad_error::redact_secrets;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::watch;
+use tokio::sync::{watch, RwLock};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
@@ -30,6 +31,79 @@ const API_BASE: &str = "https://api.bot.qq.com";
 const TOKEN_MARGIN: Duration = Duration::from_secs(60);
 const TOKEN_REFRESH: Duration = Duration::from_secs(3500);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QqBotPhase {
+    Offline,
+    Connecting,
+    Online,
+    Rejected,
+    Reconnecting,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct QqBotStatus {
+    pub phase: QqBotPhase,
+    pub enabled: bool,
+    pub has_app_id: bool,
+    pub has_secret: bool,
+}
+
+static SNAPSHOT: OnceLock<RwLock<QqBotStatus>> = OnceLock::new();
+
+fn snapshot() -> &'static RwLock<QqBotStatus> {
+    SNAPSHOT.get_or_init(|| {
+        RwLock::new(QqBotStatus {
+            phase: QqBotPhase::Offline,
+            enabled: false,
+            has_app_id: false,
+            has_secret: false,
+        })
+    })
+}
+
+async fn publish_status(phase: QqBotPhase, fingerprint: &CredentialFingerprint) {
+    *snapshot().write().await = QqBotStatus {
+        phase,
+        enabled: fingerprint.enabled,
+        has_app_id: !fingerprint.app_id.is_empty(),
+        has_secret: fingerprint.has_secret,
+    };
+}
+
+async fn publish_phase(phase: QqBotPhase) {
+    snapshot().write().await.phase = phase;
+}
+
+pub async fn current_status() -> QqBotStatus {
+    snapshot().read().await.clone()
+}
+
+/// Probe saved AppID / AppSecret against the token and Gateway URL endpoints.
+/// Does not open a WebSocket. Secrets never appear in the returned error.
+pub async fn test_saved_credentials() -> Result<(), ConnectFailureKind> {
+    let fingerprint = {
+        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        CredentialFingerprint::from_config(&config)
+    };
+    let secret = fingerprint
+        .secret
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or(ConnectFailureKind::Permanent)?;
+    if fingerprint.app_id.is_empty() {
+        return Err(ConnectFailureKind::Permanent);
+    }
+    let token = fetch_access_token(&fingerprint.app_id, secret).await?;
+    fetch_gateway_url(token.auth_header())
+        .await
+        .map(|_| ())
+        .map_err(|err| match err {
+            FetchGatewayError::TokenInvalid => ConnectFailureKind::Permanent,
+            FetchGatewayError::Failure(kind) => kind,
+        })
+}
 
 #[derive(Clone, PartialEq, Eq)]
 struct CredentialFingerprint {
@@ -93,11 +167,13 @@ async fn run_loop() {
 
         if fingerprint.intent() != WorkerIntent::Run {
             last_permanent = None;
+            publish_status(QqBotPhase::Offline, &fingerprint).await;
             tokio::time::sleep(POLL).await;
             continue;
         }
 
         if last_permanent.as_ref() == Some(&fingerprint) {
+            publish_status(QqBotPhase::Rejected, &fingerprint).await;
             tokio::time::sleep(POLL).await;
             continue;
         }
@@ -118,18 +194,22 @@ async fn run_loop() {
             }
         });
 
+        publish_status(QqBotPhase::Connecting, &fingerprint).await;
         let result = run_gateway(&fingerprint, cancel_rx).await;
         watch_task.abort();
         match result {
             Ok(()) => {
                 last_permanent = None;
+                publish_status(QqBotPhase::Offline, &fingerprint).await;
             }
             Err(ConnectFailureKind::Permanent) => {
                 warn!("QQ bot Gateway stopped: credentials rejected");
-                last_permanent = Some(fingerprint);
+                last_permanent = Some(fingerprint.clone());
+                publish_status(QqBotPhase::Rejected, &fingerprint).await;
             }
             Err(_) => {
                 warn!("QQ bot Gateway transient failure; will reconnect");
+                publish_status(QqBotPhase::Reconnecting, &fingerprint).await;
                 tokio::time::sleep(transient_backoff(1)).await;
             }
         }
@@ -198,6 +278,7 @@ async fn gateway_session(
             log_transport("QQ Identify send failed", &err);
             ConnectFailureKind::Transient
         })?;
+    publish_phase(QqBotPhase::Connecting).await;
 
     let mut seq: u64 = 0;
     let mut hb_timer = tokio::time::interval(hb_interval.max(Duration::from_millis(1)));
@@ -314,6 +395,9 @@ fn handle_payload(text: &str, seq: &mut u64, auth_header: &str) -> Option<Connec
     }
     match payload.op {
         0 => {
+            if payload.t.as_deref() == Some("READY") {
+                tokio::spawn(async { publish_phase(QqBotPhase::Online).await });
+            }
             if payload.t.as_deref() == Some("C2C_MESSAGE_CREATE") {
                 if let Some(event) = inbound_c2c_from_dispatch(payload.d.as_ref()) {
                     let auth = auth_header.to_string();
@@ -525,5 +609,23 @@ mod tests {
         assert_eq!(GROUP_AND_C2C_EVENT, 1 << 25);
         assert_eq!(GROUP_AND_C2C_EVENT & (1 << 9), 0);
         assert_eq!(GROUP_AND_C2C_EVENT & (1 << 30), 0);
+    }
+
+    #[tokio::test]
+    async fn status_snapshot_starts_offline_and_records_phase() {
+        let fingerprint = CredentialFingerprint {
+            enabled: true,
+            app_id: "102".into(),
+            has_secret: true,
+            secret: Some("s".into()),
+        };
+        publish_status(QqBotPhase::Connecting, &fingerprint).await;
+        let status = current_status().await;
+        assert_eq!(status.phase, QqBotPhase::Connecting);
+        assert!(status.enabled);
+        assert!(status.has_app_id);
+        assert!(status.has_secret);
+        publish_phase(QqBotPhase::Online).await;
+        assert_eq!(current_status().await.phase, QqBotPhase::Online);
     }
 }

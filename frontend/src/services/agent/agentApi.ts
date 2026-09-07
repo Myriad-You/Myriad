@@ -80,6 +80,20 @@ export interface QqPairingStatus {
   pendingExpiresAt: string | null
 }
 
+export type QqBotPhase =
+  | 'offline'
+  | 'connecting'
+  | 'online'
+  | 'rejected'
+  | 'reconnecting'
+
+export interface QqBotStatus {
+  phase: QqBotPhase
+  enabled: boolean
+  hasAppId: boolean
+  hasSecret: boolean
+}
+
 function sharePersonaGeneration<T>(
   key: string,
   start: () => Promise<T>,
@@ -346,6 +360,14 @@ class AgentService {
 
   async unpairQq(): Promise<{ success: boolean }> {
     return apiService.delete(`${this.baseUrl}/qq/pairing`)
+  }
+
+  async getQqBotStatus(): Promise<QqBotStatus> {
+    return apiService.get(`${this.baseUrl}/qq/status`)
+  }
+
+  async testQqBot(): Promise<{ success: boolean; phase?: QqBotPhase }> {
+    return apiService.post(`${this.baseUrl}/qq/test`)
   }
 
   /**
