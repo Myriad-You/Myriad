@@ -168,7 +168,7 @@ QQ 是三种场景三套接口。第一版只认 **单聊（C2C）**。
 基址：`https://api.bot.qq.com`（业务）、`https://bots.qq.com`（鉴权）。
 凭证：AppID + AppSecret 换 access token；旧 Token 已弃用。
 传输：Gateway WebSocket 收事件，HTTPS 发消息；发消息要求 WS 在线。
-配对：`user_openid` → Myriad 用户。这不是用户 QQ 登录 OAuth。
+配对：`user_openid` → Myriad 用户。这不是用户 QQ 登录 OAuth。登录用户在账号绑定页生成一次性配对码，发到机器人单聊后落在 `user_identities.provider = qq`。
 
 `msg_type`：
 

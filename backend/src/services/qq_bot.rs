@@ -4,7 +4,7 @@
 //! `POST /app/getAppAccessToken`, `Authorization: QQBot <token>`,
 //! `GET /gateway/bot`, Hello / Identify / Heartbeat.
 //! Close-code permanence follows the official Node SDK table.
-//! First cut reconnects with Identify; ingest into Work is a later ticket.
+//! Pairing codes bind C2C openid onto `user_identities`. Work ingest is a later ticket.
 
 use std::time::{Duration, Instant};
 
@@ -231,7 +231,7 @@ async fn gateway_session(
             msg = read.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if let Some(kind) = handle_payload(&text, &mut seq) {
+                        if let Some(kind) = handle_payload(&text, &mut seq, token.auth_header()) {
                             return Err(kind);
                         }
                     }
@@ -307,7 +307,7 @@ where
     }
 }
 
-fn handle_payload(text: &str, seq: &mut u64) -> Option<ConnectFailureKind> {
+fn handle_payload(text: &str, seq: &mut u64, auth_header: &str) -> Option<ConnectFailureKind> {
     let payload: GatewayPayload = serde_json::from_str(text).ok()?;
     if let Some(s) = payload.s {
         *seq = s;
@@ -316,7 +316,10 @@ fn handle_payload(text: &str, seq: &mut u64) -> Option<ConnectFailureKind> {
         0 => {
             if payload.t.as_deref() == Some("C2C_MESSAGE_CREATE") {
                 if let Some(event) = inbound_c2c_from_dispatch(payload.d.as_ref()) {
-                    info!(msg_id = %event.msg_id, "QQ C2C text received");
+                    let auth = auth_header.to_string();
+                    tokio::spawn(async move {
+                        crate::services::qq_pairing::handle_inbound_c2c(event, &auth).await;
+                    });
                 }
             }
             None
@@ -334,11 +337,7 @@ fn inbound_c2c_from_dispatch(data: Option<&Value>) -> Option<InboundC2cText> {
     if msg_id.is_empty() {
         return None;
     }
-    let user_openid = data
-        .get("author")?
-        .get("user_openid")?
-        .as_str()?
-        .trim();
+    let user_openid = data.get("author")?.get("user_openid")?.as_str()?.trim();
     if user_openid.is_empty() {
         return None;
     }
@@ -411,7 +410,11 @@ async fn fetch_gateway_url(auth_header: &str) -> Result<String, FetchGatewayErro
 }
 
 fn transient_backoff(attempt: u32) -> Duration {
-    let secs = if attempt >= 6 { 30 } else { 1u64 << attempt.min(5) };
+    let secs = if attempt >= 6 {
+        30
+    } else {
+        1u64 << attempt.min(5)
+    };
     Duration::from_secs(secs.min(30))
 }
 
@@ -448,14 +451,8 @@ mod tests {
             }),
             ConnectFailureKind::Permanent
         );
-        assert_eq!(
-            classify_gateway_close(4004),
-            ConnectFailureKind::Permanent
-        );
-        assert_eq!(
-            classify_gateway_close(4014),
-            ConnectFailureKind::Permanent
-        );
+        assert_eq!(classify_gateway_close(4004), ConnectFailureKind::Permanent);
+        assert_eq!(classify_gateway_close(4014), ConnectFailureKind::Permanent);
     }
 
     #[test]

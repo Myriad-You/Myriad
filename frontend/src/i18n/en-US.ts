@@ -3890,6 +3890,23 @@ export const enUS: TranslationKeys = {
     oauthLoadFailed: 'Could not load linked accounts.',
     oauthNoProviders: 'No third-party sign-in methods configured yet',
     oauthNotConfigured: 'This sign-in method is disabled',
+    qqPairingTitle: 'QQ Work channel',
+    qqPairingHint:
+      'Generate a one-time code and send it to the site bot in a private chat. This is not QQ sign-in.',
+    qqPairingLoadFailed: 'Could not load QQ pairing.',
+    qqPairingIssueFailed: 'Could not generate a pairing code.',
+    qqPairingCopyFailed: 'Could not copy the pairing code.',
+    qqPairingGenerateHint: 'Not paired yet. Generate a code and send it to the bot.',
+    qqPairingSendCode: 'Send this code to the bot in a private chat.',
+    qqGenerateCode: 'Generate code',
+    qqRefreshCode: 'Regenerate',
+    qqCopyCode: 'Copy',
+    qqPaired: 'Paired',
+    qqNotPaired: 'Not paired',
+    qqUnpair: 'Unpair',
+    qqUnpairConfirm:
+      'This QQ account will no longer be able to drive your Agent. Unpair?',
+    qqUnpairFailed: 'Could not unpair QQ.',
     profileDisplaySourcesTitle: 'Display sources',
     profileSourceTitle: 'Avatar source',
     profileSourceHint:

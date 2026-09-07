@@ -71,6 +71,15 @@ export interface AgentIntention {
   expires_at?: string
 }
 
+export interface QqPairingStatus {
+  paired: boolean
+  identityId: number | null
+  openidMasked: string | null
+  linkedAt: string | null
+  pendingCode: string | null
+  pendingExpiresAt: string | null
+}
+
 function sharePersonaGeneration<T>(
   key: string,
   start: () => Promise<T>,
@@ -321,6 +330,22 @@ class AgentService {
     grant: { userId: number; allowedPermissions: string[]; revoked: boolean }
   }> {
     return apiService.delete(`${this.baseUrl}/autonomy`)
+  }
+
+  async getQqPairing(): Promise<{ pairing: QqPairingStatus }> {
+    return apiService.get(`${this.baseUrl}/qq/pairing`)
+  }
+
+  async issueQqPairingCode(): Promise<{
+    code: string
+    expiresAt: string
+    pairing: QqPairingStatus
+  }> {
+    return apiService.post(`${this.baseUrl}/qq/pairing`)
+  }
+
+  async unpairQq(): Promise<{ success: boolean }> {
+    return apiService.delete(`${this.baseUrl}/qq/pairing`)
   }
 
   /**

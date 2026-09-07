@@ -1218,6 +1218,47 @@ html.dark .user-modal-oauth-sub.bound {
   color: #e0443a;
 }
 
+.user-modal-qq-pairing {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.user-modal-qq-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.user-modal-qq-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #888);
+  line-height: 1.4;
+}
+
+.user-modal-qq-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: 0.875rem;
+  background: rgb(255 255 255 / 55%);
+  border: 1px solid rgb(0 0 0 / 6%);
+}
+
+html.dark .user-modal-qq-row {
+  background: rgb(255 255 255 / 4%);
+  border-color: rgb(255 255 255 / 8%);
+}
+
+.user-modal-qq-row .user-modal-oauth-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 /* 绑定入口按钮（与 action-password 同风格） */
 .action-oauth {
   background: linear-gradient(

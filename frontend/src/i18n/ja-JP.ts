@@ -3881,6 +3881,23 @@ export const jaJP: TranslationKeys = {
     oauthLoadFailed: '連携アカウントを読み込めませんでした。',
     oauthNoProviders: '外部ログインはまだ設定されていません',
     oauthNotConfigured: 'このログイン方法は無効になっています',
+    qqPairingTitle: 'QQ 用事チャネル',
+    qqPairingHint:
+      '一度きりのコードを生成し、サイトのボットに個チャットで送ってください。QQ ログインではありません。',
+    qqPairingLoadFailed: 'QQ の連携状態を読み込めませんでした。',
+    qqPairingIssueFailed: 'ペアリングコードを生成できませんでした。',
+    qqPairingCopyFailed: 'ペアリングコードをコピーできませんでした。',
+    qqPairingGenerateHint: 'まだ未連携です。コードを生成してボットに送ってください。',
+    qqPairingSendCode: 'このコードをボットの個チャットに送ってください。',
+    qqGenerateCode: 'コードを生成',
+    qqRefreshCode: '再生成',
+    qqCopyCode: 'コピー',
+    qqPaired: '連携済み',
+    qqNotPaired: '未連携',
+    qqUnpair: '解除',
+    qqUnpairConfirm:
+      '解除すると、この QQ 番号はあなたの Agent を動かせなくなります。解除しますか？',
+    qqUnpairFailed: 'QQ の連携を解除できませんでした。',
     profileDisplaySourcesTitle: '表示の取得元',
     profileSourceTitle: 'アバターの取得元',
     profileSourceHint:

@@ -5,11 +5,68 @@
 //! shape of Easybot's QQ adapter. Copied files keep GPL-3 headers; this
 //! module is original AGPL-3 host code.
 
-/// Reply when an unpaired C2C text arrives. First-cut copy; pairing UI is later.
+/// Reply when an unpaired C2C text arrives and is not a pairing code.
 pub const PAIRING_REQUIRED_REPLY: &str = "请先去站点配对后再发消息。";
+
+/// Reply after a pairing code binds this openid to a site user.
+pub const PAIRING_OK_REPLY: &str = "配对成功。之后在这里发消息就是在站点办事。";
+
+/// Reply when the inbound text looks like a code but is missing, expired, or used.
+pub const PAIRING_INVALID_REPLY: &str = "配对码无效或已过期，请回站点重新生成。";
+
+/// Reply when this openid is already bound to a different site user.
+pub const PAIRING_TAKEN_REPLY: &str = "这个 QQ 号已经绑过别人。请先在原账号解除，或换一个号。";
 
 /// Reply when confirmation or a browser-only page action arrives on QQ.
 pub const PANEL_REQUIRED_REPLY: &str = "请到站点面板完成这一步。";
+
+/// Crockford Base32 without checksum. I/L → 1, O → 0. Eight characters = 40 bits.
+pub const PAIRING_CODE_ALPHABET: &[u8] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/// Encode 5 random bytes as an 8-character pairing code.
+pub fn encode_pairing_code(bytes: [u8; 5]) -> String {
+    let mut n = 0u64;
+    for byte in bytes {
+        n = (n << 8) | u64::from(byte);
+    }
+    let mut chars = [0u8; 8];
+    for slot in chars.iter_mut().rev() {
+        *slot = PAIRING_CODE_ALPHABET[(n & 31) as usize];
+        n >>= 5;
+    }
+    String::from_utf8(chars.to_vec()).expect("Crockford alphabet is ASCII")
+}
+
+/// Display form `ABCD-EFGH`. Unknown shapes pass through.
+pub fn format_pairing_code(code: &str) -> String {
+    if code.len() == 8 && code.bytes().all(|b| PAIRING_CODE_ALPHABET.contains(&b)) {
+        format!("{}-{}", &code[..4], &code[4..])
+    } else {
+        code.to_string()
+    }
+}
+
+/// Whole inbound text is a pairing code: optional hyphen/spaces, Crockford letters.
+/// Extra words are ordinary chat, not a code.
+pub fn extract_pairing_code(content: &str) -> Option<String> {
+    let mut out = String::new();
+    for ch in content.trim().chars() {
+        if ch == '-' || ch.is_ascii_whitespace() {
+            continue;
+        }
+        let mapped = match ch.to_ascii_uppercase() {
+            'O' => '0',
+            'I' | 'L' => '1',
+            upper if PAIRING_CODE_ALPHABET.contains(&(upper as u8)) => upper,
+            _ => return None,
+        };
+        out.push(mapped);
+        if out.len() > 8 {
+            return None;
+        }
+    }
+    (out.len() == 8).then_some(out)
+}
 
 /// First-cut QQ C2C capability bitmap. Undeclared capabilities are unsupported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +106,11 @@ pub fn qq_c2c_capabilities() -> ChannelCapabilities {
 /// Session key `platform:chatId`. Colons inside each part become `_` so
 /// `qq` + `user:1` cannot collide with `qq:user` + `1`.
 pub fn session_key(platform: &str, chat_id: &str) -> String {
-    format!("{}:{}", sanitize_key_part(platform), sanitize_key_part(chat_id))
+    format!(
+        "{}:{}",
+        sanitize_key_part(platform),
+        sanitize_key_part(chat_id)
+    )
 }
 
 fn sanitize_key_part(value: &str) -> String {
@@ -80,6 +141,11 @@ pub enum InboundDecision {
         reply: String,
         msg_id: String,
     },
+    ConsumePairingCode {
+        user_openid: String,
+        code: String,
+        msg_id: String,
+    },
     StartWork {
         user_id: i32,
         input: String,
@@ -92,8 +158,25 @@ pub enum InboundDecision {
     },
 }
 
-/// Turn a C2C text + pairing result into a Work request or a pairing reply.
-/// `already_seen` is whether this `msg_id` already opened a run.
+/// Result of consuming a pairing code against stored identities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PairingBindResult {
+    Bound { user_id: i32 },
+    InvalidOrExpired,
+    OpenidTaken,
+}
+
+/// Text to send after a pairing-code consume. Binding I/O stays outside this crate.
+pub fn pairing_bind_reply(result: PairingBindResult) -> &'static str {
+    match result {
+        PairingBindResult::Bound { .. } => PAIRING_OK_REPLY,
+        PairingBindResult::InvalidOrExpired => PAIRING_INVALID_REPLY,
+        PairingBindResult::OpenidTaken => PAIRING_TAKEN_REPLY,
+    }
+}
+
+/// Turn a C2C text + pairing result into a Work request, pairing-code consume,
+/// or a pairing prompt. `already_seen` is whether this `msg_id` already opened a run.
 pub fn ingest_c2c_text(
     event: &InboundC2cText,
     pairing: PairingLookup,
@@ -105,11 +188,21 @@ pub fn ingest_c2c_text(
         };
     }
     match pairing {
-        PairingLookup::Unpaired => InboundDecision::PairingRequired {
-            user_openid: event.user_openid.clone(),
-            reply: PAIRING_REQUIRED_REPLY.to_string(),
-            msg_id: event.msg_id.clone(),
-        },
+        PairingLookup::Unpaired => {
+            if let Some(code) = extract_pairing_code(&event.content) {
+                InboundDecision::ConsumePairingCode {
+                    user_openid: event.user_openid.clone(),
+                    code,
+                    msg_id: event.msg_id.clone(),
+                }
+            } else {
+                InboundDecision::PairingRequired {
+                    user_openid: event.user_openid.clone(),
+                    reply: PAIRING_REQUIRED_REPLY.to_string(),
+                    msg_id: event.msg_id.clone(),
+                }
+            }
+        }
         PairingLookup::Paired { user_id } => InboundDecision::StartWork {
             user_id,
             input: event.content.clone(),
@@ -147,8 +240,13 @@ pub struct DeliveryContext {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliveryPlan {
     Drop,
-    PassiveText { content: String, msg_id: String },
-    ActiveText { content: String },
+    PassiveText {
+        content: String,
+        msg_id: String,
+    },
+    ActiveText {
+        content: String,
+    },
     FailVisible {
         content: String,
         msg_id: Option<String>,
@@ -321,10 +419,7 @@ pub fn parse_access_token_response(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(ConnectFailureKind::Permanent)?;
-    let expires_in = data
-        .get("expires_in")
-        .and_then(json_u64)
-        .unwrap_or(7200);
+    let expires_in = data.get("expires_in").and_then(json_u64).unwrap_or(7200);
     Ok((access_token.to_string(), expires_in))
 }
 

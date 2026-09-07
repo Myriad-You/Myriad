@@ -107,5 +107,6 @@ pub mod icon_service;
 pub mod image_cache; // e.g. Notion temporary URLs
 pub mod notion_service;
 pub mod qq_bot; // QQ C2C Gateway worker
+pub mod qq_pairing; // QQ C2C pairing codes + user_identities
 pub mod rig_chest_analysis; // One-shot vision profile for Anime2.5D chest motion
 pub mod rsshub_service;

@@ -3284,6 +3284,21 @@ export interface TranslationKeys {
     oauthLoadFailed: string
     oauthNoProviders: string
     oauthNotConfigured: string
+    qqPairingTitle: string
+    qqPairingHint: string
+    qqPairingLoadFailed: string
+    qqPairingIssueFailed: string
+    qqPairingCopyFailed: string
+    qqPairingGenerateHint: string
+    qqPairingSendCode: string
+    qqGenerateCode: string
+    qqRefreshCode: string
+    qqCopyCode: string
+    qqPaired: string
+    qqNotPaired: string
+    qqUnpair: string
+    qqUnpairConfirm: string
+    qqUnpairFailed: string
     profileDisplaySourcesTitle: string
     profileSourceTitle: string
     profileSourceHint: string

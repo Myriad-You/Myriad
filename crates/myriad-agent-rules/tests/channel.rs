@@ -5,11 +5,13 @@
 //! turn is delivered, dropped, or failed visibly.
 
 use myriad_agent_rules::channel::{
-    classify_connect_failure, classify_gateway_close, ingest_c2c_text, next_passive_seq,
-    outbound_idempotency_key, parse_access_token_response, parse_gateway_url_response,
-    plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh, session_key, worker_intent,
-    ChannelEvent, ConnectFailure, DeliveryContext, DeliveryPlan, InboundC2cText, InboundDecision,
-    PairingLookup, WorkerIntent, GROUP_AND_C2C_EVENT, PANEL_REQUIRED_REPLY, PAIRING_REQUIRED_REPLY,
+    classify_connect_failure, classify_gateway_close, encode_pairing_code, extract_pairing_code,
+    format_pairing_code, ingest_c2c_text, next_passive_seq, outbound_idempotency_key,
+    pairing_bind_reply, parse_access_token_response, parse_gateway_url_response, plan_delivery,
+    qq_c2c_capabilities, qq_token_needs_refresh, session_key, worker_intent, ChannelEvent,
+    ConnectFailure, DeliveryContext, DeliveryPlan, InboundC2cText, InboundDecision,
+    PairingBindResult, PairingLookup, WorkerIntent, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY,
+    PAIRING_OK_REPLY, PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -30,7 +32,11 @@ fn window(msg_id: &str) -> DeliveryContext {
 
 #[test]
 fn unpaired_c2c_text_asks_to_pair_and_does_not_start_work() {
-    let decision = ingest_c2c_text(&text("m1", "openid-a", "帮我查天气"), PairingLookup::Unpaired, false);
+    let decision = ingest_c2c_text(
+        &text("m1", "openid-a", "帮我查天气"),
+        PairingLookup::Unpaired,
+        false,
+    );
     match decision {
         InboundDecision::PairingRequired {
             user_openid,
@@ -44,6 +50,70 @@ fn unpaired_c2c_text_asks_to_pair_and_does_not_start_work() {
         }
         other => panic!("expected pairing reply, got {other:?}"),
     }
+}
+
+#[test]
+fn unpaired_pairing_code_is_consumed_not_started_as_work() {
+    let decision = ingest_c2c_text(
+        &text("m-code", "openid-d", "ab1d-efgh"),
+        PairingLookup::Unpaired,
+        false,
+    );
+    match decision {
+        InboundDecision::ConsumePairingCode {
+            user_openid,
+            code,
+            msg_id,
+        } => {
+            assert_eq!(user_openid, "openid-d");
+            assert_eq!(code, "AB1DEFGH");
+            assert_eq!(msg_id, "m-code");
+        }
+        other => panic!("expected consume pairing code, got {other:?}"),
+    }
+    let mixed = ingest_c2c_text(
+        &text("m-mix", "openid-d", "帮我查天气 AB1DEFGH"),
+        PairingLookup::Unpaired,
+        false,
+    );
+    assert!(matches!(mixed, InboundDecision::PairingRequired { .. }));
+    let already_paired = ingest_c2c_text(
+        &text("m-keep", "openid-d", "AB1DEFGH"),
+        PairingLookup::Paired { user_id: 9 },
+        false,
+    );
+    assert!(matches!(
+        already_paired,
+        InboundDecision::StartWork { user_id: 9, .. }
+    ));
+}
+
+#[test]
+fn pairing_code_normalizes_crockford_and_rejects_extra_words() {
+    assert_eq!(
+        extract_pairing_code("ab1d-efgh").as_deref(),
+        Some("AB1DEFGH")
+    );
+    assert_eq!(
+        extract_pairing_code("  AB1O EFGH  ").as_deref(),
+        Some("AB10EFGH")
+    );
+    assert_eq!(extract_pairing_code("IL"), None);
+    assert_eq!(extract_pairing_code("帮我查天气"), None);
+    assert_eq!(encode_pairing_code([0, 0, 0, 0, 0]), "00000000");
+    assert_eq!(format_pairing_code("AB1DEFGH"), "AB1D-EFGH");
+    assert_eq!(
+        pairing_bind_reply(PairingBindResult::Bound { user_id: 3 }),
+        PAIRING_OK_REPLY
+    );
+    assert_eq!(
+        pairing_bind_reply(PairingBindResult::InvalidOrExpired),
+        PAIRING_INVALID_REPLY
+    );
+    assert_eq!(
+        pairing_bind_reply(PairingBindResult::OpenidTaken),
+        PAIRING_TAKEN_REPLY
+    );
 }
 
 #[test]
@@ -89,15 +159,17 @@ fn same_message_id_does_not_start_another_run() {
         PairingLookup::Paired { user_id: 3 },
         true,
     );
-    assert_eq!(decision, InboundDecision::Duplicate { msg_id: "m-dup".into() });
+    assert_eq!(
+        decision,
+        InboundDecision::Duplicate {
+            msg_id: "m-dup".into()
+        }
+    );
 }
 
 #[test]
 fn session_key_strips_colons_so_openid_cannot_collide() {
-    assert_ne!(
-        session_key("qq", "user:1"),
-        session_key("qq:user", "1")
-    );
+    assert_ne!(session_key("qq", "user:1"), session_key("qq:user", "1"));
     assert_eq!(session_key("qq", "user:1"), "qq:user_1");
 }
 
@@ -121,10 +193,22 @@ fn first_cut_capabilities_are_text_only() {
 #[test]
 fn thinking_and_step_events_are_not_sent() {
     let ctx = window("m4");
-    assert_eq!(plan_delivery(&ChannelEvent::ThinkingToken, &ctx), DeliveryPlan::Drop);
-    assert_eq!(plan_delivery(&ChannelEvent::StepStarted, &ctx), DeliveryPlan::Drop);
-    assert_eq!(plan_delivery(&ChannelEvent::StepCompleted, &ctx), DeliveryPlan::Drop);
-    assert_eq!(plan_delivery(&ChannelEvent::Progress, &ctx), DeliveryPlan::Drop);
+    assert_eq!(
+        plan_delivery(&ChannelEvent::ThinkingToken, &ctx),
+        DeliveryPlan::Drop
+    );
+    assert_eq!(
+        plan_delivery(&ChannelEvent::StepStarted, &ctx),
+        DeliveryPlan::Drop
+    );
+    assert_eq!(
+        plan_delivery(&ChannelEvent::StepCompleted, &ctx),
+        DeliveryPlan::Drop
+    );
+    assert_eq!(
+        plan_delivery(&ChannelEvent::Progress, &ctx),
+        DeliveryPlan::Drop
+    );
 }
 
 #[test]
@@ -235,32 +319,26 @@ fn passive_seq_and_outbound_idempotency_are_stable() {
 
 #[test]
 fn worker_runs_only_with_switch_and_complete_credentials() {
-    assert_eq!(
-        worker_intent(true, "app-1", true),
-        WorkerIntent::Run
-    );
-    assert_eq!(
-        worker_intent(false, "app-1", true),
-        WorkerIntent::Stop
-    );
-    assert_eq!(
-        worker_intent(true, "", true),
-        WorkerIntent::Stop
-    );
-    assert_eq!(
-        worker_intent(true, "app-1", false),
-        WorkerIntent::Stop
-    );
+    assert_eq!(worker_intent(true, "app-1", true), WorkerIntent::Run);
+    assert_eq!(worker_intent(false, "app-1", true), WorkerIntent::Stop);
+    assert_eq!(worker_intent(true, "", true), WorkerIntent::Stop);
+    assert_eq!(worker_intent(true, "app-1", false), WorkerIntent::Stop);
 }
 
 #[test]
 fn connect_failures_split_permanent_from_transient() {
     assert_eq!(
-        classify_connect_failure(&ConnectFailure::HttpStatus { status: 401, body: "" }),
+        classify_connect_failure(&ConnectFailure::HttpStatus {
+            status: 401,
+            body: ""
+        }),
         myriad_agent_rules::channel::ConnectFailureKind::Permanent
     );
     assert_eq!(
-        classify_connect_failure(&ConnectFailure::HttpStatus { status: 403, body: "" }),
+        classify_connect_failure(&ConnectFailure::HttpStatus {
+            status: 403,
+            body: ""
+        }),
         myriad_agent_rules::channel::ConnectFailureKind::Permanent
     );
     assert_eq!(
@@ -272,7 +350,9 @@ fn connect_failures_split_permanent_from_transient() {
         myriad_agent_rules::channel::ConnectFailureKind::Permanent
     );
     assert_eq!(
-        classify_connect_failure(&ConnectFailure::TokenRejected { body: "missing access_token" }),
+        classify_connect_failure(&ConnectFailure::TokenRejected {
+            body: "missing access_token"
+        }),
         myriad_agent_rules::channel::ConnectFailureKind::Permanent
     );
     assert_eq!(
@@ -280,20 +360,23 @@ fn connect_failures_split_permanent_from_transient() {
         myriad_agent_rules::channel::ConnectFailureKind::Transient
     );
     assert_eq!(
-        classify_connect_failure(&ConnectFailure::HttpStatus { status: 500, body: "" }),
-        myriad_agent_rules::channel::ConnectFailureKind::Transient
-    );
-    assert_eq!(
         classify_connect_failure(&ConnectFailure::HttpStatus {
-            status: 200,
-            body: r#"{"code":100001,"message":"rate limited"}"#, 
+            status: 500,
+            body: ""
         }),
         myriad_agent_rules::channel::ConnectFailureKind::Transient
     );
     assert_eq!(
         classify_connect_failure(&ConnectFailure::HttpStatus {
             status: 200,
-            body: r#"{"code":100016,"message":"invalid appid"}"#, 
+            body: r#"{"code":100001,"message":"rate limited"}"#,
+        }),
+        myriad_agent_rules::channel::ConnectFailureKind::Transient
+    );
+    assert_eq!(
+        classify_connect_failure(&ConnectFailure::HttpStatus {
+            status: 200,
+            body: r#"{"code":100016,"message":"invalid appid"}"#,
         }),
         myriad_agent_rules::channel::ConnectFailureKind::Permanent
     );
@@ -310,11 +393,9 @@ fn connect_failures_split_permanent_from_transient() {
 
 #[test]
 fn access_token_and_gateway_url_parse_without_leaking_secrets() {
-    let (token, ttl) = parse_access_token_response(
-        200,
-        r#"{"access_token":"tok-abc","expires_in":7200}"#, 
-    )
-    .expect("token");
+    let (token, ttl) =
+        parse_access_token_response(200, r#"{"access_token":"tok-abc","expires_in":7200}"#)
+            .expect("token");
     assert_eq!(token, "tok-abc");
     assert_eq!(ttl, 7200);
     assert_eq!(
@@ -330,20 +411,19 @@ fn access_token_and_gateway_url_parse_without_leaking_secrets() {
         Err(myriad_agent_rules::channel::ConnectFailureKind::Permanent)
     );
     assert_eq!(
-        parse_gateway_url_response(200, r#"{"url":"wss://api.bot.qq.com/websocket"}"#)
-            .as_deref(),
+        parse_gateway_url_response(200, r#"{"url":"wss://api.bot.qq.com/websocket"}"#).as_deref(),
         Ok("wss://api.bot.qq.com/websocket")
     );
     assert_eq!(
         parse_gateway_url_response(
             500,
-            r#"{"code":11244,"message":"token not exist or expire"}"#, 
+            r#"{"code":11244,"message":"token not exist or expire"}"#,
         ),
         Err(myriad_agent_rules::channel::ConnectFailureKind::Permanent)
     );
     assert!(qq_token_needs_refresh(
         500,
-        r#"{"code":11242,"message":"retry"}"#, 
+        r#"{"code":11242,"message":"retry"}"#,
     ));
     assert_eq!(
         parse_gateway_url_response(500, r#"{"code":11242,"message":"retry"}"#),

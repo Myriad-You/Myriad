@@ -8,6 +8,7 @@ import type {
 import {
   FaGithub,
   LuChevronLeft,
+  LuCopy,
   LuCrown,
   LuLink,
   LuUser,
@@ -19,6 +20,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
+import { agentService } from '../../services/agent'
+import type { QqPairingStatus } from '../../services/agent/agentApi'
 import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { getRecentTapps, listTapps } from '../../tapp/services/TappLifecycleApi'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
@@ -152,6 +155,9 @@ export const UserModal: FC<UserModalProps> = ({
   const [oauthLoading, setOAuthLoading] = useState(false)
   const [oauthError, setOAuthError] = useState('')
   const [unbindingId, setUnbindingId] = useState<number | null>(null)
+  const [qqPairing, setQqPairing] = useState<QqPairingStatus | null>(null)
+  const [qqPairingBusy, setQqPairingBusy] = useState(false)
+  const [qqCopied, setQqCopied] = useState(false)
   const { t, locale, format } = useI18n()
   const navigate = useNavigate()
   /** 自然高度测量目标：不受外层钉住 height / 滚动容器 max-height 约束 */
@@ -298,22 +304,24 @@ export const UserModal: FC<UserModalProps> = ({
         const data = await identitiesRes.json()
         const list = Array.isArray(data?.identities) ? data.identities : []
         setIdentities(
-          list.map(
-            (row: Record<string, unknown>): OAuthIdentity => ({
-              id: Number(row.id) || 0,
-              provider: String(row.provider ?? ''),
-              provider_username:
-                typeof row.provider_username === 'string'
-                  ? row.provider_username
-                  : null,
-              is_primary: row.is_primary === true,
-              linked_at:
-                typeof row.linked_at === 'string' ? row.linked_at : null,
-              avatar_url:
-                typeof row.avatar_url === 'string' ? row.avatar_url : null,
-              email: typeof row.email === 'string' ? row.email : null,
-            }),
-          ),
+          list
+            .filter((row: Record<string, unknown>) => row.provider !== 'qq')
+            .map(
+              (row: Record<string, unknown>): OAuthIdentity => ({
+                id: Number(row.id) || 0,
+                provider: String(row.provider ?? ''),
+                provider_username:
+                  typeof row.provider_username === 'string'
+                    ? row.provider_username
+                    : null,
+                is_primary: row.is_primary === true,
+                linked_at:
+                  typeof row.linked_at === 'string' ? row.linked_at : null,
+                avatar_url:
+                  typeof row.avatar_url === 'string' ? row.avatar_url : null,
+                email: typeof row.email === 'string' ? row.email : null,
+              }),
+            ),
         )
       }
     } catch (error) {
@@ -329,23 +337,39 @@ export const UserModal: FC<UserModalProps> = ({
     void loadOAuthBindings()
   }, [loadOAuthBindings])
 
+  const loadQqPairing = useCallback(async () => {
+    try {
+      const data = await agentService.getQqPairing()
+      setQqPairing(data.pairing)
+    } catch (error) {
+      setOAuthError(userFacingError(error, t.userModal.qqPairingLoadFailed))
+    }
+  }, [t.userModal.qqPairingLoadFailed])
+
   useEffect(() => {
     if (page === 'oauth') {
       void loadOAuthBindings()
+      void loadQqPairing()
     }
-  }, [page, loadOAuthBindings])
+  }, [page, loadOAuthBindings, loadQqPairing])
 
   /** Prefer live bindings list; fall back to /me identities + legacy linked_github_id */
   const linkedProviders = useMemo(() => {
     const fromLive = identities
       .map((i) => i.provider)
-      .filter((p): p is string => !!p && p.trim().length > 0)
+      .filter(
+        (p): p is string =>
+          !!p && p.trim().length > 0 && p.trim().toLowerCase() !== 'qq',
+      )
     if (fromLive.length > 0) {
       return [...new Set(fromLive.map((p) => p.trim().toLowerCase()))]
     }
     const fromUser = (user.identities ?? [])
       .map((i) => i.provider)
-      .filter((p): p is string => !!p && p.trim().length > 0)
+      .filter(
+        (p): p is string =>
+          !!p && p.trim().length > 0 && p.trim().toLowerCase() !== 'qq',
+      )
       .map((p) => p.trim().toLowerCase())
     if (fromUser.length > 0) {
       return [...new Set(fromUser)]
@@ -423,6 +447,44 @@ export const UserModal: FC<UserModalProps> = ({
 
   const openProfileSource = () => {
     setPage('profileSource')
+  }
+
+  const handleIssueQqCode = async () => {
+    setOAuthError('')
+    setQqPairingBusy(true)
+    setQqCopied(false)
+    try {
+      const data = await agentService.issueQqPairingCode()
+      setQqPairing(data.pairing)
+    } catch (error) {
+      setOAuthError(userFacingError(error, t.userModal.qqPairingIssueFailed))
+    } finally {
+      setQqPairingBusy(false)
+    }
+  }
+
+  const handleCopyQqCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setQqCopied(true)
+    } catch {
+      setOAuthError(t.userModal.qqPairingCopyFailed)
+    }
+  }
+
+  const handleUnpairQq = async () => {
+    if (!window.confirm(t.userModal.qqUnpairConfirm)) return
+    setOAuthError('')
+    setQqPairingBusy(true)
+    try {
+      await agentService.unpairQq()
+      const data = await agentService.getQqPairing()
+      setQqPairing(data.pairing)
+    } catch (error) {
+      setOAuthError(userFacingError(error, t.userModal.qqUnpairFailed))
+    } finally {
+      setQqPairingBusy(false)
+    }
   }
 
   // 解绑某个 OAuth identity
@@ -779,6 +841,7 @@ export const UserModal: FC<UserModalProps> = ({
                     {identities
                       .filter(
                         (identity) =>
+                          identity.provider !== 'qq' &&
                           !oauthProviders.some(
                             (p) => p.slug === identity.provider,
                           ),
@@ -821,6 +884,71 @@ export const UserModal: FC<UserModalProps> = ({
                       ))}
                   </ul>
                 )}
+                <section className="user-modal-qq-pairing">
+                  <h4 className="user-modal-qq-title">
+                    {t.userModal.qqPairingTitle}
+                  </h4>
+                  <p className="user-modal-qq-hint">
+                    {t.userModal.qqPairingHint}
+                  </p>
+                  {qqPairing?.paired ? (
+                    <div className="user-modal-qq-row">
+                      <span className="user-modal-oauth-info">
+                        <span className="user-modal-oauth-name">
+                          {t.userModal.qqPaired}
+                        </span>
+                        <span className="user-modal-oauth-sub bound">
+                          {qqPairing.openidMasked || t.userModal.githubLinked}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="user-modal-oauth-btn danger"
+                        disabled={qqPairingBusy}
+                        onClick={() => void handleUnpairQq()}
+                      >
+                        {t.userModal.qqUnpair}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="user-modal-qq-row">
+                      <span className="user-modal-oauth-info">
+                        <span className="user-modal-oauth-name">
+                          {qqPairing?.pendingCode || t.userModal.qqNotPaired}
+                        </span>
+                        <span className="user-modal-oauth-sub">
+                          {qqPairing?.pendingCode
+                            ? t.userModal.qqPairingSendCode
+                            : t.userModal.qqPairingGenerateHint}
+                        </span>
+                      </span>
+                      {qqPairing?.pendingCode ? (
+                        <button
+                          type="button"
+                          className="user-modal-oauth-btn"
+                          onClick={() =>
+                            void handleCopyQqCode(qqPairing.pendingCode || '')
+                          }
+                        >
+                          <LuCopy size={14} aria-hidden />
+                          {qqCopied
+                            ? t.common.copied
+                            : t.userModal.qqCopyCode}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="user-modal-oauth-btn"
+                        disabled={qqPairingBusy}
+                        onClick={() => void handleIssueQqCode()}
+                      >
+                        {qqPairing?.pendingCode
+                          ? t.userModal.qqRefreshCode
+                          : t.userModal.qqGenerateCode}
+                      </button>
+                    </div>
+                  )}
+                </section>
                 {oauthError && (
                   <p className="user-modal-oauth-error">{oauthError}</p>
                 )}
