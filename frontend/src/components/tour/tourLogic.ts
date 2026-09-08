@@ -672,14 +672,8 @@ export function pickHomeAgentPressBox(
   let bestScore = Number.POSITIVE_INFINITY
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < cols; col += 1) {
-      const left =
-        cols === 1
-          ? preferX
-          : minLeft + ((maxLeft - minLeft) * col) / (cols - 1)
-      const top =
-        rows === 1
-          ? preferY
-          : minTop + ((maxTop - minTop) * row) / (rows - 1)
+      const left = minLeft + ((maxLeft - minLeft) * col) / (cols - 1)
+      const top = minTop + ((maxTop - minTop) * row) / (rows - 1)
       const box = { top, left, width: size, height: size }
       let overlap = 0
       for (const other of occupied) overlap += overlapArea(box, other)

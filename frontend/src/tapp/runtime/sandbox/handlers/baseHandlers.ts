@@ -917,7 +917,7 @@ export function registerFileHandlers(bridge: TappBridge): void {
             ? filename
             : defaultDownloadFilename(mimeType || decoded.mimeType)
         triggerBrowserDownload(
-          new Blob([decoded.bytes], {
+          new Blob([decoded.bytes as BlobPart], {
             type: mimeType || decoded.mimeType || 'application/octet-stream',
           }),
           downloadName,
