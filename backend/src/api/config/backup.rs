@@ -987,6 +987,40 @@ mod settings_backup_tests {
     }
 
     #[test]
+    fn saves_discord_bot_write_only_token() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("discord_bot_enabled", "true"),
+            ui_field("discord_bot_token", "MTk4.Cl2FMQ.test-token"),
+        ];
+        let set = collect_database_updates(&config);
+        assert_eq!(set.get("discord_bot_enabled"), Some(&json!(true)));
+        assert_eq!(
+            set.get("discord_bot_token"),
+            Some(&json!("MTk4.Cl2FMQ.test-token"))
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("discord_bot_enabled", "true"),
+            ui_field("discord_bot_token", "••••••••"),
+        ];
+        let masked = collect_database_updates(&config);
+        assert_eq!(masked.get("discord_bot_enabled"), Some(&json!(true)));
+        assert!(
+            !masked.contains_key("discord_bot_token"),
+            "mask must keep the stored token"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("discord_bot_enabled", "false"),
+            ui_field("discord_bot_token", ""),
+        ];
+        let cleared = collect_database_updates(&config);
+        assert_eq!(cleared.get("discord_bot_enabled"), Some(&json!(false)));
+        assert_eq!(cleared.get("discord_bot_token"), Some(&Value::Null));
+    }
+
+    #[test]
     fn saves_agora_realtime_talk_fields() {
         let mut config = empty_config();
         config.ai_config.config_fields = vec![

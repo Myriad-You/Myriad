@@ -1315,6 +1315,8 @@ mod tests {
     fn pairing_providers_are_not_oauth_slugs() {
         assert!(is_pairing_provider("qq"));
         assert!(is_pairing_provider("Telegram"));
+        assert!(is_pairing_provider("discord_dm"));
+        assert!(!is_pairing_provider("discord"));
         assert!(!is_pairing_provider("github"));
     }
 }

@@ -701,6 +701,15 @@ impl ConfigService {
         if let Some(v) = map.get("telegram_bot_token") {
             config.telegram_bot_token = opt_nonempty_string(v);
         }
+        if let Some(v) = map.get("discord_bot_enabled") {
+            config.discord_bot_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.discord_bot_enabled);
+        }
+        if let Some(v) = map.get("discord_bot_token") {
+            config.discord_bot_token = opt_nonempty_string(v);
+        }
 
         if let Some(v) = map.get("enable_auto_fetch") {
             if let Some(b) = v.as_bool() {
@@ -1535,6 +1544,33 @@ mod tests {
         )]));
         assert!(!off.telegram_bot_enabled);
         assert_eq!(off.telegram_bot_token, None);
+    }
+
+    #[test]
+    fn parses_discord_bot_fields_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([
+            ("discord_bot_enabled".into(), json!(true)),
+            ("discord_bot_token".into(), json!("MTk4.Cl2FMQ.test")),
+        ]));
+        assert!(configured.discord_bot_enabled);
+        assert_eq!(
+            configured.discord_bot_token.as_deref(),
+            Some("MTk4.Cl2FMQ.test")
+        );
+
+        let from_str = ConfigService::parse_config(HashMap::from([
+            ("discord_bot_enabled".into(), json!("true")),
+            ("discord_bot_token".into(), json!("  ")),
+        ]));
+        assert!(from_str.discord_bot_enabled);
+        assert_eq!(from_str.discord_bot_token, None);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "discord_bot_enabled".into(),
+            json!(false),
+        )]));
+        assert!(!off.discord_bot_enabled);
+        assert_eq!(off.discord_bot_token, None);
     }
 
     #[test]

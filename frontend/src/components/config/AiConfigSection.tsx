@@ -29,11 +29,14 @@ import {
 import SiteMotionWorkbench from '../../features/merope/SiteMotionWorkbench'
 import { ChannelPairingPanel } from '../channel/ChannelPairingPanel'
 import {
+  discordOpenHref,
   formatInboundTime,
   telegramOpenHref,
 } from '../channel/channelPairing'
 import { agentService } from '../../services/agent'
 import type {
+  DiscordBotPhase,
+  DiscordBotStatus,
   QqBotPhase,
   QqBotStatus,
   TelegramBotPhase,
@@ -332,6 +335,12 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     useState<TelegramBotStatus | null>(null)
   const [telegramBotTesting, setTelegramBotTesting] = useState(false)
   const [telegramBotTestMessage, setTelegramBotTestMessage] = useState<
+    string | null
+  >(null)
+  const [discordBotStatus, setDiscordBotStatus] =
+    useState<DiscordBotStatus | null>(null)
+  const [discordBotTesting, setDiscordBotTesting] = useState(false)
+  const [discordBotTestMessage, setDiscordBotTestMessage] = useState<
     string | null
   >(null)
 
@@ -791,6 +800,69 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     t.config.telegramBotTestFailed,
     t.config.telegramBotTestOk,
   ])
+
+  const loadDiscordBotStatus = useCallback(async () => {
+    try {
+      setDiscordBotStatus(await agentService.getDiscordBotStatus())
+    } catch {
+      setDiscordBotStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadDiscordBotStatus()
+    const timer = window.setInterval(() => {
+      void loadDiscordBotStatus()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [loadDiscordBotStatus])
+
+  const handleDiscordBotTest = useCallback(async () => {
+    setDiscordBotTesting(true)
+    setDiscordBotTestMessage(null)
+    try {
+      const tested = await agentService.testDiscordBot()
+      setDiscordBotTestMessage(t.config.discordBotTestOk)
+      if (tested.botUsername || tested.botName || tested.botUserId) {
+        setDiscordBotStatus((current) =>
+          current
+            ? {
+                ...current,
+                botUsername: tested.botUsername ?? current.botUsername,
+                botName: tested.botName ?? current.botName,
+                botUserId: tested.botUserId ?? current.botUserId,
+              }
+            : current,
+        )
+      }
+      await loadDiscordBotStatus()
+    } catch (error) {
+      setDiscordBotTestMessage(
+        userFacingError(error, t.config.discordBotTestFailed),
+      )
+    } finally {
+      setDiscordBotTesting(false)
+    }
+  }, [
+    loadDiscordBotStatus,
+    t.config.discordBotTestFailed,
+    t.config.discordBotTestOk,
+  ])
+
+  const discordPhaseLabel = (phase: DiscordBotPhase | undefined) => {
+    switch (phase) {
+      case 'online':
+        return t.config.discordBotPhaseOnline
+      case 'connecting':
+        return t.config.discordBotPhaseConnecting
+      case 'reconnecting':
+        return t.config.discordBotPhaseReconnecting
+      case 'rejected':
+        return t.config.discordBotPhaseRejected
+      default:
+        return t.config.discordBotPhaseOffline
+    }
+  }
 
   const telegramPhaseLabel = (phase: TelegramBotPhase | undefined) => {
     switch (phase) {
@@ -1453,6 +1525,95 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
               channel="telegram"
               openHref={telegramOpenHref(telegramBotStatus?.botUsername)}
               receiveReady={telegramBotStatus?.phase === 'online'}
+            />
+          ) : null}
+        </AgentNestedSection>
+        <AgentNestedSection
+          title={t.config.discordBotTitle}
+          description={t.config.discordBotDesc}
+          {...bindGuide('ai.discordBot', g.ai.discordBot)}
+          badge={
+            <SettingTitleTag
+              variant={
+                discordBotStatus?.phase === 'rejected' ? 'danger' : 'muted'
+              }
+              title={discordBotTestMessage || t.config.discordBotHint}
+            >
+              {discordPhaseLabel(discordBotStatus?.phase)}
+            </SettingTitleTag>
+          }
+          toggle={{
+            checked: getFieldValue('discord_bot_enabled') === 'true',
+            onChange: (value) =>
+              updateValue('discord_bot_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.discordBotTitle,
+            title: t.config.discordBotHint,
+          }}
+        >
+          <InputItem
+            itemKey="discord_bot_token"
+            label={t.config.discordBotToken}
+            value={getFieldValue('discord_bot_token')}
+            onChange={(value) => updateValue('discord_bot_token', value)}
+            inputType="password"
+            autoSelectOnMask
+            hint={t.config.discordBotHint}
+            layout="vertical"
+            {...bindGuide('ai.discordBot', g.ai.discordBot)}
+          />
+          <SettingsButton
+            size="sm"
+            loading={discordBotTesting}
+            disabled={discordBotTesting}
+            onClick={() => void handleDiscordBotTest()}
+          >
+            {discordBotTesting
+              ? t.config.discordBotTesting
+              : t.config.discordBotTest}
+          </SettingsButton>
+          {discordBotTestMessage ? (
+            <p className="ai-llm-tier-desc">{discordBotTestMessage}</p>
+          ) : null}
+          <ChannelConnectFacts
+            credentialLabel={t.config.discordBotCredentialLabel}
+            credentialValue={
+              discordBotTestMessage ||
+              t.config.discordBotCredentialUntested
+            }
+            receiveLabel={t.config.discordBotReceiveLabel}
+            receiveValue={discordPhaseLabel(discordBotStatus?.phase)}
+            identityLabel={t.config.discordBotIdentityLabel}
+            identityValue={
+              discordBotStatus?.botUsername
+                ? format(t.config.discordBotIdentityName, {
+                    name: discordBotStatus.botName || discordBotStatus.botUsername,
+                    username: discordBotStatus.botUsername,
+                  })
+                : discordBotStatus?.botName
+                  ? format(t.config.discordBotIdentityNameOnly, {
+                      name: discordBotStatus.botName,
+                    })
+                  : null
+            }
+            inboundLabel={
+              formatInboundTime(discordBotStatus?.lastInboundAt, locale)
+                ? format(t.config.discordBotLastInbound, {
+                    time: formatInboundTime(
+                      discordBotStatus?.lastInboundAt,
+                      locale,
+                    ) as string,
+                  })
+                : t.config.discordBotLastInboundNone
+            }
+            openHref={discordOpenHref(discordBotStatus?.botUserId)}
+            openLabel={t.config.discordBotOpen}
+          />
+          {getFieldValue('discord_bot_enabled') === 'true' &&
+          discordBotStatus?.hasToken ? (
+            <ChannelPairingPanel
+              channel="discord_dm"
+              openHref={discordOpenHref(discordBotStatus?.botUserId)}
+              receiveReady={discordBotStatus?.phase === 'online'}
             />
           ) : null}
         </AgentNestedSection>

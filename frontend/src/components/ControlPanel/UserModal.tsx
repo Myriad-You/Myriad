@@ -850,6 +850,9 @@ export const UserModal: FC<UserModalProps> = ({
                 <div className="user-modal-qq-pairing">
                   <ChannelPairingPanel channel="telegram" />
                 </div>
+                <div className="user-modal-qq-pairing">
+                  <ChannelPairingPanel channel="discord_dm" />
+                </div>
                 {oauthError && (
                   <p className="user-modal-oauth-error">{oauthError}</p>
                 )}

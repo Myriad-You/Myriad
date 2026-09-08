@@ -217,8 +217,8 @@ _Avoid_: 当成自治接受
 _Avoid_: 第三个面板模式、Heartbeat、SYSTEM_USER_ID
 
 **配对（pairing）**：
-外部聊天账号（如 QQ openid、Telegram `from.id`）绑到已登录的站点用户。一次性配对码证明「这个号是我」，不是该平台的登录 OAuth，也不新开登录方式。
-_Avoid_: QQ 登录、Telegram 登录、把配对当会话、把 openid 漏进计划器
+外部聊天账号（如 QQ openid、Telegram `from.id`、Discord 用户 snowflake）绑到已登录的站点用户。一次性配对码证明「这个号是我」，不是该平台的登录 OAuth，也不新开登录方式。Discord 登录身份已经占用 `discord` 这条身份名，通道配对不能再叫这个名字。
+_Avoid_: QQ 登录、Telegram 登录、Discord 登录、把配对当会话、把 openid 漏进计划器
 
 **通道（channel）**：
 外部聊天软件走进站点已经存在的办事流水线。只负责进出，不另造一个 bot 大脑。第一版只做私聊。

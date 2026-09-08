@@ -595,6 +595,13 @@ export const en: SettingGuidesCatalog = {
       frontend: 'Settings → AI → Agent → Telegram bot.',
       notes: 'Do not paste MTProto api_id / api_hash. The token never appears in page plaintext or error text. Reachability of api.telegram.org is outside the platform.',
     },
+    discordBot: {
+      what: 'Send a Discord DM into site Work and get the result back in the same chat.',
+      chain:
+        '1) Turn on, paste the Developer Portal bot token, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The token is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, missing token, or 401/403 stop the worker. Network jitter resumes the Gateway session; do not Identify on every disconnect.\n5) After connect succeeds, bind your Discord here: copy the pairing code and send it in a DM. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Buttons belong to that step only. You can send 停止 / 新对话 / 当前任务.',
+      frontend: 'Settings → AI → Agent → Discord bot.',
+      notes: 'Do not paste the data-platform OAuth access token. Pairing identity is discord_dm, not Discord login. The token never appears in page plaintext or error text.',
+    },
     liteEnable: {
       what: 'Whether to enable the Lite tier.',
       chain:

@@ -10,13 +10,14 @@ use std::time::Duration;
 use chrono::{Duration as ChronoDuration, Utc};
 use myriad_agent_rules::channel::{
     channel_can_finish, clarify_base_input, clarify_followup, decide_pending_reply,
-    ensure_pending_id, format_channel_result, format_pending_prompt, panel_entry_reply,
-    parse_channel_command, pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities,
-    should_deliver_sequence, split_channel_text, telegram_callback_action,
-    telegram_dm_capabilities, telegram_force_reply_markup, telegram_reply_markup, ChannelCommand,
-    ChannelEvent, DeliveryContext, DeliveryPlan, PendingDecision, PendingKind, PendingOption,
-    PendingPrompt, TelegramCallbackAction, CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY,
-    PANEL_REQUIRED_REPLY, PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
+    discord_dm_capabilities, discord_reply_markup, ensure_pending_id, format_channel_result,
+    format_pending_prompt, panel_entry_reply, parse_channel_command, pending_prompt_from_model_json,
+    plan_delivery, qq_c2c_capabilities, should_deliver_sequence, split_channel_text,
+    telegram_callback_action, telegram_dm_capabilities, telegram_force_reply_markup,
+    telegram_reply_markup, ChannelCommand, ChannelEvent, DeliveryContext, DeliveryPlan,
+    PendingDecision, PendingKind, PendingOption, PendingPrompt, TelegramCallbackAction,
+    CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT, PANEL_REQUIRED_REPLY,
+    PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
 };
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
 use once_cell::sync::Lazy;
@@ -72,6 +73,10 @@ pub enum ChannelSink {
         token: String,
         chat_id: String,
     },
+    Discord {
+        token: String,
+        channel_id: String,
+    },
     Qq {
         db: DatabaseConnection,
         auth_header: String,
@@ -84,6 +89,7 @@ impl ChannelSink {
     fn platform(&self) -> &'static str {
         match self {
             Self::Telegram { .. } => "telegram",
+            Self::Discord { .. } => "discord",
             Self::Qq { .. } => "qq",
         }
     }
@@ -91,6 +97,7 @@ impl ChannelSink {
     fn capabilities(&self) -> myriad_agent_rules::channel::ChannelCapabilities {
         match self {
             Self::Telegram { .. } => telegram_dm_capabilities(),
+            Self::Discord { .. } => discord_dm_capabilities(),
             Self::Qq { .. } => qq_c2c_capabilities(),
         }
     }
@@ -98,13 +105,14 @@ impl ChannelSink {
     fn text_limit(&self) -> usize {
         match self {
             Self::Telegram { .. } => TELEGRAM_TEXT_LIMIT,
+            Self::Discord { .. } => DISCORD_TEXT_LIMIT,
             Self::Qq { .. } => QQ_TEXT_LIMIT,
         }
     }
 
     fn delivery_context(&self) -> DeliveryContext {
         match self {
-            Self::Telegram { .. } => DeliveryContext {
+            Self::Telegram { .. } | Self::Discord { .. } => DeliveryContext {
                 inbound_msg_id: None,
                 passive_window_open: false,
                 remaining_passive_replies: 0,
@@ -125,6 +133,13 @@ impl ChannelSink {
                     warn!(?error, "channel typing failed");
                 }
             }
+            Self::Discord { token, channel_id } => {
+                if let Err(error) =
+                    crate::services::discord_bot::send_typing(token, channel_id).await
+                {
+                    warn!(?error, "channel typing failed");
+                }
+            }
             Self::Qq { .. } => {}
         }
     }
@@ -139,7 +154,7 @@ impl ChannelSink {
             )
             .await
             .map_err(|error| format!("{error:?}")),
-            Self::Qq { .. } => self.send_text("请直接回复这一问。").await,
+            Self::Discord { .. } | Self::Qq { .. } => self.send_text("请直接回复这一问。").await,
         }
     }
 
@@ -168,11 +183,17 @@ impl ChannelSink {
                 .filter(|_| index == last)
                 .and_then(|prompt| match self {
                     Self::Telegram { .. } => telegram_reply_markup(prompt),
+                    Self::Discord { .. } => discord_reply_markup(prompt),
                     Self::Qq { .. } => None,
                 });
             match self {
                 Self::Telegram { token, chat_id } => {
                     crate::services::telegram_bot::send_outbound(token, chat_id, chunk, markup)
+                        .await
+                        .map_err(|error| format!("{error:?}"))?;
+                }
+                Self::Discord { token, channel_id } => {
+                    crate::services::discord_bot::send_outbound(token, channel_id, chunk, markup)
                         .await
                         .map_err(|error| format!("{error:?}"))?;
                 }
@@ -200,6 +221,7 @@ impl ChannelSink {
 fn session_ns(platform: &str) -> &'static str {
     match platform {
         "telegram" => "telegram_dm_session",
+        "discord" => "discord_dm_session",
         _ => "qq_c2c_session",
     }
 }
@@ -207,6 +229,7 @@ fn session_ns(platform: &str) -> &'static str {
 fn pending_ns(platform: &str) -> &'static str {
     match platform {
         "telegram" => "telegram_dm_pending",
+        "discord" => "discord_dm_pending",
         _ => "qq_c2c_pending",
     }
 }
@@ -214,6 +237,7 @@ fn pending_ns(platform: &str) -> &'static str {
 fn outbound_ns(platform: &str) -> &'static str {
     match platform {
         "telegram" => "telegram_dm_outbound",
+        "discord" => "discord_dm_outbound",
         _ => "qq_c2c_outbound",
     }
 }
@@ -221,6 +245,7 @@ fn outbound_ns(platform: &str) -> &'static str {
 fn inbound_ns(platform: &str) -> &'static str {
     match platform {
         "telegram" => "telegram_dm_update",
+        "discord" => "discord_dm_msg",
         _ => "qq_c2c_msg",
     }
 }

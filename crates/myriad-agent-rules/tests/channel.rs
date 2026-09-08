@@ -20,10 +20,13 @@ use myriad_agent_rules::channel::{
     worker_intent, ChannelCommand, ChannelEvent, ConnectFailure, DeliveryContext, DeliveryPlan,
     InboundC2cText, InboundDecision, PairingBindResult, PairingLookup, PendingDecision,
     PendingKind, PendingOption, PendingPrompt, TelegramCallbackAction, TelegramPrivateInbound,
-    WorkerIntent, CONFIRM_HINT, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
+    WorkerIntent, CONFIRM_HINT, DISCORD_DIRECT_MESSAGES, DISCORD_PAIRING_TAKEN_REPLY,
+    DISCORD_TEXT_LIMIT, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
     PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY,
     PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES,
-    TELEGRAM_INPUT_BUTTON, TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
+    TELEGRAM_INPUT_BUTTON, TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT, classify_discord_rest,
+    discord_dm_capabilities, discord_private_text_from_create, discord_reply_markup,
+    discord_worker_intent,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -129,6 +132,10 @@ fn pairing_code_normalizes_crockford_and_rejects_extra_words() {
     assert_eq!(
         pairing_bind_reply_for(PairingBindResult::OpenidTaken, "telegram"),
         TELEGRAM_PAIRING_TAKEN_REPLY
+    );
+    assert_eq!(
+        pairing_bind_reply_for(PairingBindResult::OpenidTaken, "discord"),
+        DISCORD_PAIRING_TAKEN_REPLY
     );
 }
 
@@ -456,7 +463,51 @@ fn connect_failures_split_permanent_from_transient() {
         classify_gateway_close(4915),
         myriad_agent_rules::channel::ConnectFailureKind::Permanent
     );
+    assert_eq!(
+        classify_gateway_close(4010),
+        myriad_agent_rules::channel::ConnectFailureKind::Permanent
+    );
     assert_eq!(GROUP_AND_C2C_EVENT, 1 << 25);
+    assert_eq!(DISCORD_DIRECT_MESSAGES, 1 << 12);
+    assert_eq!(
+        classify_discord_rest(403, r#"{"code":50007,"message":"no"}"#),
+        myriad_agent_rules::channel::ConnectFailureKind::Transient
+    );
+    assert_eq!(discord_worker_intent(true, "tok"), WorkerIntent::Run);
+    assert_eq!(discord_dm_capabilities().inbound_text, true);
+    assert_eq!(DISCORD_TEXT_LIMIT, 2000);
+}
+
+#[test]
+fn discord_dm_create_is_kept_and_guild_is_dropped() {
+    let dm = serde_json::json!({
+        "id": "11",
+        "channel_id": "22",
+        "author": { "id": "33", "bot": false },
+        "content": "hello"
+    });
+    let inbound = discord_private_text_from_create(&dm, "99").expect("dm");
+    assert_eq!(inbound.author_id, "33");
+    let guild = serde_json::json!({
+        "id": "11",
+        "channel_id": "22",
+        "guild_id": "44",
+        "author": { "id": "33" },
+        "content": "hello"
+    });
+    assert!(discord_private_text_from_create(&guild, "99").is_none());
+    let mut prompt = PendingPrompt {
+        id: String::new(),
+        kind: PendingKind::Confirm {
+            confirmation_id: "c1".into(),
+        },
+        question: "确认？".into(),
+        options: Vec::new(),
+        expires_at_unix: None,
+    };
+    ensure_pending_id(&mut prompt);
+    let markup = discord_reply_markup(&prompt).expect("buttons");
+    assert_eq!(markup.as_array().map(|rows| rows.len()), Some(1));
 }
 
 #[test]

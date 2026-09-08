@@ -2,7 +2,7 @@ export function isChannelPairingProvider(
   provider: string | null | undefined,
 ): boolean {
   const key = provider?.trim().toLowerCase()
-  return key === 'qq' || key === 'telegram'
+  return key === 'qq' || key === 'telegram' || key === 'discord_dm'
 }
 
 export function pairingCodeLive(
@@ -18,6 +18,12 @@ export function telegramOpenHref(username?: string | null): string | null {
   const handle = username?.trim().replace(/^@/, '')
   if (!handle) return null
   return `https://t.me/${encodeURIComponent(handle)}`
+}
+
+export function discordOpenHref(userId?: string | null): string | null {
+  const id = userId?.trim()
+  if (!id) return null
+  return `https://discord.com/users/${encodeURIComponent(id)}`
 }
 
 export function formatInboundTime(

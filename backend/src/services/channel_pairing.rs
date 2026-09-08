@@ -35,16 +35,23 @@ pub const TELEGRAM: PairingChannel = PairingChannel {
     code_namespace: "telegram_pairing_code",
 };
 
+pub const DISCORD_DM: PairingChannel = PairingChannel {
+    provider: "discord_dm",
+    code_namespace: "discord_dm_pairing_code",
+};
+
 /// Pairing rows share `user_identities` with OAuth, but they are not login identities.
+/// `discord` is the login / data-platform slug and must stay out of this set.
 pub fn is_pairing_provider(provider: &str) -> bool {
     matches!(
         provider.trim().to_ascii_lowercase().as_str(),
-        "qq" | "telegram"
+        "qq" | "telegram" | "discord_dm"
     )
 }
 
 /// SQL predicate excluding pairing rows from OAuth / avatar identity queries.
-pub const SQL_NOT_PAIRING_PROVIDER: &str = "LOWER(provider) NOT IN ('qq', 'telegram')";
+pub const SQL_NOT_PAIRING_PROVIDER: &str =
+    "LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm')";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredPairingCode {
@@ -363,6 +370,8 @@ mod tests {
     fn pairing_providers_are_not_oauth_slugs() {
         assert!(is_pairing_provider("qq"));
         assert!(is_pairing_provider("Telegram"));
+        assert!(is_pairing_provider("discord_dm"));
+        assert!(!is_pairing_provider("discord"));
         assert!(!is_pairing_provider("github"));
         assert!(!is_pairing_provider(""));
     }

@@ -267,6 +267,8 @@ mod routes;
 mod sessions;
 mod telegram_pairing;
 mod telegram_status;
+mod discord_pairing;
+mod discord_status;
 mod types;
 
 pub use autonomy_dispatch::*;
@@ -284,4 +286,6 @@ pub use routes::*;
 pub use sessions::*;
 pub use telegram_pairing::*;
 pub use telegram_status::*;
+pub use discord_pairing::*;
+pub use discord_status::*;
 pub use types::*;

@@ -33,6 +33,11 @@ const API_BASE: &str = "https://api.bot.qq.com";
 const TOKEN_MARGIN: Duration = Duration::from_secs(60);
 const TOKEN_REFRESH: Duration = Duration::from_secs(3500);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
+/// `connect_async` has no built-in deadline; without one a dead path stays
+/// `connecting` forever (HTTP may still work via env proxy while WSS does not).
+const WS_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Identify succeeded but READY never arrived — treat as transient and reconnect.
+const READY_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -176,6 +181,7 @@ pub fn spawn_worker() {
 
 async fn run_loop() {
     let mut last_permanent: Option<CredentialFingerprint> = None;
+    let mut reconnect_attempts: u32 = 0;
     loop {
         let fingerprint = {
             let config = GLOBAL_DYNAMIC_CONFIG.read().await;
@@ -184,6 +190,7 @@ async fn run_loop() {
 
         if fingerprint.intent() != WorkerIntent::Run {
             last_permanent = None;
+            reconnect_attempts = 0;
             publish_status(QqBotPhase::Offline, &fingerprint).await;
             tokio::time::sleep(POLL).await;
             continue;
@@ -217,17 +224,25 @@ async fn run_loop() {
         match result {
             Ok(()) => {
                 last_permanent = None;
+                reconnect_attempts = 0;
                 publish_status(QqBotPhase::Offline, &fingerprint).await;
             }
             Err(ConnectFailureKind::Permanent) => {
                 warn!("QQ bot Gateway stopped: credentials rejected");
                 last_permanent = Some(fingerprint.clone());
+                reconnect_attempts = 0;
                 publish_status(QqBotPhase::Rejected, &fingerprint).await;
             }
             Err(_) => {
-                warn!("QQ bot Gateway transient failure; will reconnect");
+                reconnect_attempts = reconnect_attempts.saturating_add(1);
+                let delay = transient_backoff(reconnect_attempts);
+                warn!(
+                    attempt = reconnect_attempts,
+                    retry_in_secs = delay.as_secs(),
+                    "QQ bot Gateway transient failure; will reconnect"
+                );
                 publish_status(QqBotPhase::Reconnecting, &fingerprint).await;
-                tokio::time::sleep(transient_backoff(1)).await;
+                tokio::time::sleep(delay).await;
             }
         }
     }
@@ -264,13 +279,25 @@ async fn gateway_session(
     gw_url: &str,
     cancel: &mut watch::Receiver<bool>,
 ) -> Result<(), ConnectFailureKind> {
+    info!(gateway = %gw_url, "QQ Gateway connecting");
     let (ws, _) = tokio::select! {
         _ = cancel.changed() => return Ok(()),
-        result = tokio_tungstenite::connect_async(gw_url) => {
-            result.map_err(|err| {
-                log_transport("QQ Gateway connect failed", &err);
-                ConnectFailureKind::Transient
-            })?
+        result = tokio::time::timeout(WS_CONNECT_TIMEOUT, tokio_tungstenite::connect_async(gw_url)) => {
+            match result {
+                Ok(Ok(stream)) => stream,
+                Ok(Err(err)) => {
+                    log_transport("QQ Gateway connect failed", &err);
+                    return Err(ConnectFailureKind::Transient);
+                }
+                Err(_) => {
+                    warn!(
+                        gateway = %gw_url,
+                        timeout_secs = WS_CONNECT_TIMEOUT.as_secs(),
+                        "QQ Gateway connect timed out"
+                    );
+                    return Err(ConnectFailureKind::Transient);
+                }
+            }
         }
     };
     let (mut write, mut read) = ws.split();
@@ -295,9 +322,15 @@ async fn gateway_session(
             log_transport("QQ Identify send failed", &err);
             ConnectFailureKind::Transient
         })?;
-    publish_phase(QqBotPhase::Connecting).await;
 
     let mut seq: u64 = 0;
+    if !wait_ready(&mut read, &mut seq, token.auth_header(), cancel).await? {
+        let _ = write.close().await;
+        return Ok(());
+    }
+    publish_phase(QqBotPhase::Online).await;
+    info!("QQ Gateway online");
+
     let mut hb_timer = tokio::time::interval(hb_interval.max(Duration::from_millis(1)));
     hb_timer.tick().await;
     let mut token_timer = tokio::time::interval(TOKEN_REFRESH);
@@ -377,7 +410,10 @@ where
     loop {
         tokio::select! {
             _ = cancel.changed() => return Ok(None),
-            _ = &mut deadline => return Err(ConnectFailureKind::Transient),
+            _ = &mut deadline => {
+                warn!("QQ Gateway Hello timed out");
+                return Err(ConnectFailureKind::Transient);
+            }
             msg = read.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
@@ -405,6 +441,65 @@ where
     }
 }
 
+/// After Identify, wait for READY before marking Online. Dropping this deadline left
+/// the worker stuck on `connecting` when the socket was half-alive.
+async fn wait_ready<S>(
+    read: &mut S,
+    seq: &mut u64,
+    auth_header: &str,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<bool, ConnectFailureKind>
+where
+    S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
+    let deadline = tokio::time::sleep(READY_TIMEOUT);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = cancel.changed() => return Ok(false),
+            _ = &mut deadline => {
+                warn!(
+                    timeout_secs = READY_TIMEOUT.as_secs(),
+                    "QQ Gateway READY timed out after Identify"
+                );
+                return Err(ConnectFailureKind::Transient);
+            }
+            msg = read.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        if payload_is_ready(&text, seq) {
+                            return Ok(true);
+                        }
+                        if let Some(kind) = handle_payload(&text, seq, auth_header) {
+                            return Err(kind);
+                        }
+                    }
+                    Some(Ok(Message::Close(frame))) => {
+                        let code = frame.map(|f| u16::from(f.code)).unwrap_or(1000);
+                        return Err(classify_gateway_close(code));
+                    }
+                    Some(Err(err)) => {
+                        log_transport("QQ Gateway stream error while waiting for READY", &err);
+                        return Err(ConnectFailureKind::Transient);
+                    }
+                    None => return Err(ConnectFailureKind::Transient),
+                    Some(Ok(_)) => {}
+                }
+            }
+        }
+    }
+}
+
+fn payload_is_ready(text: &str, seq: &mut u64) -> bool {
+    let Ok(payload) = serde_json::from_str::<GatewayPayload>(text) else {
+        return false;
+    };
+    if let Some(s) = payload.s {
+        *seq = s;
+    }
+    payload.op == 0 && payload.t.as_deref() == Some("READY")
+}
+
 fn handle_payload(text: &str, seq: &mut u64, auth_header: &str) -> Option<ConnectFailureKind> {
     let payload: GatewayPayload = serde_json::from_str(text).ok()?;
     if let Some(s) = payload.s {
@@ -412,9 +507,7 @@ fn handle_payload(text: &str, seq: &mut u64, auth_header: &str) -> Option<Connec
     }
     match payload.op {
         0 => {
-            if payload.t.as_deref() == Some("READY") {
-                tokio::spawn(async { publish_phase(QqBotPhase::Online).await });
-            }
+            // READY is handled by wait_ready before the event loop starts.
             if payload.t.as_deref() == Some("C2C_MESSAGE_CREATE") {
                 if let Some(event) = inbound_c2c_from_dispatch(payload.d.as_ref()) {
                     let auth = auth_header.to_string();
@@ -458,7 +551,7 @@ async fn fetch_access_token(
     app_id: &str,
     client_secret: &str,
 ) -> Result<AccessToken, ConnectFailureKind> {
-    let client = http_client::get_global_client().await;
+    let client = qq_http_client().await?;
     let body = serde_json::json!({
         "appId": app_id,
         "clientSecret": client_secret,
@@ -491,7 +584,9 @@ enum FetchGatewayError {
 }
 
 async fn fetch_gateway_url(auth_header: &str) -> Result<String, FetchGatewayError> {
-    let client = http_client::get_global_client().await;
+    let client = qq_http_client()
+        .await
+        .map_err(FetchGatewayError::Failure)?;
     let url = format!("{API_BASE}/gateway/bot");
     let resp = client
         .get(&url)
@@ -509,6 +604,29 @@ async fn fetch_gateway_url(auth_header: &str) -> Result<String, FetchGatewayErro
         return Err(FetchGatewayError::TokenInvalid);
     }
     parse_gateway_url_response(status, &text).map_err(FetchGatewayError::Failure)
+}
+
+/// QQ HTTP must share the WSS egress story: site proxy when configured, otherwise
+/// ignore process `HTTP_PROXY` so token/gateway probes do not succeed via Clash
+/// while `connect_async` hangs on a direct path.
+async fn qq_http_client() -> Result<reqwest::Client, ConnectFailureKind> {
+    let proxy = http_client::ProxyConfig::from_dynamic_config().await;
+    let builder = reqwest::Client::builder()
+        .timeout(HTTP_TIMEOUT)
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent("Myriad/1.0");
+    let builder = if proxy.should_use_proxy() {
+        http_client::apply_proxy(builder, &proxy).map_err(|err| {
+            log_transport("QQ HTTP client proxy build failed", &err);
+            ConnectFailureKind::Transient
+        })?
+    } else {
+        builder.no_proxy()
+    };
+    builder.build().map_err(|err| {
+        log_transport("QQ HTTP client build failed", &err);
+        ConnectFailureKind::Transient
+    })
 }
 
 fn transient_backoff(attempt: u32) -> Duration {

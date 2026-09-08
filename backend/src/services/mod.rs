@@ -117,3 +117,6 @@ pub mod rsshub_service;
 pub mod telegram_bot; // Telegram DM getUpdates worker
 pub mod telegram_pairing; // Telegram DM pairing codes + user_identities
 pub mod telegram_work; // Telegram DM send adapter + Work entry
+pub mod discord_bot; // Discord DM Gateway worker
+pub mod discord_pairing; // Discord DM pairing codes + user_identities
+pub mod discord_work; // Discord DM send adapter + Work entry

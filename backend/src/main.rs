@@ -129,6 +129,11 @@ async fn main() -> anyhow::Result<()> {
     // Docker: durable site origin (DATA_DIR/site_public.env) outlives compose-injected CORS.
     api::site_domain::load_durable_site_public_env();
 
+    // sqlx enables rustls `ring`; reqwest enables `aws-lc-rs`. Both land in one
+    // binary, so rustls will not auto-pick a CryptoProvider — WSS connect via
+    // tokio-tungstenite panics unless we install one before any TLS client.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
@@ -779,6 +784,8 @@ async fn run_server() -> anyhow::Result<()> {
                 tracing::info!("✅ QQ bot Gateway worker started");
                 services::telegram_bot::spawn_worker();
                 tracing::info!("✅ Telegram bot worker started");
+                services::discord_bot::spawn_worker();
+                tracing::info!("✅ Discord bot worker started");
 
                 // 密钥迁移：把存量明文配置与 v0 联邦私钥升级到数据密钥信封。
                 //

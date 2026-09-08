@@ -2592,6 +2592,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rsa 0.10.0-rc.18",
+ "rustls",
  "scraper",
  "sea-orm",
  "sea-orm-migration",

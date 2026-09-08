@@ -25,6 +25,10 @@ pub const PAIRING_TAKEN_REPLY: &str = "这个 QQ 号已经绑过别人。请先�
 pub const TELEGRAM_PAIRING_TAKEN_REPLY: &str =
     "这个 Telegram 号已经绑过别人。请先在原账号解除，或换一个号。";
 
+/// Reply when this Discord user id is already bound to a different site user.
+pub const DISCORD_PAIRING_TAKEN_REPLY: &str =
+    "这个 Discord 号已经绑过别人。请先在原账号解除，或换一个号。";
+
 /// Telegram `sendMessage` text cap. Counted after entity parse; first cut
 /// sends plain text so Unicode scalars are the conservative bound.
 pub const TELEGRAM_TEXT_LIMIT: usize = 4096;
@@ -49,6 +53,13 @@ pub const CHANNEL_NEW_SESSION_REPLY: &str = "已开新对话。之前的待答�
 
 /// First-cut QQ C2C text cap. Conservative so a long result can be split.
 pub const QQ_TEXT_LIMIT: usize = 2000;
+
+/// Discord `content` cap. Official Create Message limit.
+pub const DISCORD_TEXT_LIMIT: usize = 2000;
+
+/// `DIRECT_MESSAGES` intent. First-cut Identify only sends this bit.
+/// <https://discord.com/developers/docs/topics/gateway#gateway-intents>
+pub const DISCORD_DIRECT_MESSAGES: u32 = 1 << 12;
 
 /// How to answer a yes/no confirmation in chat.
 pub const CONFIRM_HINT: &str = "回复「是」确认，或「否」取消。";
@@ -152,6 +163,13 @@ pub fn telegram_dm_capabilities() -> ChannelCapabilities {
         performance: false,
         outfit: false,
     }
+}
+
+/// Discord DM: text in, final text out, numbered options plus component buttons.
+/// Typing is `POST /channels/{id}/typing` (10s), not a capability bit.
+/// Edit / streaming draft stay off. Message Content Intent is not required.
+pub fn discord_dm_capabilities() -> ChannelCapabilities {
+    telegram_dm_capabilities()
 }
 
 /// C2C: text in, final text out, numbered options plus yes/no. No buttons.
@@ -306,6 +324,9 @@ pub fn pairing_bind_reply_for(result: PairingBindResult, platform: &str) -> &'st
         PairingBindResult::Bound { .. } => PAIRING_OK_REPLY,
         PairingBindResult::InvalidOrExpired => PAIRING_INVALID_REPLY,
         PairingBindResult::OpenidTaken if platform == "telegram" => TELEGRAM_PAIRING_TAKEN_REPLY,
+        PairingBindResult::OpenidTaken if platform == "discord" || platform == "discord_dm" => {
+            DISCORD_PAIRING_TAKEN_REPLY
+        }
         PairingBindResult::OpenidTaken => PAIRING_TAKEN_REPLY,
     }
 }
@@ -709,6 +730,40 @@ pub fn telegram_reply_markup(prompt: &PendingPrompt) -> Option<serde_json::Value
     }))
 }
 
+/// Discord Action Rows for a parked prompt. Same `custom_id` encoding as
+/// Telegram `callback_data` so [`telegram_callback_action`] can consume it.
+pub fn discord_reply_markup(prompt: &PendingPrompt) -> Option<serde_json::Value> {
+    let rows = telegram_inline_keyboard(prompt);
+    if rows.is_empty() {
+        return None;
+    }
+    Some(serde_json::Value::Array(
+        rows.into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "type": 1,
+                    "components": row
+                        .into_iter()
+                        .map(|button| {
+                            let style = match button.callback_data.split(':').next() {
+                                Some(TELEGRAM_CALLBACK_YES) => 3,
+                                Some(TELEGRAM_CALLBACK_NO) => 4,
+                                _ => 2,
+                            };
+                            serde_json::json!({
+                                "type": 2,
+                                "style": style,
+                                "label": button.text,
+                                "custom_id": button.callback_data,
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                })
+            })
+            .collect(),
+    ))
+}
+
 /// Force the reply composer. Placeholder is capped at 64 characters.
 pub fn telegram_force_reply_markup(placeholder: &str) -> serde_json::Value {
     let placeholder: String = placeholder.chars().take(64).collect();
@@ -1059,6 +1114,11 @@ pub fn telegram_worker_intent(enabled: bool, token: &str) -> WorkerIntent {
     worker_intent(enabled, token, !token.trim().is_empty())
 }
 
+/// Discord: switch on and a non-empty bot token → run.
+pub fn discord_worker_intent(enabled: bool, token: &str) -> WorkerIntent {
+    telegram_worker_intent(enabled, token)
+}
+
 /// Official `GROUP_AND_C2C_EVENT`. One bit covers C2C and group events.
 /// First-cut worker only needs C2C; do not add guild intents (4014 on 公域).
 /// <https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/event-emit.html>
@@ -1103,7 +1163,9 @@ pub fn qq_token_needs_refresh(status: u16, body: &str) -> bool {
 /// <https://github.com/tencent-connect/bot-node-sdk/blob/main/src/types/websocket-types.ts>
 pub fn classify_gateway_close(close_code: u16) -> ConnectFailureKind {
     match close_code {
-        4004 | 4013 | 4014 | 4914 | 4915 => ConnectFailureKind::Permanent,
+        4004 | 4010 | 4011 | 4012 | 4013 | 4014 | 4914 | 4915 => {
+            ConnectFailureKind::Permanent
+        }
         _ => ConnectFailureKind::Transient,
     }
 }
@@ -1802,4 +1864,213 @@ fn json_i64(value: &serde_json::Value) -> Option<i64> {
         .as_i64()
         .or_else(|| value.as_u64().and_then(|n| i64::try_from(n).ok()))
         .or_else(|| value.as_str().and_then(|s| s.parse().ok()))
+}
+
+fn json_snowflake(value: Option<&serde_json::Value>) -> Option<String> {
+    let value = value?;
+    if let Some(text) = value.as_str() {
+        let trimmed = text.trim();
+        return (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    value
+        .as_u64()
+        .map(|n| n.to_string())
+        .or_else(|| value.as_i64().map(|n| n.to_string()))
+}
+
+/// Private-chat text extracted from a Discord `MESSAGE_CREATE`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscordPrivateText {
+    pub message_id: String,
+    pub author_id: String,
+    pub channel_id: String,
+    pub text: String,
+}
+
+impl DiscordPrivateText {
+    pub fn inbound(&self) -> InboundC2cText {
+        InboundC2cText {
+            msg_id: self.message_id.clone(),
+            user_openid: self.author_id.clone(),
+            content: self.text.clone(),
+        }
+    }
+}
+
+/// Private-chat button press from `INTERACTION_CREATE` type 3.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscordPrivateComponent {
+    pub interaction_id: String,
+    pub interaction_token: String,
+    pub message_id: String,
+    pub author_id: String,
+    pub channel_id: String,
+    pub custom_id: String,
+}
+
+/// Bot identity from `GET /users/@me` or Ready `user`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscordBotIdentity {
+    pub id: String,
+    pub username: String,
+    pub global_name: Option<String>,
+}
+
+pub fn parse_discord_bot_identity(result: &serde_json::Value) -> Option<DiscordBotIdentity> {
+    let id = json_snowflake(result.get("id"))?;
+    let username = result
+        .get("username")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("")
+        .to_string();
+    let global_name = result
+        .get("global_name")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if username.is_empty() && global_name.is_none() {
+        return None;
+    }
+    Some(DiscordBotIdentity {
+        id,
+        username,
+        global_name,
+    })
+}
+
+/// `GET /gateway/bot` `{ "url": "wss://..." }`.
+pub fn parse_discord_gateway_url(status: u16, body: &str) -> Result<String, ConnectFailureKind> {
+    if !(200..300).contains(&status) {
+        return Err(classify_connect_failure(&ConnectFailure::HttpStatus {
+            status,
+            body,
+        }));
+    }
+    let data: serde_json::Value =
+        serde_json::from_str(body).map_err(|_| ConnectFailureKind::Transient)?;
+    data.get("url")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|url| url.starts_with("wss://") || url.starts_with("ws://"))
+        .map(str::to_string)
+        .ok_or(ConnectFailureKind::Transient)
+}
+
+/// Remaining Identify budget from `GET /gateway/bot`. Missing → none.
+pub fn discord_session_starts_remaining(body: &str) -> Option<u64> {
+    let data: serde_json::Value = serde_json::from_str(body).ok()?;
+    data.get("session_start_limit")
+        .and_then(|value| value.get("remaining"))
+        .and_then(json_u64)
+}
+
+/// JSON `retry_after` seconds on Discord 429 (float allowed).
+pub fn discord_retry_after(body: &str) -> Option<u64> {
+    let data: serde_json::Value = serde_json::from_str(body).ok()?;
+    data.get("retry_after")
+        .and_then(|value| {
+            value
+                .as_f64()
+                .map(|secs| secs.ceil() as u64)
+                .or_else(|| json_u64(value))
+        })
+        .filter(|secs| *secs > 0)
+}
+
+/// Discord REST `code` field.
+pub fn discord_json_code(body: &str) -> Option<i64> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .as_ref()
+        .and_then(json_code)
+}
+
+/// Worker-level REST classification. `50007` / `50278` / `40003` stay Transient
+/// so one blocked DM does not stop the Gateway worker.
+pub fn classify_discord_rest(status: u16, body: &str) -> ConnectFailureKind {
+    if let Some(code) = discord_json_code(body) {
+        if matches!(code, 50007 | 50278 | 40003 | 20009) {
+            return ConnectFailureKind::Transient;
+        }
+    }
+    classify_connect_failure(&ConnectFailure::HttpStatus { status, body })
+}
+
+/// DM `MESSAGE_CREATE`. Drops guild messages, bots, and empty content.
+pub fn discord_private_text_from_create(
+    data: &serde_json::Value,
+    bot_user_id: &str,
+) -> Option<DiscordPrivateText> {
+    if data.get("guild_id").is_some() {
+        return None;
+    }
+    let channel_type = data
+        .get("channel_type")
+        .and_then(json_i64)
+        .or_else(|| data.get("channel").and_then(|ch| ch.get("type")).and_then(json_i64));
+    if channel_type.is_some_and(|kind| kind != 1) {
+        return None;
+    }
+    let author = data.get("author")?;
+    if author.get("bot").and_then(|value| value.as_bool()) == Some(true) {
+        return None;
+    }
+    let author_id = json_snowflake(author.get("id"))?;
+    if !bot_user_id.is_empty() && author_id == bot_user_id {
+        return None;
+    }
+    let text = data.get("content").and_then(|value| value.as_str())?;
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some(DiscordPrivateText {
+        message_id: json_snowflake(data.get("id"))?,
+        author_id,
+        channel_id: json_snowflake(data.get("channel_id"))?,
+        text: text.to_string(),
+    })
+}
+
+/// Component interaction in a DM. Type must be 3 (`MESSAGE_COMPONENT`).
+pub fn discord_private_component_from_create(
+    data: &serde_json::Value,
+) -> Option<DiscordPrivateComponent> {
+    if data.get("type").and_then(json_i64) != Some(3) {
+        return None;
+    }
+    if data.get("guild_id").is_some() {
+        return None;
+    }
+    let user = data.get("user").or_else(|| {
+        data.get("member")
+            .and_then(|member| member.get("user"))
+    })?;
+    let author_id = json_snowflake(user.get("id"))?;
+    let custom_id = data
+        .get("data")
+        .and_then(|row| row.get("custom_id"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let interaction_id = json_snowflake(data.get("id"))?;
+    let interaction_token = data
+        .get("token")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let message_id = json_snowflake(data.get("message").and_then(|row| row.get("id")))
+        .unwrap_or_else(|| interaction_id.clone());
+    Some(DiscordPrivateComponent {
+        interaction_id,
+        interaction_token,
+        message_id,
+        author_id,
+        channel_id: json_snowflake(data.get("channel_id"))?,
+        custom_id,
+    })
 }

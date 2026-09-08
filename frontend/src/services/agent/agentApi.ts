@@ -109,6 +109,20 @@ export interface TelegramBotStatus {
 
 export type TelegramPairingStatus = QqPairingStatus
 
+export type DiscordBotPhase = QqBotPhase
+
+export interface DiscordBotStatus {
+  phase: DiscordBotPhase
+  enabled: boolean
+  hasToken: boolean
+  botUsername?: string | null
+  botName?: string | null
+  botUserId?: string | null
+  lastInboundAt?: string | null
+}
+
+export type DiscordPairingStatus = QqPairingStatus
+
 function sharePersonaGeneration<T>(
   key: string,
   start: () => Promise<T>,
@@ -412,6 +426,36 @@ class AgentService {
     botName?: string | null
   }> {
     return apiService.post(`${this.baseUrl}/telegram/test`)
+  }
+
+  async getDiscordPairing(): Promise<{ pairing: DiscordPairingStatus }> {
+    return apiService.get(`${this.baseUrl}/discord/pairing`)
+  }
+
+  async issueDiscordPairingCode(): Promise<{
+    code: string
+    expiresAt: string
+    pairing: DiscordPairingStatus
+  }> {
+    return apiService.post(`${this.baseUrl}/discord/pairing`)
+  }
+
+  async unpairDiscord(): Promise<{ success: boolean }> {
+    return apiService.delete(`${this.baseUrl}/discord/pairing`)
+  }
+
+  async getDiscordBotStatus(): Promise<DiscordBotStatus> {
+    return apiService.get(`${this.baseUrl}/discord/status`)
+  }
+
+  async testDiscordBot(): Promise<{
+    success: boolean
+    phase?: DiscordBotPhase
+    botUsername?: string | null
+    botName?: string | null
+    botUserId?: string | null
+  }> {
+    return apiService.post(`${this.baseUrl}/discord/test`)
   }
 
   /**

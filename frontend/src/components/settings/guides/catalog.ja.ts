@@ -593,6 +593,13 @@ export const ja: SettingGuidesCatalog = {
       frontend: '設定 → AI → Agent → Telegram ボット。',
       notes: 'MTProto の api_id / api_hash は使わない。token は画面の平文にもエラー文にも出ない。api.telegram.org への到達はプラットフォームの外。',
     },
+    discordBot: {
+      what: 'Discord の個チャットで用事をサイトに渡し、同じ私聊に結果を返す。',
+      chain:
+        '① スイッチをオンにして Developer Portal の bot token を保存。タイトル横のラベルは送受信：オフライン / 接続中 / オンライン / 資格情報無効 / 再接続中。\n② 「保存済み資格情報をテスト」は庫の値だけを打つ。送受信がオンラインかは別表示。\n③ token は書き込み専用。読み返すとマスク。空にすると消去。\n④ オフ、未記入、401/403 ではワーカーが止まる。通信の揺れは Resume する。毎回 Identify しない。\n⑤ 接続できたらこのページで自分の Discord を連携：コードをコピーして個チャットへ。期限切れ後は再生成。\n⑥ 連携後は依頼を送る。ボタンはその一歩にだけ効く。「停止」「新对话」「当前任务」も使える。',
+      frontend: '設定 → AI → Agent → Discord ボット。',
+      notes: 'データ基盤 OAuth の access token をここに貼らない。連携 identity は discord_dm であり、Discord ログインではない。token は画面の平文にもエラー文にも出ない。',
+    },
     liteEnable: {
       what: '軽量の段を有効にするかどうか。',
       chain:

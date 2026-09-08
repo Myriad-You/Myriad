@@ -8,7 +8,7 @@ import { userFacingError } from '../../utils/userFacingError'
 import { pairingCodeLive } from './channelPairing'
 import './ChannelPairingPanel.css'
 
-export type ChannelPairingKind = 'qq' | 'telegram'
+export type ChannelPairingKind = 'qq' | 'telegram' | 'discord_dm'
 
 export function ChannelPairingPanel({
   channel,
@@ -31,7 +31,9 @@ export function ChannelPairingPanel({
       const data =
         channel === 'qq'
           ? await agentService.getQqPairing()
-          : await agentService.getTelegramPairing()
+          : channel === 'telegram'
+            ? await agentService.getTelegramPairing()
+            : await agentService.getDiscordPairing()
       setPairing(data.pairing)
     } catch (err) {
       setError(userFacingError(err, copy.loadFailed))
@@ -74,7 +76,9 @@ export function ChannelPairingPanel({
       const data =
         channel === 'qq'
           ? await agentService.issueQqPairingCode()
-          : await agentService.issueTelegramPairingCode()
+          : channel === 'telegram'
+            ? await agentService.issueTelegramPairingCode()
+            : await agentService.issueDiscordPairingCode()
       setPairing(data.pairing)
     } catch (err) {
       setError(userFacingError(err, copy.issueFailed))
@@ -98,8 +102,10 @@ export function ChannelPairingPanel({
     try {
       if (channel === 'qq') {
         await agentService.unpairQq()
-      } else {
+      } else if (channel === 'telegram') {
         await agentService.unpairTelegram()
+      } else {
+        await agentService.unpairDiscord()
       }
       await load()
     } catch (err) {
@@ -203,6 +209,25 @@ function pairingCopy(
   t: ReturnType<typeof useI18n>['t'],
   channel: ChannelPairingKind,
 ) {
+  if (channel === 'discord_dm') {
+    return {
+      title: t.userModal.discordPairingTitle,
+      hint: t.userModal.discordPairingHint,
+      loadFailed: t.userModal.discordPairingLoadFailed,
+      issueFailed: t.userModal.discordPairingIssueFailed,
+      copyFailed: t.userModal.discordPairingCopyFailed,
+      generateHint: t.userModal.discordPairingGenerateHint,
+      sendCode: t.userModal.discordPairingSendCode,
+      generate: t.userModal.discordGenerateCode,
+      refresh: t.userModal.discordRefreshCode,
+      copy: t.userModal.discordCopyCode,
+      paired: t.userModal.discordPaired,
+      notPaired: t.userModal.discordNotPaired,
+      unpair: t.userModal.discordUnpair,
+      unpairConfirm: t.userModal.discordUnpairConfirm,
+      unpairFailed: t.userModal.discordUnpairFailed,
+    }
+  }
   if (channel === 'qq') {
     return {
       title: t.userModal.qqPairingTitle,

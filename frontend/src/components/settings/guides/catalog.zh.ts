@@ -588,6 +588,13 @@ export const zh: SettingGuidesCatalog = {
       frontend: '设置 → AI → Agent → Telegram 机器人。',
       notes: '不要填 MTProto 的 api_id / api_hash。token 不会出现在页面明文或报错里。中国大陆出站可达性不在平台控制内。',
     },
+    discordBot: {
+      what: '用 Discord 私聊把一句话交给站点办事，结果回到同一条私聊。',
+      chain:
+        '① 打开开关并填 Developer Portal 的 bot token，点保存。标题旁的标签是收发工人：离线 / 连接中 / 在线 / 凭证无效 / 重连中。\n② 「测试已保存凭证」只打库里的值，和收发是否在线分开看。\n③ token 只写：读回是掩码，空值清除，掩码再提交不覆盖库里的值。\n④ 关掉、没填或 401/403 时工人停掉；网络抖动会 Resume，不要每次断线都 Identify。\n⑤ 连接成功后在本页绑定自己的 Discord：复制配对码，发到机器人私聊。配对码有有效期，过期后重新生成。\n⑥ 配对后发请求办事。按钮只对应当时那一步。可发「停止」「新对话」「当前任务」。',
+      frontend: '设置 → AI → Agent → Discord 机器人。',
+      notes: '不要把数据平台 OAuth 的 access token 填到这里。配对身份是 discord_dm，不是 Discord 登录。token 不会出现在页面明文或报错里。',
+    },
     liteEnable: {
       what: '要不要启用轻量这一档。',
       chain:

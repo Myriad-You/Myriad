@@ -498,6 +498,11 @@ pub(crate) fn collect_database_updates(
                 JsonValue::Bool(field.value == "true" || field.value == "1"),
             ),
             "telegram_bot_token" => ("telegram_bot_token", JsonValue::String(field.value.clone())),
+            "discord_bot_enabled" => (
+                "discord_bot_enabled",
+                JsonValue::Bool(field.value == "true" || field.value == "1"),
+            ),
+            "discord_bot_token" => ("discord_bot_token", JsonValue::String(field.value.clone())),
             "ai_vendor_sources" => {
                 let parsed = serde_json::from_str::<JsonValue>(&field.value)
                     .unwrap_or_else(|_| JsonValue::Array(Vec::new()));
@@ -528,6 +533,7 @@ pub(crate) fn collect_database_updates(
                 | "qq_bot_enabled"
                 | "qq_bot_app_id"
                 | "telegram_bot_enabled"
+                | "discord_bot_enabled"
         );
         if is_masked(&field.value) {
             continue;

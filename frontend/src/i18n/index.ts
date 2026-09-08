@@ -1599,6 +1599,28 @@ export interface TranslationKeys {
     telegramBotOpen: string
     telegramBotIdentityName: string
     telegramBotIdentityNameOnly: string
+    discordBotTitle: string
+    discordBotDesc: string
+    discordBotToken: string
+    discordBotHint: string
+    discordBotPhaseOffline: string
+    discordBotPhaseConnecting: string
+    discordBotPhaseOnline: string
+    discordBotPhaseRejected: string
+    discordBotPhaseReconnecting: string
+    discordBotTest: string
+    discordBotTesting: string
+    discordBotTestOk: string
+    discordBotTestFailed: string
+    discordBotCredentialLabel: string
+    discordBotReceiveLabel: string
+    discordBotIdentityLabel: string
+    discordBotCredentialUntested: string
+    discordBotLastInbound: string
+    discordBotLastInboundNone: string
+    discordBotOpen: string
+    discordBotIdentityName: string
+    discordBotIdentityNameOnly: string
     channelWorkHint: string
     enableProxy: string
     enableProxyHint: string
@@ -3356,6 +3378,21 @@ export interface TranslationKeys {
     telegramUnpair: string
     telegramUnpairConfirm: string
     telegramUnpairFailed: string
+    discordPairingTitle: string
+    discordPairingHint: string
+    discordPairingLoadFailed: string
+    discordPairingIssueFailed: string
+    discordPairingCopyFailed: string
+    discordPairingGenerateHint: string
+    discordPairingSendCode: string
+    discordGenerateCode: string
+    discordRefreshCode: string
+    discordCopyCode: string
+    discordPaired: string
+    discordNotPaired: string
+    discordUnpair: string
+    discordUnpairConfirm: string
+    discordUnpairFailed: string
     pairingExpiresAt: string
     pairingExpired: string
     pairingOpenBot: string
