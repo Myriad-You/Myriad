@@ -27,6 +27,11 @@ import {
   FACE_UPDATED_EVENT,
 } from '../../features/merope/events'
 import SiteMotionWorkbench from '../../features/merope/SiteMotionWorkbench'
+import { ChannelPairingPanel } from '../channel/ChannelPairingPanel'
+import {
+  formatInboundTime,
+  telegramOpenHref,
+} from '../channel/channelPairing'
 import { agentService } from '../../services/agent'
 import type {
   QqBotPhase,
@@ -281,7 +286,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   description,
   sectionId,
 }) => {
-  const { t } = useI18n()
+  const { t, locale, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const [speechTesting, setSpeechTesting] = useState(false)
   const [personaChrome, setPersonaChrome] = useState<OnboardingPageChrome | null>(
@@ -760,8 +765,19 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     setTelegramBotTesting(true)
     setTelegramBotTestMessage(null)
     try {
-      await agentService.testTelegramBot()
+      const tested = await agentService.testTelegramBot()
       setTelegramBotTestMessage(t.config.telegramBotTestOk)
+      if (tested.botUsername || tested.botName) {
+        setTelegramBotStatus((current) =>
+          current
+            ? {
+                ...current,
+                botUsername: tested.botUsername ?? current.botUsername,
+                botName: tested.botName ?? current.botName,
+              }
+            : current,
+        )
+      }
       await loadTelegramBotStatus()
     } catch (error) {
       setTelegramBotTestMessage(
@@ -1318,6 +1334,38 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           {qqBotTestMessage ? (
             <p className="ai-llm-tier-desc">{qqBotTestMessage}</p>
           ) : null}
+          <ChannelConnectFacts
+            credentialLabel={t.config.qqBotCredentialLabel}
+            credentialValue={
+              qqBotTestMessage || t.config.qqBotCredentialUntested
+            }
+            receiveLabel={t.config.qqBotReceiveLabel}
+            receiveValue={qqPhaseLabel(qqBotStatus?.phase)}
+            identityLabel={t.config.qqBotIdentityLabel}
+            identityValue={
+              qqBotStatus?.appId
+                ? `AppID ${qqBotStatus.appId}`
+                : null
+            }
+            inboundLabel={
+              formatInboundTime(qqBotStatus?.lastInboundAt, locale)
+                ? format(t.config.qqBotLastInbound, {
+                    time: formatInboundTime(
+                      qqBotStatus?.lastInboundAt,
+                      locale,
+                    ) as string,
+                  })
+                : t.config.qqBotLastInboundNone
+            }
+            openHint={t.config.qqBotOpenHint}
+          />
+          {getFieldValue('qq_bot_enabled') === 'true' &&
+          (qqBotStatus?.hasAppId || qqBotStatus?.hasSecret) ? (
+            <ChannelPairingPanel
+              channel="qq"
+              receiveReady={qqBotStatus?.phase === 'online'}
+            />
+          ) : null}
         </AgentNestedSection>
         <AgentNestedSection
           title={t.config.telegramBotTitle}
@@ -1364,6 +1412,48 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
           </SettingsButton>
           {telegramBotTestMessage ? (
             <p className="ai-llm-tier-desc">{telegramBotTestMessage}</p>
+          ) : null}
+          <ChannelConnectFacts
+            credentialLabel={t.config.telegramBotCredentialLabel}
+            credentialValue={
+              telegramBotTestMessage ||
+              t.config.telegramBotCredentialUntested
+            }
+            receiveLabel={t.config.telegramBotReceiveLabel}
+            receiveValue={telegramPhaseLabel(telegramBotStatus?.phase)}
+            identityLabel={t.config.telegramBotIdentityLabel}
+            identityValue={
+              telegramBotStatus?.botUsername
+                ? format(t.config.telegramBotIdentityName, {
+                    name: telegramBotStatus.botName || telegramBotStatus.botUsername,
+                    username: telegramBotStatus.botUsername,
+                  })
+                : telegramBotStatus?.botName
+                  ? format(t.config.telegramBotIdentityNameOnly, {
+                      name: telegramBotStatus.botName,
+                    })
+                  : null
+            }
+            inboundLabel={
+              formatInboundTime(telegramBotStatus?.lastInboundAt, locale)
+                ? format(t.config.telegramBotLastInbound, {
+                    time: formatInboundTime(
+                      telegramBotStatus?.lastInboundAt,
+                      locale,
+                    ) as string,
+                  })
+                : t.config.telegramBotLastInboundNone
+            }
+            openHref={telegramOpenHref(telegramBotStatus?.botUsername)}
+            openLabel={t.config.telegramBotOpen}
+          />
+          {getFieldValue('telegram_bot_enabled') === 'true' &&
+          telegramBotStatus?.hasToken ? (
+            <ChannelPairingPanel
+              channel="telegram"
+              openHref={telegramOpenHref(telegramBotStatus?.botUsername)}
+              receiveReady={telegramBotStatus?.phase === 'online'}
+            />
           ) : null}
         </AgentNestedSection>
         <AgentOptionsPanel />
@@ -1555,6 +1645,55 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         </div>
       </AutoHeight>
     </SettingSection>
+  )
+}
+
+function ChannelConnectFacts({
+  credentialLabel,
+  credentialValue,
+  receiveLabel,
+  receiveValue,
+  identityLabel,
+  identityValue,
+  inboundLabel,
+  openHref,
+  openLabel,
+  openHint,
+}: {
+  credentialLabel: string
+  credentialValue: string
+  receiveLabel: string
+  receiveValue: string
+  identityLabel: string
+  identityValue: string | null
+  inboundLabel: string
+  openHref?: string | null
+  openLabel?: string
+  openHint?: string
+}) {
+  return (
+    <div className="channel-connect-facts">
+      <p className="channel-connect-fact">
+        {credentialLabel}：{credentialValue}
+      </p>
+      <p className="channel-connect-fact">
+        {receiveLabel}：{receiveValue} · {inboundLabel}
+      </p>
+      {identityValue ? (
+        <p className="channel-connect-fact">
+          {identityLabel}：{identityValue}
+        </p>
+      ) : null}
+      {openHref && openLabel ? (
+        <p className="channel-connect-fact">
+          <a href={openHref} target="_blank" rel="noreferrer">
+            {openLabel}
+          </a>
+        </p>
+      ) : openHint ? (
+        <p className="channel-connect-fact">{openHint}</p>
+      ) : null}
+    </div>
   )
 }
 

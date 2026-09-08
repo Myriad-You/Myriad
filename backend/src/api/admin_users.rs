@@ -407,7 +407,11 @@ pub async fn update_user(
         let identity_count = db
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT COUNT(*) AS n FROM user_identities WHERE user_id = $1",
+                format!(
+                    "SELECT COUNT(*) AS n FROM user_identities WHERE user_id = $1 \
+                     AND {}",
+                    crate::services::channel_pairing::SQL_NOT_PAIRING_PROVIDER
+                ),
                 [user_id.into()],
             ))
             .await

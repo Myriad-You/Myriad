@@ -404,7 +404,7 @@ pub struct UpdateOAuthProvidersPayload {
 ///
 /// 全量覆盖 providers 列表 + 注册开关。
 /// 校验：
-/// 1. slug 必填、URL-safe、不能重复
+/// 1. slug 必填、URL-safe、不能重复、不能占用 qq/telegram 配对保留名
 /// 2. kind="oidc" 时 discovery_url 必填
 /// 3. client_secret 若为掩码 `***`，沿用现有 secret
 ///
@@ -451,6 +451,15 @@ pub async fn update_oauth_providers(
                 );
             }
             p.slug = slug.to_string();
+            if crate::services::channel_pairing::is_pairing_provider(&p.slug) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Provider slug is reserved for channel pairing",
+                        "code": "oauth_slug_reserved",
+                    })),
+                );
+            }
             if !seen.insert(p.slug.clone()) {
                 return (
                     StatusCode::BAD_REQUEST,

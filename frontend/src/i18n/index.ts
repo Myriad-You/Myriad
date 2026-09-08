@@ -1583,6 +1583,23 @@ export interface TranslationKeys {
     telegramBotTesting: string
     telegramBotTestOk: string
     telegramBotTestFailed: string
+    qqBotCredentialLabel: string
+    qqBotReceiveLabel: string
+    qqBotIdentityLabel: string
+    qqBotCredentialUntested: string
+    qqBotLastInbound: string
+    qqBotLastInboundNone: string
+    qqBotOpenHint: string
+    telegramBotCredentialLabel: string
+    telegramBotReceiveLabel: string
+    telegramBotIdentityLabel: string
+    telegramBotCredentialUntested: string
+    telegramBotLastInbound: string
+    telegramBotLastInboundNone: string
+    telegramBotOpen: string
+    telegramBotIdentityName: string
+    telegramBotIdentityNameOnly: string
+    channelWorkHint: string
     enableProxy: string
     enableProxyHint: string
     proxyUrl: string
@@ -3339,6 +3356,10 @@ export interface TranslationKeys {
     telegramUnpair: string
     telegramUnpairConfirm: string
     telegramUnpairFailed: string
+    pairingExpiresAt: string
+    pairingExpired: string
+    pairingOpenBot: string
+    pairingWaitingReceive: string
     profileDisplaySourcesTitle: string
     profileSourceTitle: string
     profileSourceHint: string

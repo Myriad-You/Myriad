@@ -16,6 +16,9 @@ pub async fn get_telegram_bot_status(
         "phase": status.phase,
         "enabled": status.enabled,
         "hasToken": status.has_token,
+        "botUsername": status.bot_username,
+        "botName": status.bot_name,
+        "lastInboundAt": status.last_inbound_at,
     })))
 }
 
@@ -26,9 +29,11 @@ pub async fn post_telegram_bot_test(
 ) -> Result<Json<Value>, HttpError> {
     require_current_admin(&claims, &db).await?;
     match telegram_bot::test_saved_credentials().await {
-        Ok(()) => Ok(Json(json!({
+        Ok(identity) => Ok(Json(json!({
             "success": true,
             "phase": TelegramBotPhase::Online,
+            "botUsername": identity.username,
+            "botName": identity.first_name,
         }))),
         Err(ConnectFailureKind::Permanent) => Err(HttpError::from((
             StatusCode::BAD_REQUEST,

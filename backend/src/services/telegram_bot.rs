@@ -5,10 +5,11 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use chrono::Utc;
 use myriad_agent_rules::channel::{
-    parse_telegram_ok_payload, parse_telegram_private_inbounds, telegram_max_update_id,
-    telegram_retry_after, telegram_worker_intent, ConnectFailureKind, TelegramPrivateInbound,
-    WorkerIntent,
+    parse_telegram_bot_identity, parse_telegram_ok_payload, parse_telegram_private_inbounds,
+    telegram_max_update_id, telegram_retry_after, telegram_worker_intent, ConnectFailureKind,
+    TelegramBotIdentity, TelegramPrivateInbound, WorkerIntent,
 };
 use myriad_error::redact_secrets;
 use serde::Serialize;
@@ -40,6 +41,9 @@ pub struct TelegramBotStatus {
     pub phase: TelegramBotPhase,
     pub enabled: bool,
     pub has_token: bool,
+    pub bot_username: Option<String>,
+    pub bot_name: Option<String>,
+    pub last_inbound_at: Option<String>,
 }
 
 static SNAPSHOT: OnceLock<RwLock<TelegramBotStatus>> = OnceLock::new();
@@ -50,20 +54,37 @@ fn snapshot() -> &'static RwLock<TelegramBotStatus> {
             phase: TelegramBotPhase::Offline,
             enabled: false,
             has_token: false,
+            bot_username: None,
+            bot_name: None,
+            last_inbound_at: None,
         })
     })
 }
 
 async fn publish_status(phase: TelegramBotPhase, fingerprint: &CredentialFingerprint) {
-    *snapshot().write().await = TelegramBotStatus {
-        phase,
-        enabled: fingerprint.enabled,
-        has_token: fingerprint.has_token,
-    };
+    let mut snap = snapshot().write().await;
+    snap.phase = phase;
+    snap.enabled = fingerprint.enabled;
+    snap.has_token = fingerprint.has_token;
+    if !fingerprint.enabled || !fingerprint.has_token {
+        snap.bot_username = None;
+        snap.bot_name = None;
+        snap.last_inbound_at = None;
+    }
 }
 
 async fn publish_phase(phase: TelegramBotPhase) {
     snapshot().write().await.phase = phase;
+}
+
+async fn publish_identity(identity: &TelegramBotIdentity) {
+    let mut snap = snapshot().write().await;
+    snap.bot_username = identity.username.clone();
+    snap.bot_name = Some(identity.first_name.clone());
+}
+
+async fn mark_inbound() {
+    snapshot().write().await.last_inbound_at = Some(Utc::now().to_rfc3339());
 }
 
 pub async fn current_status() -> TelegramBotStatus {
@@ -71,14 +92,16 @@ pub async fn current_status() -> TelegramBotStatus {
 }
 
 /// Probe the saved bot token with `getMe`. Secrets never appear in the error.
-pub async fn test_saved_credentials() -> Result<(), ConnectFailureKind> {
+pub async fn test_saved_credentials() -> Result<TelegramBotIdentity, ConnectFailureKind> {
     let token = {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
         CredentialFingerprint::from_config(&config)
             .token
             .ok_or(ConnectFailureKind::Permanent)?
     };
-    get_me(&token).await
+    let identity = get_me(&token).await?;
+    publish_identity(&identity).await;
+    Ok(identity)
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -182,7 +205,8 @@ async fn run_session(
         .token
         .as_deref()
         .ok_or(ConnectFailureKind::Permanent)?;
-    get_me(token).await?;
+    let identity = get_me(token).await?;
+    publish_identity(&identity).await;
     publish_phase(TelegramBotPhase::Online).await;
 
     let mut offset: Option<i64> = None;
@@ -195,6 +219,9 @@ async fn run_session(
                         let inbounds = parse_telegram_private_inbounds(200, &body)?;
                         if let Some(max_id) = telegram_max_update_id(200, &body)? {
                             offset = Some(max_id + 1);
+                        }
+                        if !inbounds.is_empty() {
+                            mark_inbound().await;
                         }
                         for event in inbounds {
                             let token = token.to_string();
@@ -238,9 +265,10 @@ enum GetUpdatesError {
     Failure(ConnectFailureKind),
 }
 
-async fn get_me(token: &str) -> Result<(), ConnectFailureKind> {
+async fn get_me(token: &str) -> Result<TelegramBotIdentity, ConnectFailureKind> {
     let (status, body) = telegram_request(token, "getMe", None, HTTP_TIMEOUT).await?;
-    parse_telegram_ok_payload(status, &body).map(|_| ())
+    let result = parse_telegram_ok_payload(status, &body)?;
+    parse_telegram_bot_identity(&result).ok_or(ConnectFailureKind::Transient)
 }
 
 async fn get_updates(token: &str, offset: Option<i64>) -> Result<String, GetUpdatesError> {
@@ -330,7 +358,10 @@ pub async fn answer_callback_query(
         telegram_request(token, "answerCallbackQuery", Some(payload), HTTP_TIMEOUT).await?;
     if status == 429 {
         let wait = telegram_retry_after(&body).unwrap_or(1);
-        warn!(retry_after = wait, "Telegram answerCallbackQuery rate-limited");
+        warn!(
+            retry_after = wait,
+            "Telegram answerCallbackQuery rate-limited"
+        );
         return Err(ConnectFailureKind::Transient);
     }
     parse_telegram_ok_payload(status, &body).map(|_| ())

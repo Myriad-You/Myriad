@@ -223,7 +223,9 @@ async fn load_identities(
     let mut out = Vec::new();
     for row in rows {
         let provider = row.try_get::<String>("", "provider").unwrap_or_default();
-        if provider.is_empty() {
+        if provider.is_empty()
+            || crate::services::channel_pairing::is_pairing_provider(&provider)
+        {
             continue;
         }
         out.push(IdentityText {

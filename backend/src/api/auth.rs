@@ -172,8 +172,13 @@ pub async fn get_current_user(
     let identity_rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id, provider, provider_username, is_primary, linked_at \
-             FROM user_identities WHERE user_id = $1 ORDER BY linked_at ASC",
+            format!(
+                "SELECT id, provider, provider_username, is_primary, linked_at \
+                 FROM user_identities WHERE user_id = $1 \
+                    AND {} \
+                 ORDER BY linked_at ASC",
+                crate::services::channel_pairing::SQL_NOT_PAIRING_PROVIDER
+            ),
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await

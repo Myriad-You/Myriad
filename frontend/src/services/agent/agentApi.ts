@@ -92,6 +92,8 @@ export interface QqBotStatus {
   enabled: boolean
   hasAppId: boolean
   hasSecret: boolean
+  appId?: string | null
+  lastInboundAt?: string | null
 }
 
 export type TelegramBotPhase = QqBotPhase
@@ -100,6 +102,9 @@ export interface TelegramBotStatus {
   phase: TelegramBotPhase
   enabled: boolean
   hasToken: boolean
+  botUsername?: string | null
+  botName?: string | null
+  lastInboundAt?: string | null
 }
 
 export type TelegramPairingStatus = QqPairingStatus
@@ -403,6 +408,8 @@ class AgentService {
   async testTelegramBot(): Promise<{
     success: boolean
     phase?: TelegramBotPhase
+    botUsername?: string | null
+    botName?: string | null
   }> {
     return apiService.post(`${this.baseUrl}/telegram/test`)
   }

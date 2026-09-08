@@ -21,6 +21,8 @@ use tokio::sync::{watch, RwLock};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
+use chrono::Utc;
+
 use crate::config::DynamicConfig;
 use crate::services::http_client;
 use crate::GLOBAL_DYNAMIC_CONFIG;
@@ -48,6 +50,8 @@ pub struct QqBotStatus {
     pub enabled: bool,
     pub has_app_id: bool,
     pub has_secret: bool,
+    pub app_id: Option<String>,
+    pub last_inbound_at: Option<String>,
 }
 
 static SNAPSHOT: OnceLock<RwLock<QqBotStatus>> = OnceLock::new();
@@ -59,21 +63,34 @@ fn snapshot() -> &'static RwLock<QqBotStatus> {
             enabled: false,
             has_app_id: false,
             has_secret: false,
+            app_id: None,
+            last_inbound_at: None,
         })
     })
 }
 
 async fn publish_status(phase: QqBotPhase, fingerprint: &CredentialFingerprint) {
-    *snapshot().write().await = QqBotStatus {
-        phase,
-        enabled: fingerprint.enabled,
-        has_app_id: !fingerprint.app_id.is_empty(),
-        has_secret: fingerprint.has_secret,
+    let mut snap = snapshot().write().await;
+    snap.phase = phase;
+    snap.enabled = fingerprint.enabled;
+    snap.has_app_id = !fingerprint.app_id.is_empty();
+    snap.has_secret = fingerprint.has_secret;
+    snap.app_id = if fingerprint.app_id.is_empty() {
+        None
+    } else {
+        Some(fingerprint.app_id.clone())
     };
+    if !fingerprint.enabled || fingerprint.app_id.is_empty() || !fingerprint.has_secret {
+        snap.last_inbound_at = None;
+    }
 }
 
 async fn publish_phase(phase: QqBotPhase) {
     snapshot().write().await.phase = phase;
+}
+
+async fn mark_inbound() {
+    snapshot().write().await.last_inbound_at = Some(Utc::now().to_rfc3339());
 }
 
 pub async fn current_status() -> QqBotStatus {
@@ -402,6 +419,7 @@ fn handle_payload(text: &str, seq: &mut u64, auth_header: &str) -> Option<Connec
                 if let Some(event) = inbound_c2c_from_dispatch(payload.d.as_ref()) {
                     let auth = auth_header.to_string();
                     tokio::spawn(async move {
+                        mark_inbound().await;
                         crate::services::qq_pairing::handle_inbound_c2c(event, &auth).await;
                     });
                 }

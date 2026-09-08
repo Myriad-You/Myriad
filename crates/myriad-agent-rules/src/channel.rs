@@ -38,8 +38,24 @@ pub const PENDING_REASK_REPLY: &str = "没看懂。请回复选项编号，或�
 /// Reply when a confirmation or question has expired.
 pub const PENDING_EXPIRED_REPLY: &str = "这一步已经过期。请重新发一句，或到站点面板继续。";
 
+/// Reply when a button belongs to an older question.
+pub const PENDING_STALE_REPLY: &str = "这一步已经换过了。请回答上面最新的问题。";
+
+/// Reply after a stop command cancels the current Work turn.
+pub const CHANNEL_STOP_REPLY: &str = "已停止当前办事。再发一句就是新的请求。";
+
+/// Reply after opening a fresh Work session on this chat.
+pub const CHANNEL_NEW_SESSION_REPLY: &str = "已开新对话。之前的待答作废。";
+
+/// First-cut QQ C2C text cap. Conservative so a long result can be split.
+pub const QQ_TEXT_LIMIT: usize = 2000;
+
 /// How to answer a yes/no confirmation in chat.
 pub const CONFIRM_HINT: &str = "回复「是」确认，或「否」取消。";
+
+/// Marker used when a clarify resume used to be concatenated into one user turn.
+/// New turns must not prepend this; strip it if an old pending still has it.
+const CLARIFY_FOLLOWUP_MARK: &str = "\n补充说明：";
 
 /// Inline button that opens Telegram's reply composer for free-text pending.
 pub const TELEGRAM_INPUT_BUTTON: &str = "输入";
@@ -138,7 +154,7 @@ pub fn telegram_dm_capabilities() -> ChannelCapabilities {
     }
 }
 
-/// First-cut C2C: text in, final text out. Everything else is false.
+/// C2C: text in, final text out, numbered options plus yes/no. No buttons.
 pub fn qq_c2c_capabilities() -> ChannelCapabilities {
     ChannelCapabilities {
         inbound_text: true,
@@ -149,10 +165,70 @@ pub fn qq_c2c_capabilities() -> ChannelCapabilities {
         outbound_image: false,
         outbound_edit: false,
         outbound_streaming_draft: false,
-        interactive: false,
+        interactive: true,
         frontend_action: false,
         performance: false,
         outfit: false,
+    }
+}
+
+/// Whether this chat can finish a mapped event without sending the person
+/// to the site panel. `frontend_action` is never completable here.
+pub fn channel_can_finish(caps: &ChannelCapabilities, event: &ChannelEvent) -> bool {
+    match event {
+        ChannelEvent::FrontendAction => false,
+        ChannelEvent::ConfirmationRequired => caps.interactive,
+        ChannelEvent::Answer { .. } | ChannelEvent::Error { .. } => caps.outbound_final_text,
+        ChannelEvent::ThinkingToken
+        | ChannelEvent::StepStarted
+        | ChannelEvent::StepCompleted
+        | ChannelEvent::Progress => true,
+    }
+}
+
+/// Visible panel entry when the chat window cannot finish the step.
+pub fn panel_entry_reply(session_id: Option<&str>, task_id: Option<&str>) -> String {
+    match (
+        session_id.filter(|id| !id.is_empty()),
+        task_id.filter(|id| !id.is_empty()),
+    ) {
+        (Some(session), Some(task)) => {
+            format!("请到站点打开这次办事继续。会话 {session}，任务 {task}。")
+        }
+        (Some(session), None) => format!("请到站点打开这次办事继续。会话 {session}。"),
+        (None, Some(task)) => format!("请到站点打开这次办事继续。任务 {task}。"),
+        (None, None) => PANEL_REQUIRED_REPLY.to_string(),
+    }
+}
+
+/// Resume only delivers envelopes after this sequence. History replay stays
+/// on the same run; already-sent confirmations must not go out again.
+pub fn should_deliver_sequence(last_delivered: Option<u64>, sequence: u64) -> bool {
+    last_delivered.is_none_or(|seen| sequence > seen)
+}
+
+/// Private-chat command. Exact token after trim; extra words stay ordinary Work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelCommand {
+    Stop,
+    NewConversation,
+    Status,
+}
+
+/// Recognize stop / new conversation / current-task. Case-insensitive ASCII.
+pub fn parse_channel_command(text: &str) -> Option<ChannelCommand> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let folded = trimmed.to_ascii_lowercase();
+    match folded.as_str() {
+        "停止" | "/stop" | "stop" => Some(ChannelCommand::Stop),
+        "新对话" | "/new" | "new" => Some(ChannelCommand::NewConversation),
+        "当前任务" | "查看当前任务" | "/status" | "status" => {
+            Some(ChannelCommand::Status)
+        }
+        _ => None,
     }
 }
 
@@ -353,7 +429,7 @@ pub fn plan_delivery(event: &ChannelEvent, ctx: &DeliveryContext) -> DeliveryPla
             send_text(message.clone(), ctx)
         }
         ChannelEvent::ConfirmationRequired | ChannelEvent::FrontendAction => {
-            let content = PANEL_REQUIRED_REPLY.to_string();
+            let content = panel_entry_reply(None, None);
             if can_reply_passively(ctx) {
                 DeliveryPlan::FailVisible {
                     content,
@@ -398,10 +474,46 @@ pub struct PendingOption {
 /// A question parked on a channel until the next inbound text.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingPrompt {
+    /// Short id bound into buttons. Empty means a pre-id stored prompt.
+    #[serde(default)]
+    pub id: String,
     pub kind: PendingKind,
     pub question: String,
     pub options: Vec<PendingOption>,
     pub expires_at_unix: Option<i64>,
+}
+
+/// 8 hex chars from 4 bytes. Fits Telegram's 64-byte `callback_data`.
+pub fn encode_pending_id(bytes: [u8; 4]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(8);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 15) as usize] as char);
+    }
+    out
+}
+
+/// Fill a missing prompt id from kind + question so old constructors stay valid.
+pub fn ensure_pending_id(prompt: &mut PendingPrompt) {
+    if !prompt.id.trim().is_empty() {
+        return;
+    }
+    prompt.id = pending_id_from_parts(&prompt.kind, &prompt.question);
+}
+
+fn pending_id_from_parts(kind: &PendingKind, question: &str) -> String {
+    let seed = match kind {
+        PendingKind::Confirm { confirmation_id } => confirmation_id.as_str(),
+        PendingKind::Answer { question_id, .. } => question_id.as_str(),
+        PendingKind::Clarify { original_input } => original_input.as_str(),
+    };
+    let mut n: u32 = 0x811c_9dc5;
+    for byte in seed.bytes().chain(question.bytes()) {
+        n ^= u32::from(byte);
+        n = n.wrapping_mul(0x0100_0193);
+    }
+    encode_pending_id(n.to_be_bytes())
 }
 
 /// How the next inbound text is consumed against a parked prompt.
@@ -532,6 +644,23 @@ fn prompt_question_type(prompt: &PendingPrompt) -> &str {
     }
 }
 
+/// First user turn of a clarify, without stacked `补充说明` tails.
+pub fn clarify_base_input(text: &str) -> &str {
+    text.split(CLARIFY_FOLLOWUP_MARK)
+        .next()
+        .unwrap_or(text)
+        .trim()
+}
+
+/// Visible follow-up vs the parked original. The reply is the next user turn;
+/// the original stays the first intent and is not concatenated again.
+pub fn clarify_followup(original_input: &str, answer: &str) -> (String, String) {
+    (
+        answer.trim().to_string(),
+        clarify_base_input(original_input).to_string(),
+    )
+}
+
 fn reask(prompt: &PendingPrompt) -> PendingDecision {
     PendingDecision::Reask {
         reply: format_pending_prompt(prompt),
@@ -550,6 +679,7 @@ pub struct TelegramInlineButton {
 pub enum TelegramCallbackAction {
     Resume(String),
     RequestInput,
+    Stale,
     Unknown,
 }
 
@@ -593,16 +723,21 @@ pub fn telegram_force_reply_markup(placeholder: &str) -> serde_json::Value {
 }
 
 /// Button rows for a parked prompt. Confirm is yes/no; options are one per row.
+/// `callback_data` always includes the prompt id so an old button cannot
+/// answer a newer question.
 pub fn telegram_inline_keyboard(prompt: &PendingPrompt) -> Vec<Vec<TelegramInlineButton>> {
-    match prompt_question_type(prompt) {
+    let mut prompt = prompt.clone();
+    ensure_pending_id(&mut prompt);
+    let id = prompt.id.as_str();
+    match prompt_question_type(&prompt) {
         "confirmation" | "confirm" => vec![vec![
             TelegramInlineButton {
                 text: "是".to_string(),
-                callback_data: TELEGRAM_CALLBACK_YES.to_string(),
+                callback_data: format!("{TELEGRAM_CALLBACK_YES}:{id}"),
             },
             TelegramInlineButton {
                 text: "否".to_string(),
-                callback_data: TELEGRAM_CALLBACK_NO.to_string(),
+                callback_data: format!("{TELEGRAM_CALLBACK_NO}:{id}"),
             },
         ]],
         _ if !prompt.options.is_empty() => prompt
@@ -617,32 +752,98 @@ pub fn telegram_inline_keyboard(prompt: &PendingPrompt) -> Vec<Vec<TelegramInlin
                 };
                 vec![TelegramInlineButton {
                     text: truncate_button_label(label),
-                    callback_data: format!("o:{index}"),
+                    callback_data: format!("o:{id}:{index}"),
                 }]
             })
             .collect(),
         _ => vec![vec![TelegramInlineButton {
             text: TELEGRAM_INPUT_BUTTON.to_string(),
-            callback_data: TELEGRAM_CALLBACK_INPUT.to_string(),
+            callback_data: format!("{TELEGRAM_CALLBACK_INPUT}:{id}"),
         }]],
     }
 }
 
-/// Map `callback_data` onto the parked prompt. Indexes stay 0-based (`o:0`).
+/// Parsed private-chat callback. `prompt_id` is empty for legacy unbound data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TelegramCallbackBinding {
+    pub prompt_id: String,
+    pub kind: TelegramBoundKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TelegramBoundKind {
+    Yes,
+    No,
+    Input,
+    Option(usize),
+}
+
+/// Parse `callback_data`. Bound form is `y:{id}` / `n:{id}` / `i:{id}` / `o:{id}:{index}`.
+/// Legacy `y` / `n` / `i` / `o:0` stay parseable so they can be rejected as stale.
+pub fn parse_telegram_callback(data: &str) -> Option<TelegramCallbackBinding> {
+    let data = data.trim();
+    if data.is_empty() {
+        return None;
+    }
+    if let Some(rest) = data.strip_prefix("o:") {
+        if let Some((id, index)) = rest.rsplit_once(':') {
+            if !id.is_empty() && id != TELEGRAM_CALLBACK_YES && id != TELEGRAM_CALLBACK_NO {
+                let index = index.parse::<usize>().ok()?;
+                return Some(TelegramCallbackBinding {
+                    prompt_id: id.to_string(),
+                    kind: TelegramBoundKind::Option(index),
+                });
+            }
+        }
+        let index = rest.parse::<usize>().ok()?;
+        return Some(TelegramCallbackBinding {
+            prompt_id: String::new(),
+            kind: TelegramBoundKind::Option(index),
+        });
+    }
+    if let Some((action, id)) = data.split_once(':') {
+        let kind = match action {
+            TELEGRAM_CALLBACK_YES => TelegramBoundKind::Yes,
+            TELEGRAM_CALLBACK_NO => TelegramBoundKind::No,
+            TELEGRAM_CALLBACK_INPUT => TelegramBoundKind::Input,
+            _ => return None,
+        };
+        return Some(TelegramCallbackBinding {
+            prompt_id: id.to_string(),
+            kind,
+        });
+    }
+    let kind = match data {
+        TELEGRAM_CALLBACK_YES => TelegramBoundKind::Yes,
+        TELEGRAM_CALLBACK_NO => TelegramBoundKind::No,
+        TELEGRAM_CALLBACK_INPUT => TelegramBoundKind::Input,
+        _ => return None,
+    };
+    Some(TelegramCallbackBinding {
+        prompt_id: String::new(),
+        kind,
+    })
+}
+
+/// Map `callback_data` onto the parked prompt. A missing or other id is stale.
 pub fn telegram_callback_action(prompt: &PendingPrompt, data: &str) -> TelegramCallbackAction {
-    match data.trim() {
-        TELEGRAM_CALLBACK_INPUT => TelegramCallbackAction::RequestInput,
-        TELEGRAM_CALLBACK_YES => TelegramCallbackAction::Resume("是".to_string()),
-        TELEGRAM_CALLBACK_NO => TelegramCallbackAction::Resume("否".to_string()),
-        other => match other.strip_prefix("o:") {
-            Some(index) => index
-                .parse::<usize>()
-                .ok()
-                .and_then(|index| prompt.options.get(index))
-                .map(|option| TelegramCallbackAction::Resume(option.value.clone()))
-                .unwrap_or(TelegramCallbackAction::Unknown),
-            None => TelegramCallbackAction::Unknown,
-        },
+    let Some(binding) = parse_telegram_callback(data) else {
+        return TelegramCallbackAction::Unknown;
+    };
+    let mut prompt = prompt.clone();
+    ensure_pending_id(&mut prompt);
+    if binding.prompt_id != prompt.id {
+        return TelegramCallbackAction::Stale;
+    }
+    match binding.kind {
+        TelegramBoundKind::Input => TelegramCallbackAction::RequestInput,
+        TelegramBoundKind::Yes => TelegramCallbackAction::Resume("是".to_string()),
+        TelegramBoundKind::No => TelegramCallbackAction::Resume("否".to_string()),
+        TelegramBoundKind::Option(index) => prompt
+            .options
+            .get(index)
+            .map(|option| TelegramCallbackAction::Resume(option.value.clone()))
+            .unwrap_or(TelegramCallbackAction::Unknown),
     }
 }
 
@@ -661,14 +862,17 @@ pub fn pending_prompt_from_model_json(text: &str, original_input: &str) -> Optio
     } else {
         question
     };
-    Some(PendingPrompt {
+    let mut prompt = PendingPrompt {
+        id: String::new(),
         kind: PendingKind::Clarify {
-            original_input: original_input.to_string(),
+            original_input: clarify_base_input(original_input).to_string(),
         },
         question,
         options,
         expires_at_unix: None,
-    })
+    };
+    ensure_pending_id(&mut prompt);
+    Some(prompt)
 }
 
 fn extract_json_object(text: &str) -> Option<serde_json::Value> {
@@ -1086,6 +1290,38 @@ pub fn parse_telegram_ok_payload(
         .unwrap_or(serde_json::Value::Null))
 }
 
+/// Public bot name from a `getMe` result. Never includes the token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TelegramBotIdentity {
+    pub id: i64,
+    pub first_name: String,
+    pub username: Option<String>,
+}
+
+pub fn parse_telegram_bot_identity(result: &serde_json::Value) -> Option<TelegramBotIdentity> {
+    let id = result.get("id")?.as_i64()?;
+    let first_name = result
+        .get("first_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let username = result
+        .get("username")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if first_name.is_empty() && username.is_none() {
+        return None;
+    }
+    Some(TelegramBotIdentity {
+        id,
+        first_name,
+        username,
+    })
+}
+
 /// Private-chat texts from a `getUpdates` body. Groups, edits, and empty `from` drop.
 pub fn parse_telegram_private_texts(
     status: u16,
@@ -1198,11 +1434,343 @@ pub fn telegram_max_update_id(status: u16, body: &str) -> Result<Option<i64>, Co
 
 /// First-cut outbound: trim to [`TELEGRAM_TEXT_LIMIT`] Unicode scalars.
 pub fn truncate_telegram_text(text: &str) -> String {
-    let count = text.chars().count();
-    if count <= TELEGRAM_TEXT_LIMIT {
-        return text.to_string();
+    split_channel_text(text, TELEGRAM_TEXT_LIMIT)
+        .into_iter()
+        .next()
+        .unwrap_or_default()
+}
+
+/// Split on paragraph / line / word boundaries so a long result is complete.
+pub fn split_channel_text(text: &str, limit: usize) -> Vec<String> {
+    if limit == 0 {
+        return if text.is_empty() {
+            Vec::new()
+        } else {
+            vec![text.to_string()]
+        };
     }
-    text.chars().take(TELEGRAM_TEXT_LIMIT).collect()
+    let trimmed = text.trim_end();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if trimmed.chars().count() <= limit {
+        return vec![trimmed.to_string()];
+    }
+    let chars: Vec<char> = trimmed.chars().collect();
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < chars.len() {
+        if chars.len() - start <= limit {
+            let rest: String = chars[start..].iter().collect();
+            let rest = rest.trim().to_string();
+            if !rest.is_empty() {
+                chunks.push(rest);
+            }
+            break;
+        }
+        let mut end = start + limit;
+        let window = &chars[start..end];
+        if let Some(rel) = window.iter().rposition(|ch| *ch == '\n') {
+            if rel > 0 {
+                end = start + rel;
+            }
+        } else if let Some(rel) = window.iter().rposition(|ch| ch.is_whitespace()) {
+            if rel > 0 {
+                end = start + rel;
+            }
+        }
+        let chunk: String = chars[start..end].iter().collect();
+        let chunk = chunk.trim().to_string();
+        if !chunk.is_empty() {
+            chunks.push(chunk);
+        }
+        start = end;
+        while start < chars.len() && chars[start].is_whitespace() {
+            start += 1;
+        }
+    }
+    if chunks.is_empty() {
+        vec![trimmed.to_string()]
+    } else {
+        chunks
+    }
+}
+
+/// Render `message` plus independent `data` / `dataDisplay` as readable text.
+pub fn format_channel_result(
+    message: &str,
+    data: Option<&serde_json::Value>,
+    data_display: Option<&serde_json::Value>,
+) -> String {
+    let message = message.trim();
+    let extra = format_data_display(data, data_display);
+    match (message.is_empty(), extra.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => message.to_string(),
+        (true, false) => extra,
+        (false, false) => format!("{message}\n\n{extra}"),
+    }
+}
+
+fn format_data_display(
+    data: Option<&serde_json::Value>,
+    display: Option<&serde_json::Value>,
+) -> String {
+    let Some(display) = display else {
+        return format_value_preview(data, 12);
+    };
+    let display_type = display
+        .get("type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let rows = display_rows(data, display);
+    match display_type {
+        "table" => format_table(display, &rows),
+        "chart" => format_chart(display, &rows),
+        "card_list" => format_card_list(display, &rows),
+        "timeline" => format_timeline(display, &rows),
+        "key_value" => format_key_value(&rows, data),
+        "markdown" => data
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .unwrap_or("")
+            .to_string(),
+        "raw" => format_value_preview(data, 20),
+        _ => format_value_preview(data, 12),
+    }
+}
+
+fn display_rows<'a>(
+    data: Option<&'a serde_json::Value>,
+    display: &serde_json::Value,
+) -> Vec<&'a serde_json::Value> {
+    let Some(data) = data else {
+        return Vec::new();
+    };
+    if let Some(path) = display.get("dataPath").and_then(|value| value.as_str()) {
+        if let Some(found) = json_path(data, path).and_then(|value| value.as_array()) {
+            return found.iter().collect();
+        }
+    }
+    match data {
+        serde_json::Value::Array(rows) => rows.iter().collect(),
+        serde_json::Value::Object(map) => {
+            for key in ["items", "rows", "data", "list", "records"] {
+                if let Some(serde_json::Value::Array(rows)) = map.get(key) {
+                    return rows.iter().collect();
+                }
+            }
+            Vec::new()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn json_path<'a>(value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    let mut current = value;
+    for part in path.split('.').filter(|part| !part.is_empty()) {
+        current = current.get(part)?;
+    }
+    Some(current)
+}
+
+fn format_table(display: &serde_json::Value, rows: &[&serde_json::Value]) -> String {
+    let columns = display
+        .get("columns")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if columns.is_empty() {
+        return format_value_preview(
+            Some(&serde_json::Value::Array(
+                rows.iter().map(|row| (*row).clone()).collect(),
+            )),
+            16,
+        );
+    }
+    let headers: Vec<String> = columns
+        .iter()
+        .map(|column| {
+            column
+                .get("title")
+                .or_else(|| column.get("field"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("列")
+                .to_string()
+        })
+        .collect();
+    let mut lines = vec![headers.join(" | ")];
+    for row in rows.iter().take(16) {
+        let cells: Vec<String> = columns
+            .iter()
+            .map(|column| {
+                let field = column
+                    .get("field")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                display_cell(row.get(field))
+            })
+            .collect();
+        lines.push(cells.join(" | "));
+    }
+    if rows.len() > 16 {
+        lines.push(format!(
+            "……还有 {} 行，完整结果请到站点查看。",
+            rows.len() - 16
+        ));
+    }
+    lines.join("\n")
+}
+
+fn format_chart(display: &serde_json::Value, rows: &[&serde_json::Value]) -> String {
+    let chart_type = display
+        .get("chartType")
+        .or_else(|| display.get("chart_type"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("chart");
+    let x_field = display
+        .get("xField")
+        .or_else(|| display.get("x_field"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("x");
+    let y_field = display
+        .get("yField")
+        .or_else(|| display.get("y_field"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("y");
+    let mut lines = vec![format!("图表（{chart_type}）：{x_field} / {y_field}")];
+    for row in rows.iter().take(12) {
+        lines.push(format!(
+            "{}：{}",
+            display_cell(row.get(x_field)),
+            display_cell(row.get(y_field))
+        ));
+    }
+    if rows.len() > 12 {
+        lines.push("完整图表请到站点查看。".to_string());
+    }
+    lines.join("\n")
+}
+
+fn format_card_list(display: &serde_json::Value, rows: &[&serde_json::Value]) -> String {
+    let title_field = display
+        .get("titleField")
+        .or_else(|| display.get("title_field"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("title");
+    let description_field = display
+        .get("descriptionField")
+        .or_else(|| display.get("description_field"))
+        .and_then(|value| value.as_str());
+    let mut lines = Vec::new();
+    for (index, row) in rows.iter().take(12).enumerate() {
+        let title = display_cell(row.get(title_field));
+        if let Some(field) = description_field {
+            let desc = display_cell(row.get(field));
+            if desc.is_empty() {
+                lines.push(format!("{}. {title}", index + 1));
+            } else {
+                lines.push(format!("{}. {title} — {desc}", index + 1));
+            }
+        } else {
+            lines.push(format!("{}. {title}", index + 1));
+        }
+    }
+    if rows.len() > 12 {
+        lines.push("完整列表请到站点查看。".to_string());
+    }
+    lines.join("\n")
+}
+
+fn format_timeline(display: &serde_json::Value, rows: &[&serde_json::Value]) -> String {
+    let time_field = display
+        .get("timeField")
+        .or_else(|| display.get("time_field"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("time");
+    let content_field = display
+        .get("contentField")
+        .or_else(|| display.get("content_field"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("content");
+    let mut lines = Vec::new();
+    for row in rows.iter().take(16) {
+        lines.push(format!(
+            "{} — {}",
+            display_cell(row.get(time_field)),
+            display_cell(row.get(content_field))
+        ));
+    }
+    if rows.len() > 16 {
+        lines.push("完整时间线请到站点查看。".to_string());
+    }
+    lines.join("\n")
+}
+
+fn format_key_value(rows: &[&serde_json::Value], data: Option<&serde_json::Value>) -> String {
+    if !rows.is_empty() {
+        return rows
+            .iter()
+            .take(20)
+            .filter_map(|row| {
+                let key = row
+                    .get("key")
+                    .or_else(|| row.get("label"))
+                    .or_else(|| row.get("name"))
+                    .and_then(|value| value.as_str())?;
+                let value = row.get("value").or_else(|| row.get("content"));
+                Some(format!("{key}：{}", display_cell(value)))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    match data {
+        Some(serde_json::Value::Object(map)) => map
+            .iter()
+            .take(20)
+            .map(|(key, value)| format!("{key}：{}", display_cell(Some(value))))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+fn format_value_preview(data: Option<&serde_json::Value>, max_lines: usize) -> String {
+    match data {
+        None | Some(serde_json::Value::Null) => String::new(),
+        Some(serde_json::Value::String(text)) => text.trim().to_string(),
+        Some(serde_json::Value::Array(rows)) => rows
+            .iter()
+            .take(max_lines)
+            .map(|row| display_cell(Some(row)))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Some(serde_json::Value::Object(map)) => map
+            .iter()
+            .take(max_lines)
+            .map(|(key, value)| format!("{key}：{}", display_cell(Some(value))))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Some(other) => other.to_string(),
+    }
+}
+
+fn display_cell(value: Option<&serde_json::Value>) -> String {
+    match value {
+        None | Some(serde_json::Value::Null) => "—".to_string(),
+        Some(serde_json::Value::String(text)) => text.trim().to_string(),
+        Some(serde_json::Value::Bool(flag)) => {
+            if *flag {
+                "是".to_string()
+            } else {
+                "否".to_string()
+            }
+        }
+        Some(serde_json::Value::Number(number)) => number.to_string(),
+        Some(serde_json::Value::Array(rows)) => format!("{} 项", rows.len()),
+        Some(serde_json::Value::Object(_)) => "…".to_string(),
+    }
 }
 
 fn telegram_failure_kind(status: u16, body: &str) -> Option<ConnectFailureKind> {

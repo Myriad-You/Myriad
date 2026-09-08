@@ -5,22 +5,25 @@
 //! finished turn is delivered, dropped, or failed visibly.
 
 use myriad_agent_rules::channel::{
-    classify_connect_failure, classify_gateway_close, decide_pending_reply, encode_pairing_code,
-    extract_pairing_code, format_pairing_code, format_pending_prompt, ingest_c2c_text,
-    ingest_channel_text, next_passive_seq, outbound_idempotency_key, pairing_bind_reply,
-    pairing_bind_reply_for, parse_access_token_response, parse_gateway_url_response,
-    parse_telegram_ok_payload, parse_telegram_private_inbounds, parse_telegram_private_texts,
-    pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities,
-    qq_token_needs_refresh, session_key, telegram_dm_capabilities, telegram_max_update_id,
-    telegram_callback_action, telegram_inline_keyboard, telegram_reply_markup, telegram_retry_after,
-    telegram_worker_intent, truncate_telegram_text, worker_intent, ChannelEvent, ConnectFailure,
-    DeliveryContext, DeliveryPlan, InboundC2cText, InboundDecision, PairingBindResult,
-    PairingLookup, PendingDecision, PendingKind, PendingOption, PendingPrompt,
-    TelegramCallbackAction, TelegramPrivateInbound, WorkerIntent, CONFIRM_HINT,
-    GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
+    channel_can_finish, clarify_base_input, clarify_followup, classify_connect_failure,
+    classify_gateway_close, decide_pending_reply, encode_pairing_code, encode_pending_id,
+    ensure_pending_id, extract_pairing_code, format_channel_result, format_pairing_code,
+    format_pending_prompt, ingest_c2c_text, ingest_channel_text, next_passive_seq,
+    outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for, panel_entry_reply,
+    parse_access_token_response, parse_channel_command, parse_gateway_url_response,
+    parse_telegram_bot_identity, parse_telegram_callback, parse_telegram_ok_payload,
+    parse_telegram_private_inbounds, parse_telegram_private_texts, pending_prompt_from_model_json,
+    plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh, session_key,
+    should_deliver_sequence, split_channel_text, telegram_callback_action,
+    telegram_dm_capabilities, telegram_inline_keyboard, telegram_max_update_id,
+    telegram_reply_markup, telegram_retry_after, telegram_worker_intent, truncate_telegram_text,
+    worker_intent, ChannelCommand, ChannelEvent, ConnectFailure, DeliveryContext, DeliveryPlan,
+    InboundC2cText, InboundDecision, PairingBindResult, PairingLookup, PendingDecision,
+    PendingKind, PendingOption, PendingPrompt, TelegramCallbackAction, TelegramPrivateInbound,
+    WorkerIntent, CONFIRM_HINT, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
     PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY,
-    TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES, TELEGRAM_INPUT_BUTTON,
-    TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
+    PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES,
+    TELEGRAM_INPUT_BUTTON, TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -221,8 +224,20 @@ fn first_cut_capabilities_are_text_only() {
     assert!(!caps.outbound_image);
     assert!(!caps.outbound_edit);
     assert!(!caps.outbound_streaming_draft);
-    assert!(!caps.interactive);
+    assert!(caps.interactive);
     assert!(!caps.frontend_action);
+    assert!(channel_can_finish(
+        &telegram_dm_capabilities(),
+        &ChannelEvent::ConfirmationRequired
+    ));
+    assert!(!channel_can_finish(
+        &telegram_dm_capabilities(),
+        &ChannelEvent::FrontendAction
+    ));
+    assert_eq!(
+        panel_entry_reply(Some("ses_1"), Some("t1")),
+        "请到站点打开这次办事继续。会话 ses_1，任务 t1。"
+    );
     assert!(!caps.performance);
     assert!(!caps.outfit);
 }
@@ -541,6 +556,20 @@ fn telegram_get_updates_keeps_private_text_and_drops_groups() {
 }
 
 #[test]
+fn telegram_get_me_exposes_public_identity() {
+    let result = parse_telegram_ok_payload(
+        200,
+        r#"{"ok":true,"result":{"id":101,"is_bot":true,"first_name":"站点","username":"site_bot"}}"#,
+    )
+    .expect("getMe");
+    let identity = parse_telegram_bot_identity(&result).expect("identity");
+    assert_eq!(identity.id, 101);
+    assert_eq!(identity.first_name, "站点");
+    assert_eq!(identity.username.as_deref(), Some("site_bot"));
+    assert!(parse_telegram_bot_identity(&serde_json::json!({"id": 1})).is_none());
+}
+
+#[test]
 fn telegram_retry_after_and_text_cap() {
     assert_eq!(
         telegram_retry_after(r#"{"ok":false,"error_code":429,"parameters":{"retry_after":7}}"#),
@@ -554,7 +583,8 @@ fn telegram_retry_after_and_text_cap() {
 }
 
 fn choice_prompt() -> PendingPrompt {
-    PendingPrompt {
+    let mut prompt = PendingPrompt {
+        id: String::new(),
         kind: PendingKind::Clarify {
             original_input: "订票".into(),
         },
@@ -570,7 +600,9 @@ fn choice_prompt() -> PendingPrompt {
             },
         ],
         expires_at_unix: None,
-    }
+    };
+    ensure_pending_id(&mut prompt);
+    prompt
 }
 
 #[test]
@@ -603,6 +635,7 @@ fn pending_choice_accepts_number_or_label_not_other_text() {
 #[test]
 fn pending_confirmation_never_defaults_to_yes() {
     let prompt = PendingPrompt {
+        id: "c1id".into(),
         kind: PendingKind::Confirm {
             confirmation_id: "c1".into(),
         },
@@ -637,8 +670,21 @@ fn pending_confirmation_never_defaults_to_yes() {
 }
 
 #[test]
+fn clarify_followup_does_not_stack_the_previous_turn() {
+    let (input, original) = clarify_followup("再来一次", "我说A");
+    assert_eq!(input, "我说A");
+    assert_eq!(original, "再来一次");
+    let stacked = clarify_base_input("再来一次\n补充说明：我说A\n补充说明：B");
+    assert_eq!(stacked, "再来一次");
+    let (again, parked) = clarify_followup(stacked, "B");
+    assert_eq!(again, "B");
+    assert_eq!(parked, "再来一次");
+}
+
+#[test]
 fn pending_free_text_keeps_the_next_message() {
     let prompt = PendingPrompt {
+        id: "q1id".into(),
         kind: PendingKind::Answer {
             task_id: "t1".into(),
             question_id: "q1".into(),
@@ -656,22 +702,35 @@ fn pending_free_text_keeps_the_next_message() {
 
 #[test]
 fn telegram_choice_becomes_one_inline_button_per_option() {
-    let rows = telegram_inline_keyboard(&choice_prompt());
+    let prompt = choice_prompt();
+    let rows = telegram_inline_keyboard(&prompt);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0][0].text, "上海");
-    assert_eq!(rows[0][0].callback_data, "o:0");
-    assert_eq!(rows[1][0].callback_data, "o:1");
-    match telegram_callback_action(&choice_prompt(), "o:1") {
+    assert_eq!(rows[0][0].callback_data, format!("o:{}:0", prompt.id));
+    assert_eq!(rows[1][0].callback_data, format!("o:{}:1", prompt.id));
+    match telegram_callback_action(&prompt, &format!("o:{}:1", prompt.id)) {
         TelegramCallbackAction::Resume(answer) => assert_eq!(answer, "hangzhou"),
         other => panic!("{other:?}"),
     }
-    let markup = telegram_reply_markup(&choice_prompt()).expect("markup");
-    assert_eq!(markup["inline_keyboard"][0][0]["callback_data"], "o:0");
+    let markup = telegram_reply_markup(&prompt).expect("markup");
+    assert_eq!(
+        markup["inline_keyboard"][0][0]["callback_data"],
+        format!("o:{}:0", prompt.id)
+    );
+    assert_eq!(
+        telegram_callback_action(&prompt, "o:other:1"),
+        TelegramCallbackAction::Stale
+    );
+    assert_eq!(
+        telegram_callback_action(&prompt, "o:1"),
+        TelegramCallbackAction::Stale
+    );
 }
 
 #[test]
 fn telegram_confirm_and_input_buttons() {
-    let confirm = PendingPrompt {
+    let mut confirm = PendingPrompt {
+        id: String::new(),
         kind: PendingKind::Confirm {
             confirmation_id: "c1".into(),
         },
@@ -679,14 +738,26 @@ fn telegram_confirm_and_input_buttons() {
         options: vec![],
         expires_at_unix: None,
     };
+    ensure_pending_id(&mut confirm);
     let rows = telegram_inline_keyboard(&confirm);
-    assert_eq!(rows[0][0].callback_data, TELEGRAM_CALLBACK_YES);
-    assert_eq!(rows[0][1].callback_data, TELEGRAM_CALLBACK_NO);
     assert_eq!(
-        telegram_callback_action(&confirm, "y"),
+        rows[0][0].callback_data,
+        format!("{TELEGRAM_CALLBACK_YES}:{}", confirm.id)
+    );
+    assert_eq!(
+        rows[0][1].callback_data,
+        format!("{TELEGRAM_CALLBACK_NO}:{}", confirm.id)
+    );
+    assert_eq!(
+        telegram_callback_action(&confirm, &format!("y:{}", confirm.id)),
         TelegramCallbackAction::Resume("是".into())
     );
-    let free = PendingPrompt {
+    assert_eq!(
+        telegram_callback_action(&confirm, "y"),
+        TelegramCallbackAction::Stale
+    );
+    let mut free = PendingPrompt {
+        id: String::new(),
         kind: PendingKind::Answer {
             task_id: "t1".into(),
             question_id: "q1".into(),
@@ -696,14 +767,84 @@ fn telegram_confirm_and_input_buttons() {
         options: vec![],
         expires_at_unix: None,
     };
+    ensure_pending_id(&mut free);
     assert_eq!(
         telegram_inline_keyboard(&free)[0][0].text,
         TELEGRAM_INPUT_BUTTON
     );
     assert_eq!(
-        telegram_callback_action(&free, TELEGRAM_CALLBACK_INPUT),
+        telegram_callback_action(&free, &format!("{TELEGRAM_CALLBACK_INPUT}:{}", free.id)),
         TelegramCallbackAction::RequestInput
     );
+}
+
+#[test]
+fn resume_skips_already_delivered_sequences() {
+    assert!(should_deliver_sequence(None, 0));
+    assert!(!should_deliver_sequence(Some(3), 3));
+    assert!(should_deliver_sequence(Some(3), 4));
+}
+
+#[test]
+fn long_text_splits_instead_of_dropping_the_tail() {
+    let over: String = "字".repeat(TELEGRAM_TEXT_LIMIT + 8);
+    let chunks = split_channel_text(&over, TELEGRAM_TEXT_LIMIT);
+    assert!(chunks.len() >= 2);
+    assert_eq!(chunks.concat().chars().count(), over.chars().count());
+    let paragraphs = "第一段\n\n第二段很长很长很长";
+    let split = split_channel_text(paragraphs, 6);
+    assert!(split.iter().any(|chunk| chunk.contains("第一段")));
+    assert!(split.iter().any(|chunk| chunk.contains("第二段")));
+}
+
+#[test]
+fn structured_result_becomes_readable_text() {
+    let table = format_channel_result(
+        "查到两班车",
+        Some(&serde_json::json!([
+            {"from": "上海", "to": "杭州"},
+            {"from": "杭州", "to": "宁波"}
+        ])),
+        Some(&serde_json::json!({
+            "type": "table",
+            "columns": [
+                {"field": "from", "title": "出发"},
+                {"field": "to", "title": "到达"}
+            ]
+        })),
+    );
+    assert!(table.contains("查到两班车"));
+    assert!(table.contains("出发 | 到达"));
+    assert!(table.contains("上海 | 杭州"));
+    let chart = format_channel_result(
+        "",
+        Some(&serde_json::json!([{"day": "周一", "n": 3}])),
+        Some(&serde_json::json!({
+            "type": "chart",
+            "chartType": "bar",
+            "xField": "day",
+            "yField": "n"
+        })),
+    );
+    assert!(chart.contains("图表（bar）"));
+    assert!(chart.contains("周一：3"));
+}
+
+#[test]
+fn channel_commands_are_exact_tokens() {
+    assert_eq!(parse_channel_command("停止"), Some(ChannelCommand::Stop));
+    assert_eq!(
+        parse_channel_command("/new"),
+        Some(ChannelCommand::NewConversation)
+    );
+    assert_eq!(
+        parse_channel_command("查看当前任务"),
+        Some(ChannelCommand::Status)
+    );
+    assert_eq!(parse_channel_command("请停止订票"), None);
+    assert_eq!(encode_pending_id([0, 0, 0, 1]), "00000001");
+    assert!(parse_telegram_callback("y:abcd1234").is_some());
+    let _ = PENDING_STALE_REPLY;
 }
 
 #[test]

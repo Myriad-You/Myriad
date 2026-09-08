@@ -51,6 +51,32 @@ static WAITING_TASKS: once_cell::sync::Lazy<
     tokio::sync::RwLock<std::collections::HashMap<String, WaitingTaskCtx>>,
 > = once_cell::sync::Lazy::new(|| tokio::sync::RwLock::new(std::collections::HashMap::new()));
 
+/// Channel stop / HTTP cancel share this so a waiting run does not hang.
+pub(crate) async fn cancel_task_and_wake(
+    db: &DatabaseConnection,
+    user_id: i32,
+    task_id: &str,
+) -> bool {
+    let agent = Agent::new(db.clone()).await;
+    if !agent.cancel_task_for_user(task_id, user_id).await {
+        return false;
+    }
+    if let Some(waiting) = take_waiting_task(task_id, user_id).await {
+        let _ = waiting.done_tx.send(json!({
+            "success": false,
+            "responseType": "error",
+            "message": "任务已取消",
+            "streamTerminal": true,
+            "task": {
+                "taskId": task_id,
+                "status": "cancelled",
+                "progress": 0
+            }
+        }));
+    }
+    true
+}
+
 /// 仅任务所有者可取出 waiting 上下文；错误用户不 remove，避免抢 oneshot
 async fn take_waiting_task(task_id: &str, user_id: i32) -> Option<WaitingTaskCtx> {
     let mut map = WAITING_TASKS.write().await;

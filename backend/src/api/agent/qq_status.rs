@@ -17,6 +17,8 @@ pub async fn get_qq_bot_status(
         "enabled": status.enabled,
         "hasAppId": status.has_app_id,
         "hasSecret": status.has_secret,
+        "appId": status.app_id,
+        "lastInboundAt": status.last_inbound_at,
     })))
 }
 
