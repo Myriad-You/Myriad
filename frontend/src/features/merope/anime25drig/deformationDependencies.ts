@@ -84,6 +84,8 @@ export interface Anime25DDeformationChangeState {
   stylized: Float64Array
   jawDrop: number
   jawOpen: number
+  irisReboundX: number
+  irisReboundY: number
 }
 
 export interface Anime25DLayerDeformationPlan {
@@ -102,6 +104,8 @@ export function createAnime25DDeformationChangeState(): Anime25DDeformationChang
     stylized: new Float64Array(STYLIZED_MOTION_KEYS.length),
     jawDrop: 0,
     jawOpen: 0,
+    irisReboundX: 1,
+    irisReboundY: 1,
   }
 }
 
@@ -113,6 +117,7 @@ export function captureAnime25DDeformationChanges(
   jawDrop: number,
   jawOpen: number,
   stylizedMotion: Readonly<StylizedExpressionMotion> | null,
+  irisRebound?: Readonly<{ x: number; y: number }>,
 ): number {
   const firstFrame = !state.initialized
   let changes = ANIME25D_DEFORMATION_TIME
@@ -120,6 +125,12 @@ export function captureAnime25DDeformationChanges(
   if (captureValues(driver, EYE_DRIVER_KEYS, state.eye) || firstFrame) {
     changes |= ANIME25D_DEFORMATION_EYE
   }
+  const reboundX = irisRebound?.x ?? 1
+  const reboundY = irisRebound?.y ?? 1
+  if (reboundX !== state.irisReboundX || reboundY !== state.irisReboundY)
+    changes |= ANIME25D_DEFORMATION_EYE
+  state.irisReboundX = reboundX
+  state.irisReboundY = reboundY
   const mouthDriverChanged = captureValues(
     driver,
     MOUTH_DRIVER_KEYS,
@@ -166,12 +177,10 @@ export function resolveAnime25DDeformationDependencies(input: {
       dependencies |= ANIME25D_DEFORMATION_STYLIZED
       break
     case 'lovestruck-heart':
-      dependencies |=
-        ANIME25D_DEFORMATION_EYE | ANIME25D_DEFORMATION_STYLIZED
+      dependencies |= ANIME25D_DEFORMATION_EYE | ANIME25D_DEFORMATION_STYLIZED
       break
     case 'lovestruck-drool':
-      dependencies |=
-        ANIME25D_DEFORMATION_MOUTH | ANIME25D_DEFORMATION_STYLIZED
+      dependencies |= ANIME25D_DEFORMATION_MOUTH | ANIME25D_DEFORMATION_STYLIZED
       break
     case 'lovestruck-face':
     case 'nose-lift':

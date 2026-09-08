@@ -1,5 +1,6 @@
 import type { Layer, PixelData, Psd } from 'ag-psd'
 import type { Anime25DLayerRole } from './anime25d'
+import type { Anime25DImportCopy } from './anime25dImportCopy'
 import type {
   Anime25DSourceReference,
   AnimeAnchors,
@@ -9,7 +10,6 @@ import type {
   RigCanvasFrame,
 } from './anime25dImportTypes'
 import type { MeropeRigImportSource, RigPoint } from './types'
-import { currentCopy } from '../../../i18n/localeCopy'
 import { analyzeAnime25DMouthProfile } from '../anime25drig/mouthProfile'
 import {
   buildAnime25DPlayback,
@@ -90,16 +90,30 @@ export function isAnime25DDocument(psd: Psd): boolean {
 export async function prepareAnime25DRigPsd(
   psd: Psd,
   sourceMasterAssetId: string,
+  copy: Anime25DImportCopy,
   onStage?: (stage: 'validated' | 'packing') => void,
   sourceGenerationFingerprint?: string,
   sourceReference?: Anime25DSourceReference,
 ): Promise<PreparedAnime25DRigImport> {
   if (!isAnime25DDocument(psd)) {
-    throw new Error(currentCopy().merope.anime25dMissingFace)
+    throw new Error(copy.anime25dMissingFace)
   }
   const staticSeeThroughMouth = hasStaticSeeThroughMouth(psd)
   const working = flattenPsdForRigger(psd)
   Rigger.cleanPsdLayers(working)
+  // The reference accepts a missing face; the production portrait contract does
+  // not. A named but empty/hidden face must never silently acquire guessed pivots.
+  if (
+    !working.children?.some(
+      (layer) =>
+        Rigger.baseName(layer.name ?? '') === 'face' &&
+        layer.imageData?.data.some(
+          (value, index) => index % 4 === 3 && value > 8,
+        ),
+    )
+  ) {
+    throw new Error(copy.anime25dMissingFace)
+  }
   const rig = Rigger.buildRig(working, { generic: genericCloseParts() })
   compensateSyntheticClosedEyeAngles(rig.layers)
   onStage?.('validated')
@@ -116,17 +130,14 @@ export async function prepareAnime25DRigPsd(
     layer.order = index
   })
   assignCrossfadeSlots(layers)
-  validateAnime25DCharacterLayers(layers)
+  validateAnime25DCharacterLayers(layers, copy)
   const faceCenter = {
     x: rig.anchors.face.cx,
     y: rig.anchors.face.cy,
   }
   if (layers.length === 0 || layers.length > MAX_RIG_PARTS) {
     throw new Error(
-      currentCopy().merope.anime25dPartCount.replace(
-        '{max}',
-        String(MAX_RIG_PARTS),
-      ),
+      copy.anime25dPartCount.replace('{max}', String(MAX_RIG_PARTS)),
     )
   }
   const frame = contentFrame(psd, layers)
@@ -137,10 +148,10 @@ export async function prepareAnime25DRigPsd(
     layers: prepared,
     width: packedWidth,
     height: packedHeight,
-  } = await packAnime25DAtlas(frame, layers)
-  const anchors = deriveAnchors(frame, prepared, faceCenter)
+  } = await packAnime25DAtlas(frame, layers, copy)
+  const anchors = deriveAnchors(frame, prepared, faceCenter, copy)
   const { bones, layerHandles, secondaryBoneIds } =
-    buildAnime25DBonesAndHandles(prepared, anchors)
+    buildAnime25DBonesAndHandles(prepared, anchors, copy)
   const rigLayers = buildAnime25DLayerSources(prepared, layerHandles)
   const partIds = prepared.map((layer) => `a25d-${layer.id}`)
   const playbackAnchors = remapRiggerAnchors(rig.anchors, frame)
@@ -149,13 +160,16 @@ export async function prepareAnime25DRigPsd(
     frame,
     playbackAnchors.mouth,
   )
-  const anime25dPlayback = buildAnime25DPlayback({
-    frameWidth: frame.width,
-    frameHeight: frame.height,
-    layers: prepared,
-    anchors: playbackAnchors,
-    mouthProfile,
-  })
+  const anime25dPlayback = buildAnime25DPlayback(
+    {
+      frameWidth: frame.width,
+      frameHeight: frame.height,
+      layers: prepared,
+      anchors: playbackAnchors,
+      mouthProfile,
+    },
+    copy,
+  )
   const outfitProfile = inferOutfitProfileFromPartIds(partIds)
   const semanticBones: Record<string, string> = {
     root: 'root',
@@ -198,12 +212,19 @@ export async function prepareAnime25DRigPsd(
   }
 }
 
-function flattenVisibleLayers(layers: Layer[]): Layer[] {
+function flattenVisibleLayers(layers: Layer[], parentOpacity = 1): Layer[] {
   const output: Layer[] = []
   for (const layer of layers) {
     if (layer.hidden) continue
-    if (layer.children) output.push(...flattenVisibleLayers(layer.children))
-    else output.push(layer)
+    const opacity =
+      parentOpacity *
+      (Number.isFinite(layer.opacity)
+        ? Math.max(0, Math.min(1, layer.opacity!))
+        : 1)
+    if (opacity === 0) continue
+    if (layer.children)
+      output.push(...flattenVisibleLayers(layer.children, opacity))
+    else output.push({ ...layer, opacity })
   }
   return output
 }
@@ -258,13 +279,23 @@ function flattenPsdForRigger(psd: Psd): Psd {
     .map((layer) => {
       const pixels = layer.imageData
       if (!validPixelData(pixels)) return layer
+      // Bake source opacity once into the copied pixels. All downstream stages
+      // (collar evidence, generated artwork and atlas) see the same composition;
+      // no second runtime multiplier or asset-contract field is needed.
+      const data = new Uint8ClampedArray(pixels.data)
+      const opacity = layer.opacity ?? 1
+      if (opacity !== 1) {
+        for (let index = 3; index < data.length; index += 4)
+          data[index] *= opacity
+      }
       return {
         ...layer,
+        opacity: 1,
         name: toRiggerLayerName(layer.name),
         imageData: {
           width: pixels.width,
           height: pixels.height,
-          data: new Uint8ClampedArray(pixels.data),
+          data,
         },
       }
     })
@@ -424,9 +455,6 @@ function assignCrossfadeSlots(layers: RasterLayer[]): void {
     const open = layers.find(
       (layer) => layer.role === 'eyelash' && layer.side === side,
     )
-    const closed = layers.find(
-      (layer) => layer.role === 'eye-close' && layer.side === side,
-    )
     const dizzy = layers.find(
       (layer) => layer.role === 'eye-dizzy' && layer.side === side,
     )
@@ -444,9 +472,14 @@ function assignCrossfadeSlots(layers: RasterLayer[]): void {
       open.slot = slot
       open.variant = 'open'
     }
-    if (closed) {
-      closed.slot = slot
-      closed.variant = 'closed'
+    for (const closed of layers) {
+      if (
+        (closed.role === 'eye-close' || closed.role === 'eye-close2') &&
+        closed.side === side
+      ) {
+        closed.slot = slot
+        closed.variant = 'closed'
+      }
     }
     if (dizzy) {
       dizzy.slot = slot
@@ -532,8 +565,9 @@ function deriveAnchors(
   frame: RigCanvasFrame,
   layers: PreparedLayer[],
   rawFaceCenter: RigPoint,
+  copy: Anime25DImportCopy,
 ): AnimeAnchors {
-  const face = requiredLayer(layers, 'face').bounds
+  const face = requiredLayer(layers, 'face', copy).bounds
   const center = (layer: PreparedLayer | undefined): RigPoint | undefined =>
     layer
       ? {
@@ -672,12 +706,11 @@ function labelAlphaComponents(
 function requiredLayer(
   layers: PreparedLayer[],
   role: Anime25DLayerRole,
+  copy: Anime25DImportCopy,
 ): PreparedLayer {
   const layer = layers.find((candidate) => candidate.role === role)
   if (!layer) {
-    throw new Error(
-      currentCopy().merope.anime25dMissingLayer.replace('{role}', role),
-    )
+    throw new Error(copy.anime25dMissingLayer.replace('{role}', role))
   }
   return layer
 }

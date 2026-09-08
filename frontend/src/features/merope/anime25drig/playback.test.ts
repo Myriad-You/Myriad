@@ -1,6 +1,7 @@
 import type { Anime25DPlaybackBuildLayer } from './playback'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { anime25DImportCopy } from '../rig/anime25dImportCopy'
 import { analyzeAnime25DMouthProfile } from './mouthProfile'
 import { buildAnime25DPlayback, remapRiggerAnchors } from './playback'
 import { isAnime25DPlayback } from './types'
@@ -63,36 +64,39 @@ function mouthProfileFor(width: number, height: number) {
 
 describe('Anime2.5DRig playback', () => {
   it('builds a credited playback document from face-rig layers', () => {
-    const playback = buildAnime25DPlayback({
-      frameWidth: 768,
-      frameHeight: 1024,
-      anchors: anchorsFor(768, 1024),
-      mouthProfile: mouthProfileFor(768, 1024),
-      layers: [
-        layer({
-          id: 'face',
-          role: 'face',
-          side: null,
-          bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
-        }),
-        layer({
-          id: 'front-hair',
-          role: 'front-hair',
-          side: null,
-          bounds: { x: 0.28, y: 0.08, width: 0.44, height: 0.3 },
-          textureBounds: { x: 0.2, y: 0, width: 0.2, height: 0.2 },
-          strands: [{ x: 0.4, rootY: 0.1, tipY: 0.28 }],
-        }),
-        layer({
-          id: 'topwear',
-          role: 'topwear',
-          side: null,
-          group: 'body',
-          bounds: { x: 0.18, y: 0.36, width: 0.64, height: 0.64 },
-          textureBounds: { x: 0.4, y: 0, width: 0.2, height: 0.2 },
-        }),
-      ],
-    })
+    const playback = buildAnime25DPlayback(
+      {
+        frameWidth: 768,
+        frameHeight: 1024,
+        anchors: anchorsFor(768, 1024),
+        mouthProfile: mouthProfileFor(768, 1024),
+        layers: [
+          layer({
+            id: 'face',
+            role: 'face',
+            side: null,
+            bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
+          }),
+          layer({
+            id: 'front-hair',
+            role: 'front-hair',
+            side: null,
+            bounds: { x: 0.28, y: 0.08, width: 0.44, height: 0.3 },
+            textureBounds: { x: 0.2, y: 0, width: 0.2, height: 0.2 },
+            strands: [{ x: 0.4, rootY: 0.1, tipY: 0.28 }],
+          }),
+          layer({
+            id: 'topwear',
+            role: 'topwear',
+            side: null,
+            group: 'body',
+            bounds: { x: 0.18, y: 0.36, width: 0.64, height: 0.64 },
+            textureBounds: { x: 0.4, y: 0, width: 0.2, height: 0.2 },
+          }),
+        ],
+      },
+      anime25DImportCopy(),
+    )
     assert.equal(isAnime25DPlayback(playback), true)
     assert.equal(playback.engine, 'Anime2.5DRig')
     assert.equal(playback.engineUrl, 'https://github.com/852wa/Anime2.5DRig')
@@ -116,45 +120,48 @@ describe('Anime2.5DRig playback', () => {
   })
 
   it('keeps independent front and rear hair layers', () => {
-    const playback = buildAnime25DPlayback({
-      frameWidth: 768,
-      frameHeight: 1024,
-      anchors: anchorsFor(768, 1024),
-      mouthProfile: mouthProfileFor(768, 1024),
-      layers: [
-        layer({
-          id: 'back-hair',
-          role: 'back-hair',
-          side: null,
-          group: 'head',
-          bounds: { x: 0.2, y: 0.06, width: 0.6, height: 0.5 },
-          textureBounds: { x: 0, y: 0.2, width: 0.2, height: 0.2 },
-          strands: [
-            { x: 0.3, rootY: 0.08, tipY: 0.5 },
-            { x: 0.5, rootY: 0.08, tipY: 0.48 },
-            { x: 0.7, rootY: 0.08, tipY: 0.52 },
-          ],
-        }),
-        layer({
-          id: 'face',
-          role: 'face',
-          side: null,
-          bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
-        }),
-        layer({
-          id: 'front-hair',
-          role: 'front-hair',
-          side: null,
-          bounds: { x: 0.28, y: 0.08, width: 0.44, height: 0.3 },
-          textureBounds: { x: 0.2, y: 0, width: 0.2, height: 0.2 },
-          strands: [
-            { x: 0.35, rootY: 0.1, tipY: 0.26 },
-            { x: 0.5, rootY: 0.09, tipY: 0.24 },
-            { x: 0.65, rootY: 0.1, tipY: 0.27 },
-          ],
-        }),
-      ],
-    })
+    const playback = buildAnime25DPlayback(
+      {
+        frameWidth: 768,
+        frameHeight: 1024,
+        anchors: anchorsFor(768, 1024),
+        mouthProfile: mouthProfileFor(768, 1024),
+        layers: [
+          layer({
+            id: 'back-hair',
+            role: 'back-hair',
+            side: null,
+            group: 'head',
+            bounds: { x: 0.2, y: 0.06, width: 0.6, height: 0.5 },
+            textureBounds: { x: 0, y: 0.2, width: 0.2, height: 0.2 },
+            strands: [
+              { x: 0.3, rootY: 0.08, tipY: 0.5 },
+              { x: 0.5, rootY: 0.08, tipY: 0.48 },
+              { x: 0.7, rootY: 0.08, tipY: 0.52 },
+            ],
+          }),
+          layer({
+            id: 'face',
+            role: 'face',
+            side: null,
+            bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
+          }),
+          layer({
+            id: 'front-hair',
+            role: 'front-hair',
+            side: null,
+            bounds: { x: 0.28, y: 0.08, width: 0.44, height: 0.3 },
+            textureBounds: { x: 0.2, y: 0, width: 0.2, height: 0.2 },
+            strands: [
+              { x: 0.35, rootY: 0.1, tipY: 0.26 },
+              { x: 0.5, rootY: 0.09, tipY: 0.24 },
+              { x: 0.65, rootY: 0.1, tipY: 0.27 },
+            ],
+          }),
+        ],
+      },
+      anime25DImportCopy(),
+    )
     const front = playback.layers.find((item) => item.role === 'front-hair')
     const back = playback.layers.find((item) => item.role === 'back-hair')
     assert.equal(front?.phys, 'hair')
@@ -169,78 +176,87 @@ describe('Anime2.5DRig playback', () => {
   })
 
   it('maps a dedicated per-eye dizzy layer without treating it as a blink', () => {
-    const playback = buildAnime25DPlayback({
-      frameWidth: 768,
-      frameHeight: 1024,
-      anchors: anchorsFor(768, 1024),
-      mouthProfile: mouthProfileFor(768, 1024),
-      layers: [
-        layer({
-          id: 'face',
-          role: 'face',
-          side: null,
-          bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
-        }),
-        layer({
-          id: 'eye-dizzy-left',
-          role: 'eye-dizzy',
-          side: 'left',
-          bounds: { x: 0.36, y: 0.16, width: 0.06, height: 0.06 },
-        }),
-      ],
-    })
+    const playback = buildAnime25DPlayback(
+      {
+        frameWidth: 768,
+        frameHeight: 1024,
+        anchors: anchorsFor(768, 1024),
+        mouthProfile: mouthProfileFor(768, 1024),
+        layers: [
+          layer({
+            id: 'face',
+            role: 'face',
+            side: null,
+            bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
+          }),
+          layer({
+            id: 'eye-dizzy-left',
+            role: 'eye-dizzy',
+            side: 'left',
+            bounds: { x: 0.36, y: 0.16, width: 0.06, height: 0.06 },
+          }),
+        ],
+      },
+      anime25DImportCopy(),
+    )
     const dizzy = playback.layers.find((item) => item.role === 'eye-dizzy')
     assert.equal(dizzy?.side, 'L')
     assert.equal(dizzy?.fade, 'eyeDizzy')
   })
 
   it('maps a dedicated per-eye squeeze layer without treating it as a blink', () => {
-    const playback = buildAnime25DPlayback({
-      frameWidth: 768,
-      frameHeight: 1024,
-      anchors: anchorsFor(768, 1024),
-      mouthProfile: mouthProfileFor(768, 1024),
-      layers: [
-        layer({
-          id: 'face',
-          role: 'face',
-          side: null,
-          bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
-        }),
-        layer({
-          id: 'eye-squeeze-left',
-          role: 'eye-squeeze',
-          side: 'left',
-          bounds: { x: 0.36, y: 0.16, width: 0.06, height: 0.04 },
-        }),
-      ],
-    })
+    const playback = buildAnime25DPlayback(
+      {
+        frameWidth: 768,
+        frameHeight: 1024,
+        anchors: anchorsFor(768, 1024),
+        mouthProfile: mouthProfileFor(768, 1024),
+        layers: [
+          layer({
+            id: 'face',
+            role: 'face',
+            side: null,
+            bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
+          }),
+          layer({
+            id: 'eye-squeeze-left',
+            role: 'eye-squeeze',
+            side: 'left',
+            bounds: { x: 0.36, y: 0.16, width: 0.06, height: 0.04 },
+          }),
+        ],
+      },
+      anime25DImportCopy(),
+    )
     const squeeze = playback.layers.find((item) => item.role === 'eye-squeeze')
     assert.equal(squeeze?.side, 'L')
     assert.equal(squeeze?.fade, 'eyeSqueeze')
   })
 
   it('maps a complete per-eye crying replacement independently', () => {
-    const playback = buildAnime25DPlayback({
-      frameWidth: 768,
-      frameHeight: 1024,
-      anchors: anchorsFor(768, 1024),
-      mouthProfile: mouthProfileFor(768, 1024),
-      layers: [
-        layer({
-          id: 'face',
-          role: 'face',
-          side: null,
-          bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
-        }),
-        layer({
-          id: 'eye-cry-left',
-          role: 'eye-cry',
-          side: 'left',
-          bounds: { x: 0.36, y: 0.16, width: 0.07, height: 0.12 },
-        }),
-      ],
-    })
+    const playback = buildAnime25DPlayback(
+      {
+        frameWidth: 768,
+        frameHeight: 1024,
+        anchors: anchorsFor(768, 1024),
+        mouthProfile: mouthProfileFor(768, 1024),
+        layers: [
+          layer({
+            id: 'face',
+            role: 'face',
+            side: null,
+            bounds: { x: 0.3, y: 0.12, width: 0.4, height: 0.36 },
+          }),
+          layer({
+            id: 'eye-cry-left',
+            role: 'eye-cry',
+            side: 'left',
+            bounds: { x: 0.36, y: 0.16, width: 0.07, height: 0.12 },
+          }),
+        ],
+      },
+      anime25DImportCopy(),
+    )
     const cry = playback.layers.find((item) => item.role === 'eye-cry')
     assert.equal(cry?.side, 'L')
     assert.equal(cry?.fade, 'eyeCry')

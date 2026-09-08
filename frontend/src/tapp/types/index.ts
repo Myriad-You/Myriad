@@ -25,10 +25,6 @@ export type WidgetSize =
   | '3x3'
   | '4x4'
 
-/** 小组件分类 */
-export type WidgetCategory =
-  'stats' | 'activity' | 'visualization' | 'utility' | 'custom'
-
 /** 平台数据类型 */
 export type PlatformDataType =
   'game' | 'video' | 'music' | 'anime' | 'article' | 'custom'
@@ -43,6 +39,9 @@ export type TappCategory =
   | 'productivity'
   | 'social'
   | 'utility'
+
+/** 小组件分类：与应用用途同一套稳定 ID，两处独立声明。 */
+export type WidgetCategory = TappCategory
 
 // Tapp Manifest
 

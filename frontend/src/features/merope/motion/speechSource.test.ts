@@ -9,6 +9,102 @@ import { RigMotionCoordinator } from './coordinator'
 import { HumanPerformanceRuntime } from './humanPerformanceRuntime'
 import { SpeechMotionSource } from './speechSource'
 
+test('incremental hesitate → explain → check-in preserves the drawn body and produces all three motions', () => {
+  let now = 1000
+  const human = new HumanPerformanceRuntime()
+  const body = new Anime25DBehaviorMotionController()
+  const source = new SpeechMotionSource(
+    new RigMotionCoordinator(),
+    () => {},
+    () => human.snapshots(now),
+    { now: () => now, setTimeout: () => 1, clearTimeout: () => {} },
+  )
+  const event = {
+    source: 'reply' as const,
+    messageId: 'continuation',
+    utteranceId: 'continuation',
+  }
+  const direct = (phrases: Array<{ text: string; intent: string }>) =>
+    source.applyDirector(
+      sanitizePerformanceDirective({
+        phase: 'delivery',
+        moodRevision: 1,
+        motionStyle: 'even',
+        plan: { baseline: null, cues: [] },
+        phrases,
+      })!,
+      { ...event, text: '' },
+      null,
+    )
+  source.start()
+  try {
+    source.handleForTest({ ...event, phase: 'start' })
+    source.handleForTest({
+      ...event,
+      phase: 'chunk',
+      text: '也许我们可以试试。其实可以先把原因说清楚。你觉得呢？',
+    })
+    direct([{ text: '也许我们可以试试。', intent: 'hesitate' }])
+    const original = source.current().prosody!
+    const firstPeak = original.startedAtMs + original.accents[0]!.offsetMs
+    const end = original.startedAtMs + original.durationMs + 1500
+    const peaks = { hesitate: 0, contrast: 0, 'check-in': 0 }
+    let updated = false
+    let revision = -1
+    for (; now < end; now += 16) {
+      if (!updated && now > firstPeak + 50) {
+        updated = true
+        direct([
+          { text: '其实可以先把原因说清楚。', intent: 'explain' },
+          { text: '你觉得呢？', intent: 'check-in' },
+        ])
+        assert.deepEqual(
+          source.current().prosody!.accents[0],
+          original.accents[0],
+        )
+      }
+      const frame = human.frame([source.current().behaviorPlan], now)
+      if (revision !== frame.revision) {
+        revision = frame.revision
+        const before = body.sample(now / 1000)
+        const drawn = Object.fromEntries(
+          Object.keys(peaks).map((key) => [
+            key,
+            before.coSpeech * before.coSpeechGesture[key as keyof typeof peaks],
+          ]),
+        )
+        const realized = realizeAnime25DBehaviorPlan(frame.plan!, now)
+        body.replace(realized.units, now, now / 1000)
+        const after = body.sample(now / 1000)
+        for (const key of Object.keys(peaks) as Array<keyof typeof peaks>) {
+          assert.ok(
+            Math.abs(
+              after.coSpeech * after.coSpeechGesture[key] - drawn[key]!,
+            ) < 0.001,
+            `${key} jumped at plan revision ${revision}`,
+          )
+        }
+      }
+      const sample = body.sample(now / 1000)
+      for (const key of Object.keys(peaks) as Array<keyof typeof peaks>) {
+        peaks[key] = Math.max(
+          peaks[key],
+          sample.coSpeech * sample.coSpeechGesture[key],
+        )
+      }
+    }
+    assert.ok(updated)
+    for (const [intent, amplitude] of Object.entries(peaks)) {
+      assert.ok(
+        amplitude > 0.3,
+        `${intent} never reached visible body output: ${amplitude}`,
+      )
+    }
+  } finally {
+    source.stop()
+  }
+})
+
 test('a rolling speech window reaches the final question through the real scheduler and body adapter', () => {
   let now = 1_000
   const scheduler = {

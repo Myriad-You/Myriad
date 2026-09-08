@@ -68,6 +68,7 @@ import {
   turnSpeechAlreadyFed,
 } from '../../features/merope/engineFace'
 import { interruptAgoraConversation, stopAgoraConversation } from '../../features/merope/speech/agoraConversation'
+import { playbackDirection, retainPlaybackDirection, startPlaybackDirection } from '../../features/merope/motion/playbackDirectionHost'
 import { bindRealtimeChat } from '../../features/merope/speech/realtimeChat'
 import {
   beginTurnTrace,
@@ -197,6 +198,10 @@ export const AgentEngine: React.FC = () => {
   const pageContentContext = usePageContentOptional()
 
   useEffect(() => startPresenceInbound(), [])
+  useEffect(() => {
+    if (isAuthenticated) return retainPlaybackDirection()
+    playbackDirection.stop()
+  }, [isAuthenticated])
   useEffect(() => {
     notePresenceRoute(location.pathname)
   }, [location.pathname])
@@ -888,6 +893,7 @@ export const AgentEngine: React.FC = () => {
             }
             if (event.runId) {
               performanceRunId = event.runId
+              if (mode === 'chat') startPlaybackDirection({ runId: event.runId, messageId: assistantMessageId, generation })
               updateMessageExecution(assistantMessageId, {
                 runId: event.runId,
               })
@@ -1092,6 +1098,7 @@ export const AgentEngine: React.FC = () => {
           }
 
           case 'error':
+            playbackDirection.cancel(assistantMessageId)
             utterance.cancel()
             speech.cancel()
             updateMessageExecution(assistantMessageId, { status: 'error' })
@@ -1126,6 +1133,7 @@ export const AgentEngine: React.FC = () => {
               }
               if (speech.end()) markTurnTraceOnce('first_sentence')
               utterance.end()
+              if (mode === 'chat') playbackDirection.textEnded(assistantMessageId)
             } else {
               if (tokenEvent.token) markTurnTraceOnce('llm_first_token')
               streamedSummary += tokenEvent.token
@@ -1206,6 +1214,7 @@ export const AgentEngine: React.FC = () => {
 
           case 'task_completed': {
             utterance.end()
+            if (mode === 'chat') playbackDirection.textEnded(assistantMessageId)
             // 检查任务是否真正完成（多轮问答时可能仍在等待用户输入）
             const completedEvent =
               event as import('../../services/agent/types').TaskCompletedEvent

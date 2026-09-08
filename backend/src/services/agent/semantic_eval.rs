@@ -42,6 +42,12 @@ struct Case {
     repeated: bool,
     #[serde(default)]
     do_not_disturb: bool,
+    #[serde(default)]
+    rig: Option<Value>,
+    #[serde(default)]
+    mood: Option<f64>,
+    #[serde(default)]
+    previous_phrases: Vec<myriad_merope::SpeechPhrase>,
 }
 
 fn cases() -> Vec<Case> {
@@ -51,7 +57,10 @@ fn cases() -> Vec<Case> {
     for case in &cases {
         assert!(ids.insert(&case.id) && !case.id.is_empty());
         assert!(!case.rubric.trim().is_empty());
-        assert!(matches!(case.kind.as_str(), "chat" | "memory" | "event"));
+        assert!(matches!(
+            case.kind.as_str(),
+            "chat" | "memory" | "event" | "motion"
+        ));
     }
     cases
 }
@@ -102,6 +111,27 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
 
 fn request(case: &Case) -> Value {
     match case.kind.as_str() {
+        "motion" => {
+            let mut context = super::motion_overlay::motion_refinement_tests::context();
+            context.phase = super::merope::MotionPhase::Delivery;
+            context.activity = "talking".into();
+            context.user_text = case.input.clone();
+            context.response_text = Some(case.reply.clone());
+            context.previous_phrases = case.previous_phrases.clone();
+            context.rig_state = case
+                .rig
+                .as_ref()
+                .and_then(myriad_merope::sanitize_rig_state);
+            if let Some(mood) = case.mood {
+                context.mood.before = mood;
+                context.mood.after = mood;
+                context.mood.band_before =
+                    super::merope::state::mood_band(mood, context.mood.arousal_before).into();
+                context.mood.band_after =
+                    super::merope::state::mood_band(mood, context.mood.arousal_after).into();
+            }
+            super::merope::motion::semantic_contract(&context)
+        }
         "chat" => {
             let mut items = vec![];
             for (source, kind, text, facts) in [
@@ -222,6 +252,13 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 "pass"
             } else {
                 "needs_review"
+            }
+        }
+        "motion" => {
+            if super::merope::motion::semantic_valid(output, &case.reply) {
+                "needs_review"
+            } else {
+                "contract_failure"
             }
         }
         "chat" => "needs_review",
@@ -437,11 +474,50 @@ fn semantic_grader_does_not_turn_transport_or_keyword_matches_into_success() {
 }
 
 #[test]
+fn motion_semantics_require_grounded_output_and_real_review() {
+    let cases = cases();
+    let case = cases
+        .iter()
+        .find(|c| c.id == "motion-continuation")
+        .unwrap();
+    let valid =
+        json!({"cues":[],"phrases":[{"text":"你觉得呢？","intent":"check-in"}]}).to_string();
+    assert_eq!(grade(case, "returned", &valid), "needs_review");
+    assert_eq!(
+        grade(case, "returned", r#"{"continue":true}"#),
+        "needs_review"
+    );
+    let stale = json!({"baseline":null,"cues":[],"phrases":[{"text":"也许可以试试。","intent":"hesitate"}]}).to_string();
+    assert_eq!(grade(case, "returned", &stale), "contract_failure");
+    let exported = request(case);
+    let input: Value = serde_json::from_str(exported["input"].as_str().unwrap()).unwrap();
+    assert_eq!(input["previouslyIssuedPhrases"][0]["intent"], "hesitate");
+    assert_eq!(input["responseText"], case.reply);
+    assert!(exported["system"]
+        .as_str()
+        .unwrap()
+        .contains("省略 baseline"));
+    assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
+}
+
+#[test]
 fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
     let cases = cases();
-    assert_eq!(cases.len(), 15);
+    assert_eq!(cases.len(), 21);
     for mut case in cases {
         let request = request(&case);
+        if case.kind == "motion" {
+            let input: Value = serde_json::from_str(request["input"].as_str().unwrap()).unwrap();
+            if let Some(rig) = case.rig.as_ref().and_then(Value::as_object) {
+                for (key, expected) in rig {
+                    assert_eq!(
+                        &input["rig"][key], expected,
+                        "fixture field silently sanitized: {}.{key}",
+                        case.id
+                    );
+                }
+            }
+        }
         assert!(
             !request["input"].as_str().unwrap().contains(&case.rubric),
             "rubric leaked to tested model"

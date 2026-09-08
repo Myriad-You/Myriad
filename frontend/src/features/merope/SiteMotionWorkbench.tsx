@@ -11,10 +11,6 @@ import type { MeropeActivity } from './types'
 import type { WardrobeItem } from './wardrobe'
 import { LuRefreshCw, LuSparkles } from '@lib/icons'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import {
-  getTourSnapshot,
-  subscribeTour,
-} from '../../components/tour/tourEngine'
 import { createPortal } from 'react-dom'
 import { LuChevronLeft } from 'react-icons/lu'
 import {
@@ -38,6 +34,10 @@ import PersonaImportPanel from '../../components/agent/onboarding/ui/PersonaImpo
 import PortraitImportButton from '../../components/agent/onboarding/ui/PortraitImportButton'
 import VisualIdentityView from '../../components/agent/onboarding/ui/VisualIdentityView'
 import { SettingsButton, ToggleSwitch } from '../../components/settings'
+import {
+  getTourSnapshot,
+  subscribeTour,
+} from '../../components/tour/tourEngine'
 import { useI18n } from '../../contexts/I18nContext'
 import { agentService } from '../../services/agent'
 import { notifyAvatarChanged } from '../../services/avatarSourceApi'
@@ -745,6 +745,7 @@ export default function SiteMotionWorkbench({
     async (
       file: File,
       onStage: NonNullable<Parameters<typeof preflightRigPsdAsset>[2]>,
+      signal?: AbortSignal,
     ) => {
       if (!portraitUrl) throw new Error(t.merope.assetNeedsPortrait)
       return preflightRigPsdAsset(
@@ -752,6 +753,7 @@ export default function SiteMotionWorkbench({
         portraitUrl,
         onStage,
         generationFingerprint || undefined,
+        signal,
       )
     },
     [generationFingerprint, portraitUrl, t.merope.assetNeedsPortrait],

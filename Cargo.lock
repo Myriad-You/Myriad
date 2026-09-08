@@ -2438,8 +2438,9 @@ dependencies = [
 
 [[package]]
 name = "migration"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
+ "myriad-tapp-contract",
  "sea-orm",
  "sea-orm-migration",
  "serde_json",
@@ -2524,7 +2525,7 @@ dependencies = [
 
 [[package]]
 name = "myriad-backend"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "aes-gcm",
  "anyhow",

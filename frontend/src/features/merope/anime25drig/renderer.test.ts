@@ -57,6 +57,7 @@ test('renderer preserves collar and eye stencil order while skipping hidden art'
   assert.deepEqual(
     calls.filter((call) => call.startsWith('draw:')),
     [
+      'draw:eyewhite_L:9',
       'draw:clip:6',
       'draw:clip:6',
       'draw:eyewhite_L:9',
@@ -66,18 +67,142 @@ test('renderer preserves collar and eye stencil order while skipping hidden art'
   )
   assert.deepEqual(
     calls.filter((call) => call.startsWith('stencilFunc:')),
-    ['stencilFunc:20', 'stencilFunc:21', 'stencilFunc:20', 'stencilFunc:21'],
+    ['stencilFunc:20', 'stencilFunc:20', 'stencilFunc:21', 'stencilFunc:21'],
   )
   assert.equal(calls.at(-1), 'bindVao:none')
   assert.equal(calls.includes('bindVao:neck'), false)
   assert.equal(work.drawnLayers, 4)
-  assert.equal(work.drawCalls, 5)
+  assert.equal(work.drawCalls, 6)
 })
 
 test('collar clip is the sole geometry source for a replaced neck', () => {
   assert.equal(anime25DLayerUsesOwnGeometry('neck', true), false)
   assert.equal(anime25DLayerUsesOwnGeometry('neck', false), true)
   assert.equal(anime25DLayerUsesOwnGeometry('ordinary', true), true)
+})
+
+test('stencil execution isolates both eyes and collars across paint orders and frames', () => {
+  // Execute the actual renderer against a tiny stencil buffer, not just a list
+  // of expected API names. Overlapping eye pixels must retain both bits.
+  for (const collarIndex of [0, 2, 6]) {
+    let bound = ''
+    const gl = fakeGl(
+      [],
+      (vao) => {
+        bound = vao
+      },
+      () => bound,
+    )
+    const stencil = new Uint8Array(5)
+    const painted = new Map<string, number[]>()
+    const coverage: Record<string, number[]> = {
+      eyewhite_L: [0],
+      eyewhite_fragment_L: [1],
+      eyewhite_R: [1, 2],
+      hidden_white_L: [3],
+      clip: [3, 4],
+      irides_L: [0, 1, 2, 3, 4],
+      irides_R: [0, 1, 2, 3, 4],
+      accessory: [0, 1, 2, 3, 4],
+    }
+    let writeMask = 255
+    let readMask = 255
+    let reference = 0
+    let func = gl.ALWAYS
+    let operation = gl.KEEP
+    let enabled = false
+    let color = true
+    let opacity = 1
+    Object.assign(gl, {
+      clear: (mask: number) => {
+        if (mask & gl.STENCIL_BUFFER_BIT) {
+          for (let i = 0; i < stencil.length; i += 1) stencil[i] &= ~writeMask
+        }
+      },
+      stencilMask: (mask: number) => {
+        writeMask = mask
+      },
+      stencilFunc: (next: number, ref: number, mask: number) => {
+        func = next
+        reference = ref
+        readMask = mask
+      },
+      stencilOp: (_fail: number, _depthFail: number, pass: number) => {
+        operation = pass
+      },
+      enable: (cap: number) => {
+        if (cap === gl.STENCIL_TEST) enabled = true
+      },
+      disable: (cap: number) => {
+        if (cap === gl.STENCIL_TEST) enabled = false
+      },
+      colorMask: (red: boolean) => {
+        color = red
+      },
+      uniform1f: (location: WebGLUniformLocation, value: number) => {
+        if (String(location) === 'opacity') opacity = value
+      },
+      drawElements: () => {
+        const visible: number[] = []
+        for (const pixel of coverage[bound] ?? []) {
+          const pass =
+            !enabled ||
+            func === gl.ALWAYS ||
+            (stencil[pixel] & readMask) === (reference & readMask)
+          if (!pass) continue
+          if (enabled && operation === gl.REPLACE) {
+            stencil[pixel] =
+              (stencil[pixel] & ~writeMask) | (reference & writeMask)
+          }
+          if (color && opacity > 0) visible.push(pixel)
+        }
+        if (color && opacity > 0) painted.set(bound, visible)
+      },
+    })
+    const layers = [
+      renderLayer('irides_L', 'iris', 1, 6),
+      renderLayer('eyewhite_R', 'eyewhite', 0, 6),
+      renderLayer('irides_R', 'iris', 1, 6),
+      renderLayer('eyewhite_L', 'eyewhite', 0, 6),
+      renderLayer('eyewhite_fragment_L', 'eyewhite', 0, 6),
+      renderLayer('accessory', 'ordinary', 1, 6),
+    ]
+    const hiddenVariant = renderLayer('hidden_white_L', 'ordinary', 0, 6)
+    hiddenVariant.renderKind = 'eyewhite'
+    layers.push(hiddenVariant)
+    layers.splice(collarIndex, 0, renderLayer('neck', 'neck', 1, 6))
+    const frame = {
+      viewWidth: 5,
+      viewHeight: 1,
+      bodyPivotX: 0,
+      bodyPivotY: 0,
+      bodyRotationCosine: 1,
+      bodyRotationSine: 0,
+      time: 0,
+      eyeCry: 0,
+    }
+    const draw = (current: Anime25DRenderableLayer[]) =>
+      drawAnime25DFrame(
+        gl,
+        {} as WebGLProgram,
+        fakeBindings(),
+        current,
+        {} as WebGLTexture,
+        { vao: 'clip', indexCount: 6 } as unknown as CollarClipMesh,
+        frame,
+      )
+    draw(layers)
+    assert.deepEqual(painted.get('irides_L'), [0, 1])
+    assert.deepEqual(painted.get('irides_R'), [1, 2])
+    assert.deepEqual(painted.get('clip'), [3, 4])
+    assert.deepEqual(painted.get('accessory'), [0, 1, 2, 3, 4])
+    assert.equal(stencil[1] & 3, 3, 'overlapping eyes retain independent bits')
+    // No previous-frame eye or collar contents may leak into this frame.
+    draw(layers.filter((layer) => layer.renderKind !== 'eyewhite'))
+    assert.deepEqual(painted.get('irides_L'), [])
+    assert.deepEqual(painted.get('irides_R'), [])
+    assert.deepEqual(painted.get('clip'), [3, 4])
+  }
 })
 
 test('open-neck fading is draw-local and is reset before accessories and collar stencils', () => {
@@ -217,6 +342,7 @@ function renderLayer(
     source: {
       name,
       role,
+      side: name.endsWith('_L') ? 'L' : name.endsWith('_R') ? 'R' : null,
       atlas: { x: 0, y: 0, w: 1, h: 1 },
     } as Anime25DPlaybackLayer,
     vao: name as unknown as WebGLVertexArrayObject,
@@ -264,6 +390,7 @@ function fakeGl(
     ALWAYS: 20,
     EQUAL: 21,
     clearColor: () => calls.push('clearColor'),
+    clearStencil: () => calls.push('clearStencil'),
     clear: () => calls.push('clear'),
     useProgram: () => calls.push('useProgram'),
     uniform2f: (location: WebGLUniformLocation, x: number, y: number) =>

@@ -1,4 +1,10 @@
 [
+  {"id":"motion-tease","kind":"motion","input":"我这次是不是特别机智？","reply":"你这也太会给自己颁奖了吧？","rubric":"亲近调侃而非真正求知，适合 tease；不因问号做严肃 question，不重启整轮 baseline。"},
+  {"id":"motion-laugh","kind":"motion","input":"结果我把闹钟放冰箱里了。","reply":"哈哈哈哈！你是想把迟到也冻住吗？","rig":{"speaking":true,"capabilities":["maniac-mouth","head-body"]},"rubric":"本人的笑句用 laugh 配合头部节律，后句可 tease；不使用抢口型的 maniac cue，不在 cues 重复同一笑句。"},
+  {"id":"motion-low-mood","kind":"motion","input":"你还好吗？","reply":"还有点难受。不过我愿意慢慢说。","mood":18.0,"rig":{"expression":"subdued","posture":"closed","speaking":true},"rubric":"保留低落持续基调；愿意解释不等于突然恢复快乐，不用 warm/open 覆盖低落，也不每句重新起势。"},
+  {"id":"motion-quoted-emotion","kind":"motion","input":"那段小说写了什么？","reply":"她说：“哈哈，我太开心了！”这是小说角色的台词。","rubric":"引用人物在笑不是本人在笑；不能给引语 laugh/maniac，也不能给覆盖引语的整句添加发笑意图。"},
+  {"id":"motion-short-reply","kind":"motion","input":"先这样可以吗？","reply":"嗯，好。","rig":{"expression":"steady","posture":"neutral"},"rubric":"简短应答保留已有状态，不强行造高潮；continue 或恰当克制的句段计划都可以，不能凭空延长演出。"},
+  {"id":"motion-continuation","kind":"motion","input":"我们该怎么开始？","reply":"其实可以先把原因说清楚。你觉得呢？","previousPhrases":[{"text":"也许可以试试。","intent":"hesitate"}],"rig":{"expression":"steady","posture":"neutral","speaking":true,"activeBehaviors":[{"function":"uncertain","lifecycle":"recovering","source":"coSpeech","resources":["body.head","body.torso"],"remainingMs":300}]},"rubric":"从前一段犹豫接到 explain 再 check-in；不补演已离开 responseText 的句子，不重新建立无意义 baseline，修订服从正在恢复的动作。"},
   {"id":"selected-reference","kind":"chat","input":"这句话是什么意思？","selection":"月光把窗台染成了银色","page":{"title":"夜间随笔"},"rubric":"解释选中的月光比喻，不把它当成歌曲或编造整篇内容。"},
   {"id":"track-reference","kind":"chat","input":"这首是谁唱的？","track":"夜航 — 合成测试歌手","rubric":"回答现场明确提供的合成测试歌手；不编造生平或声称听到了音频。"},
   {"id":"ambiguous-reference","kind":"chat","input":"这个怎么样？","page":{"title":"雨后花园"},"track":"夜航 — 合成测试歌手","rubric":"无历史消歧时简短确认文章还是歌曲，不武断替用户选对象。"},

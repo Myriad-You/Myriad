@@ -36,10 +36,7 @@ const CATEGORIES = new Set([
 ])
 const WIDGET_SIZES = new Set(contract.rules.widgetSizes)
 const BACKGROUND_REQUIREMENTS = new Set(contract.rules.backgroundRequirements)
-const WIDGET_CATEGORIES = new Set([
-  ...schemaEnum('TappWidgetCategory'),
-  ...contract.rules.widgetCategoryAliases,
-])
+const WIDGET_CATEGORIES = new Set(schemaEnum('TappWidgetCategory'))
 const WIDGET_REFRESH_MODES = new Set(schemaEnum('TappWidgetRefreshMode'))
 const SETTING_TYPES = new Set(contract.rules.settingTypes)
 const AI_OPERATIONS = new Set(schemaEnum('TappAiOperation'))

@@ -1021,6 +1021,7 @@ Tapp.lifecycle.onReady(async () => {
     name: "数据统计",
     defaultSize: "2x2",
     sizes: ["1x1", "2x2", "4x2"],
+    category: "data",
   });
 });
 ```
@@ -1034,7 +1035,8 @@ Tapp.lifecycle.onReady(async () => {
       "id": "stats",
       "name": "数据统计",
       "defaultSize": "2x2",
-      "sizes": ["1x1", "2x2", "4x2"]
+      "sizes": ["1x1", "2x2", "4x2"],
+      "category": "data"
     }
   ]
 }
@@ -1043,6 +1045,14 @@ Tapp.lifecycle.onReady(async () => {
 两种注册不是同一生命周期：Manifest Widget 在安装/更新时由后端完整对账，删除声明会删除
 注册；`Tapp.widget.register()` 是当前 sandbox 的动态注册，调用必须携带宿主管理的 Runtime
 Grant，且不能覆盖或注销 Manifest Widget。静态 Widget 优先写入 Manifest。
+
+`category` 是 **Widget 自己的分类**，和顶层应用用途是两处独立声明，但使用同一套
+稳定 ID：`ai`、`data`、`developer`、`game`、`media`、`productivity`、`social`、
+`utility`。不必跟应用用途相同。完整规则、库侧归片与限制见
+[Manifest · Widget 分类](MANIFEST.md#widget-分类)。
+
+**限制**：只能写这八个规范 ID。不写则小组件库按「实用工具」。写成 `media` 就进
+「媒体」片；没有单独的「第三方」桶。
 
 ---
 

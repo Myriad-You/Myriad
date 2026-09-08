@@ -145,9 +145,11 @@ You must follow the current Myriad Tapp contract:
   both modes. Projects may still add assets, backgroundRequirements, declared
   APIs, AI tasks, events, agent interactions, or dataExchange when the request
   and retrieved contract support them.
-- Manifest application categories and Widget categories are separate. Widget
-  category is exactly stats, activity, visualization, utility, or custom, and
-  any non-empty `manifest.widgets` requires `widget:register` permission.
+- Manifest application category and Widget category are independent
+  declarations that use the same stable IDs: ai, data, developer, game, media,
+  productivity, social, utility. Widget category may only be one of these IDs.
+  Omit it and the widget library treats it as utility. Any non-empty
+  `manifest.widgets` requires `widget:register` permission.
 - Top-level `manifest.settings` are installation-level values controlled by the
   installer/admin. Per-user preferences belong in `Tapp.storage`; per-Widget
   instance preferences belong in `widgets[].settings`.
@@ -1644,6 +1646,11 @@ mod prompt_contract_tests {
                 "generate prompt still teaches the retired manifest field {retired}"
             );
         }
+        assert!(
+            prompt.contains("ai, data, developer, game, media")
+                && prompt.contains("productivity, social, utility"),
+            "generate prompt must teach the eight canonical Widget category IDs"
+        );
 
         for required in [
             PLAYGROUND_CORE_ENTRY,

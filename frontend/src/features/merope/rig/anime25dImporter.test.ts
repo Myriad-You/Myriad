@@ -1,16 +1,20 @@
 import type { Layer, Psd } from 'ag-psd'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { anime25DImportCopy } from './anime25dImportCopy'
 import {
   anime25DBaseRole,
   isAnime25DDocument,
   normalizeAnime25DLayerName,
   prepareAnime25DRigPsd,
 } from './anime25dImporter'
+import { syntheticSeeThroughPsd } from './anime25dImporter.fixture'
 import { gridMesh } from './anime25dSkeletonCompiler'
 import { CHARACTER_ASSET_CONTRACT_VERSION } from './contract'
 
 test('matches Anime2.5DRig normalization without merging numbered hair groups', () => {
+  assert.equal(normalizeAnime25DLayerName('eyeclose2_L'), 'eye-close2-l')
+  assert.equal(anime25DBaseRole('eye-close2-l'), 'eye-close2')
   // PSD 图层名常带首尾空白和「のコピー N」后缀
   assert.equal(
     normalizeAnime25DLayerName(' Front Hair_1 のコピー 2 '),
@@ -28,7 +32,35 @@ test('matches Anime2.5DRig normalization without merging numbered hair groups', 
   assert.equal(anime25DBaseRole('front-hair-2'), 'front-hair')
 })
 
+test('alternate closed-eye art keeps its own pixels and uses existing per-eye closed slots', async () => {
+  const psd = syntheticSeeThroughPsd()
+  psd.children!.push(unknownBlob('eye_close2', 80, 76, 114, 80))
+  const prepared = await prepareWithFakeCanvas(psd)
+  const alternate = prepared.source.anime25dPlayback!.layers.filter(
+    (l) => l.role === 'eye-close2',
+  )
+  assert.equal(
+    alternate.length,
+    1,
+    'a one-sided authored drawing is never mirrored or synthesized',
+  )
+  assert.equal(alternate[0].side, 'L')
+  assert.equal(alternate[0].fade, 'eyeClose')
+  const source = prepared.source.layers.find((l) =>
+    l.id.startsWith('a25d-eye-close2-'),
+  )!
+  assert.equal(source.slot, 'eye-left')
+  assert.equal(source.variant, 'closed')
+  assert.ok(
+    prepared.source.anime25dPlayback!.layers.some(
+      (l) => l.role === 'eye-close' && l.side === 'R',
+    ),
+  )
+})
+
 test('maps native See-through PSD tags into stable FaceRig roles', () => {
+  assert.equal(normalizeAnime25DLayerName('eyeclose'), 'eye-close')
+  assert.equal(normalizeAnime25DLayerName('constructor'), 'constructor')
   assert.equal(normalizeAnime25DLayerName('hairf'), 'front-hair')
   assert.equal(normalizeAnime25DLayerName('hairb'), 'back-hair')
   assert.equal(normalizeAnime25DLayerName('eyer'), 'eyelash-r')
@@ -137,7 +169,11 @@ test('see-through PSD builds blink, mouth, strand, chest, and rigid side-arm fra
     },
   })
   try {
-    const prepared = await prepareAnime25DRigPsd(psd, 'master')
+    const prepared = await prepareAnime25DRigPsd(
+      psd,
+      'master',
+      anime25DImportCopy(),
+    )
     const boneIds = prepared.source.bones.map((bone) => bone.id)
     const layers = prepared.source.layers
     const bone = (id: string) =>
@@ -589,9 +625,87 @@ test('authored eye_cry artwork takes precedence over generated crying eyes', asy
   }
 })
 
+test('production import keeps numbered eye anchors and repairs a single missing close drawing', async () => {
+  const baseline = await prepareWithFakeCanvas(syntheticSeeThroughPsd())
+  const numbered = syntheticSeeThroughPsd()
+  for (const layer of numbered.children!) {
+    if (
+      ['face', 'eyewhite', 'irides', 'eyelash', 'eyebrow'].includes(layer.name!)
+    )
+      layer.name += '_1'
+  }
+  const result = await prepareWithFakeCanvas(numbered)
+  assert.deepEqual(
+    result.source.anime25dPlayback!.anchors,
+    baseline.source.anime25dPlayback!.anchors,
+  )
+  const partial = syntheticSeeThroughPsd()
+  partial.children = partial.children!.filter(
+    (layer) => layer.name !== 'eyelash_c',
+  )
+  partial.children.push(unknownBlob('eyeclose', 80, 76, 114, 80))
+  const repaired = await prepareWithFakeCanvas(partial)
+  const closed = repaired.source.anime25dPlayback!.layers.filter(
+    (layer) => layer.role === 'eye-close',
+  )
+  assert.deepEqual(closed.map((layer) => layer.side).sort(), ['L', 'R'])
+})
+
+test('production rejects empty face pixels instead of adopting reference fallback anchors', async () => {
+  const psd = syntheticSeeThroughPsd()
+  psd.children!.find((layer) => layer.name === 'face')!.imageData!.data.fill(0)
+  await assert.rejects(prepareWithFakeCanvas(psd))
+})
+
+test('source and group opacity are baked exactly once without mutating PSD pixels', async () => {
+  const psd = syntheticSeeThroughPsd()
+  const ornament = unknownBlob('objects_99', 200, 100, 220, 120)
+  ornament.opacity = 0.5
+  const pixels = ornament.imageData!.data
+  for (let index = 0; index < pixels.length; index += 4) {
+    if (!pixels[index + 3]) continue
+    pixels[index] = 177
+    pixels[index + 1] = 66
+    pixels[index + 2] = 99
+  }
+  const before = new Uint8ClampedArray(pixels)
+  const hidden = unknownBlob('objects_100', 200, 100, 220, 120)
+  hidden.opacity = 0
+  psd.children!.push(
+    { name: 'group', opacity: 0.5, children: [ornament] },
+    hidden,
+  )
+  let checked = 0
+  const result = await prepareWithFakeCanvas(psd, undefined, (data) => {
+    for (let index = 0; index < data.length; index += 4) {
+      if (
+        data[index] !== 177 ||
+        data[index + 1] !== 66 ||
+        data[index + 2] !== 99 ||
+        !data[index + 3]
+      ) {
+        continue
+      }
+      assert.equal(data[index + 3], 64)
+      checked += 1
+    }
+  })
+  assert.ok(
+    checked >= 400,
+    'checks the actual pixels supplied to atlas canvases',
+  )
+  assert.deepEqual(pixels, before)
+  assert.ok(
+    !result.source.anime25dPlayback!.layers.some(
+      (layer) => layer.name === 'objects-100',
+    ),
+  )
+})
+
 async function prepareWithFakeCanvas(
   psd: Psd,
   sourceGenerationFingerprint?: string,
+  inspectPixels?: (data: Uint8ClampedArray) => void,
 ) {
   const previousDocument = globalThis.document
   const previousImageData = globalThis.ImageData
@@ -600,7 +714,9 @@ async function prepareWithFakeCanvas(
       readonly data: Uint8ClampedArray,
       readonly width: number,
       readonly height: number,
-    ) {}
+    ) {
+      inspectPixels?.(data)
+    }
   }
   class FakeCanvas {
     width = 0
@@ -622,6 +738,7 @@ async function prepareWithFakeCanvas(
     return await prepareAnime25DRigPsd(
       psd,
       'master',
+      anime25DImportCopy(),
       undefined,
       sourceGenerationFingerprint,
     )
@@ -653,74 +770,4 @@ function unknownBlob(
     }
   }
   return { name, left: 0, top: 0, imageData: { width, height, data } }
-}
-
-function syntheticSeeThroughPsd(): Psd {
-  const width = 256
-  const height = 256
-  const layer = (
-    name: string,
-    rectangles: Array<[number, number, number, number]>,
-  ): Layer => {
-    const data = new Uint8ClampedArray(width * height * 4)
-    for (const [left, top, right, bottom] of rectangles) {
-      for (let y = top; y < bottom; y += 1) {
-        for (let x = left; x < right; x += 1) {
-          const index = (y * width + x) * 4
-          data[index] = 48
-          data[index + 1] = 32
-          data[index + 2] = 24
-          data[index + 3] = 255
-        }
-      }
-    }
-    return { name, left: 0, top: 0, imageData: { width, height, data } }
-  }
-  return {
-    width,
-    height,
-    children: [
-      layer('back hair', [[52, 18, 204, 220]]),
-      layer('handwear', [
-        [12, 132, 72, 244],
-        [184, 132, 244, 244],
-      ]),
-      layer('bottomwear', [[54, 184, 202, 254]]),
-      layer('legwear', [[70, 210, 186, 256]]),
-      layer('topwear', [[48, 116, 208, 212]]),
-      layer('ears', [
-        [48, 62, 72, 118],
-        [184, 62, 208, 118],
-      ]),
-      layer('face', [[66, 34, 190, 142]]),
-      layer('nose', [[122, 84, 134, 104]]),
-      layer('mouth', [[108, 112, 148, 130]]),
-      layer('eyewhite', [
-        [82, 70, 112, 88],
-        [144, 70, 174, 88],
-      ]),
-      layer('eyelash', [
-        [80, 66, 114, 72],
-        [142, 66, 176, 72],
-      ]),
-      layer('eyelash_c', [
-        [80, 76, 114, 80],
-        [142, 76, 176, 80],
-      ]),
-      layer('irides', [
-        [94, 72, 104, 84],
-        [152, 72, 162, 84],
-      ]),
-      layer('eyebrow', [
-        [82, 54, 112, 60],
-        [144, 54, 174, 60],
-      ]),
-      layer('front hair_1', [
-        [62, 18, 98, 104],
-        [102, 12, 138, 116],
-        [142, 18, 184, 102],
-      ]),
-      layer('mouth_c', [[108, 120, 148, 124]]),
-    ],
-  } as Psd
 }

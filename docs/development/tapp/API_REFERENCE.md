@@ -743,6 +743,8 @@ await Tapp.widget.updateConfig("my-widget", {
 });
 ```
 
+`category` 是 **Widget 分类**，与应用用途同一套稳定 ID（`ai` / `data` / `developer` / `game` / `media` / `productivity` / `social` / `utility`），两处独立声明。省略则按 `utility` 归片。只能写这八个规范 ID。限制与库侧筛片见 [Manifest · Widget 分类](MANIFEST.md#widget-分类)。
+
 在 **Widget 沙箱**内还提供当前 Dashboard 实例专用 API（无需 `widget:register`）：
 
 ```javascript

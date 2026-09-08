@@ -9,6 +9,16 @@ were used only to calibrate the migration and are not retained or executed by
 the product or its tests. Standalone module tests now cover public behavior,
 edge cases, and fixed multi-frame regression fingerprints.
 
+Import correctness fixes were selectively ported from revision
+8deb51b7f93984191dfd5805becb349bbe58f90f (2026-09-07): semantic alpha unions,
+per-side close-diff synthesis, empty-layer handling, narrow-strand spacing,
+and alpha-aware resampling/compositing. Its prepass eye-mask approach informs
+Myriad's independent left-eye, right-eye and collar stencil bits. This does not
+update the pinned reference runtime or adopt the demo's alternate-blink policy.
+The same update informs Worker-owned PSD preflight/decoding and iris reopening
+squash/rebound. Myriad retains its stricter import limits and compiler; the
+rebound is a smaller, endpoint-windowed variation on the existing blink clock.
+
 The generic close-diff RGBA data and decoder are ported in
 ../upstream/genericParts.ts; tests pin the decoded pixels by SHA-256. The base
 bind, deform, and fade math follows the upstream runtime. Myriad supplies its

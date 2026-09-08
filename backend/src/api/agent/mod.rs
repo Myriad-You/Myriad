@@ -231,6 +231,7 @@ mod helpers;
 mod intentions;
 mod notifications;
 mod persona;
+mod playback_direction;
 mod presence;
 mod presets;
 mod process;

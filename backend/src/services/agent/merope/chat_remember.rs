@@ -436,7 +436,7 @@ mod tests {
             .find("local_directive(&reaction_context)")
             .expect("immediate reaction");
         let director = src
-            .find("spawn_chat_motion_refinement(reaction_context")
+            .find("spawn_chat_motion_refinement(")
             .expect("parallel delivery observer");
         let extract = after
             .find("spawn_chat_remember")

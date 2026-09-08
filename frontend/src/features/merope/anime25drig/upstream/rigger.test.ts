@@ -10,6 +10,7 @@ import test from 'node:test'
 import { genericParts as upstreamGenericParts } from './genericParts'
 import {
   ANIME25D_GENERIC_PART_SHA256,
+  ANIME25D_IMPORT_FIXES_REVISION,
   ANIME25D_UPSTREAM_REVISION,
 } from './revision'
 import { rigger as port } from './rigger'
@@ -140,6 +141,10 @@ test('records the upstream revision implemented by the standalone module', () =>
   assert.equal(
     ANIME25D_UPSTREAM_REVISION,
     'd48825867acd081de22b0e7b5585bb562288796d',
+  )
+  assert.equal(
+    ANIME25D_IMPORT_FIXES_REVISION,
+    '8deb51b7f93984191dfd5805becb349bbe58f90f',
   )
 })
 
@@ -281,7 +286,7 @@ test('freezes complete rig order, anchors, warnings, strands, and synthesis', ()
   assert.deepEqual(rig.warnings, [
     '未知のレイヤー名 "unknown ornament" — head として扱います',
     '未知のレイヤー名 "unknown sash" — body として扱います',
-    'eye_close が無いため汎用閉じ目を自動配置しました（「目」の差分バーで調整可）',
+    '不足する閉じ目を自動配置しました（「目」の差分バーで調整可）',
     'mouth_close が無いため汎用閉じ口を自動配置しました（「口」のバーで調整可）',
   ])
 })
@@ -328,7 +333,7 @@ test('freezes flat-image composition and widest-gap eye splitting', () => {
     { width: flat.width, height: flat.height },
     { width: 6, height: 1 },
   )
-  assert.deepEqual(Array.from(flat.data.subarray(4, 8)), [50, 50, 0, 192])
+  assert.deepEqual(Array.from(flat.data.subarray(4, 8)), [66, 67, 0, 192])
 
   const eyes = pairedLayer('eyes', 18, 5, [
     { x: 1, y: 1, width: 4, height: 3 },
@@ -348,6 +353,102 @@ test('freezes flat-image composition and widest-gap eye splitting', () => {
   )
 })
 
+test('numbered semantic fragments share anchors without merging their artwork', () => {
+  const source = representativePsd()
+  const original = port.buildRig(clonePsd(source))
+  for (const child of source.children!) {
+    if (
+      ['face', 'neck', 'eyewhite', 'irides', 'eyelash', 'mouth'].includes(
+        child.name!,
+      )
+    ) {
+      child.name = child.name === 'mouth' ? 'mouth_open_1' : `${child.name}_1`
+    }
+  }
+  const numbered = port.buildRig(source)
+  assert.deepEqual(numbered.anchors, original.anchors)
+  assert.ok(numbered.layers.some((part) => part.name === 'eyewhite_1_l'))
+  // A second same-side fragment contributes to the union, not last-write-wins.
+  source.children!.push(solidLayer('eyewhite_2', 35, 69, 8, 12))
+  const extended = port.buildRig(source)
+  assert.equal(extended.anchors.eyeL!.x0, 35)
+  assert.equal(extended.anchors.eyeL!.x1, original.anchors.eyeL!.x1)
+  assert.deepEqual(extended.anchors.eyeR, original.anchors.eyeR)
+  assert.ok(extended.layers.some((part) => part.name === 'eyewhite_2_l'))
+})
+
+test('authored close artwork on one side never suppresses synthesis on the other', () => {
+  for (const [x, side, missing] of [
+    [42, 'L', 'R'],
+    [112, 'R', 'L'],
+  ] as const) {
+    const source = representativePsd()
+    source.children!.push(solidLayer('eye_close_1', x, 76, 28, 5))
+    const rig = port.buildRig(source, { generic: genericParts() })
+    const closed = rig.layers.filter((layer) => layer.fade === 'eyeClose')
+    assert.equal(closed.length, 2)
+    assert.equal(closed.find((layer) => !layer.synthetic)!.side, side)
+    assert.equal(closed.find((layer) => layer.synthetic)!.side, missing)
+  }
+})
+
+test('narrow hair has unique, separated strands instead of forced duplicate springs', () => {
+  for (const width of [1, 2, 3, 8, 16, 64, 128]) {
+    const strands = port._internals.detectStrands(
+      new Uint8Array(width * 100).fill(255),
+      width,
+      100,
+      30,
+      6,
+    )
+    assert.ok(strands.length > 0 && strands.length <= 6)
+    for (let index = 1; index < strands.length; index += 1) {
+      assert.ok(strands[index].x - strands[index - 1].x >= 30)
+    }
+  }
+})
+
+test('synthetic close edges ignore RGB stored in fully transparent pixels', () => {
+  const source = representativePsd()
+  source.children = source.children!.filter(
+    (layer) => !['eyelash', 'eyebrow'].includes(layer.name!),
+  )
+  const edge = image(2, 1, (x) => (x === 0 ? [255, 0, 0, 128] : [0, 0, 255, 0]))
+  const rig = port.buildRig(source, { generic: { eyeL: edge } })
+  const eye = rig.layers.find((layer) => layer.synthetic && layer.side === 'L')!
+  assert.ok(eye)
+  assert.deepEqual([...eye.img.data.subarray(0, 4)], [255, 0, 0, 128])
+  for (let offset = 0; offset < eye.img.data.length; offset += 4) {
+    if (eye.img.data[offset + 3] === 0) continue
+    assert.equal(eye.img.data[offset], 255)
+    assert.equal(eye.img.data[offset + 2], 0)
+  }
+})
+
+test('empty semantic layers and prototype-like names cannot create invalid anchors or slots', () => {
+  const source = representativePsd()
+  source
+    .children!.find((layer) => layer.name === 'face')!
+    .imageData!.data.fill(0)
+  source.children!.push(solidLayer('face_2', 35, 18, 110, 132))
+  for (const name of ['__proto__', 'constructor', 'toString']) {
+    source.children!.push(solidLayer(name, 60, 30, 10, 10))
+  }
+  const rig = port.buildRig(source)
+  assert.equal(rig.anchors.face.cx, 89.5)
+  assert.ok(rig.layers.every((layer) => Number.isFinite(layer.depth)))
+  assert.ok(rig.warnings.some((warning) => warning.includes('空のレイヤー')))
+  assert.throws(
+    () =>
+      port.buildRig({
+        width: 2,
+        height: 2,
+        children: [solidLayer('face', 0, 0, 2, 2, [0, 0, 0, 0])],
+      }),
+    /画素/,
+  )
+})
+
 test('PSD fixtures can be cloned without sharing image buffers', () => {
   const source = representativePsd()
   const cloned = clonePsd(source)
@@ -358,14 +459,14 @@ test('PSD fixtures can be cloned without sharing image buffers', () => {
   )
 })
 
-test('representative rig stays deterministic and matches its migration fingerprint', () => {
+test('representative rig stays deterministic with the September import fixes', () => {
   const source = representativePsd()
   const representative = port.buildRig(clonePsd(source), {
     generic: genericParts(),
   })
   assert.equal(
     createHash('sha256').update(JSON.stringify(representative)).digest('hex'),
-    '16c53826c542d4931394b60af9cc0f43a25f3350942f67dcab8424940f8ddfe9',
+    'c4be40ea0587d32487d8091d3d9bafd3dea9036fcdf44cdde8a9c71009dab8e2',
   )
   assert.deepEqual(
     representative,
@@ -452,7 +553,7 @@ test('image primitives preserve component and strand invariants across seeded ma
   }
 })
 
-test('build edge cases match the migration fingerprint', () => {
+test('build edge cases match the corrected import fingerprint', () => {
   const explicitDiffs: UpstreamPsd = {
     width: 120,
     height: 180,
@@ -503,7 +604,7 @@ test('build edge cases match the migration fingerprint', () => {
   }
   assert.equal(
     digest.digest('hex'),
-    '06cd1dfa51aa0da05029b9e4a8fa3636895ec045f281362ba32c192059c6afcc',
+    'd33170604d8d5b5fe3fd02407af0d3cce592c16e404e72affac68524e0186605',
   )
 
   const noGap = image(8, 3, () => [20, 30, 40, 255])

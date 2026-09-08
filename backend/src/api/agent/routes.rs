@@ -188,6 +188,17 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
         )
         // 提供澄清（需要认证）
         .route(
+            "/runs/{run_id}/performance",
+            get(super::playback_direction::read)
+                .put(super::playback_direction::observe)
+                .delete(super::playback_direction::close)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::auth_middleware,
+                )),
+        )
+        // 提供澄清（需要认证）
+        .route(
             "/clarify",
             post(clarify).route_layer(from_fn_with_state(
                 app_state.clone(),

@@ -52,6 +52,71 @@ contact, wrist rotation, locomotion, or gesture constraints.
 
 ## Implemented path
 
+### September 2026 upstream correctness fixes
+
+The original runtime reference remains pinned to `d488258`. Import fixes from
+`8deb51b7f93984191dfd5805becb349bbe58f90f` are adopted selectively: numbered
+semantic layers contribute to shared anchors without merging their artwork;
+close-eye synthesis repairs each side independently; narrow hair strands stop
+at the minimum spacing; resampling/compositing respects transparent RGB; empty
+layers cannot supply invalid anchors. The production importer still requires
+visible face pixels even though the standalone reference permits a fallback.
+Source/ancestor opacity is baked once into copied import pixels, not multiplied
+again during playback. Existing stored assets are not recompiled automatically.
+
+The renderer builds left/right eye masks before painting using independent
+stencil bits; collar reconstruction has a separate bit and cannot erase or
+satisfy an eye mask. Invisible ordinary eye whites remain valid masks during
+expression fades; inactive alternate whites do not contribute stale geometry.
+`renderer.test.ts` executes this against a small software stencil buffer across
+paint orders and consecutive frames. Import tests check both the standalone
+reference and the production atlas path. These tests do not claim GPU pixel or
+live visual acceptance. The demo's alternate long-blink policy is not adopted.
+
+The next selective batches add Worker-owned PSD import: signature/RGB8/dimension
+checks and metadata bounds precede pixel expansion; buffers are transferred and
+workers terminate on success, failure, timeout or cancellation. The existing
+32 MB / 2048 px / 64 visible-layer limits remain. Source changes and unmounts
+invalidate pending imports, and cancelled preparation never starts preview.
+Already-submitted backend previews may finish but their results are discarded;
+this does not claim server-side cancellation. `psdImport.worker.ts` now owns the
+whole local sequence: decoding, source-reference alignment, cleanup/anchors,
+expression and collar compilation, atlas PNGs and the final manifest. It calls
+the same compiler, with OffscreenCanvas at the canvas boundary; no duplicate
+geometry or packing algorithm is introduced. Only the final manifest and PNGs
+return to the page. Relative source URLs resolve against the page, and a small
+snapshot of import messages preserves the selected UI language in the worker.
+Failed/cancelled imports retain the last successful preflight.
+
+Ordinary blink reopening now drives a bounded 0.52-second iris-only squash and
+rebound, inspired by the upstream September curve with smaller amplitude and
+an exact identity endpoint. It shares the player/blink clock and invalidates
+the eye geometry cache on activation and reset. Special eye drawings are not
+deformed by it; special-expression transitions suppress the ordinary rebound.
+No new asset fields, director parameters, textures or long-blink policy are added.
+Rebound retains the subtle 0.045 scale / 0.025 squash coefficients. Its onset
+waits briefly for the filtered eyelid to reopen visibly, with a smooth attack;
+hidden or suppressed blinks cannot replay later.
+
+Authored `eye_close2` / `eyeclose2` drawings now import as independent per-eye
+layers sharing the existing `closed` slot and `eyeClose` fade. The live player
+reads composed eye closure before automatic blinking: deliberate closure selects
+the alternate drawing through a short blend, while ordinary blinks use the first
+drawing. Each eye checks its own available artwork; missing alternate artwork
+leaves the ordinary drawing active. Both drawings share scale/angle deformation
+and yield to the same special-expression weights. No alternate artwork is
+generated. Existing assets without it keep their current closed-eye drawing;
+an authored PSD containing the additional art must be imported to use it.
+Tests bundle the production worker for an isolated-thread parser/error check,
+exercise termination and late-result rejection, and check rebound bounds,
+cache invalidation and geometry isolation without computer use. The standalone
+`tests/browser/rigImport.spec.ts` additionally compiles real synthetic PSD bytes
+in Chromium's Worker/OffscreenCanvas path and compares manifests and decoded
+PNG pixel hashes against the same page-side compiler. Ordinary clothing, a
+real high-collar fixture and a necklace fixture must match; packing cancellation,
+successful retry and selected-language errors are tested too. This is an import
+parity gate, not live GPU animation or acceptance of a particular user's PSD.
+
 - `anime25dImporter.ts` owns import sequencing and normalization. Dedicated
   expression, collar, atlas, skeleton, raster, and validation modules own their
   respective compile stages, so image segmentation no longer shares a module

@@ -8,6 +8,7 @@ const SHADER_ONLY_FADES = new Set<Anime25DFade>([
 
 const LOCAL_ROLE_DEFORMATION = new Set([
   'eye_close',
+  'eye_close2',
   'eye_dizzy',
   'eye_squeeze',
   'eye_cry',

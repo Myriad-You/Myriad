@@ -1,9 +1,9 @@
+import type { Anime25DImportCopy } from './anime25dImportCopy'
 import type {
   PreparedLayer,
   RasterLayer,
   RigCanvasFrame,
 } from './anime25dImportTypes'
-import { currentCopy } from '../../../i18n/localeCopy'
 
 const ATLAS_PADDING = 8
 const MAX_ATLAS_EDGE = 8192
@@ -12,6 +12,7 @@ const MIN_ATLAS_EDGE = 256
 export async function packAnime25DAtlas(
   frame: RigCanvasFrame,
   layers: RasterLayer[],
+  copy: Anime25DImportCopy,
 ): Promise<{
   atlas: Blob
   analysisReference: Blob
@@ -30,8 +31,8 @@ export async function packAnime25DAtlas(
     const drawHeight = Math.max(1, layer.height)
     if (drawWidth + ATLAS_PADDING * 2 > MAX_ATLAS_EDGE) {
       throw new Error(
-        currentCopy()
-          .merope.anime25dLayerTooWide.replace('{id}', layer.id)
+        copy.anime25dLayerTooWide
+          .replace('{id}', layer.id)
           .replace('{max}', String(MAX_ATLAS_EDGE)),
       )
     }
@@ -42,10 +43,7 @@ export async function packAnime25DAtlas(
     }
     if (cursorY + drawHeight + ATLAS_PADDING > MAX_ATLAS_EDGE) {
       throw new Error(
-        currentCopy().merope.anime25dAtlasOverflow.replace(
-          '{max}',
-          String(MAX_ATLAS_EDGE),
-        ),
+        copy.anime25dAtlasOverflow.replace('{max}', String(MAX_ATLAS_EDGE)),
       )
     }
     places.push({ x: cursorX, y: cursorY })
@@ -56,17 +54,27 @@ export async function packAnime25DAtlas(
   }
   packedWidth = Math.max(MIN_ATLAS_EDGE, packedWidth)
   packedHeight = Math.max(MIN_ATLAS_EDGE, packedHeight)
-  const atlas = document.createElement('canvas')
+  const createCanvas = () =>
+    typeof document === 'undefined'
+      ? new OffscreenCanvas(1, 1)
+      : document.createElement('canvas')
+  const requiredContext = (canvas: HTMLCanvasElement | OffscreenCanvas) => {
+    const context = canvas.getContext('2d', { willReadFrequently: true }) as
+      CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null
+    if (!context) throw new Error(copy.canvasUnsupported)
+    return context
+  }
+  const atlas = createCanvas()
   atlas.width = packedWidth
   atlas.height = packedHeight
   const context = requiredContext(atlas)
-  const analysisCanvas = document.createElement('canvas')
+  const analysisCanvas = createCanvas()
   analysisCanvas.width = Math.max(1, Math.round(frame.width))
   analysisCanvas.height = Math.max(1, Math.round(frame.height))
   const analysisContext = requiredContext(analysisCanvas)
   const analysisScaleX = analysisCanvas.width / Math.max(1, frame.width)
   const analysisScaleY = analysisCanvas.height / Math.max(1, frame.height)
-  const layerCanvas = document.createElement('canvas')
+  const layerCanvas = createCanvas()
   const prepared: PreparedLayer[] = []
   for (const [index, layer] of layers.entries()) {
     const drawX = places[index].x
@@ -116,8 +124,8 @@ export async function packAnime25DAtlas(
     })
   }
   const [blob, analysisReference] = await Promise.all([
-    canvasPng(atlas),
-    canvasPng(analysisCanvas),
+    canvasPng(atlas, copy.rigAtlasFailed),
+    canvasPng(analysisCanvas, copy.rigAtlasFailed),
   ])
   return {
     atlas: blob,
@@ -150,20 +158,16 @@ function visibleInAnalysisReference(layer: RasterLayer): boolean {
   return layer.slot !== 'mouth' || layer.variant === 'closed'
 }
 
-function canvasPng(canvas: HTMLCanvasElement): Promise<Blob> {
+function canvasPng(
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  failure: string,
+): Promise<Blob> {
+  if ('convertToBlob' in canvas)
+    return canvas.convertToBlob({ type: 'image/png' })
   return new Promise<Blob>((resolve, reject) =>
     canvas.toBlob(
-      (value) =>
-        value
-          ? resolve(value)
-          : reject(new Error(currentCopy().merope.rigAtlasFailed)),
+      (value) => (value ? resolve(value) : reject(new Error(failure))),
       'image/png',
     ),
   )
-}
-
-function requiredContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
-  const context = canvas.getContext('2d', { willReadFrequently: true })
-  if (!context) throw new Error(currentCopy().merope.canvasUnsupported)
-  return context
 }

@@ -457,9 +457,6 @@
       "homepage",
       "repository"
     ],
-    "widgetCategoryAliases": [
-      "tool"
-    ],
     "widgetLayerDirectory": "widget",
     "widgetManifestPermission": "widget:register",
     "widgetRefreshModes": {
@@ -1315,12 +1312,16 @@
         "type": "object"
       },
       "TappWidgetCategory": {
+        "description": "Widget 自己的分类。与顶层 [`TappCategory`] 使用同一套稳定 ID，只认规范值。",
         "enum": [
-          "stats",
-          "activity",
-          "visualization",
-          "utility",
-          "custom"
+          "ai",
+          "data",
+          "developer",
+          "game",
+          "media",
+          "productivity",
+          "social",
+          "utility"
         ],
         "type": "string"
       },

@@ -120,4 +120,11 @@ docker/volumes/
 backend/data/.bootstrap-claimed
 /backend/data
 /frontend/public/merope-demo
-/frontend/tests
+/frontend/tests/*
+!/frontend/tests/browser/
+/frontend/tests/browser/*
+!/frontend/tests/browser/rigImport.spec.ts
+!/frontend/tests/browser/fixture/
+/frontend/tests/browser/fixture/*
+!/frontend/tests/browser/fixture/rigImport.html
+!/frontend/tests/browser/fixture/rigImport.ts

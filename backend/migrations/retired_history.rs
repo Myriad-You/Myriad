@@ -1,7 +1,7 @@
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 
-/// Folded migration names. Structure lives in 001–006; 016 is the only
-/// remaining post-006 data cleanup. These rows are deleted from
+/// Folded migration names. Structure lives in 001–006; 016–017 are the
+/// remaining post-006 permission data migrations. These rows are deleted from
 /// `seaql_migrations` before `MigratorTrait::up` so SeaORM does not require
 /// a no-op file for each name.
 pub const RETIRED_MIGRATION_NAMES: &[&str] = &[

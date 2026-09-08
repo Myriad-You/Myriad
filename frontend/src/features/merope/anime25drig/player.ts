@@ -66,6 +66,7 @@ import {
   stepChestSpring,
   topwearMotionAtChest,
 } from './chestPhysics'
+import { ClosedEyePresentation } from './closedEyePresentation'
 import {
   BODY_HEAD_FOLLOW,
   deformCollarClipMesh,
@@ -102,6 +103,7 @@ import {
 } from './frameClock'
 import { stepAnime25DHairLayerSprings } from './hairPhysics'
 import { idleBreathOffset } from './idleBreath'
+import { Anime25DIrisRebound } from './irisRebound'
 import {
   createJawMotionState,
   jawMotionTarget,
@@ -333,6 +335,8 @@ export class Anime25DPlayer {
   private sillyMouthShare = 1
 
   private time = 0
+  private readonly irisRebound = new Anime25DIrisRebound()
+  private readonly closedEyes = new ClosedEyePresentation()
   private readonly blinkState: Anime25DBlinkState = {
     activeSeconds: -1,
     nextAtSeconds: 1.8,
@@ -459,7 +463,12 @@ export class Anime25DPlayer {
     )
     const nextTexture = createAtlasTexture(this.gl, image)
     if (this.disposed || atlasAbort.signal.aborted) {
-      releaseCompiledGpu(this.gl, compiled.layers, compiled.collarClip, nextTexture)
+      releaseCompiledGpu(
+        this.gl,
+        compiled.layers,
+        compiled.collarClip,
+        nextTexture,
+      )
       return
     }
     this.applyPackage(playback, rigManifest)
@@ -482,6 +491,7 @@ export class Anime25DPlayer {
       layers: playback.layers.map(resolveAnime25DLayerSemantics),
     }
     this.playback = playback
+    this.closedEyes.bind(playback.layers)
     this.rigManifest = rigManifest
     this.shellProfile = playback.shellProfile
     this.motionEnvelopeProfile = deriveAnime25DMotionEnvelopeProfile(
@@ -1050,6 +1060,7 @@ export class Anime25DPlayer {
       this.motionEnvelopeProfile,
       this.motionEnvelopeResult,
     )
+    this.closedEyes.step(tgt, dt)
     stepAnime25DBlink(
       tgt,
       this.blinkState,
@@ -1085,6 +1096,26 @@ export class Anime25DPlayer {
       this.poseResponse,
       dt,
       this.responseScale,
+    )
+    this.irisRebound.step(
+      this.time,
+      this.blinkState.activeSeconds,
+      !this.target.blink ||
+        Math.max(
+          stylizedTargets.maniac,
+          stylizedTargets.silly,
+          stylizedTargets.lovestruck,
+          this.current.maniac,
+          this.current.silly,
+          this.current.lovestruck,
+          tgt.eyeCry,
+          tgt.eyeDizzy,
+          tgt.eyeSqueeze,
+          this.current.eyeCry,
+          this.current.eyeDizzy,
+          this.current.eyeSqueeze,
+        ) > 0.03,
+      Math.max(this.current.eyeOpenL, this.current.eyeOpenR),
     )
     // Physics follows the actual continuous pose, not a separately filtered
     // copy of the desired pose that can disagree during a handoff.
@@ -1250,9 +1281,12 @@ export class Anime25DPlayer {
       jawDrop,
       jawOpen,
       this.stylizedMotion,
+      this.irisRebound,
     )
     for (const layer of this.layers) {
-      layer.frameOpacity = fadeOpacityFromFrame(layer.source, this.opacityFrame)
+      layer.frameOpacity =
+        fadeOpacityFromFrame(layer.source, this.opacityFrame) *
+        this.closedEyes.opacity(layer.source)
     }
     const collarMotion = this.collarMotion
     collarMotion.angleX = e.angleX
@@ -1354,7 +1388,11 @@ export class Anime25DPlayer {
         if (upstreamFeature) {
           deformationPoint.x = x
           deformationPoint.y = y
-          deformAnime25DUpstreamFeaturePoint(deformationPoint, upstreamFeature)
+          deformAnime25DUpstreamFeaturePoint(
+            deformationPoint,
+            upstreamFeature,
+            this.irisRebound,
+          )
           x = deformationPoint.x
           y = deformationPoint.y
         }

@@ -62,6 +62,7 @@ struct PersistedAgentRunEventRow {
 }
 
 pub struct AgentRun {
+    pub(crate) playback_direction: super::playback_direction::PlaybackDirection,
     run_id: String,
     user_id: i32,
     session_id: Option<String>,
@@ -77,6 +78,7 @@ impl AgentRun {
     fn new(run_id: String, user_id: i32, session_id: Option<String>) -> Arc<Self> {
         let (events_tx, _) = broadcast::channel(EVENT_HISTORY_LIMIT);
         Arc::new(Self {
+            playback_direction: Default::default(),
             run_id,
             user_id,
             session_id,
@@ -100,7 +102,10 @@ impl AgentRun {
         events: VecDeque<AgentRunEnvelope>,
     ) -> Arc<Self> {
         let (events_tx, _) = broadcast::channel(EVENT_HISTORY_LIMIT);
+        let playback_direction = super::playback_direction::PlaybackDirection::default();
+        playback_direction.close(); // Restored history must never revive a live director.
         Arc::new(Self {
+            playback_direction,
             run_id: persisted.run_id,
             user_id: persisted.user_id,
             session_id: persisted.session_id,
@@ -368,6 +373,13 @@ WHERE namespace = $1 AND runtime_id = $2
     /// mpsc forwarder and freeze step progress. Persistence is best-effort async.
     /// Data-plane frames (visemes, spectrum, VAD) must never reach this method.
     pub async fn publish(self: &Arc<Self>, event: AgentProgressEvent) {
+        if matches!(
+            &event,
+            AgentProgressEvent::Error { .. }
+                | AgentProgressEvent::TaskCompleted { success: false, .. }
+        ) {
+            self.playback_direction.close();
+        }
         if super::turn::event_plane(&event) == super::turn::EventPlane::Data {
             tracing::error!("[Agent Run] data-plane event dropped from run hub");
             return;
@@ -625,6 +637,16 @@ pub async fn get_run_for_user(run_id: &str, user_id: i32) -> Option<Arc<AgentRun
     )
 }
 
+/// Live-only lookup for transient playback; no disk rehydration or model call.
+pub(crate) async fn get_live_run_for_user(run_id: &str, user_id: i32) -> Option<Arc<AgentRun>> {
+    AGENT_RUNS
+        .read()
+        .await
+        .get(run_id)
+        .filter(|run| run.user_id == user_id)
+        .cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -727,5 +749,40 @@ mod tests {
             history.last().map(|event| &event.event),
             Some(AgentProgressEvent::TaskCompleted { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn playback_direction_after_terminal_is_live_only_and_owner_scoped() {
+        let run_id = "playback_direction_owner_test";
+        let run = AgentRun::new(run_id.into(), 701, None);
+        AGENT_RUNS.write().await.insert(run_id.into(), run.clone());
+        assert!(get_live_run_for_user(run_id, 702).await.is_none());
+        assert!(get_live_run_for_user(run_id, 701).await.is_some());
+        run.publish(AgentProgressEvent::TaskCompleted {
+            task_id: String::new(),
+            success: true,
+            response: Box::new(serde_json::json!({"success":true,"data":{"mode":"chat"}})),
+        })
+        .await;
+        let performance = super::super::merope::local_directive(
+            &super::super::motion_overlay::motion_refinement_tests::context(),
+        )
+        .unwrap();
+        assert!(run.playback_direction.publish(performance));
+        assert_eq!(run.playback_direction.read_after(0).await.version, 1);
+        let (history, sequence, completed) = run.snapshot().await;
+        assert!(completed);
+        assert_eq!(sequence, 1);
+        assert_eq!(history.len(), 1, "playback must not append after terminal");
+        let persisted = serde_json::to_value(run.persisted_snapshot().await).unwrap();
+        assert!(persisted.get("playback_direction").is_none());
+        run.playback_direction.close();
+        assert!(run
+            .playback_direction
+            .read_after(0)
+            .await
+            .performance
+            .is_none());
+        AGENT_RUNS.write().await.remove(run_id);
     }
 }

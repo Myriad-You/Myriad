@@ -25,6 +25,10 @@ function run(label, command, args, cwd = root) {
 try {
   run('Nonblocking Chat director: coalescing, backpressure and cancellation', 'cargo',
     ['test', '-p', 'myriad-backend', 'chat_director', '--', '--test-threads=1', '--quiet'])
+  run('Playback direction: post-terminal delivery, ownership and cancellation', 'cargo',
+    ['test', '-p', 'myriad-backend', 'playback_direction', '--', '--test-threads=1', '--quiet'])
+  run('Semantic fixtures: production contracts and honest grading (no model)', 'cargo',
+    ['test', '-p', 'myriad-backend', 'semantic_eval', '--', '--test-threads=1', '--quiet'])
   run('Merope production behavior: perception, speech, director, scheduler and rig', process.execPath,
     ['node_modules/tsx/dist/cli.mjs', '--test', 'src/features/merope/**/*.test.ts', 'src/features/merope/*.test.ts'], join(root, 'frontend'))
   run('Frontend wire → backend Chat and event readers', 'cargo',

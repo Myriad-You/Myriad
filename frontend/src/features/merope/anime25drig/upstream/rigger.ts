@@ -4,9 +4,10 @@
  * Copyright (c) 2026 hakoniwa
  * SPDX-License-Identifier: MIT
  *
- * This module intentionally preserves upstream thresholds, mutation, warning
- * text, array order, typed-array rounding, and edge behavior. Myriad-specific
- * improvements belong after this boundary, not inside the compatibility port.
+ * Import correctness fixes are selectively ported from 8deb51b (2026-09-07):
+ * semantic alpha unions, per-side synthesis, empty layers, narrow strands and
+ * alpha-aware resampling. Runtime/geometry still use the original reference.
+ * Myriad-specific policy belongs after this boundary.
  */
 import type {
   UpstreamCleanStats,
@@ -74,6 +75,8 @@ const SLOTS: Readonly<Record<string, Slot>> = {
   irides: { depth: 1.08, group: 'head', split: true, fade: 'eyeOpen' },
   eyelash: { depth: 1.12, group: 'head', split: true, fade: 'eyeOpen' },
   eye_close: { depth: 1.12, group: 'head', split: true, fade: 'eyeClose' },
+  // September alternate artwork; Myriad projects it onto its existing closed channel.
+  eye_close2: { depth: 1.12, group: 'head', split: true, fade: 'eyeClose' },
   'front hair': { depth: 1.28, group: 'head', phys: 'hair' },
 }
 
@@ -145,27 +148,15 @@ export function labelComponents(
       xSum += point % width
       const x = point % width
       const y = (point / width) | 0
-      if (
-        x > 0 &&
-        !labels[point - 1] &&
-        alpha[point - 1] > threshold
-      ) {
+      if (x > 0 && !labels[point - 1] && alpha[point - 1] > threshold) {
         labels[point - 1] = count
         stack[stackPointer++] = point - 1
       }
-      if (
-        x < width - 1 &&
-        !labels[point + 1] &&
-        alpha[point + 1] > threshold
-      ) {
+      if (x < width - 1 && !labels[point + 1] && alpha[point + 1] > threshold) {
         labels[point + 1] = count
         stack[stackPointer++] = point + 1
       }
-      if (
-        y > 0 &&
-        !labels[point - width] &&
-        alpha[point - width] > threshold
-      ) {
+      if (y > 0 && !labels[point - width] && alpha[point - width] > threshold) {
         labels[point - width] = count
         stack[stackPointer++] = point - width
       }
@@ -332,9 +323,7 @@ function centroidOf(
       alphaSum += value
     }
   }
-  return alphaSum
-    ? { cx: sumX / alphaSum, cy: sumY / alphaSum }
-    : null
+  return alphaSum ? { cx: sumX / alphaSum, cy: sumY / alphaSum } : null
 }
 
 function resampleRgba(
@@ -347,26 +336,50 @@ function resampleRgba(
   const sourceHeight = source.height
   const data = source.data
   for (let y = 0; y < targetHeight; y += 1) {
-    const sourceY = ((y + 0.5) * sourceHeight) / targetHeight - 0.5
+    const sourceY = Math.max(
+      0,
+      Math.min(
+        sourceHeight - 1,
+        ((y + 0.5) * sourceHeight) / targetHeight - 0.5,
+      ),
+    )
     const y0 = Math.max(0, Math.floor(sourceY))
     const y1 = Math.min(sourceHeight - 1, y0 + 1)
     const fractionY = sourceY - y0
     for (let x = 0; x < targetWidth; x += 1) {
-      const sourceX = ((x + 0.5) * sourceWidth) / targetWidth - 0.5
+      const sourceX = Math.max(
+        0,
+        Math.min(
+          sourceWidth - 1,
+          ((x + 0.5) * sourceWidth) / targetWidth - 0.5,
+        ),
+      )
       const x0 = Math.max(0, Math.floor(sourceX))
       const x1 = Math.min(sourceWidth - 1, x0 + 1)
       const fractionX = sourceX - x0
       const outputOffset = (y * targetWidth + x) * 4
-      for (let channel = 0; channel < 4; channel += 1) {
+      const a00 = data[(y0 * sourceWidth + x0) * 4 + 3]
+      const a01 = data[(y0 * sourceWidth + x1) * 4 + 3]
+      const a10 = data[(y1 * sourceWidth + x0) * 4 + 3]
+      const a11 = data[(y1 * sourceWidth + x1) * 4 + 3]
+      const w00 = (1 - fractionX) * (1 - fractionY)
+      const w01 = fractionX * (1 - fractionY)
+      const w10 = (1 - fractionX) * fractionY
+      const w11 = fractionX * fractionY
+      const alpha = a00 * w00 + a01 * w01 + a10 * w10 + a11 * w11
+      output[outputOffset + 3] = alpha
+      for (let channel = 0; channel < 3; channel += 1) {
         const value00 = data[(y0 * sourceWidth + x0) * 4 + channel]
         const value01 = data[(y0 * sourceWidth + x1) * 4 + channel]
         const value10 = data[(y1 * sourceWidth + x0) * 4 + channel]
         const value11 = data[(y1 * sourceWidth + x1) * 4 + channel]
-        output[outputOffset + channel] =
-          value00 * (1 - fractionX) * (1 - fractionY) +
-          value01 * fractionX * (1 - fractionY) +
-          value10 * (1 - fractionX) * fractionY +
-          value11 * fractionX * fractionY
+        output[outputOffset + channel] = alpha
+          ? (value00 * a00 * w00 +
+              value01 * a01 * w01 +
+              value10 * a10 * w10 +
+              value11 * a11 * w11) /
+            alpha
+          : 0
       }
     }
   }
@@ -460,7 +473,10 @@ function synthPart(
   }
 }
 
-function lastIndexWhere<T>(values: T[], predicate: (value: T) => boolean): number {
+function lastIndexWhere<T>(
+  values: T[],
+  predicate: (value: T) => boolean,
+): number {
   for (let index = values.length - 1; index >= 0; index -= 1) {
     if (predicate(values[index])) return index
   }
@@ -527,16 +543,17 @@ export function flattenPsdToImg(psd: UpstreamPsd): UpstreamRgbaImage | null {
         const destinationIndex = (canvasY * width + canvasX) * 4
         const alpha = data[sourceIndex + 3] / 255
         if (!alpha) continue
+        const destinationAlpha = buffer[destinationIndex + 3] / 255
+        const outputAlpha = alpha + destinationAlpha * (1 - alpha)
         for (let channel = 0; channel < 3; channel += 1) {
           buffer[destinationIndex + channel] =
-            data[sourceIndex + channel] * alpha +
-            buffer[destinationIndex + channel] * (1 - alpha)
+            (data[sourceIndex + channel] * alpha +
+              buffer[destinationIndex + channel] *
+                destinationAlpha *
+                (1 - alpha)) /
+            outputAlpha
         }
-        buffer[destinationIndex + 3] = Math.min(
-          255,
-          data[sourceIndex + 3] +
-            buffer[destinationIndex + 3] * (1 - alpha),
-        )
+        buffer[destinationIndex + 3] = outputAlpha * 255
       }
     }
   }
@@ -577,10 +594,7 @@ export function splitImgLR(
     const output = new Uint8ClampedArray(cutWidth * height * 4)
     for (let y = 0; y < height; y += 1) {
       output.set(
-        data.subarray(
-          (y * width + from) * 4,
-          (y * width + to) * 4,
-        ),
+        data.subarray((y * width + from) * 4, (y * width + to) * 4),
         y * cutWidth * 4,
       )
     }
@@ -617,8 +631,7 @@ export function findPeaks(
       if (values[index] > values[candidate]) break
       if (values[index] < rightMinimum) rightMinimum = values[index]
     }
-    const prominence =
-      values[candidate] - Math.max(leftMinimum, rightMinimum)
+    const prominence = values[candidate] - Math.max(leftMinimum, rightMinimum)
     if (prominence >= minProminence) {
       peaks.push({ x: candidate, prom: prominence })
     }
@@ -684,16 +697,21 @@ export function detectStrands(
   }
   const peaks = findPeaks(smoothed, minSeparation, 10)
   const positions: number[] = []
-  for (let index = 0; index < peaks.length && positions.length < wanted; index += 1) {
+  for (
+    let index = 0;
+    index < peaks.length && positions.length < wanted;
+    index += 1
+  ) {
     positions.push(peaks[index].x)
   }
   let guard = 0
   while (positions.length < wanted && guard++ < 50) {
     let best = -1
     let bestDistance = -1
+    const inset = Math.min(30, (maxX - minX) / 4)
     for (let sample = 0; sample < 40; sample += 1) {
       const centerX = Math.round(
-        minX + 30 + ((maxX - minX - 60) * sample) / 39,
+        minX + inset + ((maxX - minX - 2 * inset) * sample) / 39,
       )
       if (centerX < 0 || centerX >= width || top[centerX] < 0) continue
       let minimumDistance = 1e9
@@ -709,7 +727,12 @@ export function detectStrands(
         best = centerX
       }
     }
-    if (best < 0) break
+    if (
+      best < 0 ||
+      (positions.length && bestDistance < Math.max(1, minSeparation))
+    ) {
+      break
+    }
     positions.push(best)
   }
   positions.sort((left, right) => left - right)
@@ -820,16 +843,34 @@ export function buildRig(
       canvasHeight,
       40,
     )
+    if (!bboxOf(alpha, canvasWidth, canvasHeight, 8)) {
+      warnings.push(`空のレイヤー "${name}" をスキップしました`)
+      continue
+    }
     entries.push({ name, layer: child, alpha })
   }
-  const byName: Record<string, Entry> = {}
-  for (const entry of entries) byName[entry.name] = entry
+  if (!entries.length)
+    throw new Error('キャンバス内に表示可能な画素がありません')
+  const byBase = new Map<string, Entry[]>()
+  for (const entry of entries) {
+    const base = baseName(entry.name)
+    const group = byBase.get(base)
+    if (group) group.push(entry)
+    else byBase.set(base, [entry])
+  }
+  const merged = (name: string): Uint8Array | undefined => {
+    const group = byBase.get(name)
+    if (!group) return undefined
+    const alpha = new Uint8Array(canvasWidth * canvasHeight)
+    for (const entry of group) mergeAlphaInto(alpha, entry.alpha)
+    return alpha
+  }
 
-  const faceEntry = byName.face
+  const faceAlpha = merged('face')
   let face: UpstreamRig['anchors']['face']
-  if (faceEntry) {
-    const bounds = bboxOf(faceEntry.alpha, canvasWidth, canvasHeight, 8)!
-    const center = centroidOf(faceEntry.alpha, canvasWidth, canvasHeight)!
+  if (faceAlpha) {
+    const bounds = bboxOf(faceAlpha, canvasWidth, canvasHeight, 8)!
+    const center = centroidOf(faceAlpha, canvasWidth, canvasHeight)!
     face = {
       cx: center.cx,
       cy: center.cy,
@@ -852,10 +893,10 @@ export function buildRig(
 
   const parts: UpstreamRigLayer[] = []
   let z = 0
-  const sided: Record<string, Uint8Array> = {}
+  const sided: Record<string, Uint8Array> = Object.create(null)
   for (const entry of entries) {
     const base = baseName(entry.name)
-    let slot = SLOTS[base]
+    let slot = Object.hasOwn(SLOTS, base) ? SLOTS[base] : undefined
     if (!slot) {
       const center = centroidOf(entry.alpha, canvasWidth, canvasHeight)
       slot = {
@@ -867,12 +908,7 @@ export function buildRig(
       )
     }
     if (slot.split) {
-      const masks = splitSides(
-        entry.alpha,
-        canvasWidth,
-        canvasHeight,
-        face.cx,
-      )
+      const masks = splitSides(entry.alpha, canvasWidth, canvasHeight, face.cx)
       let got = false
       for (const sideKey of ['l', 'r'] as const) {
         const mask = masks[sideKey]
@@ -896,7 +932,9 @@ export function buildRig(
         for (let index = 0; index < canvasWidth * canvasHeight; index += 1) {
           maskedAlpha[index] = mask[index] ? entry.alpha[index] : 0
         }
-        sided[`${entry.name}|${sideKey}`] = maskedAlpha
+        const key = `${base}|${sideKey}`
+        if (sided[key]) mergeAlphaInto(sided[key], maskedAlpha)
+        else sided[key] = maskedAlpha
         got = true
       }
       if (!got) {
@@ -964,11 +1002,7 @@ export function buildRig(
     const eyeClose = sided[`eye_close|${sideKey}`]
     if (!eyeWhite) continue
     const bounds = bboxOf(eyeWhite, canvasWidth, canvasHeight, 8)!
-    const irisCenter = centroidOf(
-      iris || eyeWhite,
-      canvasWidth,
-      canvasHeight,
-    )!
+    const irisCenter = centroidOf(iris || eyeWhite, canvasWidth, canvasHeight)!
     const closeCenter = eyeClose
       ? centroidOf(eyeClose, canvasWidth, canvasHeight)
       : null
@@ -990,15 +1024,11 @@ export function buildRig(
     warnings.push('目のアンカーが不完全です（eyewhite/irides を確認）')
   }
 
-  const mouthSource = byName.mouth_open || byName.mouth_close
+  const mouthSource = merged('mouth_open') || merged('mouth_close')
   let mouth: UpstreamRig['anchors']['mouth']
   if (mouthSource) {
-    const bounds = bboxOf(mouthSource.alpha, canvasWidth, canvasHeight, 8)!
-    const center = centroidOf(
-      mouthSource.alpha,
-      canvasWidth,
-      canvasHeight,
-    )!
+    const bounds = bboxOf(mouthSource, canvasWidth, canvasHeight, 8)!
+    const center = centroidOf(mouthSource, canvasWidth, canvasHeight)!
     mouth = {
       x0: bounds.x0,
       x1: bounds.x1,
@@ -1019,13 +1049,13 @@ export function buildRig(
     }
   }
 
-  const neckEntry = byName.neck
+  const neckAlpha = merged('neck')
   let neckPivot: { cx: number; cy: number }
   let neckTop: number
   let neckBottom: number
-  if (neckEntry) {
-    const bounds = bboxOf(neckEntry.alpha, canvasWidth, canvasHeight, 8)!
-    const center = centroidOf(neckEntry.alpha, canvasWidth, canvasHeight)!
+  if (neckAlpha) {
+    const bounds = bboxOf(neckAlpha, canvasWidth, canvasHeight, 8)!
+    const center = centroidOf(neckAlpha, canvasWidth, canvasHeight)!
     neckPivot = {
       cx: center.cx,
       cy: bounds.y0 + (bounds.y1 - bounds.y0) * 0.85,
@@ -1046,13 +1076,22 @@ export function buildRig(
     neckTop,
     neckBottom,
     bodyPivot: { cx: neckPivot.cx, cy: canvasHeight },
-    faceScale: (face.x1 - face.x0) / 333,
+    faceScale: Math.max(1, face.x1 - face.x0) / 333,
     hairRootY: face.y0 + 60,
   }
 
   const synth = { eye: false, mouth: false }
   const generic = options.generic
-  if (generic) synthesizeMissingParts(parts, anchors, byName, generic, synth, warnings)
+  if (generic) {
+    synthesizeMissingParts(
+      parts,
+      anchors,
+      byBase.has('mouth_open'),
+      generic,
+      synth,
+      warnings,
+    )
+  }
   for (let index = 0; index < parts.length; index += 1) parts[index].z = index
 
   return {
@@ -1064,23 +1103,25 @@ export function buildRig(
   }
 }
 
+function mergeAlphaInto(target: Uint8Array, source: Uint8Array): void {
+  for (let index = 0; index < target.length; index += 1) {
+    if (source[index] > target[index]) target[index] = source[index]
+  }
+}
+
 function synthesizeMissingParts(
   parts: UpstreamRigLayer[],
   anchors: UpstreamRig['anchors'],
-  byName: Record<string, Entry>,
+  hasOpenMouth: boolean,
   generic: UpstreamGenericParts,
   synth: { eye: boolean; mouth: boolean },
   warnings: string[],
 ): void {
-  const findPart = (prefix: string) =>
-    parts.filter((part) => part.name.indexOf(prefix) === 0)
-  if (
-    generic.eyeL &&
-    generic.eyeR &&
-    !findPart('eye_close').length &&
-    anchors.eyeL &&
-    anchors.eyeR
-  ) {
+  const partBase = (part: UpstreamRigLayer) =>
+    baseName(part.name.replace(/_(l|r)$/, ''))
+  const findPart = (name: string) =>
+    parts.filter((part) => partBase(part) === name)
+  if (generic.eyeL || generic.eyeR) {
     const slot = SLOTS.eye_close
     const makeEye = (
       anchor: UpstreamEyeAnchor,
@@ -1088,8 +1129,8 @@ function synthesizeMissingParts(
       side: 'L' | 'R',
     ) => {
       const lash =
-        findPart(`eyelash_${side.toLowerCase()}`)[0] ||
-        findPart(`eyebrow_${side.toLowerCase()}`)[0]
+        findPart('eyelash').find((part) => part.side === side) ||
+        findPart('eyebrow').find((part) => part.side === side)
       const tint = lash
         ? meanColorOfImage(
             lash.img || { data: new Uint8ClampedArray(0) },
@@ -1108,30 +1149,34 @@ function synthesizeMissingParts(
         side,
       )
     }
-    const left = makeEye(anchors.eyeL, generic.eyeL, 'L')
-    const right = makeEye(anchors.eyeR, generic.eyeR, 'R')
-    let index = lastIndexWhere(parts, (part) =>
-      part.name.startsWith('eyelash'),
-    )
+    let index = lastIndexWhere(parts, (part) => part.name.startsWith('eyelash'))
     if (index < 0) {
       index = lastIndexWhere(parts, (part) => part.name.startsWith('irides'))
     }
     if (index < 0) {
       index = lastIndexWhere(parts, (part) => part.name === 'face')
     }
-    parts.splice(index + 1, 0, left, right)
-    synth.eye = true
-    warnings.push(
-      'eye_close が無いため汎用閉じ目を自動配置しました（「目」の差分バーで調整可）',
-    )
+    for (const side of ['L', 'R'] as const) {
+      const image = generic[`eye${side}`]
+      const anchor = anchors[`eye${side}`]
+      if (
+        image &&
+        anchor &&
+        !findPart('eye_close').some((part) => part.side === side)
+      ) {
+        parts.splice(++index, 0, makeEye(anchor, image, side))
+        synth.eye = true
+      }
+    }
+    if (synth.eye) {
+      warnings.push(
+        '不足する閉じ目を自動配置しました（「目」の差分バーで調整可）',
+      )
+    }
   }
-  if (
-    generic.mouth &&
-    !findPart('mouth_close').length &&
-    byName.mouth_open
-  ) {
+  if (generic.mouth && !findPart('mouth_close').length && hasOpenMouth) {
     const anchor = anchors.mouth
-    const mouthOpen = parts.find((part) => part.name === 'mouth_open')
+    const mouthOpen = findPart('mouth_open')[0]
     const tint = mouthOpen ? meanColorOfImage(mouthOpen.img, true) : null
     const close = synthPart(
       'mouth_close',
@@ -1144,7 +1189,7 @@ function synthesizeMissingParts(
       SLOTS.mouth_close,
       null,
     )
-    let index = lastIndexWhere(parts, (part) => part.name === 'mouth_open')
+    let index = lastIndexWhere(parts, (part) => partBase(part) === 'mouth_open')
     if (index < 0) {
       index = lastIndexWhere(parts, (part) => part.name === 'face')
     }

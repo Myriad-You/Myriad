@@ -17,28 +17,30 @@ use crate::services::agent::ui_analysis::{
     resolve_window_focus_target, router_can_go_back,
 };
 use crate::services::data_paths::paths;
+use crate::services::permission_service::{role_from_user_id, TappPermissionService};
 use crate::services::tapp_package_read::{
     installed_core_entry, installed_page_entry, installed_text_resource_plan,
 };
 use crate::services::tapp_storage::{sandbox_storage_count, sandbox_storage_entries};
 use crate::services::tapp_validation::validate_resource_path;
+use crate::GLOBAL_DYNAMIC_CONFIG;
 use myriad_agent_rules::untrusted_block;
 use sea_orm::{ColumnTrait, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Agent 详情里的授予权限投影。
+/// Agent 详情里的授予权限投影（入参已按当前角色过滤）。
 ///
 /// 标记需重新授权时不得把批准列当授予层漏出去——只有授予权限决定行为。
 fn agent_detail_granted_permissions(
-    approved_permissions: &Value,
+    granted_permissions: &[String],
     needs_reauthorization: bool,
 ) -> Value {
     if needs_reauthorization {
         json!([])
     } else {
-        approved_permissions.clone()
+        json!(granted_permissions)
     }
 }
 
@@ -472,6 +474,17 @@ pub(super) async fn execute_tapp_page_content(
             // 应用详情层级
             let tapp_id_str = tapp_id.ok_or("Missing tappId for detail level")?;
             let app = find_accessible_tapp(ctx, tapp_id_str).await?;
+            let role = role_from_user_id(
+                ctx.user_id,
+                crate::services::agent::user_is_current_admin(ctx.db, ctx.user_id).await,
+            );
+            let approved: Vec<String> =
+                serde_json::from_value(app.approved_permissions.clone()).unwrap_or_default();
+            let granted = {
+                let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+                TappPermissionService::filter_permissions_for_role(&config, role, &approved)
+            }
+            .map_err(|error| format!("{}: {}", error.code(), error.message()))?;
 
             // 获取组件数量
             let widget_count = tapp_widgets::Entity::find()
@@ -517,7 +530,7 @@ pub(super) async fn execute_tapp_page_content(
                         "themeColor": app.theme_color.clone(),
                         "status": format!("{:?}", app.status),
                         "grantedPermissions": agent_detail_granted_permissions(
-                            &app.approved_permissions,
+                            &granted,
                             app.needs_reauthorization,
                         ),
                         "needsReauthorization": app.needs_reauthorization,
@@ -1413,8 +1426,20 @@ mod tests {
 
     #[test]
     fn marked_detail_does_not_leak_approved_as_granted() {
-        let approved = json!(["ui:theme", "media:control"]);
-        assert_eq!(agent_detail_granted_permissions(&approved, true), json!([]));
-        assert_eq!(agent_detail_granted_permissions(&approved, false), approved);
+        use crate::config::DynamicConfig;
+        use crate::services::permission_service::UserRole;
+        let approved = vec!["storage:read".to_string(), "platform:write".to_string()];
+        let granted = TappPermissionService::filter_permissions_for_role(
+            &DynamicConfig::default(),
+            UserRole::User,
+            &approved,
+        )
+        .unwrap();
+        assert!(!granted.contains(&"platform:write".to_string()));
+        assert_eq!(agent_detail_granted_permissions(&granted, true), json!([]));
+        assert_eq!(
+            agent_detail_granted_permissions(&granted, false),
+            json!(["storage:read"])
+        );
     }
 }
