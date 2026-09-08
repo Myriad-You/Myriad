@@ -520,6 +520,21 @@ function AppRoutes() {
             </ModuleVisibilityGuard>
           }
         />
+        {/* DEV 专用磁贴预览。`lazy()` 必须写在 DEV 分支**里面** ——
+            写在模块顶层的话，即使路由被条件挡掉，动态 import 仍会被打成
+            生产 chunk（PerformanceMonitor 就是这么处理的）。 */}
+        {import.meta.env.DEV && (
+          <Route
+            path="/dev/brew-tiles"
+            element={
+              <SuspensePage>
+                {React.createElement(
+                  lazy(() => import('./views/BrewTilePreview.tsx')),
+                )}
+              </SuspensePage>
+            }
+          />
+        )}
         <Route
           path="/reports"
           element={

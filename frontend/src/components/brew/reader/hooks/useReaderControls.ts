@@ -77,12 +77,18 @@ export function useReaderControls({
     const pin = () => {
       const el = articleRef.current
       if (!el) return
+      // 复位必须瞬间完成：容器带 scroll-behavior: smooth，直接赋 scrollTop 也会
+      // 平滑滚一段，正好落在新正文淡入的那 260ms 里，看起来像内容在往上飘。
+      // `scrollTo` 的 behavior 只管它自己那一次，管不到赋值那一支。
+      const prevBehavior = el.style.scrollBehavior
+      el.style.scrollBehavior = 'auto'
       if (saved > 0 && saved < 100) {
         const max = el.scrollHeight - el.clientHeight
         if (max > 0) el.scrollTop = (saved / 100) * max
       } else {
         el.scrollTo({ top: 0, behavior: 'auto' })
       }
+      el.style.scrollBehavior = prevBehavior
     }
     requestAnimationFrame(pin)
   }, [itemId, contentReady])

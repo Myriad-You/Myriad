@@ -55,6 +55,7 @@ myriad-platform-utils = { path = "../crates/myriad-platform-utils" }
 myriad-tapp-registry = { path = "../crates/myriad-tapp-registry" }
 myriad-prompt-security = { path = "../crates/myriad-prompt-security" }
 myriad-agent-rules = { path = "../crates/myriad-agent-rules" }
+myriad-brew-notes = { path = "../crates/myriad-brew-notes" }
 myriad-tapp-rules = { path = "../crates/myriad-tapp-rules" }
 myriad-module-visibility = { path = "../crates/myriad-module-visibility" }
 myriad-process-info = { path = "../crates/myriad-process-info" }

@@ -91,7 +91,7 @@ mod tests {
     fn text_caps_share_the_user_authored_limit() {
         assert_eq!(SANITIZE_PROMPT_MAX_CHARS, USER_TEXT_MAX_CHARS);
         assert_eq!(IMAGE_PROMPT_MAX_CHARS, USER_TEXT_MAX_CHARS);
-        assert!(USER_TEXT_MAX_CHARS > 0);
+        const { assert!(USER_TEXT_MAX_CHARS > 0) }
         let over: String = "x".repeat(IMAGE_PROMPT_MAX_CHARS + 1);
         assert!(over.chars().count() > IMAGE_PROMPT_MAX_CHARS);
     }

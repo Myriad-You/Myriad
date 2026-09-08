@@ -401,7 +401,8 @@ impl TappPermission {
         ]
     }
 
-    /// 从字符串解析权限
+    /// 从字符串解析权限。未知名字是 None，不是错误。
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<TappPermission> {
         match s {
             "widget:register" => Some(TappPermission::WidgetRegister),

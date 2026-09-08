@@ -15,47 +15,76 @@
  * - 图片懒加载
  */
 
-import type { AddSourceInput, BrewSource, CardSize } from '../../types/brew'
+import type { AddSourceInput, BrewItemPreview, BrewSource,
+  CardSize,
+} from '../../types/brew'
 
+import type { BrewBoard } from './logic/board'
+import type { BrewTileSize } from './logic/layout'
 import type { SortMode } from './manager/ControlIsland'
+
 import { LuRss as Rss, LuSearch as Search } from '@lib/icons'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
 import { useI18n } from '../../contexts/I18nContext'
 import * as brewApi from '../../services/brewApi'
 import { userFacingError } from '../../utils/userFacingError'
+// 磁贴墙（localStorage flag 后面走这条路；旧网格在 PR 9 清退）
+import BrewTileWall from './BrewTileWall'
 // 卡片组件
 import { SourceCard } from './cards'
 // 共享常量
-import { PRESET_CATEGORY_DB_VALUES } from './constants'
+import { brewMainCategory, PRESET_CATEGORY_DB_VALUES } from './constants'
+import { sourcesForBoard } from './logic/board'
+import { cardSizeForTile, TOPIC_LARGE_COUNT_SMART } from './logic/layout'
+import { compareByScore, roleFromAuth } from './logic/score'
+import { clusterTopics, previewsToTopicItems } from './logic/topics'
 import ControlIsland from './manager/ControlIsland'
 // 管理组件
 import EditModal from './manager/EditModal'
+import { isBrewTileGridEnabled } from './tileGridFlag'
 
 interface BrewSourceGridProps {
   sources: BrewSource[]
-  category?: string // 分类筛选
+  /**
+   * 当前板块。决定这面墙收哪些源 —— `feeds` 收订阅源，`sites` 收入口型来源。
+   * 过滤依据是 `source_type`，不是分类（见 logic/board.ts）。
+   */
+  board: BrewBoard
   onSourceClick: (source: BrewSource) => void
   onRefreshSource: (sourceId: number) => void
   onSourceUpdate?: (source: BrewSource) => void
   onSourcesChange?: () => void
   onAddSource?: (input: AddSourceInput) => Promise<void>
+  /** 点主题卡：进入跨源列表（viewMode: 'topic-feed'） */
+  onTopicClick?: (topicKey: string, topicNameKey: string) => void
+  /** 点磁贴上的文章行：直接进阅读器（老网格的 ItemCard 也是整卡即开） */
+  onOpenItem?: (item: BrewItemPreview, source: BrewSource) => void
+  /** 打开收藏视图。收藏不再是板块，入口挂在控制岛上（仅登录用户） */
+  onOpenStarred?: () => void
   isAuthenticated?: boolean // 是否已登录（用于已读状态等普通用户功能）
   isAdmin?: boolean // 是否是管理员（用于添加、编辑、删除等管理功能）
 }
 
 export default function BrewSourceGrid({
   sources,
-  category,
+  board,
   onSourceClick,
   onRefreshSource,
   onSourceUpdate,
   onSourcesChange,
   onAddSource,
+  onTopicClick,
+  onOpenItem,
+  onOpenStarred,
   isAuthenticated = false, // 默认游客模式（用于已读状态）
   isAdmin = false, // 默认非管理员（用于管理功能）
 }: BrewSourceGridProps) {
   const { t } = useI18n()
+  // 磁贴墙开关。一次读定：中途切 flag 需要刷新，避免两套布局在同一会话里混用。
+  const [tileGrid] = useState(isBrewTileGridEnabled)
+  // 智能模式插几张主题卡 —— 与「前 N 张走 4x4」是同一个 N
+  const SMART_TOPIC_CARDS = TOPIC_LARGE_COUNT_SMART
+  const viewerRole = roleFromAuth(isAuthenticated, isAdmin)
   // 管理功能状态（仅登录用户可用）
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -66,7 +95,11 @@ export default function BrewSourceGrid({
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   // 排序状态
-  const [sortMode, setSortMode] = useState<SortMode>('custom') // 默认自由排序
+  // 默认智能排序：打开 /brew 第一眼要能判断「现在有什么可看的」，
+  // 而不是先扫一遍站名。旧的 custom / update 等模式依据一行未改。
+  const [sortMode, setSortMode] = useState<SortMode>(
+    tileGrid ? 'smart' : 'custom',
+  )
   const [customOrder, setCustomOrder] = useState<number[]>([]) // 自由排序的顺序
   const [randomSeed, setRandomSeed] = useState(Date.now()) // 随机排序种子
 
@@ -163,17 +196,9 @@ export default function BrewSourceGrid({
     return Array.from(cats)
   }, [sources])
 
-  // 根据分类和搜索筛选源
+  // 按板块和搜索筛选源
   const filteredSources = useMemo(() => {
-    let result = sources
-    if (category) {
-      // 支持多分类：检查 category 字段是否包含目标分类（用逗号分隔）
-      result = result.filter((s) => {
-        if (!s.category) return false
-        const cats = s.category.split(',').map((c) => c.trim())
-        return cats.includes(category)
-      })
-    }
+    let result = sourcesForBoard(sources, board)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
       result = result.filter(
@@ -184,7 +209,7 @@ export default function BrewSourceGrid({
       )
     }
     return result
-  }, [sources, category, searchQuery])
+  }, [sources, board, searchQuery])
 
   // 初始化自定义排序顺序（从数据库加载或默认）
   useEffect(() => {
@@ -209,11 +234,37 @@ export default function BrewSourceGrid({
     }
   }, [filteredSources, customOrder.length])
 
+  /**
+   * 会话内冻结的时钟。切排序 / 手动刷新 / 重新进入才重算 —— 未读数字可以实时
+   * 变，位置不能跟着动，否则每读一篇整墙都在挪。
+   */
+  const [scoreNow, setScoreNow] = useState(() => Date.now())
+
+  /**
+   * 跨源主题。只看 `item.topic`（离线打标写入），窗口近 30 天、不足 3 篇不成卡。
+   * 数据来自源预览，不额外拉接口。
+   */
+  const topics = useMemo(
+    () =>
+      tileGrid
+        ? clusterTopics(previewsToTopicItems(filteredSources), scoreNow)
+        : [],
+    [tileGrid, filteredSources, scoreNow],
+  )
+
   // 排序后的源列表
   const sortedSources = useMemo(() => {
     const result = [...filteredSources]
 
     switch (sortMode) {
+      case 'smart':
+      case 'topic':
+        // 两种新模式的源排序依据相同（分档分数），差别只在主题卡放几张、放哪 ——
+        // 那是磁贴墙的事，见 BrewTileWall 的 topicMode。
+        return result.sort((a, b) =>
+          compareByScore(a, b, viewerRole, scoreNow),
+        )
+
       case 'update':
         // 按最新成功更新 / 文章时间排序（最新的在前）。
         // Never fall back to last_fetched_at — failed fetches update it and
@@ -280,18 +331,11 @@ export default function BrewSourceGrid({
       default:
         return result
     }
-  }, [filteredSources, sortMode, customOrder, randomSeed])
+  }, [filteredSources, sortMode, customOrder, randomSeed, viewerRole, scoreNow])
 
-  // 分类排序时的分类标题生成
-  const getMainCategoryForRender = (cat: string | null): string => {
-    if (!cat) return t.brew.uncategorized
-    const cats = cat
-      .split(',')
-      .map((c) => c.trim())
-      .filter(Boolean)
-    const mainCat = cats.find((c) => !PRESET_CATEGORY_DB_VALUES.includes(c))
-    return mainCat || t.brew.uncategorized
-  }
+  // 分类排序时的分类标题生成（与磁贴墙的分类换页共用同一口径）
+  const getMainCategoryForRender = (cat: string | null): string =>
+    brewMainCategory(cat, t.brew.uncategorized)
 
   // 切换排序模式时的处理 - 带 FLIP 动画
   const handleSortModeChange = useCallback(
@@ -301,6 +345,8 @@ export default function BrewSourceGrid({
 
       // 2. 更新排序模式（触发重排序）
       setSortMode(mode)
+      // 切排序是「重算时机」之一：分数与尺寸都按新的 now 重算
+      setScoreNow(Date.now())
 
       // 如果切换到随机排序，更新种子
       if (mode === 'random') {
@@ -613,8 +659,8 @@ export default function BrewSourceGrid({
 
     setIsMarkingAllRead(true)
     try {
-      // 按当前分类过滤
-      await brewApi.markAllRead({ category: category || undefined })
+      // 板块不是分类：订阅板块的「全部已读」就是全站已读
+      await brewApi.markAllRead({})
       // 触发刷新
       onSourcesChange?.()
     } catch (err) {
@@ -631,7 +677,7 @@ export default function BrewSourceGrid({
     } finally {
       setIsMarkingAllRead(false)
     }
-  }, [isAuthenticated, category, onSourcesChange, t.errors.readingStateFailed])
+  }, [isAuthenticated, onSourcesChange, t.errors.readingStateFailed])
 
   // Resize 状态
   const [resizingSource, setResizingSource] = useState<{
@@ -675,7 +721,9 @@ export default function BrewSourceGrid({
       const deltaY = clientY - resizingSource.startY
 
       // 计算目标尺寸
-      const startIndex = SIZE_ORDER.indexOf(resizingSource.startSize)
+      // 入口型来源的 bar 不在老网格的三档里；认不出就从最小档起算，
+      // 而不是让 indexOf 的 -1 参与运算
+      const startIndex = Math.max(0, SIZE_ORDER.indexOf(resizingSource.startSize))
       const sizeChange = Math.round(deltaY / RESIZE_THRESHOLD)
       const targetIndex = Math.max(
         0,
@@ -765,6 +813,40 @@ export default function BrewSourceGrid({
     playFlipAnimations,
   ])
 
+  /**
+   * 「锁定当前尺寸」：把当前派生出来的尺寸写回 `card_size`，或清空解锁。
+   *
+   * 取代了右下角拖拉 resize —— 尺寸本来由分数派生，手拉一个再被下次装箱
+   * 推走只会让人以为坏了。零 migration：`card_size` 的语义从「手工尺寸」
+   * 变成「用户锁定」，映射见 logic/layout。
+   */
+  const handleToggleSizeLock = useCallback(
+    async (source: BrewSource, next: BrewTileSize | null) => {
+      const nextCardSize: CardSize | null = next ? cardSizeForTile(next) : null
+
+      // 乐观更新：磁贴尺寸立刻生效，失败再回滚
+      onSourceUpdate?.({ ...source, card_size: nextCardSize })
+      try {
+        await brewApi.updateSource(source.id, {
+          // 空字符串 = 解锁（后端与 theme_color / icon 同一约定）
+          card_size: nextCardSize ?? '',
+        })
+      } catch (err) {
+        console.error('Failed to save size lock:', err)
+        onSourceUpdate?.(source)
+      }
+    },
+    [onSourceUpdate],
+  )
+
+  /** 主题卡点击：把主题 key 与 i18n key 一起交出去，文案由上层查 t.brew */
+  const handleTopicClick = useCallback(
+    (topic: { key: string; nameKey: string }) => {
+      onTopicClick?.(topic.key, topic.nameKey)
+    },
+    [onTopicClick],
+  )
+
   // 处理编辑保存
   const handleEditSave = useCallback(
     async (
@@ -830,9 +912,11 @@ export default function BrewSourceGrid({
           onSourcesChange={onSourcesChange}
           sortMode={sortMode}
           onSortModeChange={handleSortModeChange}
-          isSubCategory={!!category}
+          isSubCategory={board !== 'feeds'}
           isAdmin={isAdmin}
           isAuthenticated={isAuthenticated}
+          topicCount={topics.length}
+          onOpenStarred={onOpenStarred}
         />
 
         <div className="flex flex-col items-start py-8">
@@ -842,12 +926,7 @@ export default function BrewSourceGrid({
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                {category
-                  ? t.brew.emptyCategoryNoSources.replace(
-                      '{category}',
-                      category,
-                    )
-                  : t.brew.emptyNoSources}
+                {board === 'sites' ? t.brew.emptyNoSites : t.brew.emptyNoSources}
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-snug">
                 {t.brew.addSourceHint}
@@ -882,9 +961,11 @@ export default function BrewSourceGrid({
         onSourcesChange={onSourcesChange}
         sortMode={sortMode}
         onSortModeChange={handleSortModeChange}
-        isSubCategory={!!category}
+        isSubCategory={board !== 'feeds'}
         isAdmin={isAdmin}
         isAuthenticated={isAuthenticated}
+        topicCount={topics.length}
+        onOpenStarred={onOpenStarred}
       />
 
       {/* 空搜索结果 */}
@@ -898,8 +979,55 @@ export default function BrewSourceGrid({
         </div>
       )}
 
-      {/* 卡片网格 */}
-      {sortedSources.length > 0 && (
+      {/* 磁贴墙（flag 开）：虚拟坐标 + 横向分页。
+          flag 关时下面的旧 CSS Grid 保持像素级不变，观察两周后在 PR 9 一起清退。 */}
+      {tileGrid && sortedSources.length > 0 && (
+        <BrewTileWall
+          sources={sortedSources}
+          // smart 只把**前 2 张**主题卡插到最前（§8）；插全部会把第一屏的源
+          // 全挤到后面去，打开 /brew 第一眼看不到任何订阅源。topic 模式才全上。
+          topics={
+            sortMode === 'topic'
+              ? topics
+              : sortMode === 'smart'
+                ? topics.slice(0, SMART_TOPIC_CARDS)
+                : []
+          }
+          topicMode={sortMode === 'topic' ? 'topic' : 'smart'}
+          onTopicClick={handleTopicClick}
+          role={viewerRole}
+          isSearching={Boolean(searchQuery.trim())}
+          scope={`${board}:${sortMode}`}
+          breakOnCategory={sortMode === 'category'}
+          uncategorizedLabel={t.brew.uncategorized}
+          prevPageLabel={t.brew.tilePagePrev}
+          nextPageLabel={t.brew.tilePageNext}
+          pageLabel={t.brew.tilePageNth}
+          onSourceClick={onSourceClick}
+          registerCardRef={setCardRef}
+          isEditMode={isEditMode}
+          onDragStart={handleCardDragStart}
+          draggingSourceId={draggingSourceId}
+          dragOverSourceId={dragOverSourceId}
+          onToggleSizeLock={handleToggleSizeLock}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelect}
+          onEditSource={isAdmin ? setEditingSource : undefined}
+          onRefreshSource={isAdmin ? onRefreshSource : undefined}
+          onThemeColorExtracted={handleThemeColorExtracted}
+          onOpenItem={onOpenItem}
+          editLabels={{
+            select: t.brew.tileSelectSource,
+            edit: t.brew.editSubscription,
+            refresh: t.brew.refreshSubscription,
+            lock: t.brew.tileLockSize,
+            unlock: t.brew.tileUnlockSize,
+          }}
+        />
+      )}
+
+      {/* 卡片网格（旧） */}
+      {!tileGrid && sortedSources.length > 0 && (
         <div
           className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-4"
           style={{ gridAutoRows: '1.5rem' }}
@@ -961,6 +1089,7 @@ export default function BrewSourceGrid({
                   isDragOver={dragOverSourceId === source.id}
                   onDragStart={handleCardDragStart}
                   sortMode={sortMode}
+                  isAuthenticated={isAuthenticated}
                 />
               </React.Fragment>
             )

@@ -12,6 +12,7 @@ import {
   LuChevronRight as ChevronRight,
   LuChevronUp as ChevronUp,
   LuCloud as Cloud,
+  LuEdit3 as Edit3,
   LuExternalLink as ExternalLink,
   LuEye as Eye,
   LuEyeOff as EyeOff,
@@ -98,6 +99,7 @@ export const MobileReaderBar = memo(
     adjustLineHeight,
     currentFont,
     handleShare,
+    onEditNote,
     enableAnimations,
     onTouchStart,
     onTouchEnd,
@@ -325,6 +327,18 @@ export const MobileReaderBar = memo(
                             </a>
                           </div>
 
+                          <div className="flex items-center gap-1">
+                            {/* 编辑手记。只有站长打开自己写的那篇时才有 */}
+                            {onEditNote && (
+                              <button
+                                onClick={onEditNote}
+                                className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text}`}
+                                title={t.brew.noteEdit}
+                              >
+                                <Edit3 className="w-5 h-5" />
+                              </button>
+                            )}
+
                           {/* 分享 */}
                           <button
                             onClick={handleShare}
@@ -345,6 +359,7 @@ export const MobileReaderBar = memo(
                               <line x1="12" x2="12" y1="2" y2="15" />
                             </svg>
                           </button>
+                          </div>
                         </div>
 
                         {/* 第二行：阅读设置 */}

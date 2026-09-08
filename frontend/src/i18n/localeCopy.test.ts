@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
-import { copyForLocale, currentCopy } from './localeCopy.ts'
 import { loadLocale } from './loadLocale.ts'
+import { copyForLocale, currentCopy } from './localeCopy.ts'
 
 describe('currentCopy', () => {
   it('does not statically import ja or zh locale modules', () => {

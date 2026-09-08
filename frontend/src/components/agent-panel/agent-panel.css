@@ -1185,8 +1185,7 @@ button.agent-panel-tag:disabled {
 .agent-panel-work-chrome .agent-panel-swap .agent-panel-tag-text {
   flex: 1 1 auto;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: auto hidden;
   text-overflow: unset;
   white-space: nowrap;
   scrollbar-width: none;
@@ -2081,7 +2080,7 @@ html .agent-panel-overlay-anchor {
   --surface-filter: none;
 }
 
-html:not([data-surface='solid']):not([data-surface='liquid'])
+html:not([data-surface='solid'], [data-surface='liquid'])
   .agent-panel-overlay-anchor {
   --surface-alpha: 92%;
   --surface-bg:

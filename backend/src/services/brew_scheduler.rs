@@ -147,7 +147,10 @@ impl BrewSchedulerEngine {
         // 查找需要更新的订阅源，限制本轮最大数量防止堆积
         let all_due = brew_sources::Entity::find()
             .filter(brew_sources::Column::Enabled.eq(true))
-            .filter(brew_sources::Column::SourceType.ne(brew_sources::SourceType::Link))
+            .filter(
+                brew_sources::Column::SourceType
+                    .is_not_in(brew_sources::NON_FETCHABLE_SOURCE_TYPES),
+            )
             .filter(
                 Condition::any()
                     .add(brew_sources::Column::LastFetchedAt.is_null())
@@ -241,10 +244,10 @@ impl BrewSchedulerEngine {
         source: brew_sources::Model,
         now: chrono::DateTime<Utc>,
     ) -> Result<i32, String> {
-        // 纯链接只是快捷入口，不应该进入任何抓取路径。
-        if source.source_type == brew_sources::SourceType::Link {
+        // 入口型只是快捷入口，手记的内容本来就在库里 —— 两者都没有上游可抓。
+        if !source.source_type.is_fetchable() {
             tracing::debug!(
-                "[BrewScheduler] Skipping pure link source: {} ({})",
+                "[BrewScheduler] Skipping non-fetchable source: {} ({})",
                 source.name,
                 source.url
             );
@@ -460,6 +463,13 @@ impl BrewSchedulerEngine {
                 word_count: Set(Some(word_count)),
                 reading_time: Set(Some(reading_time)),
                 fulltext_fetched: Set(item.content.is_some()),
+                // 入库同步关键词打标，成本接近零。命中不了保持 NULL，
+                // 留给每小时的 AI 批（只处理近 30 天 topic IS NULL）。
+                topic: Set(crate::services::brew_topics::infer_topic_by_keywords(
+                    &item.title,
+                    item.summary.as_deref(),
+                )
+                .map(str::to_string)),
                 ..Default::default()
             };
 
@@ -609,7 +619,7 @@ impl BrewSchedulerEngine {
             .ok_or_else(|| "Source not found".to_string())?;
 
         // 手动刷新也保持为无操作，且不写入 last_fetched_at/last_error。
-        if source.source_type == brew_sources::SourceType::Link {
+        if !source.source_type.is_fetchable() {
             return Ok(0);
         }
 
@@ -693,11 +703,14 @@ impl BrewSchedulerEngine {
         }
     }
 
-    /// Refresh enabled non-link sources now. Caps at `MAX_SOURCES_PER_TICK`, stale first.
+    /// Refresh enabled fetchable sources now. Caps at `MAX_SOURCES_PER_TICK`, stale first.
     pub async fn refresh_all_enabled(&self) -> Result<(usize, usize, usize, i32), String> {
         let sources = brew_sources::Entity::find()
             .filter(brew_sources::Column::Enabled.eq(true))
-            .filter(brew_sources::Column::SourceType.ne(brew_sources::SourceType::Link))
+            .filter(
+                brew_sources::Column::SourceType
+                    .is_not_in(brew_sources::NON_FETCHABLE_SOURCE_TYPES),
+            )
             .order_by_asc(brew_sources::Column::LastFetchedAt)
             .limit(MAX_SOURCES_PER_TICK)
             .all(&self.db)

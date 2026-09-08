@@ -2,6 +2,15 @@ use std::{collections::HashSet, env, fs, path::PathBuf};
 
 use serde_json::Value;
 
+fn f32_lit(value: f64) -> String {
+    let value = value as f32;
+    let mut text = format!("{value:?}");
+    if !text.contains('.') && !text.contains('e') && !text.contains('E') {
+        text.push_str(".0");
+    }
+    format!("{text}_f32")
+}
+
 fn main() {
     let contract_path = PathBuf::from("../../shared/merope_rig_contract.json");
     let performance_contract_path = PathBuf::from("../../shared/merope_performance_contract.json");
@@ -33,9 +42,9 @@ fn main() {
          pub const PORTRAIT_ASPECT_HEIGHT: u32 = {};\n\
          pub const PORTRAIT_GENERATION_WIDTH: u32 = {};\n\
          pub const PORTRAIT_GENERATION_HEIGHT: u32 = {};\n\
-         pub const PORTRAIT_CANVAS_WIDTH: f32 = {:.8}_f32;\n\
-         pub const PORTRAIT_CANVAS_HEIGHT: f32 = {:.8}_f32;\n\
-         pub const MAX_RIGID_ARM_ROTATION_DEGREES: f32 = {:.8}_f32;\n\
+         pub const PORTRAIT_CANVAS_WIDTH: f32 = {};\n\
+         pub const PORTRAIT_CANVAS_HEIGHT: f32 = {};\n\
+         pub const MAX_RIGID_ARM_ROTATION_DEGREES: f32 = {};\n\
          pub const MAX_RIG_BONES: usize = {};\n\
          pub const MAX_GPU_RIG_BONES: usize = {};\n\
          pub const MAX_RIG_TEXTURES: usize = {};\n\
@@ -51,15 +60,21 @@ fn main() {
         number(&["characterAsset", "portrait", "aspect", "height"]),
         number(&["characterAsset", "portrait", "generationPixels", "width"]),
         number(&["characterAsset", "portrait", "generationPixels", "height"]),
-        contract["characterAsset"]["portrait"]["canvas"]["width"]
-            .as_f64()
-            .expect("missing characterAsset.portrait.canvas.width"),
-        contract["characterAsset"]["portrait"]["canvas"]["height"]
-            .as_f64()
-            .expect("missing characterAsset.portrait.canvas.height"),
-        contract["characterAsset"]["rig"]["maxRigidArmRotationDegrees"]
-            .as_f64()
-            .expect("missing characterAsset.rig.maxRigidArmRotationDegrees"),
+        f32_lit(
+            contract["characterAsset"]["portrait"]["canvas"]["width"]
+                .as_f64()
+                .expect("missing characterAsset.portrait.canvas.width"),
+        ),
+        f32_lit(
+            contract["characterAsset"]["portrait"]["canvas"]["height"]
+                .as_f64()
+                .expect("missing characterAsset.portrait.canvas.height"),
+        ),
+        f32_lit(
+            contract["characterAsset"]["rig"]["maxRigidArmRotationDegrees"]
+                .as_f64()
+                .expect("missing characterAsset.rig.maxRigidArmRotationDegrees"),
+        ),
         number(&["limits", "maxBones"]),
         number(&["limits", "maxGpuBones"]),
         number(&["limits", "maxTextures"]),
@@ -186,9 +201,9 @@ fn main() {
                 .unwrap_or_else(|| panic!("missing {topology}.{field}"))
         };
         generated.push_str(&format!(
-            "pub const {constant}: RigOutfitSafetyContract = RigOutfitSafetyContract {{ torso_twist_scale: {:.8}_f32, secondary_motion_scale: {:.8}_f32 }};\n",
-            scalar("torsoTwistScale"),
-            scalar("secondaryMotionScale"),
+            "pub const {constant}: RigOutfitSafetyContract = RigOutfitSafetyContract {{ torso_twist_scale: {}, secondary_motion_scale: {} }};\n",
+            f32_lit(scalar("torsoTwistScale")),
+            f32_lit(scalar("secondaryMotionScale")),
         ));
     }
     let performance_intents = performance_contract["cueIntents"]

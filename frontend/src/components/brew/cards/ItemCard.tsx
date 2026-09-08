@@ -212,7 +212,9 @@ export const ItemCard = React.memo<ItemCardProps>(
                 onError={handleImageError}
               />
             </div>
-            {!item.is_read && (
+            {/* 游客侧 is_read 恒为 false（后端 LEFT JOIN user_id = -1），
+                不按角色藏就是每篇都亮着未读点 —— 与源卡同一类假信息 */}
+            {isAuthenticated && !item.is_read && (
               <div
                 className="absolute top-7 right-7 w-2.5 h-2.5 rounded-full"
                 style={{ backgroundColor: themeColor }}
@@ -222,7 +224,7 @@ export const ItemCard = React.memo<ItemCardProps>(
         )}
 
         {/* 未读标记 - 无封面 */}
-        {!item.is_read && !item.image && (
+        {isAuthenticated && !item.is_read && !item.image && (
           <div
             className="absolute top-5 right-5 w-2.5 h-2.5 rounded-full"
             style={{ backgroundColor: themeColor }}

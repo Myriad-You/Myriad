@@ -53,6 +53,16 @@ pub struct Model {
     pub reading_time: Option<i32>,
     /// 是否已抓取全文
     pub fulltext_fetched: bool,
+    /// 预定义主题 key（如 "engineering"），不是展示文案。
+    /// NULL = 未分类，不参与主题聚类；关键词入库同步写，AI 每小时补。
+    #[sea_orm(column_type = "Text", nullable)]
+    pub topic: Option<String>,
+    /// 手记原文（Markdown）。只有手记源下的条目有值，抓来的文章恒为 NULL。
+    ///
+    /// 渲染后的 HTML 在 `content` 上 —— 阅读器、RSS、联邦、SEO 都只读那一列，
+    /// 这一列的唯一用途是把原文取回编辑器。
+    #[sea_orm(column_type = "Text", nullable)]
+    pub content_md: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -102,6 +112,8 @@ pub struct ItemResponse {
     pub word_count: Option<i32>,
     pub reading_time: Option<i32>,
     pub fulltext_fetched: bool,
+    /// 预定义主题 key；展示文案走前端 i18n
+    pub topic: Option<String>,
     // 用户状态
     pub is_read: bool,
     pub is_starred: bool,
@@ -150,6 +162,7 @@ impl ItemResponse {
             word_count: m.word_count,
             reading_time: m.reading_time,
             fulltext_fetched: m.fulltext_fetched,
+            topic: m.topic,
             is_read,
             is_starred,
             read_progress,
@@ -166,6 +179,8 @@ pub struct ItemsQuery {
     pub source_id: Option<i32>,
     /// 分类筛选
     pub category: Option<String>,
+    /// 主题筛选（预定义 key）。与 category 同级；`topic IS NULL` 的文章不入结果。
+    pub topic: Option<String>,
     /// 筛选类型: all, unread, starred
     pub filter: Option<String>,
     /// 搜索关键词
@@ -185,6 +200,7 @@ impl Default for ItemsQuery {
         Self {
             source_id: None,
             category: None,
+            topic: None,
             filter: Some("all".to_string()),
             search: None,
             page: Some(1),

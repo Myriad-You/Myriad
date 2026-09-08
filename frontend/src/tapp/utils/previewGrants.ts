@@ -55,7 +55,7 @@ export function isPlaygroundPreviewExpectedError(message: string): boolean {
   ) {
     return true
   }
-  const missing = raw.match(/Missing permission:\s*([a-z0-9:_-]+)/i)
+  const missing = raw.match(/Missing permission:\s*([\w:-]+)/i)
   if (missing && !isPreviewPermission(missing[1])) {
     return true
   }

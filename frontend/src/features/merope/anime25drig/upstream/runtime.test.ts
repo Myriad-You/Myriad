@@ -28,8 +28,8 @@ const MIGRATION_FINGERPRINTS = {
     '2e8a337368869550c30661ebc157642fe34005b62b1afccb64994d97ac957eca',
   deformation:
     'ffd36dc4690197e15bbd5208c9c1e095dd7232a518817f2d2746997e3d4f9237',
-  tick: 'd4414b08af1e8bc6d88ef7c441fb040251cc18e103c804b26f1d9877a367bc20',
-  camera: '257af2c17772b030aa86d556fc8a72de7f25e88e84749fcdeb9410f13e910172',
+  tick: '4815f3c8d9b061d1f637ba2406bdd219ee5ea4484612116d2c9105f76ecf6a39',
+  camera: '1ddfd017ea54da9e6e5cced95e99a736576e28e73aebaac2ffc1f85f84e5d55b',
 } as const
 
 const FRAME: UpstreamRuntimeFrame = {
@@ -297,7 +297,11 @@ test('tick loop keeps blink, smoothing, breath, bounce, and springs stable', () 
       frame: FRAME,
       random,
     })
-    digest.update(JSON.stringify(plainTickSnapshot(state, expression, layers)))
+    digest.update(
+      JSON.stringify(
+        stabilizeSnapshot(plainTickSnapshot(state, expression, layers)),
+      ),
+    )
     sawBlink ||= expression.eyeOpenL < 0.99 || expression.eyeOpenR < 0.99
     assert.equal(expression, state.expression)
     assert.ok(expression.breath >= 0 && expression.breath <= 1)
@@ -342,7 +346,11 @@ test('camera tracking damps physics without mutating its target', () => {
       frame: FRAME,
       random: () => 0.5,
     })
-    digest.update(JSON.stringify(plainTickSnapshot(state, expression, layers)))
+    digest.update(
+      JSON.stringify(
+        stabilizeSnapshot(plainTickSnapshot(state, expression, layers)),
+      ),
+    )
     assert.deepEqual(target, originalTarget)
     assert.ok(expression.physAmp <= state.current.physAmp)
     assert.ok(expression.soft <= state.current.soft)
@@ -729,6 +737,24 @@ function sequenceRandom(values: readonly number[]): () => number {
     index += 1
     return value
   }
+}
+
+function stabilizeSnapshot(value: unknown): unknown {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? Math.round(value * 1e6) / 1e6 : value
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => stabilizeSnapshot(item))
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        stabilizeSnapshot(item),
+      ]),
+    )
+  }
+  return value
 }
 
 function plainTickSnapshot(

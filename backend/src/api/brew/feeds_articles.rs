@@ -35,6 +35,7 @@ use super::helpers::{
     get_admin_user_id_from_headers, get_user_and_admin_status, overlay_requested_feed_type,
     parse_feed_type_label, parse_opml,
 };
+use super::notes;
 use super::reading_sync_ws;
 
 /// 创建 Brew API 路由
@@ -57,6 +58,15 @@ pub fn create_brew_routes(app_state: crate::state::AppState) -> Router<crate::st
         .route(
             "/categories/{id}",
             put(update_category).delete(delete_category),
+        )
+        // 手记（站长自写内容；写路径一律管理员）
+        .route("/notes", post(notes::create_note))
+        .route("/notes/preview", post(notes::preview_note))
+        .route(
+            "/notes/{id}",
+            get(notes::get_note_draft)
+                .put(notes::update_note)
+                .delete(notes::delete_note),
         )
         // 文章获取
         .route("/items", get(list_items))
@@ -153,6 +163,9 @@ struct ItemPreview {
     image: Option<String>,
     published_at: Option<i64>,
     is_read: bool,
+    /// 预定义主题 key。首页「精选」磁贴靠预览里的 topic 聚类，
+    /// 这样主题卡不需要额外接口。
+    topic: Option<String>,
 }
 
 /// 带最新文章的订阅源响应
@@ -161,6 +174,28 @@ struct SourceWithRecentItems {
     #[serde(flatten)]
     source: brew_sources::SourceResponse,
     recent_items: Vec<ItemPreview>,
+    /// 近 `PULSE_WINDOW_DAYS` 天每篇文章距今天数，最多 `PULSE_MAX_POINTS` 个，
+    /// 已按新→旧。派生字段、不落库；前端节律图直接画，不需要再换算时间戳。
+    pulses: Vec<i32>,
+}
+
+/// 节律图窗口（天）。前端 x 轴按 sqrt(days / 730) 压缩，改这里要同步改前端。
+const PULSE_WINDOW_DAYS: i64 = 730;
+/// 每个源最多回多少根节律线。上千篇的源必须截断，否则响应体白胀几十倍。
+const PULSE_MAX_POINTS: i64 = 60;
+
+/// 节律查询 SQL：一次窗口查询覆盖全部源，禁止 N+1。
+///
+/// `source_count` 决定 `$1..$n` 占位符个数。返回的是「距今天数」而不是时间戳 ——
+/// 前端节律图不需要也不应该自己换算。
+pub(crate) fn build_pulses_sql(source_count: usize) -> String {
+    let src_ph = (1..=source_count)
+        .map(|i| format!("${i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "SELECT source_id,                 GREATEST(0, (EXTRACT(EPOCH FROM (now() - published_at)) / 86400)::int)                   AS days_ago          FROM (            SELECT source_id, published_at,                   ROW_NUMBER() OVER                     (PARTITION BY source_id ORDER BY published_at DESC) AS rn            FROM brew_items            WHERE source_id IN ({src_ph})              AND published_at > now() - INTERVAL '{PULSE_WINDOW_DAYS} days'          ) t          WHERE rn <= {PULSE_MAX_POINTS}          ORDER BY source_id, days_ago"
+    )
 }
 
 /// 获取订阅源列表（带最新文章预览）
@@ -187,13 +222,14 @@ pub(crate) async fn list_sources(
         }
     };
 
-    // 获取所有订阅源的最新文章（每个源最多3篇）
+    // 获取所有订阅源的最新文章（每个源最多 8 篇）
     let source_ids: Vec<i32> = sources.iter().map(|s| s.id).collect();
 
     // 并行执行两个 SQL 查询，均只传输必要字段：
     // (a) 每源未读数：SQL 聚合，避免把所有 item_id 拉到内存再过滤
     // (b) 每源最新3篇预览：窗口函数精确返回3条，仅加载预览字段，不加载 content 等大字段
-    let (source_unread_counts, mut items_by_source) = tokio::join!(
+    // (c) 每源节律：一次窗口查询拿全部源的近两年发布时间，绝不 N+1
+    let (source_unread_counts, mut items_by_source, mut pulses_by_source) = tokio::join!(
         // (a) 未读数：LEFT JOIN brew_user_states，统计无已读状态的文章数
         async {
             let mut counts: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
@@ -228,7 +264,8 @@ pub(crate) async fn list_sources(
             }
             counts
         },
-        // (b) 每源最新3篇预览：ROW_NUMBER() OVER PARTITION，只选预览字段
+        // (b) 每源最新 8 篇预览：ROW_NUMBER() OVER PARTITION，只选预览字段。
+        // 磁贴的列表构图每页 4~5 条、满两页才轮播；3 条永远撑不起一张 4x4。
         async {
             let mut map: std::collections::HashMap<i32, Vec<ItemPreview>> =
                 std::collections::HashMap::new();
@@ -241,11 +278,11 @@ pub(crate) async fn list_sources(
                     .join(", ");
                 // $1 = user_id（游客传 -1，不存在的 ID，LEFT JOIN 不会匹配任何行）
                 let sql = format!(
-                    "SELECT id, source_id, title, summary, image, published_at, \
+                    "SELECT id, source_id, title, summary, image, published_at, topic, \
                             COALESCE(is_read, false) AS is_read \
                      FROM ( \
                        SELECT i.id, i.source_id, i.title, i.summary, i.image, \
-                              i.published_at, s.is_read, \
+                              i.published_at, i.topic, s.is_read, \
                               ROW_NUMBER() OVER \
                                 (PARTITION BY i.source_id ORDER BY i.published_at DESC NULLS LAST) AS rn \
                        FROM brew_items i \
@@ -253,7 +290,7 @@ pub(crate) async fn list_sources(
                          ON s.item_id = i.id AND s.user_id = $1 \
                        WHERE i.source_id IN ({src_ph}) \
                      ) ranked \
-                     WHERE rn <= 3"
+                     WHERE rn <= 8"
                 );
                 let uid_val: i32 = user_id.unwrap_or(-1);
                 let mut values: Vec<sea_orm::Value> = vec![uid_val.into()];
@@ -269,6 +306,7 @@ pub(crate) async fn list_sources(
                         let published_at: Option<sea_orm::entity::prelude::DateTimeWithTimeZone> =
                             row.try_get("", "published_at").ok();
                         let is_read: bool = row.try_get("", "is_read").unwrap_or(false);
+                        let topic: Option<String> = row.try_get("", "topic").ok().flatten();
                         map.entry(source_id).or_default().push(ItemPreview {
                             id,
                             title,
@@ -276,7 +314,37 @@ pub(crate) async fn list_sources(
                             image,
                             published_at: published_at.map(|dt| dt.timestamp_millis()),
                             is_read,
+                            topic,
                         });
+                    }
+                }
+            }
+            map
+        },
+        // (c) 每源节律：ROW_NUMBER() 截到 PULSE_MAX_POINTS，窗口内按新→旧。
+        // 后端直接算成「距今天数」返回，前端不碰时间戳。
+        async {
+            let mut map: std::collections::HashMap<i32, Vec<i32>> =
+                std::collections::HashMap::new();
+            if !source_ids.is_empty() {
+                let sql = build_pulses_sql(source_ids.len());
+                let values: Vec<sea_orm::Value> = source_ids
+                    .iter()
+                    .map(|&id| sea_orm::Value::Int(Some(id)))
+                    .collect();
+                let stmt = Statement::from_sql_and_values(DatabaseBackend::Postgres, &sql, values);
+                match db.query_all_raw(stmt).await {
+                    Ok(rows) => {
+                        for row in &rows {
+                            let src: i32 = row.try_get("", "source_id").unwrap_or(0);
+                            let days: i32 = row.try_get("", "days_ago").unwrap_or(0);
+                            map.entry(src).or_default().push(days);
+                        }
+                    }
+                    Err(e) => {
+                        // 节律图是装饰性信息：查不到就让构图降级为 feature，
+                        // 不该把整个源列表打成 500。
+                        tracing::warn!(error = %e, "brew pulses query failed; tiles fall back");
                     }
                 }
             }
@@ -295,6 +363,7 @@ pub(crate) async fn list_sources(
             SourceWithRecentItems {
                 source: response,
                 recent_items: items_by_source.remove(&source_id).unwrap_or_default(),
+                pulses: pulses_by_source.remove(&source_id).unwrap_or_default(),
             }
         })
         .collect();
@@ -676,7 +745,14 @@ pub(crate) async fn update_source(
                 active.enabled = Set(enabled);
             }
             if let Some(card_size) = req.card_size {
-                active.card_size = Set(Some(card_size));
+                // 空字符串清除锁定（与 theme_color / icon 同一约定）。
+                // card_size 现在的语义是「用户锁定磁贴尺寸」，必须可解锁 ——
+                // 否则锁一次就再也回不到按分数派生。
+                active.card_size = Set(if card_size.is_empty() {
+                    None
+                } else {
+                    Some(card_size)
+                });
             }
             if let Some(theme_color) = req.theme_color {
                 // 支持空字符串清除主题色
@@ -1019,6 +1095,9 @@ pub(crate) async fn export_opml(
     let (_, is_admin) = get_user_and_admin_status(&headers, &db).await;
 
     let mut query = brew_sources::Entity::find()
+        // 手记源的 url 是 `myriad:notes`，不是一个可订阅的 feed。导出来别人
+        // 导进去只会得到一个永远抓不动的源。
+        .filter(brew_sources::Column::SourceType.ne(brew_sources::SourceType::Note))
         .order_by_asc(brew_sources::Column::Category)
         .order_by_asc(brew_sources::Column::Name);
 
@@ -1256,6 +1335,17 @@ pub(crate) async fn list_items(
     // 按订阅源筛选
     if let Some(source_id) = query.source_id {
         items_query = items_query.filter(brew_items::Column::SourceId.eq(source_id));
+    }
+
+    // 按主题筛选。与 category 同级：只回该主题的文章，`topic IS NULL` 的天然落空。
+    // 打标是离线的，读路径只读已有列，绝不在这里现算。
+    if let Some(topic) = query
+        .topic
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        items_query = items_query.filter(brew_items::Column::Topic.eq(topic));
     }
 
     // 按分类筛选（支持多分类：category 字段可能是逗号分隔的多个分类）

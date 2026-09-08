@@ -20,6 +20,7 @@
   );
   --ob-liq-inset:
     inset 0 1px 0 rgb(255 255 255 / 44%), inset 0 -1px 0 rgb(0 0 0 / 6%);
+
   position: fixed;
   right: max(0.75rem, env(safe-area-inset-right));
   bottom: max(2.25rem, calc(env(safe-area-inset-bottom) + 1.25rem));
@@ -47,6 +48,7 @@ html.dark .tour-hint {
   );
   --ob-liq-inset:
     inset 0 1px 0 rgb(255 255 255 / 12%), inset 0 -1px 0 rgb(0 0 0 / 28%);
+
   color: #fff;
 }
 

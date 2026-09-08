@@ -15,7 +15,6 @@ import type { WidgetComponentProps } from '../widgetGridTypes'
 import {
   FaGithub,
   FaSteam,
-  FaTimes,
   FaXTwitter,
   getIconByName,
   SiBangumi,

@@ -3,9 +3,9 @@
  * Sibling of WidgetGrid — the page that owns edit mode mounts both.
  */
 
-import type { HomeEditTourDockPose } from './tour/tourLogic'
 import type { TappCategory } from '../tapp/types'
 import type { HomeLayoutMode } from '../utils/homeLayout'
+import type { HomeEditTourDockPose } from './tour/tourLogic'
 import type { WidgetType } from './widgetGridTypes'
 import type { WidgetLibraryKindFilter } from './widgetLibrarySearch'
 import { FaSearch, FaTimes } from '@lib/icons'
@@ -39,8 +39,9 @@ import {
 } from '../utils/libraryDockStage'
 import { useWidgetDragActive } from '../utils/widgetDragCursor'
 import {
-  getStandardWidgetDimensions,
   libraryDockPreviewDisplayScale,
+  STANDARD_CELL_SIZE,
+  widgetSizeSpan,
 } from '../utils/widgetSizeScale'
 import {
   widgetDisplayLabel,
@@ -145,7 +146,11 @@ const WidgetLibraryTile = React.memo(
     ) => void
   }) => {
     const WidgetComponent = widgetType.component
-    const standard = getStandardWidgetDimensions(widgetType.defaultSize)
+    const span = widgetSizeSpan(widgetType.defaultSize)
+    const standard = {
+      width: span.w * STANDARD_CELL_SIZE,
+      height: span.h * STANDARD_CELL_SIZE,
+    }
     const renderWidth = standard.width
     const renderHeight = standard.height
     const wrapperWidth = renderWidth * displayScale

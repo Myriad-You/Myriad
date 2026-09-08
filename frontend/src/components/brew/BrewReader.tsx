@@ -15,7 +15,14 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useImmersiveChrome } from '../../contexts/NavigationContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'
@@ -61,6 +68,10 @@ interface BrewReaderProps {
    * 缺省则复制原文 `item.link`（外部订阅，避免把别人的文章当本站 SEO 页分享）。
    */
   shareUrl?: string
+  /**
+   * 编辑这篇手记。上层只在「站长 + 这篇是手记」时传值，阅读器不自己判断。
+   */
+  onEditNote?: () => void
   // 阅读列表导航回调（从 Brew.tsx 传入）
   onNavigateToArticle?: (articleId: number) => void
   // 全局文章列表导航（非阅读列表时使用）
@@ -69,13 +80,14 @@ interface BrewReaderProps {
 }
 
 export default function BrewReader({
-  item,
+  item: incomingItem,
   onClose,
   onToggleStar,
   isAuthenticated = false,
   isAdmin = false,
   sourceType,
   shareUrl,
+  onEditNote,
   onNavigateToArticle,
   articleList,
   currentArticleIndex,
@@ -84,6 +96,23 @@ export default function BrewReader({
   const contentRef = useRef<HTMLDivElement>(null)
   const articleRef = useRef<HTMLElement>(null)
   const contentInnerRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * 换文章 = 淡出 → 换 → 淡入，而不是换完 DOM 再补一个淡入。
+   *
+   * 后者会先把新文章按满不透明画一帧，再跳到 0 开始淡入 —— 就是读者看到的
+   * 「闪一下」。这里把 prop 延迟一步：组件内部所有逻辑（标题、目录、进度、
+   * 批注、滚动复位）都只看 `item`，它在旧正文淡到 0 之后才切成新的一篇，
+   * 于是这些切换全都发生在正文不可见的那一刻。
+   *
+   * 同一篇的字段更新（已读 / 收藏 / 进度）直接透传，不走动画。
+   */
+  const [item, setItem] = useState(incomingItem)
+  if (incomingItem !== item && incomingItem.id === item.id)
+    setItem(incomingItem)
+  /** 中栏：标题 + 元信息 + 正文 + 上下篇。淡入淡出只作用在这一层。 */
+  const columnRef = useRef<HTMLDivElement>(null)
+  const fadeOutRef = useRef<Animation | null>(null)
 
   // 沉浸模式 - 进入阅读器时隐藏导航栏和控制面板
   useImmersiveChrome('brew-reader', true)
@@ -136,6 +165,57 @@ export default function BrewReader({
     [animConfig],
   )
   const enableAnimations = !isExlight(animConfig)
+
+  /**
+   * 第一步：淡出。父组件换了 incomingItem 时，先把中栏淡到 0（140ms），
+   * 结束时才真正 setItem —— 目录、进度、滚动复位都在这一刻发生，读者看不见。
+   * 连续快速切换（狂按 j/k）时淡出已经在跑，只改它的目标，不从头再来。
+   *
+   * exlight 一律不做 —— `prefers-reduced-motion` 在本仓库就会解析成 exlight。
+   */
+  useEffect(() => {
+    if (incomingItem.id === item.id) return
+    const col = columnRef.current
+    if (!enableAnimations || !col || typeof col.animate !== 'function') {
+      setItem(incomingItem)
+      return
+    }
+    const running = fadeOutRef.current
+    if (running && running.playState === 'running') {
+      running.onfinish = () => setItem(incomingItem)
+      return
+    }
+    const out = col.animate(
+      [
+        { opacity: 1, transform: 'translateY(0)' },
+        { opacity: 0, transform: 'translateY(-6px)' },
+      ],
+      { duration: 140, easing: 'ease-in', fill: 'forwards' },
+    )
+    fadeOutRef.current = out
+    out.onfinish = () => setItem(incomingItem)
+  }, [incomingItem, item.id, enableAnimations])
+
+  /**
+   * 第二步：淡入。用 useLayoutEffect 在新正文首帧绘制之前起动画，
+   * 第一帧就是 opacity 0 —— useEffect 会晚一帧，那一帧就是「闪」。
+   * 淡出留下的 fill: forwards 必须先取消，否则新正文永远透明。
+   */
+  useLayoutEffect(() => {
+    fadeOutRef.current?.cancel()
+    fadeOutRef.current = null
+    if (!enableAnimations) return
+    const col = columnRef.current
+    if (!col || typeof col.animate !== 'function') return
+    const swap = col.animate(
+      [
+        { opacity: 0, transform: 'translateY(8px)' },
+        { opacity: 1, transform: 'translateY(0)' },
+      ],
+      { duration: 260, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'none' },
+    )
+    return () => swap.cancel()
+  }, [item.id, enableAnimations])
 
   // WebKit 优化：延迟渲染内容，让入场动画先完成
   const [contentReady, setContentReady] = useState(!enableAnimations)
@@ -523,6 +603,7 @@ export default function BrewReader({
             activeHeadingId={activeHeadingId}
             scrollToHeading={scrollToHeading}
             onToggleStar={onToggleStar}
+            onEditNote={onEditNote}
             annotations={annotations}
             annotationsLoading={annotationsLoading}
             showAnnotations={showAnnotations}
@@ -587,6 +668,7 @@ export default function BrewReader({
 
           <ReaderArticleBody
             item={item}
+            columnRef={columnRef}
             currentTheme={currentTheme}
             currentFont={currentFont}
             currentLayout={currentLayout}
@@ -800,6 +882,7 @@ export default function BrewReader({
         adjustLineHeight={adjustLineHeight}
         currentFont={currentFont}
         handleShare={handleShare}
+        onEditNote={onEditNote}
         enableAnimations={enableAnimations}
         onTouchStart={() => {
           isHoveringControlsRef.current = true

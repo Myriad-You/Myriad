@@ -16,13 +16,21 @@
 
 import type { AddSourceInput, BrewSource } from '../../../types/brew'
 
-import type { ControlMode, DynamicTip, SortMode, SortOption } from './modes'
+import type {
+  ControlMode,
+  DynamicTip,
+  SortMode,
+  SortOption,
+  TopicFeedModeConfig,
+} from './modes'
 import {
   LuClock as Clock,
   LuFolderOpen as FolderOpen,
   LuGripVertical as GripVertical,
   LuShuffle as Shuffle,
   LuSortAsc as SortAsc,
+  LuSparkles as Sparkles,
+  LuTag as Tag,
 } from '@lib/icons'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -30,6 +38,7 @@ import { BREW_SHORTCUTS } from '../../../hooks/useBrewKeyboard'
 
 import * as brewApi from '../../../services/brewApi'
 import { userFacingError } from '../../../utils/userFacingError'
+import { getIconUrl, IslandLayout } from '../../shared/control-island'
 import {
   buildBrewpackManifest,
   categoryToPackEntry,
@@ -43,7 +52,6 @@ import {
   sourceToPackEntry,
   sourceUpdatePayload,
 } from './brewpack'
-import { getIconUrl, IslandLayout } from '../../shared/control-island'
 import {
   AddMode,
   CategoryFeedMode,
@@ -54,6 +62,7 @@ import {
   SearchMode,
   StarredEditMode,
   StarredMode,
+  TopicFeedMode,
 } from './modes'
 import RSSHubConfigComponent from './RSSHubConfig'
 
@@ -69,6 +78,7 @@ const BREW_TIP_ICON_ASSETS = {
 function generateDynamicTips(
   sources: BrewSource[],
   brewTranslations: Record<string, string>,
+  isAuthenticated: boolean,
 ): DynamicTip[] {
   const tips: DynamicTip[] = []
   const now = Date.now()
@@ -112,10 +122,14 @@ function generateDynamicTips(
     })
   }
 
-  // 找出有新文章的源
-  const withNewItems = sources.filter(
-    (s) => s.recent_items && s.recent_items.some((item) => !item.is_read),
-  )
+  // 找出有新文章的源。
+  // 游客侧 recent_items[].is_read 恒 false（后端用 user_id = -1 做 LEFT JOIN），
+  // 不按角色跳过的话「来自 XX 的新文章」会永远命中。
+  const withNewItems = isAuthenticated
+    ? sources.filter(
+        (s) => s.recent_items && s.recent_items.some((item) => !item.is_read),
+      )
+    : []
   if (withNewItems.length > 0) {
     const randomSource =
       withNewItems[Math.floor(Math.random() * withNewItems.length)]
@@ -194,10 +208,11 @@ function generateDynamicTips(
 function useDynamicTips(
   sources: BrewSource[],
   brewTranslations: Record<string, string>,
+  isAuthenticated: boolean,
 ) {
   const tips = useMemo(
-    () => generateDynamicTips(sources, brewTranslations),
-    [sources, brewTranslations],
+    () => generateDynamicTips(sources, brewTranslations, isAuthenticated),
+    [sources, brewTranslations, isAuthenticated],
   )
   const [currentIndex, setCurrentIndex] = useState(0)
 
@@ -255,6 +270,8 @@ interface ControlIslandProps {
     unreadCount: number
     onBack: () => void
     onMarkAllRead: () => void
+    /** 写一篇新手记。只有管理员会拿到这个回调 */
+    onWriteNote?: () => void
   }
   starredMode?: {
     total: number
@@ -267,8 +284,16 @@ interface ControlIslandProps {
     onBatchUnstar: () => void
     isProcessing?: boolean
   }
+  /** 主题 feed（跨源列表）模式；抄 categoryFeedMode 的形状 */
+  topicFeedMode?: TopicFeedModeConfig
+  /** 主题身份色（TopicFeedMode 的字标底色） */
+  topicHue?: string
   isAdmin?: boolean
   isAuthenticated?: boolean
+  /** 当期成卡的主题数；< 3 时 `topic` 排序置灰 */
+  topicCount?: number
+  /** 打开收藏视图。收藏不再是二级导航项，入口在这里（仅登录用户可见） */
+  onOpenStarred?: () => void
 }
 
 export default function ControlIsland({
@@ -289,14 +314,18 @@ export default function ControlIsland({
   isRefreshing = false,
   onAddSource,
   onSourcesChange,
-  sortMode = 'update',
+  sortMode = 'smart',
   onSortModeChange,
   isSubCategory = false,
   feedMode,
   categoryFeedMode,
+  topicFeedMode,
+  topicHue,
   starredMode,
   isAdmin = false,
   isAuthenticated = false,
+  topicCount = 0,
+  onOpenStarred,
 }: ControlIslandProps) {
   const { t } = useI18n()
 
@@ -305,6 +334,7 @@ export default function ControlIsland({
     if (starredMode?.isEditMode) return 'starred-edit'
     if (starredMode) return 'starred'
     if (categoryFeedMode) return 'category-feed'
+    if (topicFeedMode) return 'topic-feed'
     if (feedMode) return 'feed'
     return 'default'
   }
@@ -313,6 +343,7 @@ export default function ControlIsland({
   const { tip, key: tipKey } = useDynamicTips(
     sources,
     t.brew as unknown as Record<string, string>,
+    isAuthenticated,
   )
 
   // 当模式变化时，自动切换
@@ -323,12 +354,20 @@ export default function ControlIsland({
       setMode('starred')
     } else if (categoryFeedMode) {
       setMode('category-feed')
+    } else if (topicFeedMode) {
+      setMode('topic-feed')
     } else if (feedMode) {
       setMode('feed')
     } else {
       setMode('default')
     }
-  }, [feedMode, categoryFeedMode, starredMode, starredMode?.isEditMode])
+  }, [
+    feedMode,
+    categoryFeedMode,
+    topicFeedMode,
+    starredMode,
+    starredMode?.isEditMode,
+  ])
 
   // 导入/导出状态
   const [importExportLoading, setImportExportLoading] = useState(false)
@@ -376,6 +415,18 @@ export default function ControlIsland({
 
   // 排序选项
   const allSortOptions: SortOption[] = [
+    {
+      value: 'smart',
+      labelKey: 'sortBySmart',
+      icon: <Sparkles className="w-4 h-4" />,
+    },
+    {
+      value: 'topic',
+      labelKey: 'sortByTopic',
+      icon: <Tag className="w-4 h-4" />,
+      // 主题不够多时聚合没有意义（不足 3 篇的主题本来就不成卡）
+      disabled: topicCount < 3,
+    },
     {
       value: 'update',
       labelKey: 'sortByUpdate',
@@ -835,6 +886,21 @@ export default function ControlIsland({
               totalArticles: brewT.totalArticles,
               tipUnreadCount: brewT.tipUnreadCount,
               markAllAsRead: brewT.markAllAsRead,
+              noteWrite: brewT.noteWrite,
+            }}
+          />
+        )
+
+      case 'topic-feed':
+        if (!topicFeedMode) return null
+        return (
+          <TopicFeedMode
+            variant={variant}
+            topicFeedMode={topicFeedMode}
+            hue={topicHue}
+            t={{
+              backToAllSources: brewT.backToAllSources,
+              totalArticles: brewT.totalArticles,
             }}
           />
         )
@@ -988,6 +1054,9 @@ export default function ControlIsland({
             sortDropdownRef={sortDropdownRef}
             onSortModeChange={onSortModeChange}
             onModeChange={handleModeChange}
+            onOpenStarred={
+              isAuthenticated && onOpenStarred ? onOpenStarred : undefined
+            }
             isAdmin={isAdmin}
             hasAddSource={!!onAddSource}
             t={{

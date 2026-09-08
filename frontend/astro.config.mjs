@@ -116,8 +116,10 @@ const PLAYGROUND_PROXY_TIMEOUT_MS = 30 * 60 * 1000
 // Federation file-meta downloads / chunk uploads can exceed the default 30s.
 const FEDERATION_TRANSFER_PROXY_TIMEOUT_MS = 10 * 60 * 1000
 // Keep names for tests; values live in aiRequestTimeout.mjs.
+/* eslint-disable no-unused-vars, unused-imports/no-unused-vars -- contract aliases */
 const MEROPE_PROXY_TIMEOUT_MS = AI_IMAGE_REQUEST_TIMEOUT_MS
 const AGENT_PROCESS_PROXY_TIMEOUT_MS = AI_REQUEST_TIMEOUT_FLOOR_MS
+/* eslint-enable no-unused-vars, unused-imports/no-unused-vars */
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',

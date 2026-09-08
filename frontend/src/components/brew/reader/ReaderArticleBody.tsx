@@ -25,6 +25,11 @@ export interface ReaderArticleBodyProps {
   t: Record<string, any>
   contentRef: React.RefObject<HTMLDivElement | null>
   contentInnerRef: React.RefObject<HTMLDivElement | null>
+  /**
+   * 中栏根节点。换文章的淡入淡出作用在这一层，两侧面板不跟着动。
+   * 由 BrewReader 持有 —— 动画的时序和 `item` 的延迟切换是同一件事。
+   */
+  columnRef?: React.RefObject<HTMLDivElement | null>
   contentReady: boolean
   onNavigateToArticle?: (articleId: number) => void
   articleList?: BrewItem[]
@@ -42,6 +47,7 @@ export function ReaderArticleBody({
   t,
   contentRef,
   contentInnerRef,
+  columnRef,
   contentReady,
   onNavigateToArticle,
   articleList,
@@ -61,6 +67,7 @@ export function ReaderArticleBody({
 
   return (
           <div
+            ref={columnRef}
             className={`w-full ${currentLayout.width} px-6 pt-32 pb-16 transition-all duration-300`}
           >
             {/* 标题 */}

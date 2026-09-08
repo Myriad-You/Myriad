@@ -32,6 +32,12 @@ export function getStaticPaths() {
     'brew', // Brew 阅读
   ]
 
+  // DEV 专用页面。Astro dev 只服务 getStaticPaths 列出的路径，不列就是 404；
+  // 生产不加进来，免得 prerender 出一个 dev/brew-tiles.html。
+  if (import.meta.env.DEV) {
+    staticRoutes.push('dev/brew-tiles') // Brew 磁贴人工扫查页
+  }
+
   // 动态路由前缀 - 这些路由有动态参数
   // 生成 placeholder 路径用于开发模式，生产模式由 serve -s 处理
   const dynamicPrefixes = ['tapp/run', 'tapp/detail']

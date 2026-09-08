@@ -28,7 +28,10 @@ use myriad_module_visibility::load_module_visibility_preferences;
 
 /// Fixed DB category label for site-owner original Brew content.
 /// Must match frontend `BREW_MINE_CATEGORY` (`frontend/src/components/brew/constants.ts`).
-const BREW_MINE_CATEGORY: &str = "我";
+///
+/// `api::brew::notes` seeds the notes source with this exact value — a note that
+/// lands anywhere else is invisible to both the notes board and the sitemap.
+pub(crate) const BREW_MINE_CATEGORY: &str = "我";
 /// Cap brew item URLs in sitemap (newest first).
 const BREW_SITEMAP_ITEM_LIMIT: u64 = 200;
 /// Plain-text article body in the Brew crawler shell (not the 160-char meta snippet).

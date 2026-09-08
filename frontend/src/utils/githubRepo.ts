@@ -3,8 +3,8 @@
  * 阅读器嵌入卡和首页小组件走同一条出站链。
  */
 
-import { parseGithubRepoUrl } from '../components/settings/githubProject'
 import type { GithubRepoRef } from '../components/settings/githubProject'
+import { parseGithubRepoUrl } from '../components/settings/githubProject'
 
 export type { GithubRepoRef }
 

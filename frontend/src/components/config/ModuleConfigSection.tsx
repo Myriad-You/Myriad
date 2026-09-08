@@ -1,3 +1,4 @@
+import type { IslandContentKey } from '../../utils/islandContent'
 import type {
   LibraryItemType,
   LibrarySourcePreferences,
@@ -24,7 +25,7 @@ import {
   ISLAND_CONTENT_KEYS,
   islandBagKey,
   islandContentFromBagFields,
-  type IslandContentKey,
+
 } from '../../utils/islandContent'
 import {
   DEFAULT_LIBRARY_SOURCE_PREFERENCES,

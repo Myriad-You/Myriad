@@ -137,7 +137,7 @@ export function stickerPixelSize(size: string): {
 } {
   const span = widgetSizeSpan(size)
   const boxAspect = span.w / Math.max(1, span.h)
-  let best = GENERATE_PIXEL_PRESETS[0]
+  let best: (typeof GENERATE_PIXEL_PRESETS)[number] = GENERATE_PIXEL_PRESETS[0]
   let bestErr = Infinity
   for (const preset of GENERATE_PIXEL_PRESETS) {
     const err = Math.abs(Math.log(preset.aspect / boxAspect))

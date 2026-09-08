@@ -2257,6 +2257,9 @@ export interface TranslationKeys {
     tappShortcut: string
     gamePresence: string
     visitorStats: string
+    brewSource: string
+    brewTopic: string
+    brewFeatured: string
     githubRepos: string
     githubReposField: string
     githubReposFieldHint: string
@@ -4427,6 +4430,36 @@ export interface TranslationKeys {
     me: string
     expandMenu: string
 
+    // 板块（二级导航）
+    boardFeeds: string
+    boardFeedsTitle: string
+    boardNotes: string
+    boardNotesTitle: string
+    boardSites: string
+    boardSitesTitle: string
+
+    // 手记编辑器
+    noteWrite: string
+    noteEdit: string
+    noteDelete: string
+    notePublish: string
+    noteTitlePlaceholder: string
+    noteBodyPlaceholder: string
+    notePreviewEmpty: string
+    noteTitleRequired: string
+    noteDeleteConfirm: string
+    noteDiscardConfirm: string
+    noteTabWrite: string
+    noteTabPreview: string
+    noteToolHeading: string
+    noteToolBold: string
+    noteToolItalic: string
+    noteToolLink: string
+    noteToolCode: string
+    noteToolQuote: string
+    noteToolList: string
+    noteToolImage: string
+
     // 时间相关
     justNow: string
     minutesAgo: string
@@ -4517,6 +4550,35 @@ export interface TranslationKeys {
     sortByCategory: string
     sortByRandom: string
     sortByPinyin: string
+    sortBySmart: string
+    sortByTopic: string
+
+    // 磁贴墙
+    tileUnreadItems: string
+    tileReadingTime: string
+    tileQuietMonths: string
+    tileToday: string
+    tileFailedTimes: string
+    tileOpenSite: string
+    tilePagePrev: string
+    tilePageNext: string
+    tilePageNth: string
+    tileSelectSource: string
+    tileLockSize: string
+    tileUnlockSize: string
+    topicAggregate: string
+    topicSourceCount: string
+    topicFeedTitle: string
+    topicEngineering: string
+    topicSystems: string
+    topicAi: string
+    topicProduct: string
+    topicWriting: string
+    topicTools: string
+    topicCulture: string
+    topicSecurity: string
+    topicOss: string
+    topicHardware: string
 
     // 快捷键分类
     shortcutNavigation: string
@@ -4581,6 +4643,7 @@ export interface TranslationKeys {
 
     // 空状态
     emptyNoSources: string
+    emptyNoSites: string
     addSourceHint: string
     emptyCategoryNoSources: string
 

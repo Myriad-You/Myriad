@@ -395,8 +395,10 @@ mod tests {
         assert!(is_public_ip("2606:4700:4700::1111".parse().unwrap()));
     }
 
-    #[test]
-    fn mixed_dns_keeps_public_addresses() {
+    #[tokio::test]
+    async fn mixed_dns_keeps_public_addresses() {
+        let _guard = tests_lab_env_lock().await;
+        std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
         let mixed = vec![
             "127.0.0.1:443".parse().unwrap(),
             "1.1.1.1:443".parse().unwrap(),
@@ -414,8 +416,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn all_private_dns_is_rejected() {
+    #[tokio::test]
+    async fn all_private_dns_is_rejected() {
+        let _guard = tests_lab_env_lock().await;
+        std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
         let private = vec![
             "127.0.0.1:443".parse().unwrap(),
             "10.0.0.1:443".parse().unwrap(),

@@ -8,12 +8,12 @@
  * Xbox / PSN 已升级为独立的数据报告卡（report-xbox / report-psn），不再挤在这里。
  */
 
+import type { CSSProperties } from 'react'
 import type { WidgetComponentProps } from '../widgetGridTypes'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import type { CSSProperties } from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'

@@ -74,6 +74,7 @@
   --widget-edit-chip-inset: 0.4rem;
   --widget-edit-chip-radius: 0.45rem;
   --widget-edit-chip-icon: 0.9rem;
+
   contain: layout paint style;
 }
 

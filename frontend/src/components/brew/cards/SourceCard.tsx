@@ -65,6 +65,11 @@ export interface SourceCardProps {
     sourceId: number,
   ) => void
   sortMode?: SortMode
+  /**
+   * 已登录才有真实已读态。游客侧 `list_sources` 用 `user_id = -1` 做 LEFT JOIN，
+   * `recent_items[].is_read` 恒为 false —— 未读圆点必须按角色隐藏，不是改后端 SQL。
+   */
+  isAuthenticated?: boolean
 }
 
 // 获取 Feed 类型标签
@@ -155,6 +160,7 @@ export const SourceCard = React.memo(
         isDragOver = false,
         onDragStart,
         sortMode,
+        isAuthenticated = false,
       },
       ref,
     ) => {
@@ -341,10 +347,17 @@ export const SourceCard = React.memo(
         return 'hover:-translate-y-px'
       }, [enableHover, isDragging, isDragOver])
 
-      // 尺寸相关的样式类
+      // 尺寸相关的样式类。入口型来源的 bar 在老网格里没有独立形态
+      // （列宽由 CSS Grid 定，锁不住宽度），按高度最接近的一档取样式
       const sizeClasses = useMemo(() => {
-        const paddingMap = { tiny: 'p-2.5 px-3.5', mini: 'p-4', full: 'p-5' }
-        const roundedMap = {
+        const paddingMap: Record<CardSize, string> = {
+          bar: 'p-2.5 px-3.5',
+          tiny: 'p-2.5 px-3.5',
+          mini: 'p-4',
+          full: 'p-5',
+        }
+        const roundedMap: Record<CardSize, string> = {
+          bar: 'rounded-xl',
           tiny: 'rounded-xl',
           mini: 'rounded-xl',
           full: 'rounded-2xl',
@@ -622,7 +635,7 @@ export const SourceCard = React.memo(
                       </div>
                     )}
                     <div className="flex items-start gap-2 flex-1 min-w-0 min-h-0">
-                      {!recentItems[0].is_read && (
+                      {isAuthenticated && !recentItems[0].is_read && (
                         <span
                           className={`${size === 'full' ? 'w-2.5 h-2.5 mt-1' : 'w-1.5 h-1.5 mt-1.25'} rounded-full shrink-0`}
                           style={{ backgroundColor: color }}
@@ -680,7 +693,7 @@ export const SourceCard = React.memo(
                             : ''
                         }`}
                       >
-                        {!item.is_read && (
+                        {isAuthenticated && !item.is_read && (
                           <span
                             className="w-2 h-2 rounded-full shrink-0"
                             style={{ backgroundColor: color, opacity: 0.7 }}
@@ -771,6 +784,7 @@ export const SourceCard = React.memo(
       prevProps.isDragging === nextProps.isDragging &&
       prevProps.isDragOver === nextProps.isDragOver &&
       prevProps.sortMode === nextProps.sortMode &&
+      prevProps.isAuthenticated === nextProps.isAuthenticated &&
       prevProps.previewSize === nextProps.previewSize &&
       prevProps.onSourceClick === nextProps.onSourceClick &&
       recentItemsEqual

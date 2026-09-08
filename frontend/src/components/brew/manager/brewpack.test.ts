@@ -1,6 +1,6 @@
+import type { BrewSource } from '../../../types/brew'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import type { BrewSource } from '../../../types/brew'
 import {
   BREWPACK_LEGACY_VERSION,
   BREWPACK_VERSION,

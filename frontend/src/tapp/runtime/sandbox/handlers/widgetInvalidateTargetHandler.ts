@@ -1,13 +1,13 @@
 import type { TappInstance } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
 import { getTappRuntime } from '../../TappRuntime'
-import { emitTappWidgetInvalidate } from '../../WidgetRuntimeSignals'
 import {
   isLocalWidgetIdOfTapp,
   parseWidgetInvalidateTargetArgs,
   tryAcceptWidgetInvalidateTarget,
   WIDGET_INVALIDATE_TARGET_TAPP_MAX_PER_MINUTE,
 } from '../../widgetInvalidateTarget'
+import { emitTappWidgetInvalidate } from '../../WidgetRuntimeSignals'
 
 export function registerWidgetInvalidateTargetHandler(
   bridge: TappBridge,

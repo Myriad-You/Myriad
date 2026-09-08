@@ -1,0 +1,28 @@
+/**
+ * 磁贴墙用的实心表面。
+ *
+ * WidgetShell 默认是 `.glass`（backdrop-filter 毛玻璃）。首页只有几张 widget，
+ * 毛玻璃没问题；/brew 一屏二十多张磁贴同在一个容器里，Chrome 会把这些
+ * backdrop-filter 的取样区合并成整面墙的一个矩形，再把 saturate/blur 的色调
+ * 泼回去 —— 于是卡片背后凭空多出一块「大矩形阴影」（深色主题下尤其明显），
+ * 顺带二十多个模糊层把帧率拖到个位数。
+ *
+ * 实测：去掉 backdrop-filter 矩形立刻消失。老网格的卡片本来也是实心的
+ * （bg-white/90 dark:bg-neutral-900/90），这里沿用同一档不透明度。
+ */
+.brew-tile-solid {
+  backdrop-filter: none !important;
+  background: rgb(255 255 255 / 90%) !important;
+
+  /*
+   * 不要 .glass 那层 0 8px 28px 的大投影：二十多张卡的投影在 16px 缝隙里
+   * 两两叠加，整面墙后面就浮出一块比周围暗一截的大矩形（像素实测边界处
+   * 亮度跳变 ~20）。只留 1px 内描边给卡片一个边界，跟老卡的 ring 一致。
+   */
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 5%) !important;
+}
+
+html.dark .brew-tile-solid {
+  background: rgb(23 23 23 / 90%) !important;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%) !important;
+}

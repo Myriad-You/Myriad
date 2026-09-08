@@ -130,7 +130,7 @@ export function unsupportedTailwindBreakpoint(source: string): string | null {
     while (rest.includes(prefix)) {
       const position = rest.indexOf(prefix)
       const after = rest.charAt(position + prefix.length)
-      if (/[A-Za-z]/.test(after) || after === '[') return prefix
+      if (/[A-Z]/i.test(after) || after === '[') return prefix
       rest = rest.slice(position + prefix.length)
     }
   }
@@ -430,7 +430,7 @@ export function validatePlaygroundPackage(
     while (rest.includes(method)) {
       const position = rest.indexOf(method)
       const next = rest.charAt(position + method.length)
-      if (!next || !/[A-Za-z0-9]/.test(next)) return true
+      if (!next || !/[A-Z0-9]/i.test(next)) return true
       rest = rest.slice(position + 1)
     }
     return false

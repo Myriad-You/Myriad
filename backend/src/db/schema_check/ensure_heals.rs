@@ -7,6 +7,19 @@
 //! analytics `target` PK expansion, federation FK report/apply, seeds.
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
 
+/// `brew_items.topic` 的部分索引（`migrations/003` 已 CREATE）。
+///
+/// 不进 `get_expected_indexes`：通用索引路径生成不出 `WHERE` 子句，注册成普通
+/// 索引会让新库（部分索引）与修复出来的旧库（普通索引）形状不一致。
+/// 与 003 的 DDL 必须一字不差。缺列时通用 ADD COLUMN 先补，这里只管索引。
+pub(crate) async fn ensure_brew_item_topic_index(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        "CREATE INDEX IF NOT EXISTS idx_brew_items_topic ON brew_items (topic) WHERE topic IS NOT NULL",
+    )
+    .await?;
+    Ok(())
+}
+
 /// 近月功能表兜底（`migrations/005` 已 CREATE）。
 pub(crate) async fn ensure_federation_content_filters_table(
     db: &DatabaseConnection,

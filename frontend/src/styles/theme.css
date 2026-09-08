@@ -422,7 +422,6 @@ html.dark {
     inset 0 1px 0 rgb(255 255 255 / 6%),
     inset 0 -1px 0 rgb(0 0 0 / 18%),
     0 8px 28px 0 rgb(0 0 0 / 45%);
-
   --chrome-shine: inset 0 1px 0 rgb(255 255 255 / 10%);
   --chrome-hairline: inset 0 -1px 0 rgb(0 0 0 / 28%);
   --chrome-fill: rgb(16 16 16 / 70%);

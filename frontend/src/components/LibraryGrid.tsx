@@ -41,6 +41,15 @@ import {
   syncLibraryCanvasChrome,
 } from './library/LibraryCanvasChrome'
 import {
+  canvasCardPaintCacheIsCurrent,
+  canvasFollowTargetsNeedPaint,
+  createCanvasCardPaintCache,
+  paintCanvasCardFocus,
+  refreshCanvasCardPaintCache,
+  resetCanvasCardPaintCache,
+  sameLibraryItemIds,
+} from './library/libraryCanvasPaint'
+import {
   balancedShuffleLibraryItems,
   CANVAS_MAX_SCALE,
   CANVAS_MIN_SCALE,
@@ -53,15 +62,6 @@ import {
   queryCanvasVisibleItems,
   readCanvasDefaultScale,
 } from './library/libraryCanvasVisible'
-import {
-  canvasCardPaintCacheIsCurrent,
-  canvasFollowTargetsNeedPaint,
-  createCanvasCardPaintCache,
-  paintCanvasCardFocus,
-  refreshCanvasCardPaintCache,
-  resetCanvasCardPaintCache,
-  sameLibraryItemIds,
-} from './library/libraryCanvasPaint'
 import {
   LibraryCardLyrics,
   useLibraryMusicIdentity,

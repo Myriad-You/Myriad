@@ -7,13 +7,13 @@
 import type { TappInstance } from '../../types'
 import type { SandboxCapabilityProfile } from './capabilityProfiles'
 import { ASSET_URL_HELPER_SOURCE } from './assetUrlRewriter'
-import { serializeSandboxScriptValue } from './security'
 import {
   DOM_HELPERS_CODE,
   FILE_DOWNLOAD_METHOD_CODE,
   generateStorageKeyValidator,
   sdkRequestTimeoutHelper,
 } from './sdkShared'
+import { serializeSandboxScriptValue } from './security'
 
 /**
  * 生成完整版 SDK（用于 Page 模式）

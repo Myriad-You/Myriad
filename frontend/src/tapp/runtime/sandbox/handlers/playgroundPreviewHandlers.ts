@@ -76,7 +76,7 @@ export function previewAssetFromPackage(
   if (dataUrl) {
     mimeType = dataUrl[1]
     base64 = dataUrl[2].replace(/\s/g, '')
-  } else if (/^[A-Za-z0-9+/=\s]+$/.test(raw) && raw.replace(/\s/g, '').length % 4 === 0) {
+  } else if (/^[A-Z0-9+/=\s]+$/i.test(raw) && raw.replace(/\s/g, '').length % 4 === 0) {
     mimeType = guessPreviewAssetMime(path)
     base64 = raw.replace(/\s/g, '')
   } else {

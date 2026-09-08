@@ -51,6 +51,7 @@ html.dark .platform-card-snapshot-username {
   border: 1px solid
     color-mix(in srgb, var(--cfg-accent, #8b5cf6) 22%, transparent);
 }
+
 html.dark .platform-card-snapshot-level {
   color: #fff;
 }

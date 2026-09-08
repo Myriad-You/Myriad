@@ -6,10 +6,10 @@ import type {
   AddSourceRequest,
   BrewCategory,
   BrewExportManifest,
-  BrewSource,
   BrewpackCategory,
   BrewpackRsshubInstance,
   BrewpackSource,
+  BrewSource,
   CardSize,
   RsshubInstance,
   SourceType,
@@ -28,7 +28,7 @@ export function normalizeBrewpackUrl(url: string): string {
 }
 
 const DATA_IMAGE_RE =
-  /^data:(image\/[a-zA-Z0-9.+-]+)(?:;[\w.=+-]+)*;base64,/i
+  /^data:(image\/[a-z0-9.+-]+)(?:;[\w.=+-]+)*;base64,/i
 
 export function isDataImageUrl(value: string | null | undefined): boolean {
   return typeof value === 'string' && /^data:image\//i.test(value.trim())

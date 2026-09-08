@@ -24,9 +24,9 @@ import {
   emitTappStorageChange,
 } from '../../WidgetRuntimeSignals'
 import {
-  FILE_DOWNLOAD_BLOB_MAX_BYTES,
   decodeDownloadBase64,
   defaultDownloadFilename,
+  FILE_DOWNLOAD_BLOB_MAX_BYTES,
   isSafeDownloadFilename,
   normalizeFileDownloadOptions,
   parseHostDownloadUrl,
@@ -917,7 +917,7 @@ export function registerFileHandlers(bridge: TappBridge): void {
             ? filename
             : defaultDownloadFilename(mimeType || decoded.mimeType)
         triggerBrowserDownload(
-          new Blob([decoded.bytes], {
+          new Blob([decoded.bytes as BlobPart], {
             type: mimeType || decoded.mimeType || 'application/octet-stream',
           }),
           downloadName,

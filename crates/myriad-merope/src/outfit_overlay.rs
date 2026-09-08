@@ -313,7 +313,7 @@ fn spoken_style_label(style: &str) -> &str {
     clothing_style_aliases(style)
         .iter()
         .copied()
-        .find(|alias| alias.chars().any(|ch| !ch.is_ascii()))
+        .find(|alias| !alias.is_ascii())
         .unwrap_or(style)
 }
 
@@ -322,16 +322,12 @@ fn catalog_line(look: &WardrobeLook, showing_id: &str, all: &[WardrobeLook]) -> 
     let construction = look
         .hints
         .iter()
-        .filter(|hint| {
-            *hint != &look.label
-                && hint.chars().any(|ch| !ch.is_ascii())
-                && hint.chars().count() > 4
-        })
+        .filter(|hint| *hint != &look.label && !hint.is_ascii() && hint.chars().count() > 4)
         .max_by_key(|hint| hint.chars().count())
         .cloned();
     if let Some(construction) = construction.as_deref() {
         if !look.label.contains(construction) {
-            line.push_str("：");
+            line.push('：');
             line.push_str(construction);
         }
     }
@@ -361,7 +357,7 @@ fn catalog_aliases<'a>(
         }
     }
     for hint in look.hints.iter().map(String::as_str) {
-        if aliases.iter().any(|existing| *existing == hint) {
+        if aliases.contains(&hint) {
             continue;
         }
         if catalog_alias_ok(hint, look, showing_id, all, construction) {
@@ -446,7 +442,7 @@ fn construction_tokens(construction: &str) -> Vec<String> {
         if !(2..=6).contains(&n) {
             continue;
         }
-        if !piece.chars().any(|ch| !ch.is_ascii()) {
+        if piece.is_ascii() {
             continue;
         }
         if is_generic_hint(piece) || SKIP_CONSTRUCTION_PIECES.contains(&piece) {
@@ -671,7 +667,7 @@ fn catalog_alias_ok(
     if hint == look.label || construction == Some(hint) || is_generic_hint(hint) {
         return false;
     }
-    if !hint.chars().any(|ch| !ch.is_ascii()) || hint.chars().count() > 6 {
+    if hint.is_ascii() || hint.chars().count() > 6 {
         return false;
     }
     if hint_is_unique(hint, look.id.as_str(), all) {
@@ -711,7 +707,7 @@ fn contains_hint(input: &str, hint: &str) -> bool {
     if hint.chars().count() < 2 {
         return false;
     }
-    if hint.chars().all(|ch| ch.is_ascii()) {
+    if hint.is_ascii() {
         return contains_latin_phrase(input, hint);
     }
     if input.contains(hint) {
@@ -842,7 +838,7 @@ fn parse_wear_inner(inner: &str) -> Option<WearDirective> {
 fn wear_short_name(inner: &str) -> &str {
     let label = inner.trim();
     let cut = label
-        .find(|ch: char| matches!(ch, '：' | ':' | '。' | '！' | '？' | '\n' | '（' | '('))
+        .find(['：', ':', '。', '！', '？', '\n', '（', '('])
         .unwrap_or(label.len());
     label.get(..cut).unwrap_or(label).trim()
 }

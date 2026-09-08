@@ -74,11 +74,7 @@ pub(super) async fn execute_brew_page_content(
                         "siteUrl": s.site_url.clone(),
                         "icon": s.icon.clone(),
                         "category": s.category.clone(),
-                        "sourceType": match s.source_type {
-                            brew_sources::SourceType::Link => "link",
-                            brew_sources::SourceType::Rss => "rss",
-                            brew_sources::SourceType::Brewlia => "brewlia",
-                        },
+                        "sourceType": s.source_type.as_str(),
                         "unreadCount": s.unread_count,
                         "itemCount": s.item_count,
                         "lastUpdated": s.updated_at.to_string()

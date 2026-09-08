@@ -25,6 +25,8 @@ export const WIDGET_SAFE_PADDING = 14
 
 /** 卡片外壳圆角 class（12px） */
 export const WIDGET_RADIUS_SHELL = 'rounded-xl'
+/** 卡片内嵌套表面圆角 class（8px）— 面板 / 媒体 / tile / 列表行 */
+export const WIDGET_RADIUS_NESTED = 'rounded-lg'
 
 export interface WidgetShellProps {
   children: ReactNode

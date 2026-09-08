@@ -15,7 +15,8 @@ export type FeedType = 'rss' | 'atom' | 'json_feed' | 'notion' | 'rsshub'
 // - rss: 标准订阅（适用于 RSS/Atom/JSON Feed/Notion）
 // - brewlia: AI 增强订阅（适用于 RSS 和 Notion），提供词汇注释等增强功能
 // - rsshub: RSSHub 订阅（支持多实例切换，独立于传统订阅）
-export type SourceType = 'link' | 'rss' | 'brewlia' | 'rsshub'
+// - note: 手记源。站长写第一篇时由后端建出来，添加界面里没有这个选项
+export type SourceType = 'link' | 'rss' | 'brewlia' | 'rsshub' | 'note'
 
 /** 从 Brew 添加界面提交的订阅源参数。 */
 export interface AddSourceInput {
@@ -86,10 +87,19 @@ export interface BrewItemPreview {
   image: string | null
   published_at: number | null
   is_read: boolean
+  /** 预定义主题 key（如 "engineering"）；不是展示文案，展示走 i18n。 */
+  topic?: string | null
 }
 
-// 卡片尺寸类型：full(4行) | mini(2行) | tiny(1行)
-export type CardSize = 'full' | 'mini' | 'tiny'
+/**
+ * 用户锁定的磁贴档位（库里是自由 varchar，加值不需要迁移）。
+ *
+ * - `bar` 横条 2x1：入口型来源专属
+ * - `tiny` 2x2、`mini` 4x2、`full` 4x4：老网格留下的三档，内容磁贴用
+ *
+ * 档位到尺寸的映射只有一份，在 `components/brew/logic/layout.ts`。
+ */
+export type CardSize = 'bar' | 'tiny' | 'mini' | 'full'
 
 // 订阅源
 export interface BrewSource {
@@ -124,6 +134,11 @@ export interface BrewSource {
   created_at: number
   // 最新文章预览（最多3篇）
   recent_items?: BrewItemPreview[]
+  /**
+   * 近两年每篇文章距今天数，最多 60 个，已按新→旧排序。派生字段，不落库。
+   * 缺失时节律型磁贴降级为 feature（见 components/brew/logic/layout.ts）。
+   */
+  pulses?: number[]
 }
 
 // 文章项
@@ -154,6 +169,39 @@ export interface BrewItem {
   has_ai_podcast?: boolean
   /** 是否来自 AI 网络搜索（非数据库文章） */
   fromWebSearch?: boolean
+  /**
+   * 预定义主题 key（如 "engineering"），不是展示文案。
+   * null / 缺失的文章不参与聚类。关键词或 AI 离线写入，读接口只读已有列。
+   */
+  topic?: string | null
+}
+
+/**
+ * 手记的写入载荷。字段名与后端 `NoteWriteRequest` 一一对应。
+ *
+ * 手记就是 `brew_items` 里的一条，所以写完之后它在阅读器、收藏、评论、
+ * 订阅列表里的表现与抓来的文章完全一致。
+ */
+export interface BrewNoteInput {
+  title: string
+  /** Markdown 原文。渲染成 HTML 是后端的事，前端不自己解析。 */
+  content_md: string
+  /** 预定义主题 key；留空表示不参与主题聚类。 */
+  topic?: string | null
+  /** 封面。不给就取正文里第一张图。 */
+  image?: string | null
+  /** 发布时间（毫秒）。改稿时不给则保持原值。 */
+  published_at?: number | null
+}
+
+/** 编辑器读回的那份原文。 */
+export interface BrewNoteDraft {
+  id: number
+  title: string
+  content_md: string
+  topic: string | null
+  image: string | null
+  published_at: number
 }
 
 // 分类
@@ -207,6 +255,8 @@ export interface BrewStatsResponse {
 export interface BrewItemsQuery {
   source_id?: number
   category?: string
+  /** 预定义主题 key；与 category 同级过滤，`topic IS NULL` 的文章不入结果 */
+  topic?: string
   filter?: 'all' | 'unread' | 'starred'
   sort_order?: 'asc' | 'desc'
   page?: number
@@ -247,7 +297,11 @@ export interface UpdateSourceRequest {
   category?: string
   update_interval?: number
   enabled?: boolean
-  card_size?: CardSize
+  /**
+   * 磁贴尺寸锁定。空字符串 = 解锁（回到按分数派生），与 theme_color / icon
+   * 的清除约定一致。
+   */
+  card_size?: CardSize | ''
   theme_color?: string
   /** 自定义图标 URL 或 Base64 数据 */
   icon?: string

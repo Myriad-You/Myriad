@@ -19,7 +19,18 @@ export default {
       },
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        // JetBrains Mono 没有自托管（astro.config fonts 里没有它），没装的机器会掉到
+        // 通用 monospace —— 中文 Windows 上那是宋体等宽，代码块难看且对不齐。
+        // 显式列出各平台的系统等宽字体兜底。
+        mono: [
+          'JetBrains Mono',
+          'ui-monospace',
+          'SFMono-Regular',
+          'Menlo',
+          'Consolas',
+          'Liberation Mono',
+          'monospace',
+        ],
       },
       screens: {
         xs: '375px',

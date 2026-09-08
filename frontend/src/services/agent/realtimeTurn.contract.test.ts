@@ -115,11 +115,11 @@ test('hidden face and motion timeout leave a local floor without blocking text',
   const stream = source(
     '../../../../backend/src/services/agent/confirmation_and_tasks/chat_stream.rs',
   )
-  // Preview now consumes spoken text instead of discarding it. The text
-  // outlet must precede the non-blocking offer to the motion director.
+  // Spoken text reaches the transport first. Observing it for motion must
+  // not precede that outlet, even when the director mailbox is congested.
   const textOutlet = stream.indexOf(
-    'response_agent::emit_stream_delta(&tx, delta).await',
+    'response_agent::emit_stream_delta(tx, delta).await',
   )
-  const previewOffer = stream.indexOf('tx.try_send(preview)')
-  assert.ok(textOutlet >= 0 && previewOffer > textOutlet)
+  const motionObserve = stream.indexOf('.observe(&text, tx)')
+  assert.ok(textOutlet >= 0 && motionObserve > textOutlet)
 })

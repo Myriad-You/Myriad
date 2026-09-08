@@ -1,0 +1,90 @@
+/**
+ * 列表型磁贴的整页轮播 —— 纯 CSS keyframes，零定时器。
+ *
+ * 轨道高度 = 页数 × 可视高度，所以「翻一页」就是 translateY(-100% / 页数)。
+ * 每页停留 ~5s、切换 ~0.55s；每张卡用不同的负 animation-delay 错峰，避免
+ * 一屏十几张卡同一帧一起跳。
+ *
+ * 停：`.brew-rotate-paused` 挂在任意祖先上即可（非当前页、滚出视口、
+ * 标签页隐藏）。exlight / prefers-reduced-motion 由组件侧不加动画类来处理 ——
+ * 停在第一条，不是「动画暂停在随机位置」。
+ */
+
+.brew-rotate-track {
+  will-change: transform;
+}
+
+.brew-rotate-paused .brew-rotate-track {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brew-rotate-track {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+/* 2 页：每页停 45% 的周期，5% 用来切 */
+@keyframes brew-rotate-2 {
+  0%,
+  45% {
+    transform: translateY(0);
+  }
+
+  50%,
+  95% {
+    transform: translateY(-50%);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes brew-rotate-3 {
+  0%,
+  30% {
+    transform: translateY(0);
+  }
+
+  33.333%,
+  63.333% {
+    transform: translateY(-33.3333%);
+  }
+
+  66.666%,
+  96.666% {
+    transform: translateY(-66.6667%);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes brew-rotate-4 {
+  0%,
+  22% {
+    transform: translateY(0);
+  }
+
+  25%,
+  47% {
+    transform: translateY(-25%);
+  }
+
+  50%,
+  72% {
+    transform: translateY(-50%);
+  }
+
+  75%,
+  97% {
+    transform: translateY(-75%);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
+}

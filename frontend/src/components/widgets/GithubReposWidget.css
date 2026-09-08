@@ -51,7 +51,7 @@
   flex: 0 0 auto;
   overflow: hidden;
   border-radius: 50%;
-  background: color-mix(in srgb, currentColor 10%, transparent);
+  background: color-mix(in srgb, currentcolor 10%, transparent);
 }
 
 .github-repos-avatar img {
@@ -147,8 +147,7 @@
 }
 
 .github-repos-card.is-tile .github-repos-meta {
-  flex-direction: row;
-  flex-wrap: nowrap;
+  flex-flow: row nowrap;
   gap: 0.5rem;
   padding-right: 0;
   overflow: hidden;
@@ -196,15 +195,15 @@
   height: 100%;
   padding: 0.5rem;
   text-align: center;
-  border: 1px dashed color-mix(in srgb, currentColor 12%, transparent);
+  border: 1px dashed color-mix(in srgb, currentcolor 12%, transparent);
   border-radius: 0.5rem;
-  color: color-mix(in srgb, currentColor 48%, transparent);
+  color: color-mix(in srgb, currentcolor 48%, transparent);
 }
 
 .github-repos-empty strong {
   font-size: 0.75rem;
   font-weight: 650;
-  color: color-mix(in srgb, currentColor 62%, transparent);
+  color: color-mix(in srgb, currentcolor 62%, transparent);
 }
 
 .github-repos-empty span {

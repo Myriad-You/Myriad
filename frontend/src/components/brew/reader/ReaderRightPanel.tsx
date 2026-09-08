@@ -72,150 +72,158 @@ export default memo(
               ? { duration: 0.3, ease: [0.16, 1, 0.3, 1] }
               : { duration: 0 }
           }
-          className="hidden sm:block sticky top-1/3 -translate-y-1/3 h-fit ml-4 z-20"
-          style={{
-            pointerEvents: showPanels ? 'auto' : 'none',
-            willChange: 'transform, opacity',
-          }}
-          onClick={(e: MouseEvent) => e.stopPropagation()}
-          onMouseEnter={onMouseEnter}
-          onMouseLeave={onMouseLeave}
+          className="hidden sm:flex sticky top-0 h-dvh items-center ml-4 z-20 pointer-events-none"
+          style={{ willChange: 'transform, opacity' }}
         >
+          {/*
+            外层撑满视口高度、内容垂直居中：胶囊的位置只跟视口有关，跟文章长短、滚到哪都无关。
+            以前是 sticky top-1/3 再按自身高度 -1/3 位移 —— 文章短到不用滚时 sticky 根本不生效，
+            胶囊被短行夹住、再按各自高度偏移，左右两条高度不同就对不齐，换篇文章还会跳。
+            弹层（目录 / 批注 / 评论）用 absolute 挂在这一层上，所以它得是 relative 的 h-fit。
+          */}
           <div
-            className={`flex flex-col items-center gap-2 p-2 rounded-2xl border ${currentTheme.border} ${currentTheme.surface}`}
+            className="relative h-fit"
+            style={{ pointerEvents: showPanels ? 'auto' : 'none' }}
+            onClick={(e: MouseEvent) => e.stopPropagation()}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
           >
-            {/* 用户评论指示器 - 仅登录用户可见 */}
-            {isAuthenticated && (
-              <>
-                <button
-                  onClick={() => setShowCommentsPanel(!showCommentsPanel)}
-                  className={`${sideButtonClass} relative`}
-                  title={
-                    hasComments
-                      ? `${t.brew.viewComments} (${comments.length})`
-                      : t.brew.selectTextToComment
-                  }
+            <div
+              className={`flex flex-col items-center gap-2 p-2 rounded-2xl border ${currentTheme.border} ${currentTheme.surface}`}
+            >
+              {/* 用户评论指示器 - 仅登录用户可见 */}
+              {isAuthenticated && (
+                <>
+                  <button
+                    onClick={() => setShowCommentsPanel(!showCommentsPanel)}
+                    className={`${sideButtonClass} relative`}
+                    title={
+                      hasComments
+                        ? `${t.brew.viewComments} (${comments.length})`
+                        : t.brew.selectTextToComment
+                    }
+                  >
+                    <MessageSquare className="w-5 h-5" />
+                    {hasComments && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                        {comments.length > 9 ? '9+' : comments.length}
+                      </span>
+                    )}
+                  </button>
+                  <div
+                    className={`w-6 h-px ${isDark ? 'bg-white/10' : 'bg-black/10'}`}
+                  />
+                </>
+              )}
+
+              {/* 主题切换 */}
+              <button
+                onClick={cycleTheme}
+                className={sideButtonClass}
+                title={`${t.brew.switchTheme} (${THEMES[theme].icon})`}
+              >
+                <Palette className="w-5 h-5" />
+              </button>
+
+              {/* 字体切换 */}
+              <button
+                onClick={cycleFont}
+                className={`${sideButtonClass} text-xs font-bold w-10 h-10 flex items-center justify-center`}
+                title={
+                  (t.brew as Record<string, string>)[currentFont.labelKey] ||
+                  currentFont.labelKey
+                }
+                style={{ fontFamily: currentFont.family }}
+              >
+                {t.brew.fontLabel}
+              </button>
+
+              {/* 布局宽度切换 */}
+              <button
+                onClick={cycleLayout}
+                className={sideButtonClass}
+                title={
+                  (t.brew as Record<string, string>)[currentLayout.labelKey] ||
+                  currentLayout.labelKey
+                }
+              >
+                <svg
+                  className="w-5 h-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <MessageSquare className="w-5 h-5" />
-                  {hasComments && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                      {comments.length > 9 ? '9+' : comments.length}
-                    </span>
+                  {layout === 'narrow' ? (
+                    // 窄版图标 - 居中矩形
+                    <>
+                      <rect x="6" y="4" width="12" height="16" rx="1" />
+                    </>
+                  ) : (
+                    // 宽版图标 - 更宽的矩形
+                    <>
+                      <rect x="3" y="4" width="18" height="16" rx="1" />
+                    </>
                   )}
+                </svg>
+              </button>
+
+              {/* 分隔线 */}
+              <div
+                className={`w-6 h-px ${isDark ? 'bg-white/10' : 'bg-black/10'}`}
+              />
+
+              {/* 字号调整 */}
+              <div
+                className={`flex flex-col items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-white/5' : 'bg-black/5'}`}
+              >
+                <button
+                  onClick={() => adjustFontSize(1)}
+                  className={`p-1.5 rounded-lg ${currentTheme.secondary} hover:${currentTheme.text} transition-colors`}
+                  title={t.brew.increaseFontSize}
+                >
+                  <Plus className="w-4 h-4" />
                 </button>
-                <div
-                  className={`w-6 h-px ${isDark ? 'bg-white/10' : 'bg-black/10'}`}
-                />
-              </>
-            )}
+                <span
+                  className={`text-[10px] ${currentTheme.secondary} tabular-nums`}
+                >
+                  {fontSize}
+                </span>
+                <button
+                  onClick={() => adjustFontSize(-1)}
+                  className={`p-1.5 rounded-lg ${currentTheme.secondary} hover:${currentTheme.text} transition-colors`}
+                  title={t.brew.decreaseFontSize}
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+              </div>
 
-            {/* 主题切换 */}
-            <button
-              onClick={cycleTheme}
-              className={sideButtonClass}
-              title={`${t.brew.switchTheme} (${THEMES[theme].icon})`}
-            >
-              <Palette className="w-5 h-5" />
-            </button>
-
-            {/* 字体切换 */}
-            <button
-              onClick={cycleFont}
-              className={`${sideButtonClass} text-xs font-bold w-10 h-10 flex items-center justify-center`}
-              title={
-                (t.brew as Record<string, string>)[currentFont.labelKey] ||
-                currentFont.labelKey
-              }
-              style={{ fontFamily: currentFont.family }}
-            >
-              {t.brew.fontLabel}
-            </button>
-
-            {/* 布局宽度切换 */}
-            <button
-              onClick={cycleLayout}
-              className={sideButtonClass}
-              title={
-                (t.brew as Record<string, string>)[currentLayout.labelKey] ||
-                currentLayout.labelKey
-              }
-            >
-              <svg
-                className="w-5 h-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+              {/* 行高调整 */}
+              <div
+                className={`flex flex-col items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-white/5' : 'bg-black/5'}`}
               >
-                {layout === 'narrow' ? (
-                  // 窄版图标 - 居中矩形
-                  <>
-                    <rect x="6" y="4" width="12" height="16" rx="1" />
-                  </>
-                ) : (
-                  // 宽版图标 - 更宽的矩形
-                  <>
-                    <rect x="3" y="4" width="18" height="16" rx="1" />
-                  </>
-                )}
-              </svg>
-            </button>
-
-            {/* 分隔线 */}
-            <div
-              className={`w-6 h-px ${isDark ? 'bg-white/10' : 'bg-black/10'}`}
-            />
-
-            {/* 字号调整 */}
-            <div
-              className={`flex flex-col items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-white/5' : 'bg-black/5'}`}
-            >
-              <button
-                onClick={() => adjustFontSize(1)}
-                className={`p-1.5 rounded-lg ${currentTheme.secondary} hover:${currentTheme.text} transition-colors`}
-                title={t.brew.increaseFontSize}
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-              <span
-                className={`text-[10px] ${currentTheme.secondary} tabular-nums`}
-              >
-                {fontSize}
-              </span>
-              <button
-                onClick={() => adjustFontSize(-1)}
-                className={`p-1.5 rounded-lg ${currentTheme.secondary} hover:${currentTheme.text} transition-colors`}
-                title={t.brew.decreaseFontSize}
-              >
-                <Minus className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* 行高调整 */}
-            <div
-              className={`flex flex-col items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-white/5' : 'bg-black/5'}`}
-            >
-              <button
-                onClick={() => adjustLineHeight(0.1)}
-                className={`p-1.5 rounded-lg ${currentTheme.secondary} hover:${currentTheme.text} transition-colors`}
-                title={t.brew.increaseLineHeight}
-              >
-                <AlignJustify className="w-4 h-4" />
-              </button>
-              <span
-                className={`text-[10px] ${currentTheme.secondary} tabular-nums`}
-              >
-                {lineHeight.toFixed(1)}
-              </span>
-              <button
-                onClick={() => adjustLineHeight(-0.1)}
-                className={`p-1.5 rounded-lg ${currentTheme.secondary} hover:${currentTheme.text} transition-colors`}
-                title={t.brew.decreaseLineHeight}
-              >
-                <AlignJustify className="w-4 h-4 opacity-50" />
-              </button>
+                <button
+                  onClick={() => adjustLineHeight(0.1)}
+                  className={`p-1.5 rounded-lg ${currentTheme.secondary} hover:${currentTheme.text} transition-colors`}
+                  title={t.brew.increaseLineHeight}
+                >
+                  <AlignJustify className="w-4 h-4" />
+                </button>
+                <span
+                  className={`text-[10px] ${currentTheme.secondary} tabular-nums`}
+                >
+                  {lineHeight.toFixed(1)}
+                </span>
+                <button
+                  onClick={() => adjustLineHeight(-0.1)}
+                  className={`p-1.5 rounded-lg ${currentTheme.secondary} hover:${currentTheme.text} transition-colors`}
+                  title={t.brew.decreaseLineHeight}
+                >
+                  <AlignJustify className="w-4 h-4 opacity-50" />
+                </button>
+              </div>
             </div>
           </div>
         </motion.aside>

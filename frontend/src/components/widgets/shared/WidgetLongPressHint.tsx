@@ -46,7 +46,7 @@ export function WidgetLongPressHint({
       title={title}
       aria-label={title}
       onMouseDown={handleMouseDown}
-      onClick={(event) => {
+      onClick={(event: MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation()
         onClick?.()
       }}

@@ -6,8 +6,8 @@
  */
 
 import type { WidgetConfig, WidgetType } from './widgetGridTypes'
-import { widgetPreviewConfig } from './widgetLibraryModel'
 import { GRID_WIDGET_PAD_PX, widgetSizeSpan } from '../utils/widgetSizeScale'
+import { widgetPreviewConfig } from './widgetLibraryModel'
 
 export type WidgetDragKind = 'existing' | 'new'
 

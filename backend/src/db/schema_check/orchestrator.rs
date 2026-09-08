@@ -302,6 +302,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_agent_autonomy_grants_table(db).await?;
     ensure_agent_merope_tables(db).await?;
     ensure_analytics_tables(db).await?;
+    ensure_brew_item_topic_index(db).await?;
     ensure_federation_domain_aliases_table(db).await?;
     ensure_federation_object_interactions_table(db).await?;
     // last_read_at / rate_* / engagement 等字段：TableDef + 通用 drift ADD（无专用 heal）

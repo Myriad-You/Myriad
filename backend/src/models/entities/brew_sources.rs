@@ -95,6 +95,7 @@ pub enum FeedType {
 /// - Link: 纯链接，不订阅，仅作为快捷入口
 /// - Rss: 标准 RSS/Atom 订阅
 /// - Brewlia: AI 增强订阅，在 RSS 基础上提供词汇注释等增强功能
+/// - Note: 手记，站长自己写的内容。没有上游 feed，条目由平台自己写入
 #[derive(Clone, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(20))")]
 #[derive(Default)]
@@ -106,6 +107,35 @@ pub enum SourceType {
     Rss,
     #[sea_orm(string_value = "brewlia")]
     Brewlia,
+    #[sea_orm(string_value = "note")]
+    Note,
+}
+
+/// 不联网抓取的来源类型。
+///
+/// 入口型只有一个链接，手记的内容本来就在库里 —— 两者都没有上游可抓。
+/// 调度器的筛选条件必须用这个常量，逐处写 `ne(Link)` 漏掉一处就是每隔
+/// 半小时对着手记源发一次无意义的请求。
+pub const NON_FETCHABLE_SOURCE_TYPES: [SourceType; 2] = [SourceType::Link, SourceType::Note];
+
+impl SourceType {
+    /// 这个来源是否需要定时抓取。
+    pub fn is_fetchable(&self) -> bool {
+        !NON_FETCHABLE_SOURCE_TYPES.contains(self)
+    }
+
+    /// 对外的字符串形态（API 载荷、Agent 工具返回）。
+    ///
+    /// 取值必须与 `#[sea_orm(string_value)]` 和前端 `SourceType` 一致。
+    /// 加变体时只需要动这里一处 —— 之前这份映射在四个地方各抄了一遍。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Link => "link",
+            Self::Rss => "rss",
+            Self::Brewlia => "brewlia",
+            Self::Note => "note",
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -199,11 +229,7 @@ impl From<Model> for SourceResponse {
                 FeedType::Notion => "notion".to_string(),
                 FeedType::RssHub => "rsshub".to_string(),
             },
-            source_type: match m.source_type {
-                SourceType::Link => "link".to_string(),
-                SourceType::Rss => "rss".to_string(),
-                SourceType::Brewlia => "brewlia".to_string(),
-            },
+            source_type: m.source_type.as_str().to_string(),
             category: m.category,
             icon: m.icon,
             description: m.description,

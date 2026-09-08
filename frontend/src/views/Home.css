@@ -38,6 +38,7 @@
   --home-status-bar-dur: 320ms;
   --home-status-bar-fade: 180ms;
   --home-status-bar-gap: 0.75rem;
+
   position: relative;
   z-index: 10;
   height: 100%;
@@ -68,7 +69,7 @@
   height: 1.5rem;
   margin-left: 0.25rem;
   margin-right: calc(0.25rem + var(--home-status-bar-gap));
-  background: rgb(229 231 235 / 1);
+  background: rgb(229 231 235 / 100%);
 }
 
 html.dark .home-status-bar__sep {

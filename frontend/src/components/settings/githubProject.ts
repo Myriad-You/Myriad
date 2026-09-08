@@ -49,7 +49,7 @@ const GITHUB_SYSTEM_ROOTS = new Set([
   'watching',
 ])
 
-const OWNER_REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/
+const OWNER_REPO_RE = /^[A-Z0-9](?:[\w.-]*[A-Z0-9])?$/i
 
 export interface GithubRepoRef {
   owner: string

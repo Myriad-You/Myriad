@@ -1,0 +1,169 @@
+/**
+ * 手记编辑器的预览区排版。
+ *
+ * 预览里的 HTML 由后端渲染并消毒，标签集合是固定的（见 myriad-brew-notes 的
+ * 白名单），所以这里可以按标签选择器直接排版，不需要给每个块加类名。
+ */
+
+.brew-note-preview {
+  overflow-wrap: anywhere;
+  color: var(--color-gray-700, #374151);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.brew-note-preview > :first-child {
+  margin-top: 0;
+}
+
+.brew-note-preview h1,
+.brew-note-preview h2,
+.brew-note-preview h3,
+.brew-note-preview h4,
+.brew-note-preview h5,
+.brew-note-preview h6 {
+  margin: 1.6em 0 0.6em;
+  color: var(--color-gray-900, #111827);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.brew-note-preview h1 {
+  font-size: 1.6em;
+}
+
+.brew-note-preview h2 {
+  font-size: 1.35em;
+}
+
+.brew-note-preview h3 {
+  font-size: 1.15em;
+}
+
+.brew-note-preview p,
+.brew-note-preview ul,
+.brew-note-preview ol,
+.brew-note-preview blockquote,
+.brew-note-preview pre,
+.brew-note-preview table {
+  margin: 0 0 1em;
+}
+
+.brew-note-preview ul,
+.brew-note-preview ol {
+  padding-inline-start: 1.4em;
+}
+
+.brew-note-preview ul {
+  list-style: disc;
+}
+
+.brew-note-preview ol {
+  list-style: decimal;
+}
+
+.brew-note-preview li {
+  margin-bottom: 0.35em;
+}
+
+.brew-note-preview a {
+  color: var(--color-orange-600, #ea580c);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.brew-note-preview blockquote {
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid rgb(0 0 0 / 12%);
+  color: var(--color-gray-500, #6b7280);
+}
+
+.brew-note-preview code {
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 6%);
+  font-size: 0.9em;
+}
+
+.brew-note-preview pre {
+  overflow-x: auto;
+  padding: 0.9em 1em;
+  border-radius: 10px;
+  background: rgb(0 0 0 / 6%);
+}
+
+.brew-note-preview pre code {
+  padding: 0;
+  background: none;
+}
+
+.brew-note-preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.2em auto;
+  border-radius: 10px;
+}
+
+.brew-note-preview hr {
+  margin: 1.8em 0;
+  border: 0;
+  border-top: 1px solid rgb(0 0 0 / 10%);
+}
+
+/* 表格可能比预览区宽；让它自己横向滚动，不撑破整块面板 */
+.brew-note-preview table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.brew-note-preview th,
+.brew-note-preview td {
+  padding: 0.4em 0.7em;
+  border: 1px solid rgb(0 0 0 / 10%);
+  text-align: start;
+}
+
+.brew-note-preview th {
+  background: rgb(0 0 0 / 4%);
+  font-weight: 600;
+}
+
+.dark .brew-note-preview {
+  color: var(--color-gray-300, #d1d5db);
+}
+
+.dark .brew-note-preview h1,
+.dark .brew-note-preview h2,
+.dark .brew-note-preview h3,
+.dark .brew-note-preview h4,
+.dark .brew-note-preview h5,
+.dark .brew-note-preview h6 {
+  color: var(--color-gray-100, #f3f4f6);
+}
+
+.dark .brew-note-preview a {
+  color: var(--color-orange-400, #fb923c);
+}
+
+.dark .brew-note-preview blockquote {
+  border-inline-start-color: rgb(255 255 255 / 18%);
+  color: var(--color-gray-400, #9ca3af);
+}
+
+.dark .brew-note-preview code,
+.dark .brew-note-preview pre {
+  background: rgb(255 255 255 / 8%);
+}
+
+.dark .brew-note-preview hr,
+.dark .brew-note-preview th,
+.dark .brew-note-preview td {
+  border-color: rgb(255 255 255 / 12%);
+}
+
+.dark .brew-note-preview th {
+  background: rgb(255 255 255 / 5%);
+}

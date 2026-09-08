@@ -1,22 +1,22 @@
 import type { DragEvent, FormEvent, KeyboardEvent } from 'react'
+import type { StickerCrop } from '../../utils/homeStickerCrop'
 import type { GuideCoords } from '../settings/settingTitleGuideLogic'
 import type { WidgetSize } from '../widgetGridTypes'
 import { LuPlus, LuSparkles, LuX } from '@lib/icons'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ButtonSpinner } from '../Spinner'
 import { useI18n } from '../../contexts/I18nContext'
-import type { StickerCrop } from '../../utils/homeStickerCrop'
-import { HOME_STICKER_MAX_REFERENCES } from '../../utils/homeStickers'
 import {
   defaultStickerCrop,
   stickerCropForSlot,
   stickerSlotAspect,
 } from '../../utils/homeStickerCrop'
+import { HOME_STICKER_MAX_REFERENCES } from '../../utils/homeStickers'
 import { stickerAspectKey, stickerPixelSize } from '../../utils/homeStickerSize'
 import { isImeComposing } from '../../utils/ime'
 import { SegmentedControl } from '../settings/items/ChoiceControls'
 import { computeGuidePosition } from '../settings/settingTitleGuideLogic'
+import { ButtonSpinner } from '../Spinner'
 import { HomeStickerCrop } from './HomeStickerCrop'
 import '../ConfigForm.css'
 import '../settings/SettingTitleGuideEntry.css'

@@ -38,3 +38,6 @@ test-results/
 .temp/
 tmp/
 temp/
+
+# Symlink worktrees: node_modules/ only matches real directories.
+node_modules

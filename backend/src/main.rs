@@ -17,6 +17,27 @@
 #![allow(clippy::empty_line_after_doc_comments)]
 #![allow(clippy::unnecessary_sort_by)]
 #![allow(clippy::redundant_guards)]
+// rustc 1.94 clippy gained several pedantic-style lints. Same deal: the
+// split left hundreds of nits; they are not this PR's security gate.
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::items_after_test_module)]
+#![allow(clippy::nonminimal_bool)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::manual_is_multiple_of)]
+#![allow(clippy::iter_overeager_cloned)]
+#![allow(clippy::manual_clamp)]
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::manual_contains)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::cloned_ref_to_slice_refs)]
+#![allow(clippy::unnecessary_get_then_check)]
+#![allow(clippy::manual_repeat_n)]
 
 use axum::{
     extract::Request,

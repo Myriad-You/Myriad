@@ -334,7 +334,7 @@ export const FriendLinksWidget = memo(
             })
           },
         )
-        navigate('/brew?category=friends')
+        navigate('/brew?board=sites')
       }
     }, [isEditMode, isPreview, navigate])
 

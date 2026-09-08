@@ -461,6 +461,12 @@ async fn execute_brew_subscribe(
                             word_count: Set(Some(word_count)),
                             reading_time: Set(Some(reading_time)),
                             fulltext_fetched: Set(false),
+                            // 与 brew_scheduler 同一套关键词打标；漏标保持 NULL
+                            topic: Set(crate::services::brew_topics::infer_topic_by_keywords(
+                                &item.title,
+                                item.summary.as_deref(),
+                            )
+                            .map(str::to_string)),
                             ..Default::default()
                         }
                     })

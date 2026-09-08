@@ -119,6 +119,7 @@ docker/volumes/
 /tapp-store
 backend/data/.bootstrap-claimed
 /backend/data
+.brew-shots/
 /frontend/public/merope-demo
 /frontend/tests/*
 !/frontend/tests/browser/
@@ -128,3 +129,6 @@ backend/data/.bootstrap-claimed
 /frontend/tests/browser/fixture/*
 !/frontend/tests/browser/fixture/rigImport.html
 !/frontend/tests/browser/fixture/rigImport.ts
+
+# 本地截图（不提交）
+.local-shots/

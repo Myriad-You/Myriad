@@ -78,11 +78,7 @@ pub(super) async fn execute_fuzzy_search(
                             "icon": source.icon,
                             "siteUrl": source.site_url,
                             "category": source.category,
-                            "sourceType": match source.source_type {
-                                brew_sources::SourceType::Link => "link",
-                                brew_sources::SourceType::Rss => "rss",
-                                brew_sources::SourceType::Brewlia => "brewlia",
-                            }
+                            "sourceType": source.source_type.as_str()
                         }
                     }));
                 }

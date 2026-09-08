@@ -4,15 +4,17 @@
  */
 
 import type { HomeLayoutMode } from '../utils/homeLayout'
+import type { StickerCrop } from '../utils/homeStickerCrop'
 import type {
   WidgetConfig,
   WidgetGridHandle,
   WidgetSize,
   WidgetType,
 } from './widgetGridTypes'
+import type { WidgetDragSession } from './widgetPlacementPreview'
+
 import { LuSparkles, LuX } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
-
 import React, {
   forwardRef,
   Suspense,
@@ -35,6 +37,7 @@ import {
 import { getPerformanceProfileSync } from '../hooks/usePerformanceProfile'
 import { useDebouncedWindowSize } from '../hooks/useSharedEventListener'
 import {
+  findEmptyHomeSlot,
   freeLayoutFitsCellBudget,
   HOME_FREE_ROWS,
   HOME_STANDARD_COLS,
@@ -43,23 +46,18 @@ import {
   homeWidgetsOccupiedCells,
   isHomeStickerItem,
   isHomeWidgetItem,
-  findEmptyHomeSlot,
   packWidgetsIntoColumns,
 } from '../utils/homeLayout'
-import { HomeStickerCrop } from './home/HomeStickerCrop'
-import { HomeStickerCropTip } from './home/HomeStickerCropTip'
 import {
   defaultStickerCrop,
   parseStickerCrop,
+
   stickerSlotAspect,
-  type StickerCrop,
 } from '../utils/homeStickerCrop'
 import {
   placeHomeStickerSelection,
   stickerSizesSharingAspect,
 } from '../utils/homeStickerSize'
-import { WidgetInstanceSettings } from './widgets/shared/WidgetInstanceSettings'
-import { WidgetLongPressHint } from './widgets/shared/WidgetLongPressHint'
 import { resolveHomeGridColumns } from '../utils/viewportBands'
 import { setWidgetDragCursor, useWidgetDragCursor } from '../utils/widgetDragCursor'
 import {
@@ -67,6 +65,8 @@ import {
   WIDGET_SIZE_KEYS,
   widgetSizeSpan,
 } from '../utils/widgetSizeScale'
+import { HomeStickerCrop } from './home/HomeStickerCrop'
+import { HomeStickerCropTip } from './home/HomeStickerCropTip'
 import { widgetDisplayLabel, widgetHostConfig } from './widgetLibraryModel'
 import {
   coveringWidgetId,
@@ -78,8 +78,10 @@ import {
   resolveDragGhostWidget,
   shouldSkipWidgetEntrance,
   widgetDragGhostBox,
-  type WidgetDragSession,
+
 } from './widgetPlacementPreview'
+import { WidgetInstanceSettings } from './widgets/shared/WidgetInstanceSettings'
+import { WidgetLongPressHint } from './widgets/shared/WidgetLongPressHint'
 import StickerWidget, {
   stickerFloatMode,
   stickerFloatPatch,
@@ -1114,7 +1116,6 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
       ),
   )
 
-
   // Explicit height from cols/rows. Cross-band: snap (no height transition).
   // Free layout sizes the plate to N×cell instead of stretching with the host.
   const gridPixelHeight =
@@ -1297,7 +1298,6 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
     },
     [observeHomeResize, unobserveHomeResize],
   )
-
 
   useEffect(() => {
     if (!stickerDrag) return
@@ -1915,14 +1915,8 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
       reduced,
       performance.now() - settleStartedAtRef.current,
     )
-    const uncoverTimer = window.setTimeout(
-      () => setPreviewUncovered(true),
-      delays.uncoverMs,
-    )
-    const exitTimer = window.setTimeout(
-      () => setPreviewExiting(true),
-      delays.exitMs,
-    )
+    const uncoverTimer = window.setTimeout(setPreviewUncovered, delays.uncoverMs, true)
+    const exitTimer = window.setTimeout(setPreviewExiting, delays.exitMs, true)
     const clearTimer = window.setTimeout(() => {
       setDraggedWidget(null)
       setHoveredCell(null)
@@ -2136,7 +2130,6 @@ const WidgetGrid = forwardRef<WidgetGridHandle, WidgetGridProps>(
                 ) : null}
               </div>
             )}
-
 
             {stickerPickActive && isFreeLayout && isEditMode && !isCompact ? (
               <div
