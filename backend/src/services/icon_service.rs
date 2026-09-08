@@ -9,7 +9,6 @@ use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
 use tracing::{debug, error, info, warn};
 
 const MIN_ICON_BYTES: usize = 10;
@@ -231,11 +230,7 @@ impl IconService {
         let filename = format!("source_{}.{}", source_id, extension);
         let file_path = self.icons_dir.join(&filename);
 
-        let mut file = fs::File::create(&file_path)
-            .await
-            .map_err(|error| icon_io_failed("Failed to create icon file", error))?;
-
-        file.write_all(bytes)
+        fs::write(&file_path, bytes)
             .await
             .map_err(|error| icon_io_failed("Failed to write icon file", error))?;
 

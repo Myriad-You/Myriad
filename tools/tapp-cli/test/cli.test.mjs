@@ -28,7 +28,7 @@ function run(args) {
 describe('CLI adapter', () => {
   it('exposes an npx-inferable package binary', () => {
     assert.equal(packageJson.bin['tapp-cli'], 'bin/myriad-tapp.mjs')
-    assert.deepEqual(packageJson.files, ['bin', 'src', 'README.md'])
+    assert.deepEqual(packageJson.files, ['bin', 'src', 'README.md', 'LICENSE'])
     assert.equal(packageJson.publishConfig.access, 'public')
   })
 
