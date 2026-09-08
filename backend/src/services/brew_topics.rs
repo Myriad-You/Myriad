@@ -61,11 +61,13 @@ const TOPIC_SEEDS: &[(&str, &[&str])] = &[
 const SUMMARY_MATCH_CHARS: usize = 200;
 
 /// 全部预定义主题 key。AI 打标只许从这里选，不许自创。
+#[allow(dead_code)] // consumed by the hourly AI batch, not the keyword path
 pub fn predefined_topics() -> Vec<&'static str> {
     TOPIC_SEEDS.iter().map(|(key, _)| *key).collect()
 }
 
 /// key 是否在预定义表内。用于校验 AI 返回值。
+#[allow(dead_code)] // consumed by the hourly AI batch, not the keyword path
 pub fn is_predefined_topic(key: &str) -> bool {
     TOPIC_SEEDS.iter().any(|(k, _)| *k == key)
 }

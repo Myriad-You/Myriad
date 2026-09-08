@@ -320,7 +320,7 @@ pub fn sanitize_wardrobe_checked(value: &Value) -> Result<Vec<Value>, VisualProf
             ));
         }
         let id = match item.get("id").and_then(Value::as_str).map(str::trim) {
-            Some(id) if id.is_empty() => {
+            Some("") => {
                 return Err(VisualProfileIssue::new(
                     join_field(&prefix, "id"),
                     VisualProfileReason::Empty,

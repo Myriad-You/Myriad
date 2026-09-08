@@ -2,8 +2,10 @@
 
 use std::str::FromStr;
 
-pub fn parse_http_header_name(value: &str) -> Result<http::HeaderName, ()> {
-    http::HeaderName::from_str(value).map_err(|_| ())
+pub fn parse_http_header_name(
+    value: &str,
+) -> Result<http::HeaderName, http::header::InvalidHeaderName> {
+    http::HeaderName::from_str(value)
 }
 
 #[cfg(test)]
