@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode, RefObject } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react'
 import type { GuidePlacement } from '../../settings/settingTitleGuideLogic'
 import {
   AnimatePresenceShim as AnimatePresence,
@@ -262,7 +262,9 @@ export function WidgetSettingsTip({
         width,
         transformOrigin: position.origin,
       }}
-      onMouseDown={(event: MouseEvent<HTMLDivElement>) => event.stopPropagation()}
+      onMouseDown={(event: ReactMouseEvent<HTMLDivElement>) =>
+        event.stopPropagation()
+      }
     >
       <div className="widget-settings-tip__head">
         <div className="widget-settings-tip__heading">
