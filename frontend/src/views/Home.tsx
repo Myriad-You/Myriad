@@ -3,19 +3,19 @@
  * 显示可视化编辑的小组件网格
  */
 
+import type { ReactNode } from 'react'
 import type {
   WidgetConfig,
   WidgetGridHandle,
   WidgetSize,
   WidgetType,
 } from '../components/widgetGridTypes'
-import type { StickerCrop } from '../utils/homeStickerCrop'
 import type { HomeDashboardLayouts, HomeLayoutMode } from '../utils/homeLayout'
 import type { HomeLayoutAssetMap } from '../utils/homeLayoutTransfer'
 
+import type { StickerCrop } from '../utils/homeStickerCrop'
 import { FaCog, FaCompress, FaEdit, FaExpand, LuSparkles } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
-import type { ReactNode } from 'react'
 import {
   useCallback,
   useEffect,
@@ -27,11 +27,9 @@ import {
 import { useNavigate } from 'react-router-dom'
 import AnimatedView from '../components/AnimatedView'
 import { Avatar } from '../components/Avatar'
-import { TitleFontSelector } from '../components/TitleFontSelector'
 import { HomeLayoutTransferButtons } from '../components/home/HomeLayoutTransfer'
 import { HomeStickerDialog } from '../components/home/HomeStickerDialog'
-import '../components/home/HomeStickerDialog.css'
-import { generateHomeSticker, uploadHomeSticker } from '../utils/homeStickers'
+import { TitleFontSelector } from '../components/TitleFontSelector'
 import {
   getTourSnapshot,
   stopTour,
@@ -79,15 +77,17 @@ import {
   shouldAcceptHomeLayoutApply,
   stickerPixelSize,
 } from '../utils/homeLayout'
-import { stickerAspectKey } from '../utils/homeStickerSize'
-import { widgetSizeSpan } from '../utils/widgetSizeScale'
-import { stickerCropForSlot } from '../utils/homeStickerCrop'
 import { restoreStickerAssets } from '../utils/homeLayoutStickerAssets'
+import { stickerCropForSlot } from '../utils/homeStickerCrop'
+import { generateHomeSticker, uploadHomeSticker } from '../utils/homeStickers'
+import { stickerAspectKey } from '../utils/homeStickerSize'
 import { buildHomePageSeo } from '../utils/modulePageSeo'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import { hasSessionHint } from '../utils/sessionDetection'
 import { showError, showSuccess, showWarning } from '../utils/toastManager'
 import { userFacingError } from '../utils/userFacingError'
+import { widgetSizeSpan } from '../utils/widgetSizeScale'
+import '../components/home/HomeStickerDialog.css'
 import './Home.css'
 
 function readHomeEditTourDockPose() {

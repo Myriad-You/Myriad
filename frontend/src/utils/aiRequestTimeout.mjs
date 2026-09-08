@@ -45,7 +45,7 @@ function matchesPrefix(path, prefix) {
 
 /**
  * @param {string} url
- * @returns {number | undefined}
+ * @returns {number | undefined} Timeout in milliseconds for long AI routes.
  */
 export function aiRequestTimeoutMs(url) {
   const path = requestPathname(url)

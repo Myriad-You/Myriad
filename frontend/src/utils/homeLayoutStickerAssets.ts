@@ -3,18 +3,18 @@
  * Only same-site image-cache PNG/JPEG/WebP is read. No arbitrary URL fetch.
  */
 
+import type { HomeDashboardLayouts } from './homeLayout'
+import type { HomeLayoutAsset, HomeLayoutAssetMap } from './homeLayoutTransfer'
 import { API_URL } from '../config'
-import { type HomeDashboardLayouts } from './homeLayout'
 import {
   canonicalStickerImageUrl,
   encodeBase64,
+
   isHomeLayoutStickerTile,
   rewriteStickerImageUrls,
   sniffStickerImage,
   stickerAssetDataUrl,
   stickerAssetFitsBudget,
-  type HomeLayoutAsset,
-  type HomeLayoutAssetMap,
 } from './homeLayoutTransfer'
 
 export type StickerAssetFetch = (

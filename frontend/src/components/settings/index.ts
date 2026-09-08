@@ -13,12 +13,22 @@ export type {
   DateRangePopoverProps,
 } from './DateRangePopover'
 export {
+  fetchGithubStarCount,
+  formatStarCount,
+  githubRepoUrl,
+  isGithubRepoUrl,
+  parseGithubRepoUrl,
+} from './githubProject'
+export type { GithubRepoRef } from './githubProject'
+export { GitHubProjectBadge } from './GitHubProjectBadge'
+export type { GitHubProjectBadgeProps } from './GitHubProjectBadge'
+export {
   getSettingGuidesCatalog,
-  loadSettingGuidesCatalog,
   getTappPermissionGuide,
   getTappPermissionGuides,
   guideAnchorId,
   guideDomProps,
+  loadSettingGuidesCatalog,
   scheduleScrollToSettingGuide,
   scrollToSettingGuide,
   SettingGuideBody,
@@ -59,11 +69,11 @@ export type {
 export { FieldSelect } from './items/FieldSelect'
 export { InputItem } from './items/InputItem'
 export { NumberGroupItem } from './items/NumberGroupItem'
+
 export { NumberItem } from './items/NumberItem'
 export { ProviderItem } from './items/ProviderItem'
 export { SelectItem } from './items/SelectItem'
 export { SettingsButton } from './items/SettingsButton'
-
 export type {
   SettingsButtonProps,
   SettingsButtonSize,
@@ -172,16 +182,6 @@ export type {
   SettingTitleTagProps,
   SettingTitleTagVariant,
 } from './SettingTitleTag'
-export { GitHubProjectBadge } from './GitHubProjectBadge'
-export type { GitHubProjectBadgeProps } from './GitHubProjectBadge'
-export {
-  fetchGithubStarCount,
-  formatStarCount,
-  githubRepoUrl,
-  isGithubRepoUrl,
-  parseGithubRepoUrl,
-} from './githubProject'
-export type { GithubRepoRef } from './githubProject'
 export { SetupFlow } from './SetupFlow'
 
 export type { SetupFlowProps, SetupFlowStep } from './SetupFlow'

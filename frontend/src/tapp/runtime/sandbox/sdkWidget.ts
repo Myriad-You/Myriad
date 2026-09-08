@@ -7,13 +7,13 @@
 
 import type { TappInstance } from '../../types'
 import { ASSET_URL_HELPER_SOURCE } from './assetUrlRewriter'
-import { serializeSandboxScriptValue } from './security'
 import {
   DOM_HELPERS_CODE,
   FILE_DOWNLOAD_METHOD_CODE,
   generateStorageKeyValidator,
   sdkRequestTimeoutHelper,
 } from './sdkShared'
+import { serializeSandboxScriptValue } from './security'
 
 /**
  * Widget SDK 模板缓存：同一 Tapp（id/name/version/permissions/caps）只拼装一次大字符串，

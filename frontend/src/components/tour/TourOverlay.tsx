@@ -1,4 +1,5 @@
 import type { TourPlacement } from './tourLogic'
+import { LuArrowRight, LuCheck, LuChevronLeft } from '@lib/icons'
 import {
   useCallback,
   useEffect,
@@ -10,7 +11,6 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { LuArrowRight, LuCheck, LuChevronLeft } from '@lib/icons'
 import { useI18n } from '../../contexts/I18nContext'
 import { dispatchAgentPanelClose } from '../agent-panel/agentPanelEvents'
 import { subscribeAgentPanelVisible } from '../agent-panel/agentPanelVisible'

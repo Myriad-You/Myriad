@@ -95,9 +95,9 @@ export type {
   TaskInfo,
   TaskPreset,
   TaskPresetListResponse,
-  TaskStepHistoryItem,
   // 任务
   TaskStatus,
+  TaskStepHistoryItem,
   ThinkingTokenEvent,
   WaitCondition,
   WaitingForInputEvent,

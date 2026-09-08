@@ -67,8 +67,8 @@ import {
   stopTurnSpeech,
   turnSpeechAlreadyFed,
 } from '../../features/merope/engineFace'
-import { interruptAgoraConversation, stopAgoraConversation } from '../../features/merope/speech/agoraConversation'
 import { playbackDirection, retainPlaybackDirection, startPlaybackDirection } from '../../features/merope/motion/playbackDirectionHost'
+import { interruptAgoraConversation, stopAgoraConversation } from '../../features/merope/speech/agoraConversation'
 import { bindRealtimeChat } from '../../features/merope/speech/realtimeChat'
 import {
   beginTurnTrace,

@@ -3,9 +3,9 @@
  * Sibling of WidgetGrid — the page that owns edit mode mounts both.
  */
 
-import type { HomeEditTourDockPose } from './tour/tourLogic'
 import type { TappCategory } from '../tapp/types'
 import type { HomeLayoutMode } from '../utils/homeLayout'
+import type { HomeEditTourDockPose } from './tour/tourLogic'
 import type { WidgetType } from './widgetGridTypes'
 import type { WidgetLibraryKindFilter } from './widgetLibrarySearch'
 import { FaSearch, FaTimes } from '@lib/icons'

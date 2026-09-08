@@ -174,4 +174,3 @@ export const FILE_DOWNLOAD_METHOD_CODE = `download: function(contentOrOptions, f
 export function generateStorageKeyValidator(): string {
   return STORAGE_KEY_VALIDATOR_CODE
 }
-

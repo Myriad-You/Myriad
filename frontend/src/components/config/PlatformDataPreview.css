@@ -44,6 +44,7 @@
   background: color-mix(in srgb, var(--cfg-accent) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--cfg-accent) 24%, transparent);
 }
+
 html.dark .platform-data-preview-level {
   color: #fff;
 }

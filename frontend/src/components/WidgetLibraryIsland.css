@@ -196,6 +196,7 @@ html.dark .widget-library-search-clear:hover {
 .widget-library-stage-root {
   position: fixed;
   inset: 0;
+
   /* Above GCP bar (9999). Ghost portals to body at 10001. */
   z-index: 10000;
   overflow: visible;
@@ -363,6 +364,7 @@ html.dark .widget-library-stage-badge img {
   position: relative;
   overflow: hidden;
   border-radius: 16px;
+
   /* Same fill as WidgetShell .glass; inner glass is stripped so scale
      does not double-stack frost. Catalog drop-shadow stays here. */
   background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));

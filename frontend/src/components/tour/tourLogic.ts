@@ -1,5 +1,4 @@
 import type { GuideRect } from '../settings/settingTitleGuideLogic'
-import { getAgentPanelVisible } from '../agent-panel/agentPanelVisible'
 import type {
   TourAudience,
   TourDefinition,
@@ -14,6 +13,7 @@ import {
   predictExpandedControlPanelBox,
   predictRestoredLibraryDockBox,
 } from '../../utils/libraryDockStage'
+import { getAgentPanelVisible } from '../agent-panel/agentPanelVisible'
 import { expandCollapsibleAncestors } from '../settings/guides/guideAnchor'
 import { clamp } from '../settings/settingTitleGuideLogic'
 

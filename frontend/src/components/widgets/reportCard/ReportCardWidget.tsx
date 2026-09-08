@@ -15,10 +15,10 @@ import {
   resolveReportPlatformId,
 } from '../../../utils/reportCardVisuals'
 import { getLatestReportDeduped } from '../../../utils/requestDedup'
+import { widgetDisplayLabel } from '../../widgetLibraryModel'
 import { GlowBackground } from '../shared/GlowBackground'
 import { WidgetLongPressHint } from '../shared/WidgetLongPressHint'
 import { WidgetShell } from '../shared/WidgetShell'
-import { widgetDisplayLabel } from '../../widgetLibraryModel'
 import { WidgetSkeletonCover } from '../shared/WidgetSkeleton'
 import { CardLogoPill } from './CardLogoPill'
 import { PLATFORM_CONFIG } from './platformConfig'

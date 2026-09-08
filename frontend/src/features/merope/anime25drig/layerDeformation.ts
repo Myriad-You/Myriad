@@ -44,8 +44,9 @@ export function resolveAnime25DUpstreamFeature(
   if (
     (source.role === 'eye-close' || source.role === 'eye-close2') &&
     hasEyeAnchor
-  )
+  ) {
     return 'eye-close'
+}
   if (source.fade === 'eyeOpen' && hasEyeAnchor) {
     return source.role === 'irides' ? 'eye-open-iris' : 'eye-open-lid'
   }

@@ -1,3 +1,4 @@
+import type { TappInstance } from './types'
 /**
  * Gating consistency between Tapp developer docs and shipped code.
  *
@@ -9,19 +10,18 @@ import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { describe, it } from 'node:test'
-import { fileURLToPath } from 'node:url'
 
+import { fileURLToPath } from 'node:url'
+import { classifyWidgetLibraryKind } from '../components/widgetLibrarySearch.ts'
 import { PERMISSION_LEVELS } from './runtime/permissionConfig.ts'
 import {
   generateFullSDK,
   generateWidgetSDK,
 } from './runtime/sandbox/sdkGenerator.ts'
-import type { TappInstance } from './types'
 import {
   storeAssetStorePath,
   storePackageRoot,
 } from './utils/storePackagePaths.ts'
-import { classifyWidgetLibraryKind } from '../components/widgetLibrarySearch.ts'
 import {
   normalizeTappCategory,
   TAPP_CATEGORIES,
@@ -483,7 +483,7 @@ describe('tapp docs gating consistency', () => {
     const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
     const section = manifest.split('## 权限列表')[1] ?? ''
     const tokens = [
-      ...section.matchAll(/^\|\s*`([a-zA-Z0-9:]+)`\s*\|/gm),
+      ...section.matchAll(/^\|\s*`([a-z0-9:]+)`\s*\|/gim),
     ].map((m) => m[1])
     assert.deepEqual(
       [...tokens].sort(),
@@ -501,7 +501,7 @@ describe('tapp docs gating consistency', () => {
     )
     const fullFn = gen.slice(gen.indexOf('export function generateFullSDK'))
     const frozen = [
-      ...fullFn.matchAll(/Object\.freeze\(Tapp\.([A-Za-z0-9_]+)/g),
+      ...fullFn.matchAll(/Object\.freeze\(Tapp\.(\w+)/g),
     ].map((m) => m[1])
     const frozenNs = [...new Set(frozen)]
     assert.ok(frozenNs.includes('game'), 'generateFullSDK must freeze Tapp.game')
@@ -534,7 +534,7 @@ describe('tapp docs gating consistency', () => {
     const cap = apiRef.split('## 能力边界与完整命名空间')[1] ?? ''
     const capUntilNext = cap.split(/^## /m)[0] ?? cap
     const missing = frozenNs.filter(
-      (ns) => !new RegExp('`' + ns + '`').test(capUntilNext),
+      (ns) => !new RegExp(`\`${ns}\``).test(capUntilNext),
     )
     assert.deepEqual(
       missing,
@@ -575,7 +575,7 @@ describe('tapp docs gating consistency', () => {
           const start = Math.max(0, (m.index ?? 0) - 40)
           const ctx = text.slice(start, (m.index ?? 0) + m[0].length + 40)
           if (
-            /拒绝|已移除|不要再声明|退役|instead|历史文档|旧 \`|upgrade|升级说明|不会被解码|明确拒绝/i.test(
+            /拒绝|已移除|不要再声明|退役|instead|历史文档|旧 `|upgrade|升级说明|不会被解码|明确拒绝/i.test(
               ctx,
             )
           ) {

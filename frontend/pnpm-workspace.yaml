@@ -20,17 +20,17 @@ trustPolicyExclude:
 overrides:
   brace-expansion: '>=5.0.9'
   chokidar: '>=5.0.0'
-  fast-uri: '>=3.1.5'
+  fast-uri: '>=4.1.3'
   nanoid: 3.3.18
   postcss: '>=8.5.23'
   semver: '>=7.8.5'
   svgo: '>=4.0.2'
   ua-parser-js: 0.7.41
-onlyBuiltDependencies:
-  - esbuild
-  - sharp
 # React 19: motion.div 把 [MeasureLayout, html] 无 key 塞进 Context，开发态会报
 # "Each child in a list should have a unique key" / <Context> ← ForwardRef(motion.div)。
 # 上游未修。升级 motion 后若 patch 对不上，重打这一处即可。
 patchedDependencies:
   framer-motion@12.43.0: patches/framer-motion@12.43.0.patch
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

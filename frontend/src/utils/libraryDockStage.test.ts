@@ -12,8 +12,6 @@ import {
   CONTROL_PANEL_MOBILE_INSET_REM,
   CONTROL_PANEL_MOBILE_MAX_PX,
   fallbackControlPanelEdge,
-  predictCollapsedControlPanelBox,
-  predictExpandedControlPanelBox,
   LIBRARY_BESIDE_PANEL_GAP_REM,
   LIBRARY_DOCK_BOTTOM_REM,
   LIBRARY_DOCK_CHROME_ATTR,
@@ -26,12 +24,14 @@ import {
   libraryBesidePanelBox,
   libraryDockIslandBoxStyle,
   libraryDockIslandSize,
-  predictRestoredLibraryDockBox,
   libraryDockStageBadgePos,
   libraryDockStageLeft,
   libraryDockStageOffset,
   libraryDockStageTransform,
   libraryDockStageVisualSize,
+  predictCollapsedControlPanelBox,
+  predictExpandedControlPanelBox,
+  predictRestoredLibraryDockBox,
 } from './libraryDockStage'
 
 describe('libraryDockStageTransform', () => {

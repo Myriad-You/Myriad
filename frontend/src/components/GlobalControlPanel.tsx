@@ -37,19 +37,7 @@ import { useNotificationCenter } from '../hooks/useNotificationCenter'
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { useWallpaper } from '../hooks/useWallpaper'
-import {
-  getTourSnapshot,
-  subscribeTour,
-} from './tour/tourEngine'
-import { homeBrowseTourPanelPose } from './tour/tourLogic'
 import { getDynamicContentProvider } from '../services/DynamicContentProvider'
-import {
-  allowsIslandType,
-  DEFAULT_ISLAND_CONTENT,
-  ISLAND_CONTENT_CHANGED_EVENT,
-  islandContentFromPublicUi,
-} from '../utils/islandContent'
-import { CONTROL_PANEL_HEIGHT_COMPENSATION } from '../utils/libraryDockStage'
 import {
   notificationSourceFor,
   notificationToastType,
@@ -62,6 +50,13 @@ import {
   getWeatherInfo,
   WEATHER_ICON_ASSETS,
 } from '../utils/dynamicContent'
+import {
+  allowsIslandType,
+  DEFAULT_ISLAND_CONTENT,
+  ISLAND_CONTENT_CHANGED_EVENT,
+  islandContentFromPublicUi,
+} from '../utils/islandContent'
+import { CONTROL_PANEL_HEIGHT_COMPENSATION } from '../utils/libraryDockStage'
 import { formatMusicError } from '../utils/musicError'
 import {
   getNavLayoutSnapshot,
@@ -101,6 +96,11 @@ import {
   NotificationSourceIcon,
   notificationSourceIconAsset,
 } from './notifications/NotificationIcons'
+import {
+  getTourSnapshot,
+  subscribeTour,
+} from './tour/tourEngine'
+import { homeBrowseTourPanelPose } from './tour/tourLogic'
 import { WeatherAssetIcon } from './weather/WeatherAssetIcon'
 import './GlobalControlPanel.css'
 

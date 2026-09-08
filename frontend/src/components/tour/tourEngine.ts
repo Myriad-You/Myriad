@@ -1,6 +1,5 @@
-import type { TourDefinition, TourStepDef } from './tourTypes'
+import type { TourDefinition, TourStepDef, TourSurfacePick } from './tourTypes'
 import { markTourDone } from './tourDone'
-import type { TourSurfacePick } from './tourTypes'
 import {
   firstVisibleIndex,
   isTourStepAvailable,

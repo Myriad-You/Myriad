@@ -25,7 +25,7 @@ export function sameOriginPortraitUrl(
     value.length > 512 ||
     value.includes(':') ||
     value.includes('..') ||
-    /[\s\u0000-\u001f]/.test(value)
+    /[\s\u0000-\u001F]/.test(value)
   ) {
     return null
   }

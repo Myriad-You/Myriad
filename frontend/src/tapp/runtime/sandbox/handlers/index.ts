@@ -42,5 +42,5 @@ export {
   registerPlatformHandlers,
   registerWidgetHandlers,
 } from './platformHandlers'
-export { registerWidgetInvalidateTargetHandler } from './widgetInvalidateTargetHandler'
 export { registerSchedulerHandlers } from './schedulerHandlers'
+export { registerWidgetInvalidateTargetHandler } from './widgetInvalidateTargetHandler'

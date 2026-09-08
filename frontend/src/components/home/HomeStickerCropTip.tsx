@@ -1,5 +1,6 @@
 import type { RefObject } from 'react'
 import type { StickerFloatMode } from '../widgets/StickerWidget'
+import { useI18n } from '../../contexts/I18nContext'
 import {
   WidgetSettingsAction,
   WidgetSettingsChoice,
@@ -7,7 +8,6 @@ import {
   WidgetSettingsSection,
   WidgetSettingsTip,
 } from '../widgets/shared/WidgetSettingsTip'
-import { useI18n } from '../../contexts/I18nContext'
 
 export interface HomeStickerCropTipProps {
   open: boolean

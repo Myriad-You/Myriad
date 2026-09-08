@@ -5,8 +5,8 @@
  */
 
 import type { CSSProperties } from 'react'
-import type { WidgetComponentProps } from '../widgetGridTypes'
 import type { GithubRepoCardData } from '../../utils/githubRepo'
+import type { WidgetComponentProps } from '../widgetGridTypes'
 import { FaGithub, LuGitFork, LuStar } from '@lib/icons'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'

@@ -10,6 +10,7 @@
 
 import type { AgentAttachment } from './agentAttachments'
 import type { AgentPanelFullView } from './AgentPanelFull'
+import type { AgentPanelMode } from './agentPanelMode'
 import type { AgentPanelPhase, AgentPanelStage } from './agentPanelStage'
 import React, {
   useCallback,
@@ -39,7 +40,6 @@ import {
 } from './agentPanelEvents'
 import { AgentPanelFull, AgentPanelSessionChrome } from './AgentPanelFull'
 import { AgentPanelIntention } from './AgentPanelIntention'
-import type { AgentPanelMode } from './agentPanelMode'
 import {
   cycleAgentPanelMode,
   setAgentPanelMode,

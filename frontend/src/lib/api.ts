@@ -4,6 +4,7 @@ import axios from 'axios'
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
 import { parseApiErrorBody } from '../services/api'
+import { aiRequestTimeoutMs } from '../utils/aiRequestTimeout.mjs'
 import { clearCSRFToken, getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
 import {
   formatRateLimitMessage,
@@ -11,7 +12,6 @@ import {
 } from '../utils/httpRateLimitToast'
 import { checkRateLimit, RateLimitError } from '../utils/rateLimiter'
 import TokenManager from '../utils/tokenManager'
-import { aiRequestTimeoutMs } from '../utils/aiRequestTimeout.mjs'
 import { isUselessErrorText, userFacingError } from '../utils/userFacingError'
 
 // 智能 API URL 检测（与 config.ts 保持一致）

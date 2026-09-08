@@ -550,7 +550,7 @@ test('125 combined poses keep the neck mesh unfolded and its lower join near the
           const a = at(x, y, neckBinding, pose)
           const b = at(x, y, bodyBinding, pose)
           assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < neck.w * 0.04,
-            `join drift at ${yaw},${pitch},${roll}: ${Math.hypot(a.x-b.x,a.y-b.y)}`)
+            `join drift at ${yaw},${pitch},${roll}: ${Math.hypot(a.x - b.x, a.y - b.y)}`)
         }
       }
     }

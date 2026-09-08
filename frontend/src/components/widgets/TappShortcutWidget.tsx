@@ -305,7 +305,6 @@ const GlobalSettingsModal = memo(() => {
     }
   }, [isOpen, tw.loadFailed])
 
-
   const handleSelect = useCallback(
     (tappId: string) => {
       onSelect?.(tappId)

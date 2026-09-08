@@ -25,7 +25,7 @@ const MIME_BY_EXT: Record<string, string> = {
   webp: 'image/webp',
 }
 
-export type HostDownloadRef = {
+export interface HostDownloadRef {
   path: string
   defaultFilename: string
   mimeType: string
@@ -113,7 +113,7 @@ export function defaultDownloadFilename(
   return 'download.bin'
 }
 
-export type FileDownloadOptions = {
+export interface FileDownloadOptions {
   content?: string
   url?: string
   base64?: string

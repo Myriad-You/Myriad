@@ -251,10 +251,11 @@ test('transparent padding preserves the world-space join and contour', () => {
     f.neck.y + expected.fadeStart * f.neck.h)
   assert.equal(padded.y + actual.fadeEnd * padded.h,
     f.neck.y + expected.fadeEnd * f.neck.h)
-  for (let i = 0; i < 32; i++) assert.ok(Math.abs(
+  for (let i = 0; i < 32; i++) { assert.ok(Math.abs(
     padded.y + actual.contour.bands[i] * padded.h -
     f.neck.y - expected.contour.bands[i] * f.neck.h,
   ) < 0.00002)
+}
 })
 
 test('resampling and mild colour noise do not switch open skin into garment topology', () => {

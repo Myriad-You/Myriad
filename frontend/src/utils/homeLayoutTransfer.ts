@@ -7,15 +7,15 @@
  */
 
 import type { WidgetConfig, WidgetSize } from '../components/widgetGridTypes'
+import type { HomeDashboardLayouts, HomeLayoutMode } from './homeLayout'
+import { Buffer } from 'node:buffer'
 import {
+  cloneHomeWidgets,
   HOME_FREE_ROWS,
   HOME_STANDARD_COLS,
   HOME_STANDARD_ROWS,
   HOME_STICKER_TYPE,
-  cloneHomeWidgets,
   parseHomeLayoutMode,
-  type HomeDashboardLayouts,
-  type HomeLayoutMode,
 } from './homeLayout'
 import {
   STICKER_EXTRA_SIZE_KEYS,
@@ -461,7 +461,9 @@ function sanitizeTile(
   if (config) {
     if (sticker && typeof config.imageUrl === 'string') {
       const url = config.imageUrl.trim()
-      if (url.startsWith('data:')) delete config.imageUrl
+      if (url.startsWith('data:')) {
+        delete config.imageUrl
+      }
       else {
         const canonical = canonicalStickerImageUrl(url)
         if (canonical) config.imageUrl = canonical
@@ -518,16 +520,16 @@ export function sniffStickerImage(bytes: Uint8Array): HomeLayoutAssetMime | null
     bytes.length >= 8 &&
     bytes[0] === 0x89 &&
     bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
+    bytes[2] === 0x4E &&
     bytes[3] === 0x47
   ) {
     return 'image/png'
   }
   if (
     bytes.length >= 3 &&
-    bytes[0] === 0xff &&
-    bytes[1] === 0xd8 &&
-    bytes[2] === 0xff
+    bytes[0] === 0xFF &&
+    bytes[1] === 0xD8 &&
+    bytes[2] === 0xFF
   ) {
     return 'image/jpeg'
   }

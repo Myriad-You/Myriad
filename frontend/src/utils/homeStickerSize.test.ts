@@ -3,7 +3,6 @@ import { describe, it } from 'node:test'
 import {
   placeHomeStickerSelection,
   snapHomeStickerSize,
-  stickerAspectKey,
   stickerPixelSize,
   stickerSizesSharingAspect,
 } from './homeStickerSize.ts'

@@ -8,9 +8,9 @@ import type {
 } from './onboardingTypes'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
+import { seedWardrobeFromIdentity } from '../../../features/merope/wardrobe'
 import { agentService } from '../../../services/agent'
 import { invalidatePublicConfigCache } from '../../../utils/requestDedup'
-import { seedWardrobeFromIdentity } from '../../../features/merope/wardrobe'
 import {
   CHOICE_STEP,
   CLOTHING_STYLE_OPTIONS,

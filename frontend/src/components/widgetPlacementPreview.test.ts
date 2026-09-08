@@ -1,14 +1,14 @@
+import type { WidgetType } from './widgetGridTypes'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import type { WidgetType } from './widgetGridTypes'
 import {
   coveringWidgetId,
   dragGhostContentSize,
   dragGhostExitMs,
   dragGhostHandoffDelays,
+  dragGhostSettleWaitMs,
   dragGhostSitMs,
   gridCellFromPoint,
-  dragGhostSettleWaitMs,
   heldWidgetId,
   placementHasCommitted,
   resolveDragGhostWidget,

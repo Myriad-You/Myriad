@@ -413,7 +413,7 @@ function applyEffectiveSeo(): void {
   const keywords = base.site_keywords.trim()
   upsertMetaByName('keywords', keywords || null)
   const gsc = base.google_site_verification.trim()
-  const gscSafe = /^[A-Za-z0-9_-]{1,128}$/.test(gsc) ? gsc : ''
+  const gscSafe = /^[\w-]{1,128}$/.test(gsc) ? gsc : ''
   upsertMetaByName('google-site-verification', gscSafe || null)
   upsertMetaByName('robots', noindex ? 'noindex, nofollow' : 'index, follow')
 

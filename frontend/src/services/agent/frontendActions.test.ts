@@ -6,12 +6,12 @@
  */
 
 import type { FrontendActionType } from './types.ts'
-import { frontendActionDedupeKey } from './frontendActions.ts'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { frontendActionDedupeKey } from './frontendActions.ts'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 

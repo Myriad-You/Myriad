@@ -48,22 +48,22 @@
       var(--sticker-sway-delay, 0s) ease-in-out infinite;
   }
 
-  .sticker-widget.is-float-hover:not(.is-float-loop):not(.is-edit)
+  .sticker-widget.is-float-hover:not(.is-float-loop, .is-edit)
     .sticker-widget__bob,
-  .sticker-widget.is-float-hover:not(.is-float-loop):not(.is-edit)
+  .sticker-widget.is-float-hover:not(.is-float-loop, .is-edit)
     .sticker-widget__sway {
     transition: transform 0.45s ease;
   }
 
   .widget-grid-item--sticker:hover
-    .sticker-widget.is-float-hover:not(.is-float-loop):not(.is-edit)
+    .sticker-widget.is-float-hover:not(.is-float-loop, .is-edit)
     .sticker-widget__bob {
     will-change: transform;
     animation: sticker-bob var(--sticker-bob-dur, 5s) 0s ease-in-out infinite;
   }
 
   .widget-grid-item--sticker:hover
-    .sticker-widget.is-float-hover:not(.is-float-loop):not(.is-edit)
+    .sticker-widget.is-float-hover:not(.is-float-loop, .is-edit)
     .sticker-widget__sway {
     will-change: transform;
     animation: sticker-sway var(--sticker-sway-dur, 7s) 0s ease-in-out infinite;

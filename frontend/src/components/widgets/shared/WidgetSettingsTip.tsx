@@ -1,4 +1,5 @@
 import type { ReactNode, RefObject } from 'react'
+import type { GuidePlacement } from '../../settings/settingTitleGuideLogic'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
@@ -13,7 +14,7 @@ import {
 } from '../../settings/motion'
 import {
   computeGuidePosition,
-  type GuidePlacement,
+
 } from '../../settings/settingTitleGuideLogic'
 import './WidgetSettingsTip.css'
 
@@ -197,10 +198,7 @@ export function WidgetSettingsTip({
       setPresent(true)
       return
     }
-    const timer = window.setTimeout(
-      () => setPresent(false),
-      SETTINGS_DURATION_MS.base,
-    )
+    const timer = window.setTimeout(setPresent, SETTINGS_DURATION_MS.base, false)
     return () => window.clearTimeout(timer)
   }, [open])
 

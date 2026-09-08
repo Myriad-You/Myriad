@@ -5,8 +5,8 @@ import {
   scheduleScrollToSettingGuide,
   scrollToSettingGuide,
 } from '../../settings/guides/guideAnchor'
-import MyriadConfigIcon from '../MyriadConfigIcon'
 import { refreshConfigTourSurface } from '../../tour/tourLogic'
+import MyriadConfigIcon from '../MyriadConfigIcon'
 import {
   loadConfigNavPersisted,
   resolveInitialConfigSection,

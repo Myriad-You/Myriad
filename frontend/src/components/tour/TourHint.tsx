@@ -1,19 +1,20 @@
+import type { AnimationEvent } from 'react'
+import { LuArrowRight, LuX } from '@lib/icons'
 import {
+
   useEffect,
   useRef,
   useState,
   useSyncExternalStore,
-  type AnimationEvent,
 } from 'react'
 import { useLocation } from 'react-router-dom'
-import { LuArrowRight, LuX } from '@lib/icons'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
+import { getCurrentMetadata } from '../../utils/siteMetadata'
 import {
   prefersReducedMotion,
   SETTINGS_DURATION_MS,
 } from '../settings/motion'
-import { getCurrentMetadata } from '../../utils/siteMetadata'
 import {
   getTourDoneSnapshot,
   isTourDone,
@@ -27,13 +28,16 @@ import {
   subscribeTour,
 } from './tourEngine'
 import {
+  shouldAutoHideTourHint,
+  TOUR_HINT_AUTO_HIDE_MS,
+} from './tourHintLogic'
+import {
   fillTourHint,
   getConfigTourSurface,
   getLibraryTourSurfaceSnapshot,
+  isHomeEditSurface,
   isTourStepAvailable,
   LIBRARY_FILTER_EXPAND_WAIT_MS,
-  waitForTourAnchor,
-  isHomeEditSurface,
   pageNameForPath,
   readTourSurface,
   refreshConfigTourSurface,
@@ -42,11 +46,8 @@ import {
   subscribeConfigTourSurface,
   subscribeHomeEditSurface,
   subscribeLibraryCanvasTourSurface,
+  waitForTourAnchor,
 } from './tourLogic'
-import {
-  shouldAutoHideTourHint,
-  TOUR_HINT_AUTO_HIDE_MS,
-} from './tourHintLogic'
 import { pickRegisteredTour } from './tourRegistry'
 import './TourHint.css'
 

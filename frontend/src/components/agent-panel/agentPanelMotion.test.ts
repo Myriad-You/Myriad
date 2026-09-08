@@ -524,7 +524,7 @@ describe('agent panel motion contract', () => {
     )
     assert.match(
       css,
-      /html:not\(\[data-surface='solid'\]\):not\(\[data-surface='liquid'\]\)\s*\n\s*\.agent-panel-overlay-anchor \{[\s\S]*?--surface-alpha:\s*92%/,
+      /html:not\(\[data-surface='solid'\]\):not\(\[data-surface='liquid'\]\)[\t\v\f\r \xA0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]*\n\s*\.agent-panel-overlay-anchor \{[\s\S]*?--surface-alpha:\s*92%/,
     )
     assert.match(
       css,
