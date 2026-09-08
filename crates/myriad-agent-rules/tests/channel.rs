@@ -882,6 +882,28 @@ fn structured_result_becomes_readable_text() {
 }
 
 #[test]
+fn chat_envelope_is_not_dumped_as_key_value() {
+    let with_message = format_channel_result(
+        "pong，我在。",
+        Some(&serde_json::json!({ "reply": "pong，我在。", "type": "chat" })),
+        None,
+    );
+    assert_eq!(with_message, "pong，我在。");
+    let reply_only = format_channel_result(
+        "",
+        Some(&serde_json::json!({
+            "reply": "你好。",
+            "type": "chat",
+            "mode": "chat"
+        })),
+        None,
+    );
+    assert_eq!(reply_only, "你好。");
+    assert!(!reply_only.contains("type"));
+    assert!(!reply_only.contains("mode"));
+}
+
+#[test]
 fn channel_commands_are_exact_tokens() {
     assert_eq!(parse_channel_command("停止"), Some(ChannelCommand::Stop));
     assert_eq!(

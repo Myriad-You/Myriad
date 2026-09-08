@@ -1565,6 +1565,17 @@ pub fn format_channel_result(
     data_display: Option<&serde_json::Value>,
 ) -> String {
     let message = message.trim();
+    // Chat answers already put the user-facing text in `message` (and mirror it
+    // under `data.reply`). Dumping the envelope would produce:
+    //   pong
+    //
+    //   reply：pong
+    //   type：chat
+    let message = if message.is_empty() {
+        chat_envelope_reply(data).unwrap_or("")
+    } else {
+        message
+    };
     let extra = format_data_display(data, data_display);
     match (message.is_empty(), extra.is_empty()) {
         (true, true) => String::new(),
@@ -1574,10 +1585,32 @@ pub fn format_channel_result(
     }
 }
 
+/// Site chat payload: `{ "reply": "...", "type": "chat", ... }`. Not a table.
+fn chat_envelope_reply(data: Option<&serde_json::Value>) -> Option<&str> {
+    let obj = data?.as_object()?;
+    if obj.get("type").and_then(|value| value.as_str()) != Some("chat") {
+        return None;
+    }
+    obj.get("reply")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+}
+
 fn format_data_display(
     data: Option<&serde_json::Value>,
     display: Option<&serde_json::Value>,
 ) -> String {
+    // Do not pretty-print chat envelopes — `message` / `data.reply` already hold
+    // the line the user should see.
+    if chat_envelope_reply(data).is_some()
+        || data
+            .and_then(|value| value.get("type"))
+            .and_then(|value| value.as_str())
+            == Some("chat")
+    {
+        return String::new();
+    }
     let Some(display) = display else {
         return format_value_preview(data, 12);
     };
