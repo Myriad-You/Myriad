@@ -117,11 +117,13 @@ impl ChannelSink {
                 inbound_msg_id: None,
                 passive_window_open: false,
                 remaining_passive_replies: 0,
+                typing: true,
             },
             Self::Qq { inbound_msg_id, .. } => DeliveryContext {
                 inbound_msg_id: inbound_msg_id.clone(),
                 passive_window_open: inbound_msg_id.as_ref().is_some_and(|id| !id.is_empty()),
                 remaining_passive_replies: 4,
+                typing: false,
             },
         }
     }
@@ -1210,6 +1212,18 @@ async fn deliver_run(
                 }
                 if let Some((event, parked)) = map_progress(&envelope.event, &original_input, &sink.capabilities()) {
                     save_cursor(&db, platform, user_id, &session_key, &run_id, envelope.sequence).await;
+                    if let ChannelEvent::TaskStarted { .. } = event {
+                        match plan_delivery(&event, &sink.delivery_context()) {
+                            DeliveryPlan::PassiveText { content, .. }
+                            | DeliveryPlan::ActiveText { content, .. } => {
+                                if let Err(error) = sink.send_text(&content).await {
+                                    warn!(%error, "channel task-start notice failed");
+                                }
+                            }
+                            DeliveryPlan::Drop | DeliveryPlan::FailVisible { .. } => {}
+                        }
+                        continue;
+                    }
                     if let Some(prompt) = parked.as_ref() {
                         save_pending(
                             &db,
@@ -1329,6 +1343,12 @@ pub(crate) fn map_progress(
         AgentProgressEvent::TaskCompleted { response, .. } => {
             Some(map_completed(response, original_input, caps))
         }
+        AgentProgressEvent::TaskCreated { total_steps, .. } => Some((
+            ChannelEvent::TaskStarted {
+                total_steps: *total_steps,
+            },
+            None,
+        )),
         AgentProgressEvent::StepCompleted {
             frontend_actions, ..
         } if !frontend_actions.is_empty() => Some((ChannelEvent::FrontendAction, None)),
@@ -1341,7 +1361,6 @@ pub(crate) fn map_progress(
         | AgentProgressEvent::SessionCreated { .. }
         | AgentProgressEvent::SessionTitleUpdated { .. }
         | AgentProgressEvent::SummaryToken { .. }
-        | AgentProgressEvent::TaskCreated { .. }
         | AgentProgressEvent::TaskAssigned { .. }
         | AgentProgressEvent::PlannerDecision { .. }
         | AgentProgressEvent::StepDebug { .. }
@@ -1559,6 +1578,23 @@ mod tests {
 
     fn telegram_caps() -> myriad_agent_rules::channel::ChannelCapabilities {
         telegram_dm_capabilities()
+    }
+
+    #[test]
+    fn task_created_becomes_a_start_notice_and_keeps_the_turn_open() {
+        let (event, parked) = map_progress(
+            &AgentProgressEvent::TaskCreated {
+                task_id: "task_1".into(),
+                message: String::new(),
+                total_steps: 3,
+                step_descriptions: Vec::new(),
+            },
+            "整理表格",
+            &qq_c2c_capabilities(),
+        )
+        .expect("task start is mapped");
+        assert_eq!(event, ChannelEvent::TaskStarted { total_steps: 3 });
+        assert!(parked.is_none());
     }
 
     #[test]

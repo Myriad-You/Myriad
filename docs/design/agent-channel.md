@@ -144,7 +144,7 @@ Planner 先分流。`backend/src/services/agent/process_work.rs`
 | `text` | `answer` / `error` / `message` | 不能接 |
 | `interactive` | 澄清、确认、单选 | 一遇到确认就失败停住 |
 | `free_text_reply` | 自由文本 / 数值 / 日期 | 执行中提问接不住 |
-| `typing` | `progress` / `step_*` | 长任务像死了 |
+| `typing` | `progress` / `step_*` | 长任务像死了。没有 typing 的通道（QQ）在 `task_created` 时发一条开工提示顶替，`plan_delivery` 按 `DeliveryContext.typing` 分流 |
 | `message_edit` 或 `streaming_draft` | `summary_token` | 等 `done` 再整段发 |
 | `image` / `document` | `imageUrl`、表格降级 | 只剩一句「好了」 |
 | `frontend_action` | `frontendAction` | IM 声明 false；碰到就明确失败 |

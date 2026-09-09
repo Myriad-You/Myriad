@@ -51,6 +51,16 @@ pub const CHANNEL_STOP_REPLY: &str = "已停止当前办事。再发一句就是
 /// Reply after opening a fresh Work session on this chat.
 pub const CHANNEL_NEW_SESSION_REPLY: &str = "已开新对话。之前的待答作废。";
 
+/// One-line notice when a multi-step task starts on a chat that has no
+/// typing indicator. Without it a long task looks dead.
+pub fn task_started_reply(total_steps: u32) -> String {
+    if total_steps > 1 {
+        format!("已开始办事，共 {total_steps} 步，完成后在这里回复。发「当前任务」看进度，「停止」取消。")
+    } else {
+        "已开始办事，完成后在这里回复。发「当前任务」看进度，「停止」取消。".to_string()
+    }
+}
+
 /// First-cut QQ C2C text cap. Conservative so a long result can be split.
 pub const QQ_TEXT_LIMIT: usize = 2000;
 
@@ -200,7 +210,8 @@ pub fn channel_can_finish(caps: &ChannelCapabilities, event: &ChannelEvent) -> b
         ChannelEvent::ThinkingToken
         | ChannelEvent::StepStarted
         | ChannelEvent::StepCompleted
-        | ChannelEvent::Progress => true,
+        | ChannelEvent::Progress
+        | ChannelEvent::TaskStarted { .. } => true,
     }
 }
 
@@ -400,6 +411,10 @@ pub enum ChannelEvent {
     StepStarted,
     StepCompleted,
     Progress,
+    /// A multi-step task was created; the turn is still running.
+    TaskStarted {
+        total_steps: u32,
+    },
     Answer {
         message: String,
         image_urls: Vec<String>,
@@ -411,12 +426,14 @@ pub enum ChannelEvent {
     FrontendAction,
 }
 
-/// Passive window leftover from the inbound C2C message.
+/// Passive window leftover from the inbound C2C message, plus whether the
+/// transport can show a typing indicator while the turn runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryContext {
     pub inbound_msg_id: Option<String>,
     pub passive_window_open: bool,
     pub remaining_passive_replies: u8,
+    pub typing: bool,
 }
 
 /// What to send, swallow, or fail visibly.
@@ -460,7 +477,8 @@ fn send_text(content: String, image_urls: Vec<String>, ctx: &DeliveryContext) ->
     }
 }
 
-/// Map a finished-turn event onto a delivery plan. Process events are dropped.
+/// Map a finished-turn event onto a delivery plan. Process events are dropped;
+/// a task start is one short notice only where typing cannot stand in for it.
 /// Images ride with the final answer; confirmation / frontend-action failures stay text.
 pub fn plan_delivery(event: &ChannelEvent, ctx: &DeliveryContext) -> DeliveryPlan {
     match event {
@@ -468,6 +486,13 @@ pub fn plan_delivery(event: &ChannelEvent, ctx: &DeliveryContext) -> DeliveryPla
         | ChannelEvent::StepStarted
         | ChannelEvent::StepCompleted
         | ChannelEvent::Progress => DeliveryPlan::Drop,
+        ChannelEvent::TaskStarted { total_steps } => {
+            if ctx.typing {
+                DeliveryPlan::Drop
+            } else {
+                send_text(task_started_reply(*total_steps), Vec::new(), ctx)
+            }
+        }
         ChannelEvent::Answer {
             message,
             image_urls,

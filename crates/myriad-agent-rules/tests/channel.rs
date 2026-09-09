@@ -17,7 +17,7 @@ use myriad_agent_rules::channel::{
     parse_telegram_file_path, parse_telegram_ok_payload, parse_telegram_private_inbounds,
     parse_telegram_private_texts, pending_prompt_from_model_json, plan_delivery,
     qq_c2c_capabilities, qq_token_needs_refresh, session_key, should_deliver_sequence,
-    split_channel_text, telegram_callback_action, telegram_dm_capabilities,
+    split_channel_text, task_started_reply, telegram_callback_action, telegram_dm_capabilities,
     telegram_inline_keyboard, telegram_max_update_id, telegram_reply_markup, telegram_retry_after,
     telegram_worker_intent, truncate_telegram_text, worker_intent, ChannelCommand, ChannelEvent,
     ChannelImageRef, ConnectFailure, DeliveryContext, DeliveryPlan, InboundC2cText,
@@ -44,6 +44,7 @@ fn window(msg_id: &str) -> DeliveryContext {
         inbound_msg_id: Some(msg_id.to_string()),
         passive_window_open: true,
         remaining_passive_replies: 4,
+        typing: false,
     }
 }
 
@@ -277,6 +278,32 @@ fn thinking_and_step_events_are_not_sent() {
 }
 
 #[test]
+fn task_start_is_one_notice_only_without_typing() {
+    let qq = window("m4b");
+    assert_eq!(
+        plan_delivery(&ChannelEvent::TaskStarted { total_steps: 3 }, &qq),
+        DeliveryPlan::PassiveText {
+            content: task_started_reply(3),
+            msg_id: "m4b".into(),
+            image_urls: Vec::new(),
+        }
+    );
+    assert!(task_started_reply(3).contains("共 3 步"));
+    assert!(!task_started_reply(1).contains("步，"));
+
+    let typing = DeliveryContext {
+        inbound_msg_id: None,
+        passive_window_open: false,
+        remaining_passive_replies: 0,
+        typing: true,
+    };
+    assert_eq!(
+        plan_delivery(&ChannelEvent::TaskStarted { total_steps: 3 }, &typing),
+        DeliveryPlan::Drop
+    );
+}
+
+#[test]
 fn final_answer_becomes_one_c2c_text() {
     let plan = plan_delivery(
         &ChannelEvent::Answer {
@@ -475,6 +502,7 @@ fn missing_passive_window_sends_actively_including_without_inbound() {
         inbound_msg_id: Some("m7".into()),
         passive_window_open: false,
         remaining_passive_replies: 4,
+        typing: false,
     };
     assert_eq!(
         plan_delivery(
@@ -494,6 +522,7 @@ fn missing_passive_window_sends_actively_including_without_inbound() {
         inbound_msg_id: Some("m7".into()),
         passive_window_open: true,
         remaining_passive_replies: 0,
+        typing: false,
     };
     assert_eq!(
         plan_delivery(
@@ -512,6 +541,7 @@ fn missing_passive_window_sends_actively_including_without_inbound() {
         inbound_msg_id: None,
         passive_window_open: false,
         remaining_passive_replies: 0,
+        typing: false,
     };
     assert_eq!(
         plan_delivery(
