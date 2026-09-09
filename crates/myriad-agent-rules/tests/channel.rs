@@ -7,13 +7,14 @@
 use myriad_agent_rules::channel::{
     channel_can_finish, clarify_base_input, clarify_followup, classify_connect_failure,
     classify_discord_rest, classify_gateway_close, collect_channel_image_urls,
-    decide_pending_reply, discord_dm_capabilities, discord_private_text_from_create,
-    discord_reply_markup, discord_worker_intent, encode_pairing_code, encode_pending_id,
-    ensure_pending_id, extract_pairing_code, format_channel_result, format_pairing_code,
-    format_pending_prompt, ingest_c2c_text, ingest_channel_text, next_passive_seq,
-    outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for, panel_entry_reply,
-    parse_access_token_response, parse_channel_command, parse_gateway_url_response,
-    parse_qq_c2c_images, parse_qq_file_info, parse_telegram_bot_identity, parse_telegram_callback,
+    decide_pending_reply, discord_dm_capabilities, discord_private_component_from_create,
+    discord_private_text_from_create, discord_reply_markup, discord_worker_intent,
+    encode_pairing_code, encode_pending_id, ensure_pending_id, extract_pairing_code,
+    format_channel_result, format_pairing_code, format_pending_prompt, ingest_c2c_text,
+    ingest_channel_text, next_passive_seq, outbound_idempotency_key, pairing_bind_reply,
+    pairing_bind_reply_for, panel_entry_reply, parse_access_token_response, parse_channel_command,
+    parse_discord_channel_type, parse_gateway_url_response, parse_qq_c2c_images,
+    parse_qq_file_info, parse_telegram_bot_identity, parse_telegram_callback,
     parse_telegram_file_path, parse_telegram_ok_payload, parse_telegram_private_inbounds,
     parse_telegram_private_texts, pending_prompt_from_model_json, plan_delivery,
     qq_c2c_capabilities, qq_token_needs_refresh, session_key, should_deliver_sequence,
@@ -23,7 +24,8 @@ use myriad_agent_rules::channel::{
     ChannelImageRef, ConnectFailure, DeliveryContext, DeliveryPlan, InboundC2cText,
     InboundDecision, PairingBindResult, PairingLookup, PendingDecision, PendingKind, PendingOption,
     PendingPrompt, TelegramCallbackAction, TelegramPrivateInbound, WorkerIntent,
-    CHANNEL_HELP_REPLY, CONFIRM_HINT, DISCORD_DIRECT_MESSAGES, DISCORD_PAIRING_TAKEN_REPLY,
+    CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT, CONFIRM_HINT, DISCORD_CHANNEL_TYPE_DM,
+    DISCORD_CHANNEL_TYPE_GROUP_DM, DISCORD_DIRECT_MESSAGES, DISCORD_PAIRING_TAKEN_REPLY,
     DISCORD_TEXT_LIMIT, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
     PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY,
     PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES,
@@ -366,6 +368,22 @@ fn collect_channel_image_urls_reads_envelope_and_step_history() {
         ]
     );
     assert!(collect_channel_image_urls(&serde_json::json!({ "message": "ok" })).is_empty());
+    let capped = collect_channel_image_urls(&serde_json::json!({
+        "task": {
+            "stepHistory": [
+                { "imageUrl": "https://cdn.example/1.png" },
+                { "imageUrl": "https://cdn.example/2.png" },
+                { "imageUrl": "https://cdn.example/3.png" },
+                { "imageUrl": "https://cdn.example/4.png" },
+                { "imageUrl": "https://cdn.example/5.png" }
+            ]
+        }
+    }));
+    assert_eq!(capped.len(), CHANNEL_IMAGE_LIMIT);
+    assert_eq!(
+        capped.last().map(String::as_str),
+        Some("https://cdn.example/4.png")
+    );
 }
 
 #[test]
@@ -440,6 +458,7 @@ fn inbound_images_are_kept_and_non_images_drop() {
     let dm = serde_json::json!({
         "id": "11",
         "channel_id": "22",
+        "channel_type": 1,
         "author": { "id": "33", "bot": false },
         "content": "",
         "attachments": [{
@@ -679,6 +698,7 @@ fn discord_dm_create_is_kept_and_guild_is_dropped() {
     let dm = serde_json::json!({
         "id": "11",
         "channel_id": "22",
+        "channel_type": DISCORD_CHANNEL_TYPE_DM,
         "author": { "id": "33", "bot": false },
         "content": "hello"
     });
@@ -705,6 +725,77 @@ fn discord_dm_create_is_kept_and_guild_is_dropped() {
     ensure_pending_id(&mut prompt);
     let markup = discord_reply_markup(&prompt).expect("buttons");
     assert_eq!(markup.as_array().map(|rows| rows.len()), Some(1));
+}
+
+#[test]
+fn discord_group_dm_and_missing_channel_type_are_dropped() {
+    let group = serde_json::json!({
+        "id": "11",
+        "channel_id": "22",
+        "channel_type": DISCORD_CHANNEL_TYPE_GROUP_DM,
+        "author": { "id": "33", "bot": false },
+        "content": "hello"
+    });
+    assert!(discord_private_text_from_create(&group, "99").is_none());
+    let via_channel = serde_json::json!({
+        "id": "11",
+        "channel_id": "22",
+        "channel": { "id": "22", "type": DISCORD_CHANNEL_TYPE_GROUP_DM },
+        "author": { "id": "33", "bot": false },
+        "content": "hello"
+    });
+    assert!(discord_private_text_from_create(&via_channel, "99").is_none());
+    let missing = serde_json::json!({
+        "id": "11",
+        "channel_id": "22",
+        "author": { "id": "33", "bot": false },
+        "content": "hello"
+    });
+    assert!(discord_private_text_from_create(&missing, "99").is_none());
+    assert_eq!(
+        parse_discord_channel_type(r#"{"id":"22","type":1}"#),
+        Some(1)
+    );
+    assert_eq!(
+        parse_discord_channel_type(r#"{"id":"22","type":3}"#),
+        Some(DISCORD_CHANNEL_TYPE_GROUP_DM)
+    );
+
+    let dm_button = serde_json::json!({
+        "type": 3,
+        "id": "i1",
+        "token": "tok",
+        "channel_id": "22",
+        "channel": { "id": "22", "type": DISCORD_CHANNEL_TYPE_DM },
+        "user": { "id": "33" },
+        "data": { "custom_id": "y:abc" },
+        "message": { "id": "m1" }
+    });
+    let component = discord_private_component_from_create(&dm_button).expect("dm button");
+    assert_eq!(component.author_id, "33");
+    assert_eq!(component.custom_id, "y:abc");
+
+    let group_button = serde_json::json!({
+        "type": 3,
+        "id": "i1",
+        "token": "tok",
+        "channel_id": "22",
+        "channel_type": DISCORD_CHANNEL_TYPE_GROUP_DM,
+        "user": { "id": "33" },
+        "data": { "custom_id": "y:abc" },
+        "message": { "id": "m1" }
+    });
+    assert!(discord_private_component_from_create(&group_button).is_none());
+    let bare_button = serde_json::json!({
+        "type": 3,
+        "id": "i1",
+        "token": "tok",
+        "channel_id": "22",
+        "user": { "id": "33" },
+        "data": { "custom_id": "y:abc" },
+        "message": { "id": "m1" }
+    });
+    assert!(discord_private_component_from_create(&bare_button).is_none());
 }
 
 #[test]

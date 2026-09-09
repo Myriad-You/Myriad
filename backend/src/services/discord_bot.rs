@@ -3,17 +3,19 @@
 //! Bot token stays on the outbound path. Errors never echo the token.
 //! Identify is budgeted (1000/24h); reconnects Resume first.
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use myriad_agent_rules::channel::{
-    classify_discord_rest, classify_gateway_close, discord_private_component_from_create,
-    discord_private_text_from_create, discord_retry_after, discord_session_starts_remaining,
-    discord_worker_intent, parse_discord_bot_identity, parse_discord_gateway_url,
-    ConnectFailureKind, DiscordBotIdentity, WorkerIntent, DISCORD_DIRECT_MESSAGES,
-    DISCORD_TEXT_LIMIT,
+    classify_discord_rest, classify_gateway_close, discord_channel_type,
+    discord_private_component_from_create, discord_private_text_from_create, discord_retry_after,
+    discord_session_starts_remaining, discord_worker_intent, is_discord_dm_channel,
+    parse_discord_bot_identity, parse_discord_channel_type, parse_discord_gateway_url,
+    ConnectFailureKind, DiscordBotIdentity, WorkerIntent, DISCORD_CHANNEL_TYPE_DM,
+    DISCORD_DIRECT_MESSAGES, DISCORD_TEXT_LIMIT,
 };
 use myriad_error::redact_secrets;
 use serde::Serialize;
@@ -30,6 +32,17 @@ const POLL: Duration = Duration::from_secs(2);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const API_BASE: &str = "https://discord.com/api/v10";
 const USER_AGENT: &str = "DiscordBot (https://github.com/myriad, 1.0)";
+
+/// Channel id → Discord channel type. Gateway `MESSAGE_CREATE` usually omits type.
+static CHANNEL_TYPES: OnceLock<RwLock<HashMap<String, i64>>> = OnceLock::new();
+
+fn channel_types() -> &'static RwLock<HashMap<String, i64>> {
+    CHANNEL_TYPES.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+async fn clear_channel_type_cache() {
+    channel_types().write().await.clear();
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -85,6 +98,8 @@ async fn publish_status(phase: DiscordBotPhase, fingerprint: &CredentialFingerpr
         snap.bot_name = None;
         snap.bot_user_id = None;
         snap.last_inbound_at = None;
+        drop(snap);
+        clear_channel_type_cache().await;
     }
 }
 
@@ -447,25 +462,35 @@ where
             }
             if event == "MESSAGE_CREATE" {
                 if let Some(data) = data {
-                    if let Some(inbound) = discord_private_text_from_create(data, bot_user_id) {
-                        let token = token.to_string();
-                        tokio::spawn(async move {
+                    let token = token.to_string();
+                    let bot_user_id = bot_user_id.to_string();
+                    let mut data = data.clone();
+                    tokio::spawn(async move {
+                        if !ensure_discord_dm_payload(&token, &mut data).await {
+                            return;
+                        }
+                        if let Some(inbound) = discord_private_text_from_create(&data, &bot_user_id)
+                        {
                             mark_inbound().await;
                             crate::services::discord_pairing::handle_inbound(inbound, &token).await;
-                        });
-                    }
+                        }
+                    });
                 }
             }
             if event == "INTERACTION_CREATE" {
                 if let Some(data) = data {
-                    if let Some(inbound) = discord_private_component_from_create(data) {
-                        let token = token.to_string();
-                        tokio::spawn(async move {
+                    let token = token.to_string();
+                    let mut data = data.clone();
+                    tokio::spawn(async move {
+                        if !ensure_discord_dm_payload(&token, &mut data).await {
+                            return;
+                        }
+                        if let Some(inbound) = discord_private_component_from_create(&data) {
                             mark_inbound().await;
                             crate::services::discord_pairing::handle_component(inbound, &token)
                                 .await;
-                        });
-                    }
+                        }
+                    });
                 }
             }
             None
@@ -559,6 +584,64 @@ async fn get_me(token: &str) -> Result<DiscordBotIdentity, ConnectFailureKind> {
     }
     let data: Value = serde_json::from_str(&body).map_err(|_| ConnectFailureKind::Transient)?;
     parse_discord_bot_identity(&data).ok_or(ConnectFailureKind::Transient)
+}
+
+/// Resolve channel type (cache or `GET /channels/{id}`), inject `channel_type`,
+/// return whether this is a 1:1 DM. Fail-closed on lookup errors / Group DM.
+async fn ensure_discord_dm_payload(token: &str, data: &mut Value) -> bool {
+    if data.get("guild_id").is_some() {
+        return false;
+    }
+    if is_discord_dm_channel(data) {
+        return true;
+    }
+    if let Some(kind) = discord_channel_type(data) {
+        return kind == DISCORD_CHANNEL_TYPE_DM;
+    }
+    let Some(channel_id) = data
+        .get("channel_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            data.get("channel_id")
+                .and_then(Value::as_u64)
+                .map(|n| n.to_string())
+        })
+    else {
+        return false;
+    };
+    let Some(kind) = resolve_channel_type(token, &channel_id).await else {
+        return false;
+    };
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert("channel_type".into(), Value::from(kind));
+    }
+    kind == DISCORD_CHANNEL_TYPE_DM
+}
+
+async fn resolve_channel_type(token: &str, channel_id: &str) -> Option<i64> {
+    if let Some(cached) = channel_types().read().await.get(channel_id).copied() {
+        return Some(cached);
+    }
+    let path = format!("/channels/{channel_id}");
+    let (status, body) = discord_request(token, reqwest::Method::GET, &path, None)
+        .await
+        .ok()?;
+    if !(200..300).contains(&status) {
+        warn!(
+            status,
+            channel_id, "Discord Get Channel failed; dropping inbound (fail-closed)"
+        );
+        return None;
+    }
+    let kind = parse_discord_channel_type(&body)?;
+    channel_types()
+        .write()
+        .await
+        .insert(channel_id.to_string(), kind);
+    Some(kind)
 }
 
 pub async fn send_message(
@@ -825,6 +908,7 @@ mod tests {
         let data = serde_json::json!({
             "id": "11",
             "channel_id": "22",
+            "channel_type": 1,
             "author": { "id": "33", "bot": false },
             "content": "AB1D-EFGH"
         });
@@ -844,5 +928,24 @@ mod tests {
             "content": "hi"
         });
         assert!(discord_private_text_from_create(&data, "99").is_none());
+    }
+
+    #[test]
+    fn group_dm_and_unknown_channel_type_are_dropped() {
+        let group = serde_json::json!({
+            "id": "11",
+            "channel_id": "22",
+            "channel_type": 3,
+            "author": { "id": "33", "bot": false },
+            "content": "hi"
+        });
+        assert!(discord_private_text_from_create(&group, "99").is_none());
+        let missing = serde_json::json!({
+            "id": "11",
+            "channel_id": "22",
+            "author": { "id": "33", "bot": false },
+            "content": "hi"
+        });
+        assert!(discord_private_text_from_create(&missing, "99").is_none());
     }
 }

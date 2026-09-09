@@ -71,6 +71,16 @@ pub const QQ_TEXT_LIMIT: usize = 2000;
 /// Discord `content` cap. Official Create Message limit.
 pub const DISCORD_TEXT_LIMIT: usize = 2000;
 
+/// Shared inbound/outbound image cap for private-chat Work.
+pub const CHANNEL_IMAGE_LIMIT: usize = 4;
+
+/// Discord channel type: 1:1 DM. Only this type is ingested.
+/// <https://discord.com/developers/docs/resources/channel#channel-object-channel-types>
+pub const DISCORD_CHANNEL_TYPE_DM: i64 = 1;
+
+/// Discord channel type: Group DM. Also arrives on `DIRECT_MESSAGES` intent.
+pub const DISCORD_CHANNEL_TYPE_GROUP_DM: i64 = 3;
+
 /// `DIRECT_MESSAGES` intent. First-cut Identify only sends this bit.
 /// <https://discord.com/developers/docs/topics/gateway#gateway-intents>
 pub const DISCORD_DIRECT_MESSAGES: u32 = 1 << 12;
@@ -2134,7 +2144,31 @@ pub fn classify_discord_rest(status: u16, body: &str) -> ConnectFailureKind {
     classify_connect_failure(&ConnectFailure::HttpStatus { status, body })
 }
 
-/// DM `MESSAGE_CREATE`. Drops guild messages, bots, and empty content without images.
+/// Channel type from Gateway/Interaction payloads (`channel_type` or `channel.type`).
+pub fn discord_channel_type(data: &serde_json::Value) -> Option<i64> {
+    data.get("channel_type").and_then(json_i64).or_else(|| {
+        data.get("channel")
+            .and_then(|ch| ch.get("type"))
+            .and_then(json_i64)
+    })
+}
+
+/// True only for 1:1 DM. Missing type is not a DM (fail-closed for Group DM).
+pub fn is_discord_dm_channel(data: &serde_json::Value) -> bool {
+    discord_channel_type(data) == Some(DISCORD_CHANNEL_TYPE_DM)
+}
+
+/// `type` field from `GET /channels/{id}` JSON.
+pub fn parse_discord_channel_type(body: &str) -> Option<i64> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()?
+        .get("type")
+        .and_then(json_i64)
+}
+
+/// DM `MESSAGE_CREATE`. Drops guild / Group DM / unknown channel type, bots,
+/// and empty content without images. Gateway often omits type — the worker must
+/// resolve and inject `channel_type` before calling this.
 pub fn discord_private_text_from_create(
     data: &serde_json::Value,
     bot_user_id: &str,
@@ -2142,12 +2176,7 @@ pub fn discord_private_text_from_create(
     if data.get("guild_id").is_some() {
         return None;
     }
-    let channel_type = data.get("channel_type").and_then(json_i64).or_else(|| {
-        data.get("channel")
-            .and_then(|ch| ch.get("type"))
-            .and_then(json_i64)
-    });
-    if channel_type.is_some_and(|kind| kind != 1) {
+    if !is_discord_dm_channel(data) {
         return None;
     }
     let author = data.get("author")?;
@@ -2230,7 +2259,8 @@ fn parse_http_image_attachments(value: Option<&serde_json::Value>) -> Vec<Channe
         .collect()
 }
 
-/// Component interaction in a DM. Type must be 3 (`MESSAGE_COMPONENT`).
+/// Component interaction in a DM. Interaction type must be 3 (`MESSAGE_COMPONENT`).
+/// Same channel-type gate as text: only `channel.type` / `channel_type == 1`.
 pub fn discord_private_component_from_create(
     data: &serde_json::Value,
 ) -> Option<DiscordPrivateComponent> {
@@ -2238,6 +2268,9 @@ pub fn discord_private_component_from_create(
         return None;
     }
     if data.get("guild_id").is_some() {
+        return None;
+    }
+    if !is_discord_dm_channel(data) {
         return None;
     }
     let user = data
@@ -2272,15 +2305,22 @@ pub fn discord_private_component_from_create(
 
 /// Final-turn image URLs from `data` plus `task.stepHistory`.
 /// Only site image-cache paths and `http(s)` URLs; `javascript:` / data URLs drop.
+/// Capped at [`CHANNEL_IMAGE_LIMIT`] to mirror inbound attachment take.
 pub fn collect_channel_image_urls(response: &serde_json::Value) -> Vec<String> {
     let mut urls = Vec::new();
     push_channel_image_url(&mut urls, extract_channel_image_url(response.get("data")));
+    if urls.len() >= CHANNEL_IMAGE_LIMIT {
+        return urls;
+    }
     if let Some(steps) = response
         .get("task")
         .and_then(|task| task.get("stepHistory"))
         .and_then(|value| value.as_array())
     {
         for step in steps {
+            if urls.len() >= CHANNEL_IMAGE_LIMIT {
+                break;
+            }
             push_channel_image_url(
                 &mut urls,
                 step.get("imageUrl").and_then(|value| value.as_str()),

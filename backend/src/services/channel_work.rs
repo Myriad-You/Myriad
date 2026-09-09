@@ -16,9 +16,9 @@ use myriad_agent_rules::channel::{
     split_channel_text, telegram_callback_action, telegram_dm_capabilities,
     telegram_force_reply_markup, telegram_reply_markup, ChannelCommand, ChannelEvent,
     ChannelImageRef, DeliveryContext, DeliveryPlan, PendingDecision, PendingKind, PendingOption,
-    PendingPrompt, TelegramCallbackAction, CHANNEL_HELP_REPLY, CHANNEL_NEW_SESSION_REPLY,
-    CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT, PANEL_REQUIRED_REPLY, PENDING_STALE_REPLY,
-    QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
+    PendingPrompt, TelegramCallbackAction, CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT,
+    CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT, PANEL_REQUIRED_REPLY,
+    PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
 };
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
 use once_cell::sync::Lazy;
@@ -307,7 +307,7 @@ async fn cache_inbound_images(sink: &ChannelSink, images: &[ChannelImageRef]) ->
     }
     let cache = crate::services::image_cache::ImageCacheService::new();
     let mut attachments = Vec::new();
-    for image in images.iter().take(4) {
+    for image in images.iter().take(CHANNEL_IMAGE_LIMIT) {
         match resolve_inbound_image(sink, image, &cache).await {
             Ok((url, mime, size, name)) => attachments.push(serde_json::json!({
                 "name": name,
