@@ -595,6 +595,13 @@ export const zh: SettingGuidesCatalog = {
       frontend: '设置 → AI → Agent → Discord 机器人。',
       notes: '不要把数据平台 OAuth 的 access token 填到这里。配对身份是 discord_dm，不是 Discord 登录。token 不会出现在页面明文或报错里。',
     },
+    feishuBot: {
+      what: '用飞书单聊把一句话交给站点办事，结果回到同一条私聊。',
+      chain:
+        '① 打开开关并填企业自建应用 AppID / AppSecret，点保存。标题旁的标签是收发工人：离线 / 连接中 / 在线 / 凭证无效 / 重连中。\n② 「测试已保存凭证」只打库里的值，和收发是否在线分开看。\n③ 密钥只写：读回是掩码，空值清除，掩码再提交不覆盖库里的值。\n④ 关掉、没填齐或凭据错误时工人停掉；网络抖动会重连。\n⑤ 连接成功后在本页绑定自己的飞书：复制配对码，发到机器人单聊。配对码有有效期，过期后重新生成。\n⑥ 配对后发请求办事。按钮只对应当时那一步。可发「停止」「新对话」「当前任务」。',
+      frontend: '设置 → AI → Agent → 飞书机器人。',
+      notes: '必须用企业自建应用，不要用群自定义机器人 webhook。AppSecret 不会出现在页面明文或报错里。',
+    },
     liteEnable: {
       what: '要不要启用轻量这一档。',
       chain:

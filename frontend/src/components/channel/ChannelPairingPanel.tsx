@@ -8,7 +8,7 @@ import { userFacingError } from '../../utils/userFacingError'
 import { pairingCodeLive } from './channelPairing'
 import './ChannelPairingPanel.css'
 
-export type ChannelPairingKind = 'qq' | 'telegram' | 'discord_dm'
+export type ChannelPairingKind = 'qq' | 'telegram' | 'discord_dm' | 'feishu'
 
 export function ChannelPairingPanel({
   channel,
@@ -33,7 +33,9 @@ export function ChannelPairingPanel({
           ? await agentService.getQqPairing()
           : channel === 'telegram'
             ? await agentService.getTelegramPairing()
-            : await agentService.getDiscordPairing()
+            : channel === 'feishu'
+              ? await agentService.getFeishuPairing()
+              : await agentService.getDiscordPairing()
       setPairing(data.pairing)
     } catch (err) {
       setError(userFacingError(err, copy.loadFailed))
@@ -78,7 +80,9 @@ export function ChannelPairingPanel({
           ? await agentService.issueQqPairingCode()
           : channel === 'telegram'
             ? await agentService.issueTelegramPairingCode()
-            : await agentService.issueDiscordPairingCode()
+            : channel === 'feishu'
+              ? await agentService.issueFeishuPairingCode()
+              : await agentService.issueDiscordPairingCode()
       setPairing(data.pairing)
     } catch (err) {
       setError(userFacingError(err, copy.issueFailed))
@@ -104,6 +108,8 @@ export function ChannelPairingPanel({
         await agentService.unpairQq()
       } else if (channel === 'telegram') {
         await agentService.unpairTelegram()
+      } else if (channel === 'feishu') {
+        await agentService.unpairFeishu()
       } else {
         await agentService.unpairDiscord()
       }
@@ -209,6 +215,25 @@ function pairingCopy(
   t: ReturnType<typeof useI18n>['t'],
   channel: ChannelPairingKind,
 ) {
+  if (channel === 'feishu') {
+    return {
+      title: t.userModal.feishuPairingTitle,
+      hint: t.userModal.feishuPairingHint,
+      loadFailed: t.userModal.feishuPairingLoadFailed,
+      issueFailed: t.userModal.feishuPairingIssueFailed,
+      copyFailed: t.userModal.feishuPairingCopyFailed,
+      generateHint: t.userModal.feishuPairingGenerateHint,
+      sendCode: t.userModal.feishuPairingSendCode,
+      generate: t.userModal.feishuGenerateCode,
+      refresh: t.userModal.feishuRefreshCode,
+      copy: t.userModal.feishuCopyCode,
+      paired: t.userModal.feishuPaired,
+      notPaired: t.userModal.feishuNotPaired,
+      unpair: t.userModal.feishuUnpair,
+      unpairConfirm: t.userModal.feishuUnpairConfirm,
+      unpairFailed: t.userModal.feishuUnpairFailed,
+    }
+  }
   if (channel === 'discord_dm') {
     return {
       title: t.userModal.discordPairingTitle,

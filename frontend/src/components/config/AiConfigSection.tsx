@@ -37,6 +37,8 @@ import { agentService } from '../../services/agent'
 import type {
   DiscordBotPhase,
   DiscordBotStatus,
+  FeishuBotPhase,
+  FeishuBotStatus,
   QqBotPhase,
   QqBotStatus,
   TelegramBotPhase,
@@ -341,6 +343,12 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     useState<DiscordBotStatus | null>(null)
   const [discordBotTesting, setDiscordBotTesting] = useState(false)
   const [discordBotTestMessage, setDiscordBotTestMessage] = useState<
+    string | null
+  >(null)
+  const [feishuBotStatus, setFeishuBotStatus] =
+    useState<FeishuBotStatus | null>(null)
+  const [feishuBotTesting, setFeishuBotTesting] = useState(false)
+  const [feishuBotTestMessage, setFeishuBotTestMessage] = useState<
     string | null
   >(null)
 
@@ -849,6 +857,38 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     t.config.discordBotTestOk,
   ])
 
+  const loadFeishuBotStatus = useCallback(async () => {
+    try {
+      setFeishuBotStatus(await agentService.getFeishuBotStatus())
+    } catch {
+      setFeishuBotStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadFeishuBotStatus()
+    const timer = window.setInterval(() => {
+      void loadFeishuBotStatus()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [loadFeishuBotStatus])
+
+  const handleFeishuBotTest = useCallback(async () => {
+    setFeishuBotTesting(true)
+    setFeishuBotTestMessage(null)
+    try {
+      await agentService.testFeishuBot()
+      setFeishuBotTestMessage(t.config.feishuBotTestOk)
+      await loadFeishuBotStatus()
+    } catch (error) {
+      setFeishuBotTestMessage(
+        userFacingError(error, t.config.feishuBotTestFailed),
+      )
+    } finally {
+      setFeishuBotTesting(false)
+    }
+  }, [loadFeishuBotStatus, t.config.feishuBotTestFailed, t.config.feishuBotTestOk])
+
   const discordPhaseLabel = (phase: DiscordBotPhase | undefined) => {
     switch (phase) {
       case 'online':
@@ -876,6 +916,21 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         return t.config.telegramBotPhaseRejected
       default:
         return t.config.telegramBotPhaseOffline
+    }
+  }
+
+  const feishuPhaseLabel = (phase: FeishuBotPhase | undefined) => {
+    switch (phase) {
+      case 'online':
+        return t.config.feishuBotPhaseOnline
+      case 'connecting':
+        return t.config.feishuBotPhaseConnecting
+      case 'reconnecting':
+        return t.config.feishuBotPhaseReconnecting
+      case 'rejected':
+        return t.config.feishuBotPhaseRejected
+      default:
+        return t.config.feishuBotPhaseOffline
     }
   }
 
@@ -1614,6 +1669,94 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
               channel="discord_dm"
               openHref={discordOpenHref(discordBotStatus?.botUserId)}
               receiveReady={discordBotStatus?.phase === 'online'}
+            />
+          ) : null}
+        </AgentNestedSection>
+        <AgentNestedSection
+          title={t.config.feishuBotTitle}
+          description={t.config.feishuBotDesc}
+          {...bindGuide('ai.feishuBot', g.ai.feishuBot)}
+          badge={
+            <SettingTitleTag
+              variant={
+                feishuBotStatus?.phase === 'rejected' ? 'danger' : 'muted'
+              }
+              title={feishuBotTestMessage || t.config.feishuBotHint}
+            >
+              {feishuPhaseLabel(feishuBotStatus?.phase)}
+            </SettingTitleTag>
+          }
+          toggle={{
+            checked: getFieldValue('feishu_bot_enabled') === 'true',
+            onChange: (value) =>
+              updateValue('feishu_bot_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.feishuBotTitle,
+            title: t.config.feishuBotHint,
+          }}
+        >
+          <InputItem
+            itemKey="feishu_bot_app_id"
+            label={t.config.feishuBotAppId}
+            value={getFieldValue('feishu_bot_app_id')}
+            onChange={(value) => updateValue('feishu_bot_app_id', value)}
+            placeholder="cli_..."
+            hint={t.config.feishuBotHint}
+            layout="vertical"
+            {...bindGuide('ai.feishuBot', g.ai.feishuBot)}
+          />
+          <InputItem
+            itemKey="feishu_bot_app_secret"
+            label={t.config.feishuBotAppSecret}
+            value={getFieldValue('feishu_bot_app_secret')}
+            onChange={(value) => updateValue('feishu_bot_app_secret', value)}
+            inputType="password"
+            autoSelectOnMask
+            layout="vertical"
+            {...bindGuide('ai.feishuBot', g.ai.feishuBot)}
+          />
+          <SettingsButton
+            size="sm"
+            loading={feishuBotTesting}
+            disabled={feishuBotTesting}
+            onClick={() => void handleFeishuBotTest()}
+          >
+            {feishuBotTesting
+              ? t.config.feishuBotTesting
+              : t.config.feishuBotTest}
+          </SettingsButton>
+          {feishuBotTestMessage ? (
+            <p className="ai-llm-tier-desc">{feishuBotTestMessage}</p>
+          ) : null}
+          <ChannelConnectFacts
+            credentialLabel={t.config.feishuBotCredentialLabel}
+            credentialValue={
+              feishuBotTestMessage || t.config.feishuBotCredentialUntested
+            }
+            receiveLabel={t.config.feishuBotReceiveLabel}
+            receiveValue={feishuPhaseLabel(feishuBotStatus?.phase)}
+            identityLabel={t.config.feishuBotIdentityLabel}
+            identityValue={
+              feishuBotStatus?.appId
+                ? `AppID ${feishuBotStatus.appId}`
+                : null
+            }
+            inboundLabel={
+              formatInboundTime(feishuBotStatus?.lastInboundAt, locale)
+                ? format(t.config.feishuBotLastInbound, {
+                    time: formatInboundTime(
+                      feishuBotStatus?.lastInboundAt,
+                      locale,
+                    ) as string,
+                  })
+                : t.config.feishuBotLastInboundNone
+            }
+            openHint={t.config.feishuBotOpenHint}
+          />
+          {getFieldValue('feishu_bot_enabled') === 'true' &&
+          (feishuBotStatus?.hasAppId || feishuBotStatus?.hasSecret) ? (
+            <ChannelPairingPanel
+              channel="feishu"
+              receiveReady={feishuBotStatus?.phase === 'online'}
             />
           ) : null}
         </AgentNestedSection>

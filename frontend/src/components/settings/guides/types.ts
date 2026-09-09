@@ -120,6 +120,7 @@ export interface SettingGuidesCatalog {
     qqBot: SettingGuideEntry
     telegramBot: SettingGuideEntry
     discordBot: SettingGuideEntry
+    feishuBot: SettingGuideEntry
     pro: SettingGuideEntry
     proEnable: SettingGuideEntry
     image: SettingGuideEntry

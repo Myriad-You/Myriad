@@ -8,10 +8,11 @@ import {
 } from './channelPairing'
 
 describe('channelPairing', () => {
-  it('treats qq, telegram, and discord_dm as pairing providers, not OAuth', () => {
+  it('treats qq, telegram, discord_dm, and feishu as pairing providers, not OAuth', () => {
     assert.equal(isChannelPairingProvider('qq'), true)
     assert.equal(isChannelPairingProvider('Telegram'), true)
     assert.equal(isChannelPairingProvider('discord_dm'), true)
+    assert.equal(isChannelPairingProvider('feishu'), true)
     assert.equal(isChannelPairingProvider('discord'), false)
     assert.equal(isChannelPairingProvider('github'), false)
   })

@@ -600,6 +600,13 @@ export const ja: SettingGuidesCatalog = {
       frontend: '設定 → AI → Agent → Discord ボット。',
       notes: 'データ基盤 OAuth の access token をここに貼らない。連携 identity は discord_dm であり、Discord ログインではない。token は画面の平文にもエラー文にも出ない。',
     },
+    feishuBot: {
+      what: 'Feishu の個チャットで用事をサイトに渡し、同じ私聊に結果を返す。',
+      chain:
+        '① スイッチをオンにして企業自建アプリの AppID / AppSecret を保存。タイトル横のラベルは送受信：オフライン / 接続中 / オンライン / 資格情報無効 / 再接続中。\n② 「保存済み資格情報をテスト」は庫の値だけを打つ。送受信がオンラインかは別表示。\n③ 秘密は書き込み専用。読み返すとマスク。空にすると消去。\n④ オフ、未記入、資格情報エラーではワーカーが止まる。通信の揺れは再接続する。\n⑤ 接続できたらこのページで自分の Feishu を連携：コードをコピーして個チャットへ。期限切れ後は再生成。\n⑥ 連携後は依頼を送る。ボタンはその一歩にだけ効く。「停止」「新对话」「当前任务」も使える。',
+      frontend: '設定 → AI → Agent → Feishu ボット。',
+      notes: '企業自建アプリを使う。群カスタムボットの webhook は使わない。AppSecret は画面の平文にもエラー文にも出ない。',
+    },
     liteEnable: {
       what: '軽量の段を有効にするかどうか。',
       chain:

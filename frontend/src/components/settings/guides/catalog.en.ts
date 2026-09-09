@@ -602,6 +602,13 @@ export const en: SettingGuidesCatalog = {
       frontend: 'Settings → AI → Agent → Discord bot.',
       notes: 'Do not paste the data-platform OAuth access token. Pairing identity is discord_dm, not Discord login. The token never appears in page plaintext or error text.',
     },
+    feishuBot: {
+      what: 'Send a Feishu private message into site Work and get the result back in the same chat.',
+      chain:
+        '1) Turn on, fill the internal-app AppID / AppSecret, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The secret is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, incomplete credentials, or auth rejects stop the worker. Network jitter reconnects.\n5) After connect succeeds, bind your Feishu here: copy the pairing code and send it in a private chat. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Buttons belong to that step only. You can send 停止 / 新对话 / 当前任务.',
+      frontend: 'Settings → AI → Agent → Feishu bot.',
+      notes: 'Use an internal company app, not a group custom-bot webhook. AppSecret never appears in page plaintext or error text.',
+    },
     liteEnable: {
       what: 'Whether to enable the Lite tier.',
       chain:

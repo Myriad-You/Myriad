@@ -2,7 +2,12 @@ export function isChannelPairingProvider(
   provider: string | null | undefined,
 ): boolean {
   const key = provider?.trim().toLowerCase()
-  return key === 'qq' || key === 'telegram' || key === 'discord_dm'
+  return (
+    key === 'qq' ||
+    key === 'telegram' ||
+    key === 'discord_dm' ||
+    key === 'feishu'
+  )
 }
 
 export function pairingCodeLive(

@@ -123,6 +123,19 @@ export interface DiscordBotStatus {
 
 export type DiscordPairingStatus = QqPairingStatus
 
+export type FeishuBotPhase = QqBotPhase
+
+export interface FeishuBotStatus {
+  phase: FeishuBotPhase
+  enabled: boolean
+  hasAppId: boolean
+  hasSecret: boolean
+  appId?: string | null
+  lastInboundAt?: string | null
+}
+
+export type FeishuPairingStatus = QqPairingStatus
+
 function sharePersonaGeneration<T>(
   key: string,
   start: () => Promise<T>,
@@ -456,6 +469,30 @@ class AgentService {
     botUserId?: string | null
   }> {
     return apiService.post(`${this.baseUrl}/discord/test`)
+  }
+
+  async getFeishuPairing(): Promise<{ pairing: FeishuPairingStatus }> {
+    return apiService.get(`${this.baseUrl}/feishu/pairing`)
+  }
+
+  async issueFeishuPairingCode(): Promise<{
+    code: string
+    expiresAt: string
+    pairing: FeishuPairingStatus
+  }> {
+    return apiService.post(`${this.baseUrl}/feishu/pairing`)
+  }
+
+  async unpairFeishu(): Promise<{ success: boolean }> {
+    return apiService.delete(`${this.baseUrl}/feishu/pairing`)
+  }
+
+  async getFeishuBotStatus(): Promise<FeishuBotStatus> {
+    return apiService.get(`${this.baseUrl}/feishu/status`)
+  }
+
+  async testFeishuBot(): Promise<{ success: boolean; phase?: FeishuBotPhase }> {
+    return apiService.post(`${this.baseUrl}/feishu/test`)
   }
 
   /**

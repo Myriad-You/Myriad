@@ -1621,6 +1621,27 @@ export interface TranslationKeys {
     discordBotOpen: string
     discordBotIdentityName: string
     discordBotIdentityNameOnly: string
+    feishuBotTitle: string
+    feishuBotDesc: string
+    feishuBotAppId: string
+    feishuBotAppSecret: string
+    feishuBotHint: string
+    feishuBotPhaseOffline: string
+    feishuBotPhaseConnecting: string
+    feishuBotPhaseOnline: string
+    feishuBotPhaseRejected: string
+    feishuBotPhaseReconnecting: string
+    feishuBotTest: string
+    feishuBotTesting: string
+    feishuBotTestOk: string
+    feishuBotTestFailed: string
+    feishuBotCredentialLabel: string
+    feishuBotReceiveLabel: string
+    feishuBotIdentityLabel: string
+    feishuBotCredentialUntested: string
+    feishuBotLastInbound: string
+    feishuBotLastInboundNone: string
+    feishuBotOpenHint: string
     channelWorkHint: string
     enableProxy: string
     enableProxyHint: string
@@ -3393,6 +3414,21 @@ export interface TranslationKeys {
     discordUnpair: string
     discordUnpairConfirm: string
     discordUnpairFailed: string
+    feishuPairingTitle: string
+    feishuPairingHint: string
+    feishuPairingLoadFailed: string
+    feishuPairingIssueFailed: string
+    feishuPairingCopyFailed: string
+    feishuPairingGenerateHint: string
+    feishuPairingSendCode: string
+    feishuGenerateCode: string
+    feishuRefreshCode: string
+    feishuCopyCode: string
+    feishuPaired: string
+    feishuNotPaired: string
+    feishuUnpair: string
+    feishuUnpairConfirm: string
+    feishuUnpairFailed: string
     pairingExpiresAt: string
     pairingExpired: string
     pairingOpenBot: string
