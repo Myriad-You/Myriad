@@ -95,11 +95,12 @@ pub async fn handle_inbound_c2c(event: InboundC2cText, auth_header: &str) {
             msg_id,
             ..
         } => {
-            crate::services::qq_work::start_paired_work(
+            crate::services::qq_work::start_paired_work_with_images(
                 &db,
                 user_id,
                 &event.user_openid,
                 &input,
+                &event.images,
                 &session_key,
                 &msg_id,
                 auth_header,
@@ -173,6 +174,7 @@ mod tests {
             msg_id: "m1".into(),
             user_openid: "oid".into(),
             content: "帮我查天气".into(),
+            images: Vec::new(),
         };
         let decision = ingest_c2c_text(&event, PairingLookup::Unpaired, false);
         match decision {

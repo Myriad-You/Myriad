@@ -831,6 +831,7 @@ mod tests {
         let inbound = discord_private_text_from_create(&data, "99").expect("dm");
         assert_eq!(inbound.author_id, "33");
         assert_eq!(inbound.channel_id, "22");
+        assert!(inbound.images.is_empty());
     }
 
     #[test]

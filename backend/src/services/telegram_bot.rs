@@ -420,6 +420,44 @@ pub async fn answer_callback_query(
     parse_telegram_ok_payload(status, &body).map(|_| ())
 }
 
+/// Resolve `file_id` through `getFile` and download the bytes. Token never logs.
+pub async fn download_file_bytes(token: &str, file_id: &str) -> Result<(Vec<u8>, String), String> {
+    if token.is_empty() || file_id.is_empty() {
+        return Err("telegram file_id is empty".to_string());
+    }
+    let payload = serde_json::json!({ "file_id": file_id });
+    let (status, body) = telegram_request(token, "getFile", Some(payload), HTTP_TIMEOUT)
+        .await
+        .map_err(|error| format!("{error:?}"))?;
+    let path = myriad_agent_rules::channel::parse_telegram_file_path(status, &body)
+        .map_err(|error| format!("{error:?}"))?;
+    let url = format!("{API_HOST}/file/bot{token}/{path}");
+    let client = http_client::get_global_client().await;
+    let resp = client
+        .get(&url)
+        .timeout(HTTP_TIMEOUT)
+        .send()
+        .await
+        .map_err(|err| {
+            log_transport("Telegram getFile download failed", &err, token);
+            "telegram file download failed".to_string()
+        })?;
+    let mime = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
+    let bytes = resp.bytes().await.map_err(|err| {
+        log_transport("Telegram getFile body failed", &err, token);
+        "telegram file download failed".to_string()
+    })?;
+    if bytes.is_empty() {
+        return Err("telegram file is empty".to_string());
+    }
+    Ok((bytes.to_vec(), mime))
+}
+
 /// `sendChatAction` typing. Official window is about 5 seconds or until a
 /// bot message arrives; callers refresh while Work is still running.
 pub async fn send_typing(token: &str, chat_id: &str) -> Result<(), ConnectFailureKind> {

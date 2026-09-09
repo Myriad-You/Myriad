@@ -24,20 +24,22 @@ struct StoredSeq {
     seq: u32,
 }
 
-pub async fn start_paired_work(
+pub async fn start_paired_work_with_images(
     db: &DatabaseConnection,
     user_id: i32,
     openid: &str,
     input: &str,
+    images: &[myriad_agent_rules::channel::ChannelImageRef],
     session_key: &str,
     msg_id: &str,
     auth_header: &str,
 ) {
-    channel_work::handle_text(
+    channel_work::handle_text_with_images(
         db,
         user_id,
         openid,
         input,
+        images,
         session_key,
         msg_id,
         ChannelSink::Qq {

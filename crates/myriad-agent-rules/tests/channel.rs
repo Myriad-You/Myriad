@@ -13,20 +13,21 @@ use myriad_agent_rules::channel::{
     format_pending_prompt, ingest_c2c_text, ingest_channel_text, next_passive_seq,
     outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for, panel_entry_reply,
     parse_access_token_response, parse_channel_command, parse_gateway_url_response,
-    parse_qq_file_info, parse_telegram_bot_identity, parse_telegram_callback,
-    parse_telegram_ok_payload, parse_telegram_private_inbounds, parse_telegram_private_texts,
-    pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh,
-    session_key, should_deliver_sequence, split_channel_text, telegram_callback_action,
-    telegram_dm_capabilities, telegram_inline_keyboard, telegram_max_update_id,
-    telegram_reply_markup, telegram_retry_after, telegram_worker_intent, truncate_telegram_text,
-    worker_intent, ChannelCommand, ChannelEvent, ConnectFailure, DeliveryContext, DeliveryPlan,
-    InboundC2cText, InboundDecision, PairingBindResult, PairingLookup, PendingDecision,
-    PendingKind, PendingOption, PendingPrompt, TelegramCallbackAction, TelegramPrivateInbound,
-    WorkerIntent, CONFIRM_HINT, DISCORD_DIRECT_MESSAGES, DISCORD_PAIRING_TAKEN_REPLY,
-    DISCORD_TEXT_LIMIT, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
-    PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY,
-    PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES,
-    TELEGRAM_INPUT_BUTTON, TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
+    parse_qq_c2c_images, parse_qq_file_info, parse_telegram_bot_identity, parse_telegram_callback,
+    parse_telegram_file_path, parse_telegram_ok_payload, parse_telegram_private_inbounds,
+    parse_telegram_private_texts, pending_prompt_from_model_json, plan_delivery,
+    qq_c2c_capabilities, qq_token_needs_refresh, session_key, should_deliver_sequence,
+    split_channel_text, telegram_callback_action, telegram_dm_capabilities,
+    telegram_inline_keyboard, telegram_max_update_id, telegram_reply_markup, telegram_retry_after,
+    telegram_worker_intent, truncate_telegram_text, worker_intent, ChannelCommand, ChannelEvent,
+    ChannelImageRef, ConnectFailure, DeliveryContext, DeliveryPlan, InboundC2cText,
+    InboundDecision, PairingBindResult, PairingLookup, PendingDecision, PendingKind, PendingOption,
+    PendingPrompt, TelegramCallbackAction, TelegramPrivateInbound, WorkerIntent, CONFIRM_HINT,
+    DISCORD_DIRECT_MESSAGES, DISCORD_PAIRING_TAKEN_REPLY, DISCORD_TEXT_LIMIT, GROUP_AND_C2C_EVENT,
+    PAIRING_INVALID_REPLY, PAIRING_OK_REPLY, PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY,
+    PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY, PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT,
+    TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES, TELEGRAM_INPUT_BUTTON,
+    TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -34,6 +35,7 @@ fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
         msg_id: msg_id.to_string(),
         user_openid: openid.to_string(),
         content: content.to_string(),
+        images: Vec::new(),
     }
 }
 
@@ -226,7 +228,9 @@ fn private_chat_capabilities_send_final_images() {
     assert!(telegram_dm_capabilities().inbound_callback);
     assert!(caps.inbound_text);
     assert!(caps.outbound_final_text);
-    assert!(!caps.inbound_media);
+    assert!(caps.inbound_media);
+    assert!(telegram_dm_capabilities().inbound_media);
+    assert!(discord_dm_capabilities().inbound_media);
     assert!(!caps.inbound_callback);
     assert!(!caps.outbound_markdown);
     assert!(caps.outbound_image);
@@ -349,6 +353,99 @@ fn qq_file_info_comes_from_upload_json() {
     );
     assert!(parse_qq_file_info(400, r#"{"message":"bad"}"#).is_err());
     assert!(parse_qq_file_info(200, r#"{"ok":true}"#).is_err());
+}
+
+#[test]
+fn inbound_images_are_kept_and_non_images_drop() {
+    let qq = parse_qq_c2c_images(&serde_json::json!({
+        "attachments": [
+            {
+                "url": "https://cdn.example/a.png",
+                "content_type": "image/png",
+                "filename": "a.png",
+                "size": 12
+            },
+            {
+                "url": "https://cdn.example/n.txt",
+                "content_type": "text/plain",
+                "filename": "n.txt"
+            },
+            { "url": "javascript:alert(1)", "content_type": "image/png" }
+        ]
+    }));
+    assert_eq!(qq.len(), 1);
+    assert_eq!(qq[0].url, "https://cdn.example/a.png");
+    assert_eq!(qq[0].name, "a.png");
+    assert_eq!(qq[0].mime, "image/png");
+    assert_eq!(qq[0].size, 12);
+
+    let photo = serde_json::json!({
+        "ok": true,
+        "result": [{
+            "update_id": 20,
+            "message": {
+                "message_id": 8,
+                "from": {"id": 1001},
+                "chat": {"id": 1001, "type": "private"},
+                "caption": "看看这张",
+                "photo": [
+                    {"file_id": "small", "width": 10, "height": 10},
+                    {"file_id": "big", "width": 100, "height": 80, "file_size": 2048}
+                ]
+            }
+        }]
+    });
+    let texts = parse_telegram_private_texts(200, &photo.to_string()).expect("photo");
+    assert_eq!(texts.len(), 1);
+    assert_eq!(texts[0].text, "看看这张");
+    assert_eq!(texts[0].images.len(), 1);
+    assert_eq!(texts[0].images[0].url, "tg:big");
+    assert_eq!(texts[0].images[0].size, 2048);
+    assert_eq!(
+        parse_telegram_file_path(
+            200,
+            r#"{"ok":true,"result":{"file_path":"photos/big.jpg"}}"#
+        )
+        .as_deref(),
+        Ok("photos/big.jpg")
+    );
+
+    let dm = serde_json::json!({
+        "id": "11",
+        "channel_id": "22",
+        "author": { "id": "33", "bot": false },
+        "content": "",
+        "attachments": [{
+            "id": "att1",
+            "filename": "cat.png",
+            "content_type": "image/png",
+            "size": 44,
+            "url": "https://cdn.discordapp.com/attachments/1/2/cat.png"
+        }]
+    });
+    let inbound = discord_private_text_from_create(&dm, "99").expect("image dm");
+    assert_eq!(inbound.text, "");
+    assert_eq!(inbound.images.len(), 1);
+    assert_eq!(inbound.images[0].name, "cat.png");
+}
+
+#[test]
+fn paired_image_only_c2c_still_starts_work() {
+    let mut event = text("m-img", "openid-b", "");
+    event.images = vec![ChannelImageRef {
+        url: "https://cdn.example/a.png".into(),
+        name: "a.png".into(),
+        mime: "image/png".into(),
+        size: 12,
+    }];
+    let decision = ingest_c2c_text(&event, PairingLookup::Paired { user_id: 7 }, false);
+    match decision {
+        InboundDecision::StartWork { input, user_id, .. } => {
+            assert_eq!(user_id, 7);
+            assert!(input.is_empty());
+        }
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]
@@ -557,6 +654,7 @@ fn discord_dm_create_is_kept_and_guild_is_dropped() {
     });
     let inbound = discord_private_text_from_create(&dm, "99").expect("dm");
     assert_eq!(inbound.author_id, "33");
+    assert!(inbound.images.is_empty());
     let guild = serde_json::json!({
         "id": "11",
         "channel_id": "22",

@@ -4,20 +4,22 @@ use sea_orm::DatabaseConnection;
 
 use crate::services::channel_work::{self, ChannelSink};
 
-pub async fn start_paired_work(
+pub async fn start_paired_work_with_images(
     db: &DatabaseConnection,
     user_id: i32,
     chat_id: &str,
     input: &str,
+    images: &[myriad_agent_rules::channel::ChannelImageRef],
     session_key: &str,
     update_id: &str,
     token: &str,
 ) {
-    channel_work::handle_text(
+    channel_work::handle_text_with_images(
         db,
         user_id,
         chat_id,
         input,
+        images,
         session_key,
         update_id,
         ChannelSink::Telegram {

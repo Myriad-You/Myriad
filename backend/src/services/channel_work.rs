@@ -15,9 +15,10 @@ use myriad_agent_rules::channel::{
     pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities, should_deliver_sequence,
     split_channel_text, telegram_callback_action, telegram_dm_capabilities,
     telegram_force_reply_markup, telegram_reply_markup, ChannelCommand, ChannelEvent,
-    DeliveryContext, DeliveryPlan, PendingDecision, PendingKind, PendingOption, PendingPrompt,
-    TelegramCallbackAction, CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT,
-    PANEL_REQUIRED_REPLY, PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
+    ChannelImageRef, DeliveryContext, DeliveryPlan, PendingDecision, PendingKind, PendingOption,
+    PendingPrompt, TelegramCallbackAction, CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY,
+    DISCORD_TEXT_LIMIT, PANEL_REQUIRED_REPLY, PENDING_STALE_REPLY, QQ_TEXT_LIMIT,
+    TELEGRAM_TEXT_LIMIT,
 };
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
 use once_cell::sync::Lazy;
@@ -298,6 +299,74 @@ struct ChannelImageBytes {
     mime: String,
 }
 
+async fn cache_inbound_images(sink: &ChannelSink, images: &[ChannelImageRef]) -> Option<Value> {
+    if images.is_empty() || !sink.capabilities().inbound_media {
+        return None;
+    }
+    let cache = crate::services::image_cache::ImageCacheService::new();
+    let mut attachments = Vec::new();
+    for image in images.iter().take(4) {
+        match resolve_inbound_image(sink, image, &cache).await {
+            Ok((url, mime, size, name)) => attachments.push(serde_json::json!({
+                "name": name,
+                "mime": mime,
+                "size": size,
+                "url": url,
+            })),
+            Err(error) => warn!(%error, "channel inbound image cache failed"),
+        }
+    }
+    (!attachments.is_empty()).then(|| serde_json::json!({ "attachments": attachments }))
+}
+
+async fn resolve_inbound_image(
+    sink: &ChannelSink,
+    image: &ChannelImageRef,
+    cache: &crate::services::image_cache::ImageCacheService,
+) -> Result<(String, String, usize, String), String> {
+    if cache.local_path_for_public_url(&image.url).is_some() {
+        let (bytes, mime) = cache.read_local_public_url(&image.url).await?;
+        return Ok((image.url.clone(), mime, bytes.len(), image.name.clone()));
+    }
+    if let ChannelSink::Telegram { token, .. } = sink {
+        if let Some(file_id) = image.url.strip_prefix("tg:") {
+            let (bytes, mime) =
+                crate::services::telegram_bot::download_file_bytes(token, file_id).await?;
+            let stored = cache.store_bytes_with_status(&bytes, &mime).await?;
+            return Ok((
+                stored.url,
+                if image.mime.starts_with("image/") {
+                    image.mime.clone()
+                } else {
+                    mime
+                },
+                bytes.len(),
+                image.name.clone(),
+            ));
+        }
+    }
+    let cached = cache.cache_image(&image.url).await?;
+    finish_cached(cache, image, cached).await
+}
+
+async fn finish_cached(
+    cache: &crate::services::image_cache::ImageCacheService,
+    image: &ChannelImageRef,
+    cached: String,
+) -> Result<(String, String, usize, String), String> {
+    let (bytes, mime) = cache.read_local_public_url(&cached).await?;
+    Ok((
+        cached,
+        if image.mime.starts_with("image/") {
+            image.mime.clone()
+        } else {
+            mime
+        },
+        bytes.len(),
+        image.name.clone(),
+    ))
+}
+
 fn session_ns(platform: &str) -> &'static str {
     match platform {
         "telegram" => "telegram_dm_session",
@@ -379,11 +448,12 @@ async fn claim_inbound(
     }
 }
 
-pub async fn handle_text(
+pub async fn handle_text_with_images(
     db: &DatabaseConnection,
     user_id: i32,
     chat_id: &str,
     input: &str,
+    images: &[ChannelImageRef],
     session_key: &str,
     inbound_id: &str,
     sink: ChannelSink,
@@ -393,13 +463,14 @@ pub async fn handle_text(
     let chat_id = chat_id.to_string();
     let input = input.to_string();
     let inbound_id = inbound_id.to_string();
+    let images = images.to_vec();
     let db = db.clone();
     let lock_key = session_key.clone();
     with_chat_lock(&lock_key, async move {
         if !claim_inbound(&db, platform, user_id, &inbound_id).await {
             return;
         }
-        continue_text(&db, user_id, &chat_id, &input, &session_key, sink).await;
+        continue_text(&db, user_id, &chat_id, &input, &images, &session_key, sink).await;
     })
     .await;
 }
@@ -432,7 +503,7 @@ pub async fn handle_callback(
                 let _ = sink.send_force_reply(&pending.prompt.question).await;
             }
             TelegramCallbackAction::Resume(answer) => {
-                continue_text(&db, user_id, &chat_id, &answer, &session_key, sink).await;
+                continue_text(&db, user_id, &chat_id, &answer, &[], &session_key, sink).await;
             }
             TelegramCallbackAction::Stale => {
                 let _ = sink.send_text(PENDING_STALE_REPLY).await;
@@ -452,6 +523,7 @@ async fn continue_text(
     user_id: i32,
     _chat_id: &str,
     input: &str,
+    images: &[ChannelImageRef],
     session_key: &str,
     sink: ChannelSink,
 ) {
@@ -538,6 +610,7 @@ async fn continue_text(
         user_id,
         session_id,
         input,
+        images,
         sink,
         session_key,
     )
@@ -662,10 +735,12 @@ async fn start_new_work(
     user_id: i32,
     session_id: String,
     input: &str,
+    images: &[ChannelImageRef],
     sink: ChannelSink,
     session_key: &str,
 ) {
     sink.send_typing().await;
+    let custom_data = cache_inbound_images(&sink, images).await;
     let run = match crate::api::agent::start_process_run(
         db.clone(),
         claims,
@@ -677,7 +752,7 @@ async fn start_new_work(
                 current_route: None,
                 active_platforms: None,
                 conversation_history: None,
-                custom_data: None,
+                custom_data,
                 intention_id: None,
                 autonomy_permission_cap: None,
                 rig_state: None,

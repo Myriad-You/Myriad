@@ -536,14 +536,20 @@ fn inbound_c2c_from_dispatch(data: Option<&Value>) -> Option<InboundC2cText> {
     if user_openid.is_empty() {
         return None;
     }
+    let content = data
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let images = myriad_agent_rules::channel::parse_qq_c2c_images(data);
+    if content.trim().is_empty() && images.is_empty() {
+        return None;
+    }
     Some(InboundC2cText {
         msg_id: msg_id.to_string(),
         user_openid: user_openid.to_string(),
-        content: data
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
+        content,
+        images,
     })
 }
 
@@ -584,9 +590,7 @@ enum FetchGatewayError {
 }
 
 async fn fetch_gateway_url(auth_header: &str) -> Result<String, FetchGatewayError> {
-    let client = qq_http_client()
-        .await
-        .map_err(FetchGatewayError::Failure)?;
+    let client = qq_http_client().await.map_err(FetchGatewayError::Failure)?;
     let url = format!("{API_BASE}/gateway/bot");
     let resp = client
         .get(&url)

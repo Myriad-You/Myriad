@@ -80,11 +80,12 @@ pub async fn handle_inbound(event: TelegramPrivateText, token: &str) {
             msg_id,
             ..
         } => {
-            crate::services::telegram_work::start_paired_work(
+            crate::services::telegram_work::start_paired_work_with_images(
                 &db,
                 user_id,
                 &chat_id,
                 &input,
+                &event.images,
                 &session_key,
                 &msg_id,
                 token,
@@ -145,6 +146,7 @@ mod tests {
             msg_id: "10".into(),
             user_openid: "1001".into(),
             content: "帮我查天气".into(),
+            images: Vec::new(),
         };
         let decision =
             ingest_channel_text(&event, PairingLookup::Unpaired, false, "telegram", "1001");

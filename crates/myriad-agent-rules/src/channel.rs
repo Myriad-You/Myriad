@@ -145,13 +145,13 @@ pub struct ChannelCapabilities {
     pub outfit: bool,
 }
 
-/// Telegram DM: text in, final text plus images out, numbered options plus inline buttons.
+/// Telegram DM: text and images in, final text plus images out, numbered options plus inline buttons.
 /// Typing is a transport hint (`sendChatAction`), not a capability bit.
 /// Edit / streaming draft stay off.
 pub fn telegram_dm_capabilities() -> ChannelCapabilities {
     ChannelCapabilities {
         inbound_text: true,
-        inbound_media: false,
+        inbound_media: true,
         inbound_callback: true,
         outbound_final_text: true,
         outbound_markdown: false,
@@ -165,18 +165,18 @@ pub fn telegram_dm_capabilities() -> ChannelCapabilities {
     }
 }
 
-/// Discord DM: text in, final text plus images out, numbered options plus component buttons.
+/// Discord DM: text and images in, final text plus images out, numbered options plus component buttons.
 /// Typing is `POST /channels/{id}/typing` (10s), not a capability bit.
 /// Edit / streaming draft stay off. Message Content Intent is not required.
 pub fn discord_dm_capabilities() -> ChannelCapabilities {
     telegram_dm_capabilities()
 }
 
-/// C2C: text in, final text plus images out, numbered options plus yes/no. No buttons.
+/// C2C: text and images in, final text plus images out, numbered options plus yes/no. No buttons.
 pub fn qq_c2c_capabilities() -> ChannelCapabilities {
     ChannelCapabilities {
         inbound_text: true,
-        inbound_media: false,
+        inbound_media: true,
         inbound_callback: false,
         outbound_final_text: true,
         outbound_markdown: false,
@@ -264,12 +264,22 @@ fn sanitize_key_part(value: &str) -> String {
     value.replace(':', "_")
 }
 
-/// Inbound C2C text after Gateway decoding. Attachments are ignored in the first cut.
+/// One inbound image the worker can download and cache.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChannelImageRef {
+    pub url: String,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+}
+
+/// Inbound C2C text after Gateway decoding. Images are platform URLs, not bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundC2cText {
     pub msg_id: String,
     pub user_openid: String,
     pub content: String,
+    pub images: Vec<ChannelImageRef>,
 }
 
 /// Whether this openid already maps to a Myriad user. Lookup itself is I/O;
@@ -1301,6 +1311,7 @@ pub struct TelegramPrivateText {
     pub from_id: i64,
     pub chat_id: i64,
     pub text: String,
+    pub images: Vec<ChannelImageRef>,
 }
 
 /// Private-chat inline-button press. `data` is raw `callback_data`.
@@ -1327,6 +1338,7 @@ impl TelegramPrivateText {
             msg_id: self.update_id.to_string(),
             user_openid: self.from_id.to_string(),
             content: self.text.clone(),
+            images: self.images.clone(),
         }
     }
 
@@ -1474,10 +1486,16 @@ fn telegram_private_text_from_update(update: &serde_json::Value) -> Option<Teleg
     let from = message.get("from")?;
     let from_id = json_i64(from.get("id")?)?;
     let chat_id = json_i64(chat.get("id")?)?;
+    let images = parse_telegram_photos(message);
     let text = message
         .get("text")
-        .and_then(|value| value.as_str())?
+        .or_else(|| message.get("caption"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
         .to_string();
+    if text.trim().is_empty() && images.is_empty() {
+        return None;
+    }
     let message_id = json_i64(message.get("message_id")?)?;
     Some(TelegramPrivateText {
         update_id,
@@ -1485,7 +1503,46 @@ fn telegram_private_text_from_update(update: &serde_json::Value) -> Option<Teleg
         from_id,
         chat_id,
         text,
+        images,
     })
+}
+
+fn parse_telegram_photos(message: &serde_json::Value) -> Vec<ChannelImageRef> {
+    let Some(photos) = message.get("photo").and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+    let Some(largest) = photos.iter().max_by_key(|photo| {
+        photo.get("width").and_then(json_i64).unwrap_or(0)
+            * photo.get("height").and_then(json_i64).unwrap_or(0)
+    }) else {
+        return Vec::new();
+    };
+    let Some(file_id) = largest
+        .get("file_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Vec::new();
+    };
+    vec![ChannelImageRef {
+        url: format!("tg:{file_id}"),
+        name: "photo.jpg".to_string(),
+        mime: "image/jpeg".to_string(),
+        size: largest.get("file_size").and_then(json_u64).unwrap_or(0),
+    }]
+}
+
+/// `getFile` result `file_path`. Empty or non-ok → Transient.
+pub fn parse_telegram_file_path(status: u16, body: &str) -> Result<String, ConnectFailureKind> {
+    let result = parse_telegram_ok_payload(status, body)?;
+    result
+        .get("file_path")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.contains(".."))
+        .map(str::to_string)
+        .ok_or(ConnectFailureKind::Transient)
 }
 
 /// `parameters.retry_after` seconds on 429. Missing → none, caller uses default backoff.
@@ -1930,6 +1987,7 @@ pub struct DiscordPrivateText {
     pub author_id: String,
     pub channel_id: String,
     pub text: String,
+    pub images: Vec<ChannelImageRef>,
 }
 
 impl DiscordPrivateText {
@@ -1938,6 +1996,7 @@ impl DiscordPrivateText {
             msg_id: self.message_id.clone(),
             user_openid: self.author_id.clone(),
             content: self.text.clone(),
+            images: self.images.clone(),
         }
     }
 }
@@ -2044,7 +2103,7 @@ pub fn classify_discord_rest(status: u16, body: &str) -> ConnectFailureKind {
     classify_connect_failure(&ConnectFailure::HttpStatus { status, body })
 }
 
-/// DM `MESSAGE_CREATE`. Drops guild messages, bots, and empty content.
+/// DM `MESSAGE_CREATE`. Drops guild messages, bots, and empty content without images.
 pub fn discord_private_text_from_create(
     data: &serde_json::Value,
     bot_user_id: &str,
@@ -2068,16 +2127,76 @@ pub fn discord_private_text_from_create(
     if !bot_user_id.is_empty() && author_id == bot_user_id {
         return None;
     }
-    let text = data.get("content").and_then(|value| value.as_str())?;
-    if text.trim().is_empty() {
+    let text = data
+        .get("content")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    let images = parse_http_image_attachments(data.get("attachments"));
+    if text.trim().is_empty() && images.is_empty() {
         return None;
     }
     Some(DiscordPrivateText {
         message_id: json_snowflake(data.get("id"))?,
         author_id,
         channel_id: json_snowflake(data.get("channel_id"))?,
-        text: text.to_string(),
+        text,
+        images,
     })
+}
+
+/// QQ C2C `attachments` that look like images. Non-image / javascript URLs drop.
+pub fn parse_qq_c2c_images(data: &serde_json::Value) -> Vec<ChannelImageRef> {
+    parse_http_image_attachments(data.get("attachments"))
+}
+
+fn parse_http_image_attachments(value: Option<&serde_json::Value>) -> Vec<ChannelImageRef> {
+    let Some(rows) = value.and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+    rows.iter()
+        .filter_map(|row| {
+            let url = row
+                .get("url")
+                .or_else(|| row.get("proxy_url"))
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|url| url.starts_with("http://") || url.starts_with("https://"))?;
+            let name = row
+                .get("filename")
+                .or_else(|| row.get("name"))
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or("photo.png");
+            let mime = row
+                .get("content_type")
+                .or_else(|| row.get("contentType"))
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .unwrap_or("");
+            let looks_image = mime.starts_with("image/")
+                || name.rsplit('.').next().is_some_and(|ext| {
+                    matches!(
+                        ext.to_ascii_lowercase().as_str(),
+                        "png" | "jpg" | "jpeg" | "gif" | "webp"
+                    )
+                });
+            if !looks_image {
+                return None;
+            }
+            Some(ChannelImageRef {
+                url: url.to_string(),
+                name: name.to_string(),
+                mime: if mime.starts_with("image/") {
+                    mime.to_string()
+                } else {
+                    "image/png".to_string()
+                },
+                size: row.get("size").and_then(json_u64).unwrap_or(0),
+            })
+        })
+        .collect()
 }
 
 /// Component interaction in a DM. Type must be 3 (`MESSAGE_COMPONENT`).
