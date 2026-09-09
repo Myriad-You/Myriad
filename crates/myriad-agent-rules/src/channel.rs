@@ -1250,6 +1250,169 @@ pub fn discord_worker_intent(enabled: bool, token: &str) -> WorkerIntent {
     telegram_worker_intent(enabled, token)
 }
 
+/// Feishu: same shape as QQ — switch on, AppID, and AppSecret.
+pub fn feishu_worker_intent(enabled: bool, app_id: &str, has_app_secret: bool) -> WorkerIntent {
+    worker_intent(enabled, app_id, has_app_secret)
+}
+
+/// Tenant-token endpoint credential codes (Easybot Feishu adapter).
+/// 99991663/64/65, 20013, 20005, 4001 are AppID / AppSecret rejects.
+pub fn classify_feishu_token_code(code: i64) -> ConnectFailureKind {
+    match code {
+        99991663 | 99991664 | 99991665 | 20013 | 20005 | 4001 => ConnectFailureKind::Permanent,
+        _ => ConnectFailureKind::Transient,
+    }
+}
+
+/// Token expired / illegal on a later OpenAPI call. Refresh once, then retry.
+/// 99991664 is app_access_token illegal — not tenant — so it is excluded.
+pub fn feishu_token_needs_refresh(code: i64) -> bool {
+    matches!(code, 99991663 | 99991665 | 20013 | 20005)
+}
+
+/// Parse `POST /open-apis/auth/v3/tenant_access_token/internal`.
+/// Never returns the secret; errors are kinds only.
+pub fn parse_feishu_tenant_token(
+    status: u16,
+    body: &str,
+) -> Result<(String, u64), ConnectFailureKind> {
+    if status == 0 || status >= 500 {
+        return Err(ConnectFailureKind::Transient);
+    }
+    if status == 401 || status == 403 {
+        return Err(ConnectFailureKind::Permanent);
+    }
+    if !(200..300).contains(&status) {
+        return Err(ConnectFailureKind::Transient);
+    }
+    let data: serde_json::Value =
+        serde_json::from_str(body).map_err(|_| ConnectFailureKind::Transient)?;
+    let code = data.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if code != 0 {
+        return Err(classify_feishu_token_code(code));
+    }
+    let token = data
+        .get("tenant_access_token")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or(ConnectFailureKind::Permanent)?;
+    let expire = data.get("expire").and_then(|v| v.as_u64()).unwrap_or(7200);
+    Ok((token.to_string(), expire.max(1)))
+}
+
+/// Parse `POST /callback/ws/endpoint`. Returns `(ws_url, service_id, ping_interval)`.
+pub fn parse_feishu_ws_endpoint(
+    status: u16,
+    body: &str,
+) -> Result<(String, i32, u64), ConnectFailureKind> {
+    if status == 0 || status >= 500 {
+        return Err(ConnectFailureKind::Transient);
+    }
+    if status == 401 || status == 403 {
+        return Err(ConnectFailureKind::Permanent);
+    }
+    if !(200..300).contains(&status) {
+        return Err(ConnectFailureKind::Transient);
+    }
+    let data: serde_json::Value =
+        serde_json::from_str(body).map_err(|_| ConnectFailureKind::Transient)?;
+    let code = data.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if code != 0 {
+        return Err(classify_feishu_token_code(code));
+    }
+    let inner = data.get("data").ok_or(ConnectFailureKind::Transient)?;
+    let url = inner
+        .get("URL")
+        .or_else(|| inner.get("url"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or(ConnectFailureKind::Transient)?;
+    let service_id = url
+        .split('?')
+        .nth(1)
+        .and_then(|qs| {
+            qs.split('&').find_map(|pair| {
+                let (k, v) = pair.split_once('=')?;
+                (k == "service_id").then(|| v.parse::<i32>().ok()).flatten()
+            })
+        })
+        .unwrap_or(0);
+    let ping_interval = inner
+        .get("ClientConfig")
+        .or_else(|| inner.get("client_config"))
+        .and_then(|cfg| cfg.get("PingInterval").or_else(|| cfg.get("ping_interval")))
+        .and_then(|v| v.as_u64())
+        .filter(|n| *n > 0)
+        .unwrap_or(120);
+    Ok((url.to_string(), service_id, ping_interval))
+}
+
+/// Handshake-Status on a non-101 WebSocket upgrade.
+/// 403 and 514 (except connection-limit 1000040350) are credential / app-state.
+pub fn classify_feishu_handshake(status: i32, auth_err_code: i32) -> ConnectFailureKind {
+    match status {
+        403 => ConnectFailureKind::Permanent,
+        514 if auth_err_code == 1_000_040_350 => ConnectFailureKind::Transient,
+        514 => ConnectFailureKind::Permanent,
+        _ => ConnectFailureKind::Transient,
+    }
+}
+
+/// Decode a long-connection event payload. Returns `(event_type, event_id, event)`.
+pub fn parse_feishu_event_envelope(payload: &[u8]) -> Option<(String, String, serde_json::Value)> {
+    let body: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    let header = body.get("header")?;
+    let event_type = header
+        .get("event_type")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    let event_id = header
+        .get("event_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    let event = body
+        .get("event")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    Some((event_type, event_id, event))
+}
+
+/// OpenAPI JSON `code` after a send / upload / download. 0 is success.
+pub fn parse_feishu_api_code(
+    status: u16,
+    body: &str,
+) -> Result<serde_json::Value, ConnectFailureKind> {
+    if status == 0 || status >= 500 {
+        return Err(ConnectFailureKind::Transient);
+    }
+    if status == 401 || status == 403 {
+        return Err(ConnectFailureKind::Permanent);
+    }
+    let data: serde_json::Value =
+        serde_json::from_str(body).map_err(|_| ConnectFailureKind::Transient)?;
+    let code = data.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+    if code != 0 {
+        // Token-endpoint credential codes stay Permanent. The same numbers on a
+        // later OpenAPI call mean the cached tenant token expired — Transient
+        // so the worker can refresh once.
+        return Err(if feishu_token_needs_refresh(code) {
+            ConnectFailureKind::Transient
+        } else {
+            classify_feishu_token_code(code)
+        });
+    }
+    if !(200..300).contains(&status) {
+        return Err(ConnectFailureKind::Transient);
+    }
+    Ok(data)
+}
+
 /// Official `GROUP_AND_C2C_EVENT`. One bit covers C2C and group events.
 /// First-cut worker only needs C2C; do not add guild intents (4014 on 公域).
 /// <https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/event-emit.html>

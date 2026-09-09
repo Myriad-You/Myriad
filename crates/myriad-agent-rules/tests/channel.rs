@@ -6,15 +6,18 @@
 
 use myriad_agent_rules::channel::{
     channel_can_finish, clarify_base_input, clarify_followup, classify_connect_failure,
-    classify_discord_rest, classify_gateway_close, collect_channel_image_urls,
-    decide_pending_reply, discord_dm_capabilities, discord_private_component_from_create,
+    classify_discord_rest, classify_feishu_handshake, classify_feishu_token_code,
+    classify_gateway_close, collect_channel_image_urls, decide_pending_reply,
+    discord_dm_capabilities, discord_private_component_from_create,
     discord_private_text_from_create, discord_reply_markup, discord_worker_intent,
     encode_pairing_code, encode_pending_id, ensure_pending_id, extract_pairing_code,
     feishu_dm_capabilities, feishu_reply_markup, feishu_text_from_content,
-    format_channel_result, format_pairing_code, format_pending_prompt, ingest_c2c_text,
-    ingest_channel_text, next_passive_seq, outbound_idempotency_key, pairing_bind_reply,
-    pairing_bind_reply_for, panel_entry_reply, parse_access_token_response, parse_channel_command,
-    parse_discord_channel_type, parse_feishu_card_callback, parse_feishu_message_receive,
+    feishu_token_needs_refresh, feishu_worker_intent, format_channel_result, format_pairing_code,
+    format_pending_prompt, ingest_c2c_text, ingest_channel_text, next_passive_seq,
+    outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for, panel_entry_reply,
+    parse_access_token_response, parse_channel_command, parse_discord_channel_type,
+    parse_feishu_api_code, parse_feishu_card_callback, parse_feishu_event_envelope,
+    parse_feishu_message_receive, parse_feishu_tenant_token, parse_feishu_ws_endpoint,
     parse_gateway_url_response, parse_qq_c2c_images, parse_qq_file_info,
     parse_telegram_bot_identity, parse_telegram_callback, parse_telegram_file_path,
     parse_telegram_ok_payload, parse_telegram_private_inbounds, parse_telegram_private_texts,
@@ -23,17 +26,17 @@ use myriad_agent_rules::channel::{
     telegram_callback_action, telegram_dm_capabilities, telegram_inline_keyboard,
     telegram_max_update_id, telegram_reply_markup, telegram_retry_after, telegram_worker_intent,
     truncate_feishu_text, truncate_telegram_text, worker_intent, ChannelCommand, ChannelEvent,
-    ChannelImageRef, ConnectFailure, DeliveryContext, DeliveryPlan, FeishuCardCallback,
-    InboundC2cText, InboundDecision, InboundFeishuText, PairingBindResult, PairingLookup,
-    PendingDecision, PendingKind, PendingOption, PendingPrompt, TelegramCallbackAction,
-    TelegramPrivateInbound, WorkerIntent, CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT, CONFIRM_HINT,
-    DISCORD_CHANNEL_TYPE_DM, DISCORD_CHANNEL_TYPE_GROUP_DM, DISCORD_DIRECT_MESSAGES,
-    DISCORD_PAIRING_TAKEN_REPLY, DISCORD_TEXT_LIMIT, FEISHU_CARD_ACTION_TRIGGER,
-    FEISHU_MESSAGE_RECEIVE_V1, FEISHU_PAIRING_TAKEN_REPLY, FEISHU_TEXT_LIMIT,
-    GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY, PAIRING_REQUIRED_REPLY,
-    PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY, PENDING_STALE_REPLY,
-    TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES, TELEGRAM_INPUT_BUTTON,
-    TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
+    ChannelImageRef, ConnectFailure, ConnectFailureKind, DeliveryContext, DeliveryPlan,
+    FeishuCardCallback, InboundC2cText, InboundDecision, InboundFeishuText, PairingBindResult,
+    PairingLookup, PendingDecision, PendingKind, PendingOption, PendingPrompt,
+    TelegramCallbackAction, TelegramPrivateInbound, WorkerIntent, CHANNEL_HELP_REPLY,
+    CHANNEL_IMAGE_LIMIT, CONFIRM_HINT, DISCORD_CHANNEL_TYPE_DM, DISCORD_CHANNEL_TYPE_GROUP_DM,
+    DISCORD_DIRECT_MESSAGES, DISCORD_PAIRING_TAKEN_REPLY, DISCORD_TEXT_LIMIT,
+    FEISHU_CARD_ACTION_TRIGGER, FEISHU_MESSAGE_RECEIVE_V1, FEISHU_PAIRING_TAKEN_REPLY,
+    FEISHU_TEXT_LIMIT, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
+    PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY,
+    PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES,
+    TELEGRAM_INPUT_BUTTON, TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -1410,7 +1413,10 @@ fn feishu_card_callback_parses_operator_and_value_data() {
 fn feishu_reply_markup_renders_card_buttons() {
     let prompt = choice_prompt();
     let markup = feishu_reply_markup(&prompt).expect("markup");
-    let elements = markup.get("elements").and_then(|v| v.as_array()).expect("elements");
+    let elements = markup
+        .get("elements")
+        .and_then(|v| v.as_array())
+        .expect("elements");
     assert_eq!(elements.len(), 2);
     let button = &elements[0];
     assert_eq!(button.get("tag").and_then(|v| v.as_str()), Some("button"));
@@ -1440,7 +1446,12 @@ fn feishu_capabilities_open_buttons_and_images_but_not_edit() {
 #[test]
 fn feishu_text_cap_and_pairing_taken_reply() {
     assert_eq!(truncate_feishu_text("短").len(), "短".len());
-    assert!(truncate_feishu_text(&"长".repeat(FEISHU_TEXT_LIMIT + 10)).chars().count() <= FEISHU_TEXT_LIMIT);
+    assert!(
+        truncate_feishu_text(&"长".repeat(FEISHU_TEXT_LIMIT + 10))
+            .chars()
+            .count()
+            <= FEISHU_TEXT_LIMIT
+    );
     assert_eq!(
         pairing_bind_reply_for(PairingBindResult::OpenidTaken, "feishu"),
         FEISHU_PAIRING_TAKEN_REPLY
@@ -1455,4 +1466,93 @@ fn feishu_text_content_keeps_raw_on_bad_json() {
     assert_eq!(feishu_text_from_content("plain"), "plain");
     assert_eq!(feishu_text_from_content("{\"other\":1}"), "{\"other\":1}");
     assert_eq!(feishu_text_from_content(""), "");
+}
+
+#[test]
+fn feishu_worker_intent_matches_qq_shape() {
+    assert_eq!(feishu_worker_intent(true, "cli_a", true), WorkerIntent::Run);
+    assert_eq!(
+        feishu_worker_intent(true, "cli_a", false),
+        WorkerIntent::Stop
+    );
+    assert_eq!(
+        feishu_worker_intent(false, "cli_a", true),
+        WorkerIntent::Stop
+    );
+}
+
+#[test]
+fn feishu_tenant_token_classifies_credential_and_transient() {
+    assert_eq!(
+        classify_feishu_token_code(99991664),
+        ConnectFailureKind::Permanent
+    );
+    assert_eq!(
+        classify_feishu_token_code(99999),
+        ConnectFailureKind::Transient
+    );
+    assert!(feishu_token_needs_refresh(99991663));
+    assert!(!feishu_token_needs_refresh(99991664));
+    let (token, ttl) = parse_feishu_tenant_token(
+        200,
+        r#"{"code":0,"tenant_access_token":"t-abc","expire":7200}"#,
+    )
+    .expect("token");
+    assert_eq!(token, "t-abc");
+    assert_eq!(ttl, 7200);
+    assert_eq!(
+        parse_feishu_tenant_token(200, r#"{"code":99991664,"msg":"invalid"}"#),
+        Err(ConnectFailureKind::Permanent)
+    );
+    assert_eq!(
+        parse_feishu_tenant_token(503, "busy"),
+        Err(ConnectFailureKind::Transient)
+    );
+}
+
+#[test]
+fn feishu_ws_endpoint_and_handshake_and_envelope() {
+    let (url, service_id, ping) = parse_feishu_ws_endpoint(
+        200,
+        r#"{"code":0,"data":{"URL":"wss://open.feishu.cn/ws?service_id=7","ClientConfig":{"PingInterval":60}}}"#,
+    )
+    .expect("endpoint");
+    assert!(url.contains("service_id=7"));
+    assert_eq!(service_id, 7);
+    assert_eq!(ping, 60);
+    assert_eq!(
+        classify_feishu_handshake(403, 0),
+        ConnectFailureKind::Permanent
+    );
+    assert_eq!(
+        classify_feishu_handshake(514, 1_000_040_350),
+        ConnectFailureKind::Transient
+    );
+    assert_eq!(
+        classify_feishu_handshake(514, 0),
+        ConnectFailureKind::Permanent
+    );
+    let payload = serde_json::json!({
+        "schema": "2.0",
+        "header": {
+            "event_id": "evt-1",
+            "event_type": "im.message.receive_v1"
+        },
+        "event": { "message": { "chat_type": "p2p" } }
+    });
+    let (kind, id, event) =
+        parse_feishu_event_envelope(payload.to_string().as_bytes()).expect("envelope");
+    assert_eq!(kind, FEISHU_MESSAGE_RECEIVE_V1);
+    assert_eq!(id, "evt-1");
+    assert_eq!(
+        event
+            .get("message")
+            .and_then(|m| m.get("chat_type"))
+            .and_then(|v| v.as_str()),
+        Some("p2p")
+    );
+    assert_eq!(
+        parse_feishu_api_code(200, r#"{"code":99991663}"#),
+        Err(ConnectFailureKind::Transient)
+    );
 }
