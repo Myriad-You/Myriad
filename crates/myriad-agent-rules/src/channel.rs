@@ -29,6 +29,10 @@ pub const TELEGRAM_PAIRING_TAKEN_REPLY: &str =
 pub const DISCORD_PAIRING_TAKEN_REPLY: &str =
     "这个 Discord 号已经绑过别人。请先在原账号解除，或换一个号。";
 
+/// Reply when this Feishu open id is already bound to a different site user.
+pub const FEISHU_PAIRING_TAKEN_REPLY: &str =
+    "这个飞书号已经绑过别人。请先在原账号解除，或换一个号。";
+
 /// Telegram `sendMessage` text cap. Counted after entity parse; first cut
 /// sends plain text so Unicode scalars are the conservative bound.
 pub const TELEGRAM_TEXT_LIMIT: usize = 4096;
@@ -70,6 +74,14 @@ pub const QQ_TEXT_LIMIT: usize = 2000;
 
 /// Discord `content` cap. Official Create Message limit.
 pub const DISCORD_TEXT_LIMIT: usize = 2000;
+
+/// Feishu text-message cap. The API caps the whole request body at 150 KB;
+/// this conservative scalar bound keeps a split result well under it.
+pub const FEISHU_TEXT_LIMIT: usize = 4000;
+
+/// Feishu events pushed over the long-connection WebSocket.
+pub const FEISHU_MESSAGE_RECEIVE_V1: &str = "im.message.receive_v1";
+pub const FEISHU_CARD_ACTION_TRIGGER: &str = "card.action.trigger";
 
 /// Shared inbound/outbound image cap for private-chat Work.
 pub const CHANNEL_IMAGE_LIMIT: usize = 4;
@@ -202,6 +214,25 @@ pub fn qq_c2c_capabilities() -> ChannelCapabilities {
         inbound_text: true,
         inbound_media: true,
         inbound_callback: false,
+        outbound_final_text: true,
+        outbound_markdown: false,
+        outbound_image: true,
+        outbound_edit: false,
+        outbound_streaming_draft: false,
+        interactive: true,
+        frontend_action: false,
+        performance: false,
+        outfit: false,
+    }
+}
+
+/// Feishu p2p: text and images in, final text plus images out, numbered options
+/// plus interactive-card buttons. Typing / edit / streaming draft stay off.
+pub fn feishu_dm_capabilities() -> ChannelCapabilities {
+    ChannelCapabilities {
+        inbound_text: true,
+        inbound_media: true,
+        inbound_callback: true,
         outbound_final_text: true,
         outbound_markdown: false,
         outbound_image: true,
@@ -364,6 +395,7 @@ pub fn pairing_bind_reply_for(result: PairingBindResult, platform: &str) -> &'st
         PairingBindResult::OpenidTaken if platform == "discord" || platform == "discord_dm" => {
             DISCORD_PAIRING_TAKEN_REPLY
         }
+        PairingBindResult::OpenidTaken if platform == "feishu" => FEISHU_PAIRING_TAKEN_REPLY,
         PairingBindResult::OpenidTaken => PAIRING_TAKEN_REPLY,
     }
 }
@@ -827,6 +859,40 @@ pub fn discord_reply_markup(prompt: &PendingPrompt) -> Option<serde_json::Value>
             })
             .collect(),
     ))
+}
+
+/// Feishu interactive-card elements for a parked prompt. Same callback encoding
+/// as Telegram `callback_data`, wrapped in `value.data` so
+/// [`telegram_callback_action`] can consume it.
+pub fn feishu_reply_markup(prompt: &PendingPrompt) -> Option<serde_json::Value> {
+    let rows = telegram_inline_keyboard(prompt);
+    if rows.is_empty() {
+        return None;
+    }
+    let elements = rows
+        .into_iter()
+        .map(|row| {
+            let buttons: Vec<serde_json::Value> = row
+                .into_iter()
+                .map(|button| {
+                    serde_json::json!({
+                        "tag": "button",
+                        "text": {
+                            "tag": "plain_text",
+                            "content": button.text,
+                        },
+                        "value": { "data": button.callback_data },
+                    })
+                })
+                .collect();
+            if buttons.len() == 1 {
+                buttons.into_iter().next().expect("single button")
+            } else {
+                serde_json::json!({ "tag": "action", "actions": buttons })
+            }
+        })
+        .collect::<Vec<_>>();
+    Some(serde_json::json!({ "elements": elements }))
 }
 
 /// Force the reply composer. Placeholder is capped at 64 characters.
@@ -1398,6 +1464,190 @@ impl TelegramPrivateCallback {
     }
 }
 
+/// Feishu p2p text after long-connection decode. `open_id` may fall back to
+/// `user_id`; both missing drops the event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InboundFeishuText {
+    pub event_id: String,
+    pub message_id: String,
+    pub open_id: String,
+    pub chat_id: String,
+    pub content: String,
+    pub images: Vec<ChannelImageRef>,
+}
+
+/// Feishu interactive-card button press. `data` is `action.value.data`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeishuCardCallback {
+    pub event_id: String,
+    pub open_id: String,
+    pub chat_id: String,
+    pub data: String,
+}
+
+impl InboundFeishuText {
+    pub fn inbound(&self) -> InboundC2cText {
+        InboundC2cText {
+            msg_id: self.message_id.clone(),
+            user_openid: self.open_id.clone(),
+            content: self.content.clone(),
+            images: self.images.clone(),
+        }
+    }
+
+    pub fn chat_id_key(&self) -> String {
+        self.chat_id.clone()
+    }
+}
+
+impl FeishuCardCallback {
+    pub fn chat_id_key(&self) -> String {
+        self.chat_id.clone()
+    }
+
+    pub fn msg_id(&self) -> String {
+        self.event_id.clone()
+    }
+}
+
+/// Text from a Feishu `text` message `content` (`{"text":"..."}`). Non-JSON or
+/// missing `text` keeps the raw content so a malformed payload is not silent.
+pub fn feishu_text_from_content(content: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(content)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("text")
+                .and_then(|text| text.as_str())
+                .map(str::to_string)
+        })
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| content.to_string())
+}
+
+/// Image refs from a Feishu message. `image_key` is not a public URL — the
+/// worker downloads via `/im/v1/images/{key}` before caching, so `url` carries
+/// the `feishu:`-prefixed key.
+fn parse_feishu_images(message: &serde_json::Value) -> Vec<ChannelImageRef> {
+    let Some(content) = message.get("content").and_then(|value| value.as_str()) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(content) else {
+        return Vec::new();
+    };
+    let Some(key) = parsed
+        .get("image_key")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+    else {
+        return Vec::new();
+    };
+    vec![ChannelImageRef {
+        url: format!("feishu:{key}"),
+        name: "image.jpg".to_string(),
+        mime: "image/jpeg".to_string(),
+        size: 0,
+    }]
+}
+
+/// Parse `im.message.receive_v1`. Drops bots, groups, and empty text without
+/// images. Missing `open_id` falls back to `user_id` (mobile delivery can omit
+/// `open_id`). `event_id` comes from the event header for dedup.
+pub fn parse_feishu_message_receive(
+    event_id: &str,
+    event_data: &serde_json::Value,
+) -> Option<InboundFeishuText> {
+    let sender = event_data.get("sender")?;
+    if sender.get("sender_type").and_then(|value| value.as_str()) == Some("app") {
+        return None;
+    }
+    let sender_id = sender.get("sender_id")?;
+    let open_id = sender_id
+        .get("open_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            sender_id
+                .get("user_id")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })?;
+    let message = event_data.get("message")?;
+    if message.get("chat_type").and_then(|value| value.as_str()) != Some("p2p") {
+        return None;
+    }
+    let message_id = message
+        .get("message_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let chat_id = message
+        .get("chat_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let msg_type = message
+        .get("message_type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let raw_content = message
+        .get("content")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let images = parse_feishu_images(message);
+    let content = match msg_type {
+        "text" => feishu_text_from_content(raw_content),
+        "image" => String::new(),
+        _ => raw_content.to_string(),
+    };
+    if content.trim().is_empty() && images.is_empty() {
+        return None;
+    }
+    Some(InboundFeishuText {
+        event_id: event_id.to_string(),
+        message_id: message_id.to_string(),
+        open_id: open_id.to_string(),
+        chat_id: chat_id.to_string(),
+        content,
+        images,
+    })
+}
+
+/// Parse `card.action.trigger`. Drops payloads without operator, chat, or data.
+pub fn parse_feishu_card_callback(
+    event_id: &str,
+    event_data: &serde_json::Value,
+) -> Option<FeishuCardCallback> {
+    let open_id = event_data
+        .get("operator")
+        .and_then(|value| value.get("open_id"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let chat_id = event_data
+        .get("context")
+        .and_then(|value| value.get("open_chat_id"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let data = event_data
+        .get("action")
+        .and_then(|value| value.get("value"))
+        .and_then(|value| value.get("data"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(FeishuCardCallback {
+        event_id: event_id.to_string(),
+        open_id: open_id.to_string(),
+        chat_id: chat_id.to_string(),
+        data: data.to_string(),
+    })
+}
+
 /// Parse `getUpdates` / `getMe` / `sendMessage` JSON. Never returns the token.
 pub fn parse_telegram_ok_payload(
     status: u16,
@@ -1607,6 +1857,14 @@ pub fn telegram_max_update_id(status: u16, body: &str) -> Result<Option<i64>, Co
 /// First-cut outbound: trim to [`TELEGRAM_TEXT_LIMIT`] Unicode scalars.
 pub fn truncate_telegram_text(text: &str) -> String {
     split_channel_text(text, TELEGRAM_TEXT_LIMIT)
+        .into_iter()
+        .next()
+        .unwrap_or_default()
+}
+
+/// First-cut outbound: trim to [`FEISHU_TEXT_LIMIT`] Unicode scalars.
+pub fn truncate_feishu_text(text: &str) -> String {
+    split_channel_text(text, FEISHU_TEXT_LIMIT)
         .into_iter()
         .next()
         .unwrap_or_default()

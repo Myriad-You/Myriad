@@ -10,26 +10,30 @@ use myriad_agent_rules::channel::{
     decide_pending_reply, discord_dm_capabilities, discord_private_component_from_create,
     discord_private_text_from_create, discord_reply_markup, discord_worker_intent,
     encode_pairing_code, encode_pending_id, ensure_pending_id, extract_pairing_code,
+    feishu_dm_capabilities, feishu_reply_markup, feishu_text_from_content,
     format_channel_result, format_pairing_code, format_pending_prompt, ingest_c2c_text,
     ingest_channel_text, next_passive_seq, outbound_idempotency_key, pairing_bind_reply,
     pairing_bind_reply_for, panel_entry_reply, parse_access_token_response, parse_channel_command,
-    parse_discord_channel_type, parse_gateway_url_response, parse_qq_c2c_images,
-    parse_qq_file_info, parse_telegram_bot_identity, parse_telegram_callback,
-    parse_telegram_file_path, parse_telegram_ok_payload, parse_telegram_private_inbounds,
-    parse_telegram_private_texts, pending_prompt_from_model_json, plan_delivery,
-    qq_c2c_capabilities, qq_token_needs_refresh, session_key, should_deliver_sequence,
-    split_channel_text, task_started_reply, telegram_callback_action, telegram_dm_capabilities,
-    telegram_inline_keyboard, telegram_max_update_id, telegram_reply_markup, telegram_retry_after,
-    telegram_worker_intent, truncate_telegram_text, worker_intent, ChannelCommand, ChannelEvent,
-    ChannelImageRef, ConnectFailure, DeliveryContext, DeliveryPlan, InboundC2cText,
-    InboundDecision, PairingBindResult, PairingLookup, PendingDecision, PendingKind, PendingOption,
-    PendingPrompt, TelegramCallbackAction, TelegramPrivateInbound, WorkerIntent,
-    CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT, CONFIRM_HINT, DISCORD_CHANNEL_TYPE_DM,
-    DISCORD_CHANNEL_TYPE_GROUP_DM, DISCORD_DIRECT_MESSAGES, DISCORD_PAIRING_TAKEN_REPLY,
-    DISCORD_TEXT_LIMIT, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
-    PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY,
-    PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES,
-    TELEGRAM_INPUT_BUTTON, TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
+    parse_discord_channel_type, parse_feishu_card_callback, parse_feishu_message_receive,
+    parse_gateway_url_response, parse_qq_c2c_images, parse_qq_file_info,
+    parse_telegram_bot_identity, parse_telegram_callback, parse_telegram_file_path,
+    parse_telegram_ok_payload, parse_telegram_private_inbounds, parse_telegram_private_texts,
+    pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh,
+    session_key, should_deliver_sequence, split_channel_text, task_started_reply,
+    telegram_callback_action, telegram_dm_capabilities, telegram_inline_keyboard,
+    telegram_max_update_id, telegram_reply_markup, telegram_retry_after, telegram_worker_intent,
+    truncate_feishu_text, truncate_telegram_text, worker_intent, ChannelCommand, ChannelEvent,
+    ChannelImageRef, ConnectFailure, DeliveryContext, DeliveryPlan, FeishuCardCallback,
+    InboundC2cText, InboundDecision, InboundFeishuText, PairingBindResult, PairingLookup,
+    PendingDecision, PendingKind, PendingOption, PendingPrompt, TelegramCallbackAction,
+    TelegramPrivateInbound, WorkerIntent, CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT, CONFIRM_HINT,
+    DISCORD_CHANNEL_TYPE_DM, DISCORD_CHANNEL_TYPE_GROUP_DM, DISCORD_DIRECT_MESSAGES,
+    DISCORD_PAIRING_TAKEN_REPLY, DISCORD_TEXT_LIMIT, FEISHU_CARD_ACTION_TRIGGER,
+    FEISHU_MESSAGE_RECEIVE_V1, FEISHU_PAIRING_TAKEN_REPLY, FEISHU_TEXT_LIMIT,
+    GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY, PAIRING_REQUIRED_REPLY,
+    PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY, PENDING_STALE_REPLY,
+    TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES, TELEGRAM_INPUT_BUTTON,
+    TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -1278,4 +1282,177 @@ fn telegram_get_updates_keeps_private_callback() {
     assert!(parse_telegram_private_texts(200, body)
         .expect("texts")
         .is_empty());
+}
+
+#[test]
+fn feishu_p2p_text_parses_open_id_and_content() {
+    let event = serde_json::json!({
+        "sender": {
+            "sender_id": { "open_id": "ou_user", "union_id": "on_x", "user_id": "u_1" },
+            "sender_type": "user",
+            "tenant_key": "t"
+        },
+        "message": {
+            "message_id": "om_msg",
+            "root_id": "",
+            "parent_id": "",
+            "chat_id": "oc_chat",
+            "chat_type": "p2p",
+            "message_type": "text",
+            "content": "{\"text\":\"帮我查天气\"}",
+            "create_time": "1603977298000"
+        }
+    });
+    let parsed = parse_feishu_message_receive("evt-1", &event).expect("p2p text");
+    assert_eq!(parsed.event_id, "evt-1");
+    assert_eq!(parsed.message_id, "om_msg");
+    assert_eq!(parsed.open_id, "ou_user");
+    assert_eq!(parsed.chat_id, "oc_chat");
+    assert_eq!(parsed.content, "帮我查天气");
+    assert!(parsed.images.is_empty());
+    assert_eq!(parsed.inbound().user_openid, "ou_user");
+    assert_eq!(parsed.chat_id_key(), "oc_chat");
+}
+
+#[test]
+fn feishu_missing_open_id_falls_back_to_user_id() {
+    let event = serde_json::json!({
+        "sender": {
+            "sender_id": { "user_id": "u_emp" },
+            "sender_type": "user"
+        },
+        "message": {
+            "message_id": "om_msg",
+            "chat_id": "oc_chat",
+            "chat_type": "p2p",
+            "message_type": "text",
+            "content": "{\"text\":\"hi\"}"
+        }
+    });
+    let parsed = parse_feishu_message_receive("evt-2", &event).expect("fallback");
+    assert_eq!(parsed.open_id, "u_emp");
+}
+
+#[test]
+fn feishu_group_and_bot_messages_drop() {
+    let group = serde_json::json!({
+        "sender": {
+            "sender_id": { "open_id": "ou_g" },
+            "sender_type": "user"
+        },
+        "message": {
+            "message_id": "om_g",
+            "chat_id": "oc_g",
+            "chat_type": "group",
+            "message_type": "text",
+            "content": "{\"text\":\"群\"}"
+        }
+    });
+    assert!(parse_feishu_message_receive("e", &group).is_none());
+
+    let bot = serde_json::json!({
+        "sender": {
+            "sender_id": { "open_id": "ou_bot" },
+            "sender_type": "app"
+        },
+        "message": {
+            "message_id": "om_b",
+            "chat_id": "oc_b",
+            "chat_type": "p2p",
+            "message_type": "text",
+            "content": "{\"text\":\"bot\"}"
+        }
+    });
+    assert!(parse_feishu_message_receive("e", &bot).is_none());
+}
+
+#[test]
+fn feishu_image_message_becomes_image_ref() {
+    let event = serde_json::json!({
+        "sender": {
+            "sender_id": { "open_id": "ou_img" },
+            "sender_type": "user"
+        },
+        "message": {
+            "message_id": "om_img",
+            "chat_id": "oc_img",
+            "chat_type": "p2p",
+            "message_type": "image",
+            "content": "{\"image_key\":\"img_abc\"}"
+        }
+    });
+    let parsed = parse_feishu_message_receive("evt-img", &event).expect("image");
+    assert!(parsed.content.is_empty());
+    assert_eq!(parsed.images.len(), 1);
+    assert_eq!(parsed.images[0].url, "feishu:img_abc");
+}
+
+#[test]
+fn feishu_card_callback_parses_operator_and_value_data() {
+    let event = serde_json::json!({
+        "operator": { "open_id": "ou_op" },
+        "action": { "value": { "data": "y:prompt1" }, "tag": "button" },
+        "context": { "open_message_id": "om_c", "open_chat_id": "oc_c" }
+    });
+    let callback = parse_feishu_card_callback("evt-cb", &event).expect("callback");
+    assert_eq!(callback.event_id, "evt-cb");
+    assert_eq!(callback.open_id, "ou_op");
+    assert_eq!(callback.chat_id, "oc_c");
+    assert_eq!(callback.data, "y:prompt1");
+    assert!(parse_feishu_card_callback(
+        "e",
+        &serde_json::json!({ "operator": { "open_id": "ou" } })
+    )
+    .is_none());
+}
+
+#[test]
+fn feishu_reply_markup_renders_card_buttons() {
+    let prompt = choice_prompt();
+    let markup = feishu_reply_markup(&prompt).expect("markup");
+    let elements = markup.get("elements").and_then(|v| v.as_array()).expect("elements");
+    assert_eq!(elements.len(), 2);
+    let button = &elements[0];
+    assert_eq!(button.get("tag").and_then(|v| v.as_str()), Some("button"));
+    let data = button
+        .get("value")
+        .and_then(|v| v.get("data"))
+        .and_then(|v| v.as_str())
+        .expect("callback data");
+    assert!(data.starts_with("o:") && data.ends_with(":0"), "{data}");
+}
+
+#[test]
+fn feishu_capabilities_open_buttons_and_images_but_not_edit() {
+    let caps = feishu_dm_capabilities();
+    assert!(caps.inbound_text);
+    assert!(caps.inbound_media);
+    assert!(caps.inbound_callback);
+    assert!(caps.outbound_final_text);
+    assert!(caps.outbound_image);
+    assert!(caps.interactive);
+    assert!(!caps.outbound_edit);
+    assert!(!caps.outbound_streaming_draft);
+    assert!(!caps.outbound_markdown);
+    assert!(!caps.frontend_action);
+}
+
+#[test]
+fn feishu_text_cap_and_pairing_taken_reply() {
+    assert_eq!(truncate_feishu_text("短").len(), "短".len());
+    assert!(truncate_feishu_text(&"长".repeat(FEISHU_TEXT_LIMIT + 10)).chars().count() <= FEISHU_TEXT_LIMIT);
+    assert_eq!(
+        pairing_bind_reply_for(PairingBindResult::OpenidTaken, "feishu"),
+        FEISHU_PAIRING_TAKEN_REPLY
+    );
+    assert_eq!(FEISHU_MESSAGE_RECEIVE_V1, "im.message.receive_v1");
+    assert_eq!(FEISHU_CARD_ACTION_TRIGGER, "card.action.trigger");
+}
+
+#[test]
+fn feishu_text_content_keeps_raw_on_bad_json() {
+    assert_eq!(feishu_text_from_content("{\"text\":\"hi\"}"), "hi");
+    assert_eq!(feishu_text_from_content("plain"), "plain");
+    assert_eq!(feishu_text_from_content("{\"other\":1}"), "{\"other\":1}");
+    assert_eq!(feishu_text_from_content(""), "");
 }
