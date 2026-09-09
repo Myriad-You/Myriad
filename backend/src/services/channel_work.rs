@@ -9,15 +9,15 @@ use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
 use myriad_agent_rules::channel::{
-    channel_can_finish, clarify_base_input, clarify_followup, decide_pending_reply,
-    discord_dm_capabilities, discord_reply_markup, ensure_pending_id, format_channel_result,
-    format_pending_prompt, panel_entry_reply, parse_channel_command, pending_prompt_from_model_json,
-    plan_delivery, qq_c2c_capabilities, should_deliver_sequence, split_channel_text,
-    telegram_callback_action, telegram_dm_capabilities, telegram_force_reply_markup,
-    telegram_reply_markup, ChannelCommand, ChannelEvent, DeliveryContext, DeliveryPlan,
-    PendingDecision, PendingKind, PendingOption, PendingPrompt, TelegramCallbackAction,
-    CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT, PANEL_REQUIRED_REPLY,
-    PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
+    channel_can_finish, clarify_base_input, clarify_followup, collect_channel_image_urls,
+    decide_pending_reply, discord_dm_capabilities, discord_reply_markup, ensure_pending_id,
+    format_channel_result, format_pending_prompt, panel_entry_reply, parse_channel_command,
+    pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities, should_deliver_sequence,
+    split_channel_text, telegram_callback_action, telegram_dm_capabilities,
+    telegram_force_reply_markup, telegram_reply_markup, ChannelCommand, ChannelEvent,
+    DeliveryContext, DeliveryPlan, PendingDecision, PendingKind, PendingOption, PendingPrompt,
+    TelegramCallbackAction, CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT,
+    PANEL_REQUIRED_REPLY, PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
 };
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
 use once_cell::sync::Lazy;
@@ -159,63 +159,143 @@ impl ChannelSink {
     }
 
     async fn send_text(&self, content: &str) -> Result<(), String> {
-        self.send_chunks(&[content.to_string()], None).await
+        self.send_chunks(&[content.to_string()], &[], None).await
     }
 
     async fn send_prompt(&self, content: &str, prompt: &PendingPrompt) -> Result<(), String> {
-        self.send_chunks(&[content.to_string()], Some(prompt)).await
+        self.send_chunks(&[content.to_string()], &[], Some(prompt))
+            .await
     }
 
     async fn send_chunks(
         &self,
         chunks: &[String],
+        image_urls: &[String],
         prompt: Option<&PendingPrompt>,
     ) -> Result<(), String> {
-        if chunks.is_empty() {
+        let images = if self.capabilities().outbound_image {
+            image_urls
+        } else {
+            &[]
+        };
+        if chunks.is_empty() && images.is_empty() {
             return Ok(());
         }
-        let last = chunks.len() - 1;
+        let last_text = chunks.len().saturating_sub(1);
         for (index, chunk) in chunks.iter().enumerate() {
             if chunk.trim().is_empty() {
                 continue;
             }
             let markup = prompt
-                .filter(|_| index == last)
+                .filter(|_| images.is_empty() && index == last_text)
                 .and_then(|prompt| match self {
                     Self::Telegram { .. } => telegram_reply_markup(prompt),
                     Self::Discord { .. } => discord_reply_markup(prompt),
                     Self::Qq { .. } => None,
                 });
-            match self {
-                Self::Telegram { token, chat_id } => {
-                    crate::services::telegram_bot::send_outbound(token, chat_id, chunk, markup)
-                        .await
-                        .map_err(|error| format!("{error:?}"))?;
-                }
-                Self::Discord { token, channel_id } => {
-                    crate::services::discord_bot::send_outbound(token, channel_id, chunk, markup)
-                        .await
-                        .map_err(|error| format!("{error:?}"))?;
-                }
-                Self::Qq {
-                    db,
-                    auth_header,
-                    openid,
-                    inbound_msg_id,
-                } => {
-                    crate::services::qq_work::send_c2c(
-                        db,
-                        auth_header,
-                        openid,
-                        chunk,
-                        inbound_msg_id.as_deref(),
-                    )
-                    .await?;
-                }
-            }
+            self.send_text_chunk(chunk, markup).await?;
+        }
+        for (index, url) in images.iter().enumerate() {
+            let markup =
+                prompt
+                    .filter(|_| index + 1 == images.len())
+                    .and_then(|prompt| match self {
+                        Self::Telegram { .. } => telegram_reply_markup(prompt),
+                        Self::Discord { .. } => discord_reply_markup(prompt),
+                        Self::Qq { .. } => None,
+                    });
+            self.send_image_chunk(url, markup).await?;
         }
         Ok(())
     }
+
+    async fn send_text_chunk(&self, chunk: &str, markup: Option<Value>) -> Result<(), String> {
+        match self {
+            Self::Telegram { token, chat_id } => {
+                crate::services::telegram_bot::send_outbound(token, chat_id, chunk, markup)
+                    .await
+                    .map_err(|error| format!("{error:?}"))
+            }
+            Self::Discord { token, channel_id } => {
+                crate::services::discord_bot::send_outbound(token, channel_id, chunk, markup)
+                    .await
+                    .map_err(|error| format!("{error:?}"))
+            }
+            Self::Qq {
+                db,
+                auth_header,
+                openid,
+                inbound_msg_id,
+            } => {
+                crate::services::qq_work::send_c2c(
+                    db,
+                    auth_header,
+                    openid,
+                    chunk,
+                    inbound_msg_id.as_deref(),
+                )
+                .await
+            }
+        }
+    }
+
+    async fn send_image_chunk(&self, url: &str, markup: Option<Value>) -> Result<(), String> {
+        let image = load_channel_image_bytes(url).await?;
+        match self {
+            Self::Telegram { token, chat_id } => crate::services::telegram_bot::send_photo(
+                token,
+                chat_id,
+                &image.bytes,
+                &image.mime,
+                markup,
+            )
+            .await
+            .map_err(|error| format!("{error:?}")),
+            Self::Discord { token, channel_id } => crate::services::discord_bot::send_photo(
+                token,
+                channel_id,
+                &image.bytes,
+                &image.mime,
+                markup,
+            )
+            .await
+            .map_err(|error| format!("{error:?}")),
+            Self::Qq {
+                db,
+                auth_header,
+                openid,
+                inbound_msg_id,
+            } => {
+                crate::services::qq_work::send_c2c_image(
+                    db,
+                    auth_header,
+                    openid,
+                    &image.bytes,
+                    inbound_msg_id.as_deref(),
+                )
+                .await
+            }
+        }
+    }
+}
+
+async fn load_channel_image_bytes(url: &str) -> Result<ChannelImageBytes, String> {
+    let cache = crate::services::image_cache::ImageCacheService::new();
+    if cache.local_path_for_public_url(url).is_some() {
+        let (bytes, mime) = cache.read_local_public_url(url).await?;
+        return Ok(ChannelImageBytes { bytes, mime });
+    }
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("imageUrl is not a sendable path".to_string());
+    }
+    let cached = cache.cache_image(url).await?;
+    let (bytes, mime) = cache.read_local_public_url(&cached).await?;
+    Ok(ChannelImageBytes { bytes, mime })
+}
+
+struct ChannelImageBytes {
+    bytes: Vec<u8>,
+    mime: String,
 }
 
 fn session_ns(platform: &str) -> &'static str {
@@ -976,7 +1056,7 @@ async fn flush_outbound(
     }
     let remaining = stored.chunks[stored.next_index..].to_vec();
     let prompt = stored.prompt.clone();
-    match sink.send_chunks(&remaining, prompt.as_ref()).await {
+    match sink.send_chunks(&remaining, &[], prompt.as_ref()).await {
         Ok(()) => clear_outbound(db, platform, session_key).await,
         Err(error) => {
             warn!(%error, "channel outbound flush failed");
@@ -999,6 +1079,7 @@ async fn deliver_prepared(
     session_key: &str,
     sink: &ChannelSink,
     content: &str,
+    image_urls: &[String],
     prompt: Option<PendingPrompt>,
 ) {
     let platform = sink.platform();
@@ -1012,7 +1093,7 @@ async fn deliver_prepared(
         prompt.clone(),
     )
     .await;
-    match sink.send_chunks(&chunks, prompt.as_ref()).await {
+    match sink.send_chunks(&chunks, image_urls, prompt.as_ref()).await {
         Ok(()) => clear_outbound(db, platform, session_key).await,
         Err(error) => warn!(%error, "channel send failed; outbound kept for retry"),
     }
@@ -1069,15 +1150,35 @@ async fn deliver_run(
                     }
                     match plan_delivery(&event, &sink.delivery_context()) {
                         DeliveryPlan::Drop => {}
-                        DeliveryPlan::ActiveText { content }
-                        | DeliveryPlan::FailVisible { content, .. }
-                        | DeliveryPlan::PassiveText { content, .. } => {
+                        DeliveryPlan::ActiveText {
+                            content,
+                            image_urls,
+                        }
+                        | DeliveryPlan::PassiveText {
+                            content,
+                            image_urls,
+                            ..
+                        } => {
                             deliver_prepared(
                                 &db,
                                 user_id,
                                 &session_key,
                                 &sink,
                                 &content,
+                                &image_urls,
+                                parked,
+                            )
+                            .await;
+                            return;
+                        }
+                        DeliveryPlan::FailVisible { content, .. } => {
+                            deliver_prepared(
+                                &db,
+                                user_id,
+                                &session_key,
+                                &sink,
+                                &content,
+                                &[],
                                 parked,
                             )
                             .await;
@@ -1139,6 +1240,7 @@ pub(crate) fn map_progress(
             Some((
                 ChannelEvent::Answer {
                     message: format_pending_prompt(&prompt),
+                    image_urls: Vec::new(),
                 },
                 Some(prompt),
             ))
@@ -1205,6 +1307,7 @@ pub(crate) fn map_completed(
             return (
                 ChannelEvent::Answer {
                     message: format_pending_prompt(&prompt),
+                    image_urls: Vec::new(),
                 },
                 Some(prompt),
             );
@@ -1219,6 +1322,7 @@ pub(crate) fn map_completed(
         return (
             ChannelEvent::Answer {
                 message: format_pending_prompt(&prompt),
+                image_urls: Vec::new(),
             },
             Some(prompt),
         );
@@ -1233,13 +1337,23 @@ pub(crate) fn map_completed(
             return (
                 ChannelEvent::Answer {
                     message: format_pending_prompt(&prompt),
+                    image_urls: Vec::new(),
                 },
                 Some(prompt),
             );
         }
     }
-    let rendered =
-        format_channel_result(message, response.get("data"), response.get("dataDisplay"));
+    let image_urls = if caps.outbound_image {
+        collect_channel_image_urls(response)
+    } else {
+        Vec::new()
+    };
+    let data = if image_urls.is_empty() || response.get("dataDisplay").is_some() {
+        response.get("data")
+    } else {
+        None
+    };
+    let rendered = format_channel_result(message, data, response.get("dataDisplay"));
     if response.get("success").and_then(Value::as_bool) == Some(false) || response_type == "error" {
         return (
             ChannelEvent::Error {
@@ -1253,11 +1367,12 @@ pub(crate) fn map_completed(
         );
     }
     let event = ChannelEvent::Answer {
-        message: if rendered.is_empty() {
+        message: if rendered.is_empty() && image_urls.is_empty() {
             PANEL_REQUIRED_REPLY.to_string()
         } else {
             rendered
         },
+        image_urls,
     };
     if !channel_can_finish(caps, &event) {
         return (ChannelEvent::FrontendAction, None);
@@ -1385,9 +1500,78 @@ mod tests {
         assert_eq!(
             event,
             ChannelEvent::Answer {
-                message: "票已订好".into()
+                message: "票已订好".into(),
+                image_urls: Vec::new(),
             }
         );
+        assert!(parked.is_none());
+    }
+
+    #[test]
+    fn completed_image_keeps_message_and_urls() {
+        let (event, parked) = map_completed(
+            &serde_json::json!({
+                "success": true,
+                "responseType": "answer",
+                "message": "图片已经生成好了",
+                "data": {
+                    "format": "image",
+                    "value": {
+                        "url": "/api/brew/image-cache/ab/abcd.png",
+                        "width": 1,
+                        "height": 1
+                    }
+                },
+                "task": {
+                    "stepHistory": [{ "imageUrl": "https://cdn.example/a.png" }]
+                }
+            }),
+            "画一只猫",
+            &telegram_caps(),
+        );
+        let ChannelEvent::Answer {
+            message,
+            image_urls,
+        } = event
+        else {
+            panic!("{event:?}");
+        };
+        assert_eq!(message, "图片已经生成好了");
+        assert!(!message.contains("format"));
+        assert_eq!(
+            image_urls,
+            vec![
+                "/api/brew/image-cache/ab/abcd.png",
+                "https://cdn.example/a.png",
+            ]
+        );
+        assert!(parked.is_none());
+    }
+
+    #[test]
+    fn completed_image_without_message_does_not_send_panel_entry() {
+        let (event, parked) = map_completed(
+            &serde_json::json!({
+                "success": true,
+                "responseType": "answer",
+                "message": "",
+                "data": {
+                    "format": "image",
+                    "value": { "url": "/api/brew/image-cache/ab/abcd.png" }
+                }
+            }),
+            "画一只猫",
+            &telegram_caps(),
+        );
+        let ChannelEvent::Answer {
+            message,
+            image_urls,
+        } = event
+        else {
+            panic!("{event:?}");
+        };
+        assert!(message.is_empty());
+        assert_eq!(image_urls, vec!["/api/brew/image-cache/ab/abcd.png"]);
         assert!(parked.is_none());
     }
 
@@ -1407,9 +1591,14 @@ mod tests {
             "查",
             &telegram_caps(),
         );
-        let ChannelEvent::Answer { message } = event else {
+        let ChannelEvent::Answer {
+            message,
+            image_urls,
+        } = event
+        else {
             panic!("{event:?}");
         };
+        assert!(image_urls.is_empty());
         assert!(message.contains("查到了"));
         assert!(message.contains("名称"));
         assert!(message.contains("A"));
@@ -1431,9 +1620,14 @@ mod tests {
             "删除文章",
             &telegram_caps(),
         );
-        let ChannelEvent::Answer { message } = event else {
+        let ChannelEvent::Answer {
+            message,
+            image_urls,
+        } = event
+        else {
             panic!("{event:?}");
         };
+        assert!(image_urls.is_empty());
         assert!(message.contains("要删掉这篇文章吗？"));
         let prompt = parked.expect("confirmation parks");
         assert!(!prompt.id.is_empty());

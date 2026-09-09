@@ -6,15 +6,17 @@
 
 use myriad_agent_rules::channel::{
     channel_can_finish, clarify_base_input, clarify_followup, classify_connect_failure,
-    classify_gateway_close, decide_pending_reply, encode_pairing_code, encode_pending_id,
+    classify_discord_rest, classify_gateway_close, collect_channel_image_urls,
+    decide_pending_reply, discord_dm_capabilities, discord_private_text_from_create,
+    discord_reply_markup, discord_worker_intent, encode_pairing_code, encode_pending_id,
     ensure_pending_id, extract_pairing_code, format_channel_result, format_pairing_code,
     format_pending_prompt, ingest_c2c_text, ingest_channel_text, next_passive_seq,
     outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for, panel_entry_reply,
     parse_access_token_response, parse_channel_command, parse_gateway_url_response,
-    parse_telegram_bot_identity, parse_telegram_callback, parse_telegram_ok_payload,
-    parse_telegram_private_inbounds, parse_telegram_private_texts, pending_prompt_from_model_json,
-    plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh, session_key,
-    should_deliver_sequence, split_channel_text, telegram_callback_action,
+    parse_qq_file_info, parse_telegram_bot_identity, parse_telegram_callback,
+    parse_telegram_ok_payload, parse_telegram_private_inbounds, parse_telegram_private_texts,
+    pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh,
+    session_key, should_deliver_sequence, split_channel_text, telegram_callback_action,
     telegram_dm_capabilities, telegram_inline_keyboard, telegram_max_update_id,
     telegram_reply_markup, telegram_retry_after, telegram_worker_intent, truncate_telegram_text,
     worker_intent, ChannelCommand, ChannelEvent, ConnectFailure, DeliveryContext, DeliveryPlan,
@@ -24,9 +26,7 @@ use myriad_agent_rules::channel::{
     DISCORD_TEXT_LIMIT, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
     PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY,
     PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES,
-    TELEGRAM_INPUT_BUTTON, TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT, classify_discord_rest,
-    discord_dm_capabilities, discord_private_text_from_create, discord_reply_markup,
-    discord_worker_intent,
+    TELEGRAM_INPUT_BUTTON, TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -215,10 +215,11 @@ fn paired_telegram_text_uses_chat_id_session_key() {
 }
 
 #[test]
-fn first_cut_capabilities_are_text_only() {
+fn private_chat_capabilities_send_final_images() {
     let caps = qq_c2c_capabilities();
     assert!(telegram_dm_capabilities().inbound_text);
     assert!(telegram_dm_capabilities().outbound_final_text);
+    assert!(telegram_dm_capabilities().outbound_image);
     assert!(!telegram_dm_capabilities().outbound_edit);
     assert!(!telegram_dm_capabilities().outbound_streaming_draft);
     assert!(telegram_dm_capabilities().interactive);
@@ -228,11 +229,12 @@ fn first_cut_capabilities_are_text_only() {
     assert!(!caps.inbound_media);
     assert!(!caps.inbound_callback);
     assert!(!caps.outbound_markdown);
-    assert!(!caps.outbound_image);
+    assert!(caps.outbound_image);
     assert!(!caps.outbound_edit);
     assert!(!caps.outbound_streaming_draft);
     assert!(caps.interactive);
     assert!(!caps.frontend_action);
+    assert!(discord_dm_capabilities().outbound_image);
     assert!(channel_can_finish(
         &telegram_dm_capabilities(),
         &ChannelEvent::ConfirmationRequired
@@ -275,6 +277,7 @@ fn final_answer_becomes_one_c2c_text() {
     let plan = plan_delivery(
         &ChannelEvent::Answer {
             message: "票已订好".into(),
+            image_urls: Vec::new(),
         },
         &window("m5"),
     );
@@ -283,8 +286,69 @@ fn final_answer_becomes_one_c2c_text() {
         DeliveryPlan::PassiveText {
             content: "票已订好".into(),
             msg_id: "m5".into(),
+            image_urls: Vec::new(),
         }
     );
+}
+
+#[test]
+fn final_answer_with_images_keeps_text_and_image_urls() {
+    let urls = vec!["/api/brew/image-cache/ab/abcd.png".into()];
+    let plan = plan_delivery(
+        &ChannelEvent::Answer {
+            message: "图片已经生成好了".into(),
+            image_urls: urls.clone(),
+        },
+        &window("m-img"),
+    );
+    assert_eq!(
+        plan,
+        DeliveryPlan::PassiveText {
+            content: "图片已经生成好了".into(),
+            msg_id: "m-img".into(),
+            image_urls: urls,
+        }
+    );
+}
+
+#[test]
+fn collect_channel_image_urls_reads_envelope_and_step_history() {
+    let urls = collect_channel_image_urls(&serde_json::json!({
+        "data": {
+            "format": "image",
+            "value": { "url": "/api/brew/image-cache/ab/abcd.png" }
+        },
+        "task": {
+            "stepHistory": [
+                { "imageUrl": "https://cdn.example/a.png" },
+                { "imageUrl": "/api/brew/image-cache/ab/abcd.png" },
+                { "imageUrl": "javascript:alert(1)" },
+                { "imageUrl": "data:image/png;base64,xx" }
+            ]
+        }
+    }));
+    assert_eq!(
+        urls,
+        vec![
+            "/api/brew/image-cache/ab/abcd.png",
+            "https://cdn.example/a.png",
+        ]
+    );
+    assert!(collect_channel_image_urls(&serde_json::json!({ "message": "ok" })).is_empty());
+}
+
+#[test]
+fn qq_file_info_comes_from_upload_json() {
+    assert_eq!(
+        parse_qq_file_info(200, r#"{"file_info":"INFO_1","ttl":600}"#).unwrap(),
+        "INFO_1"
+    );
+    assert_eq!(
+        parse_qq_file_info(200, r#"{"data":{"file_info":"INFO_2"}}"#).unwrap(),
+        "INFO_2"
+    );
+    assert!(parse_qq_file_info(400, r#"{"message":"bad"}"#).is_err());
+    assert!(parse_qq_file_info(200, r#"{"ok":true}"#).is_err());
 }
 
 #[test]
@@ -319,11 +383,13 @@ fn missing_passive_window_sends_actively_including_without_inbound() {
         plan_delivery(
             &ChannelEvent::Answer {
                 message: "做好了".into(),
+                image_urls: Vec::new(),
             },
             &closed
         ),
         DeliveryPlan::ActiveText {
             content: "做好了".into(),
+            image_urls: Vec::new(),
         }
     );
 
@@ -341,6 +407,7 @@ fn missing_passive_window_sends_actively_including_without_inbound() {
         ),
         DeliveryPlan::ActiveText {
             content: "失败了".into(),
+            image_urls: Vec::new(),
         }
     );
 
@@ -353,11 +420,13 @@ fn missing_passive_window_sends_actively_including_without_inbound() {
         plan_delivery(
             &ChannelEvent::Answer {
                 message: "测一条".into(),
+                image_urls: Vec::new(),
             },
             &proactive
         ),
         DeliveryPlan::ActiveText {
             content: "测一条".into(),
+            image_urls: Vec::new(),
         }
     );
 }

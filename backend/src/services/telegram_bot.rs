@@ -338,6 +338,59 @@ pub async fn send_outbound(
     parse_telegram_ok_payload(status, &body).map(|_| ())
 }
 
+/// `sendPhoto` multipart. Caption stays empty so the Work text is not duplicated.
+pub async fn send_photo(
+    token: &str,
+    chat_id: &str,
+    bytes: &[u8],
+    mime: &str,
+    reply_markup: Option<serde_json::Value>,
+) -> Result<(), ConnectFailureKind> {
+    if chat_id.is_empty() || bytes.is_empty() {
+        return Ok(());
+    }
+    let enabled = {
+        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        config.telegram_bot_enabled
+    };
+    if !enabled {
+        return Ok(());
+    }
+    let filename = photo_filename(mime);
+    let mut form = reqwest::multipart::Form::new()
+        .text("chat_id", chat_id.to_string())
+        .part(
+            "photo",
+            reqwest::multipart::Part::bytes(bytes.to_vec())
+                .file_name(filename)
+                .mime_str(if mime.starts_with("image/") {
+                    mime
+                } else {
+                    "image/png"
+                })
+                .unwrap_or_else(|_| reqwest::multipart::Part::bytes(bytes.to_vec())),
+        );
+    if let Some(markup) = reply_markup {
+        form = form.text("reply_markup", markup.to_string());
+    }
+    let (status, body) = telegram_multipart(token, "sendPhoto", form).await?;
+    if status == 429 {
+        let wait = telegram_retry_after(&body).unwrap_or(1);
+        warn!(retry_after = wait, "Telegram sendPhoto rate-limited");
+        return Err(ConnectFailureKind::Transient);
+    }
+    parse_telegram_ok_payload(status, &body).map(|_| ())
+}
+
+fn photo_filename(mime: &str) -> &'static str {
+    match mime {
+        "image/jpeg" | "image/jpg" => "photo.jpg",
+        "image/gif" => "photo.gif",
+        "image/webp" => "photo.webp",
+        _ => "photo.png",
+    }
+}
+
 /// Must be called after every callback press or the client spinner never stops.
 pub async fn answer_callback_query(
     token: &str,
@@ -392,6 +445,47 @@ pub async fn send_typing(token: &str, chat_id: &str) -> Result<(), ConnectFailur
         return Err(ConnectFailureKind::Transient);
     }
     parse_telegram_ok_payload(status, &body).map(|_| ())
+}
+
+async fn telegram_multipart(
+    token: &str,
+    method: &str,
+    form: reqwest::multipart::Form,
+) -> Result<(u16, String), ConnectFailureKind> {
+    let client = http_client::get_global_client().await;
+    let url = format!("{API_HOST}/bot{token}/{method}");
+    let resp = client
+        .post(&url)
+        .timeout(HTTP_TIMEOUT)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|err| {
+            log_transport(&format!("Telegram {method} request failed"), &err, token);
+            ConnectFailureKind::Transient
+        })?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.map_err(|err| {
+        log_transport(&format!("Telegram {method} body failed"), &err, token);
+        ConnectFailureKind::Transient
+    })?;
+    if !(200..300).contains(&status) && status != 429 {
+        let kind = parse_telegram_ok_payload(status, &text)
+            .err()
+            .unwrap_or(ConnectFailureKind::Transient);
+        if kind == ConnectFailureKind::Permanent {
+            warn!(status, method, "Telegram API rejected credentials");
+        } else {
+            warn!(
+                status,
+                method,
+                body = %redact_token(&text, token),
+                "Telegram API error"
+            );
+        }
+        return Err(kind);
+    }
+    Ok((status, text))
 }
 
 async fn telegram_request(

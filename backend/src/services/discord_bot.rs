@@ -233,9 +233,7 @@ async fn run_session(
         .token
         .as_deref()
         .ok_or((ConnectFailureKind::Permanent, None))?;
-    let identity = get_me(token)
-        .await
-        .map_err(|kind| (kind, resume.clone()))?;
+    let identity = get_me(token).await.map_err(|kind| (kind, resume.clone()))?;
     publish_identity(&identity).await;
     gateway_session(token, &identity.id, resume, cancel)
         .await
@@ -404,7 +402,10 @@ where
             stored.seq = s;
         }
     }
-    let op = payload.get("op").and_then(Value::as_u64).unwrap_or(u64::MAX);
+    let op = payload
+        .get("op")
+        .and_then(Value::as_u64)
+        .unwrap_or(u64::MAX);
     match op {
         0 => {
             let event = payload.get("t").and_then(Value::as_str).unwrap_or("");
@@ -602,6 +603,55 @@ pub async fn send_outbound(
     Ok(())
 }
 
+/// Multipart `files[0]` plus `payload_json`. Content stays empty so Work text is not duplicated.
+pub async fn send_photo(
+    token: &str,
+    channel_id: &str,
+    bytes: &[u8],
+    mime: &str,
+    components: Option<Value>,
+) -> Result<(), ConnectFailureKind> {
+    if channel_id.is_empty() || bytes.is_empty() || !bot_enabled().await {
+        return Ok(());
+    }
+    let filename = match mime {
+        "image/jpeg" | "image/jpg" => "photo.jpg",
+        "image/gif" => "photo.gif",
+        "image/webp" => "photo.webp",
+        _ => "photo.png",
+    };
+    let mut payload = serde_json::json!({
+        "allowed_mentions": { "parse": [] },
+    });
+    if let Some(components) = components {
+        payload["components"] = components;
+    }
+    let form = reqwest::multipart::Form::new()
+        .text("payload_json", payload.to_string())
+        .part(
+            "files[0]",
+            reqwest::multipart::Part::bytes(bytes.to_vec())
+                .file_name(filename)
+                .mime_str(if mime.starts_with("image/") {
+                    mime
+                } else {
+                    "image/png"
+                })
+                .unwrap_or_else(|_| reqwest::multipart::Part::bytes(bytes.to_vec())),
+        );
+    let path = format!("/channels/{channel_id}/messages");
+    let (status, body) = discord_multipart(token, &path, form).await?;
+    if status == 429 {
+        let wait = discord_retry_after(&body).unwrap_or(1);
+        warn!(retry_after = wait, "Discord sendPhoto rate-limited");
+        return Err(ConnectFailureKind::Transient);
+    }
+    if !(200..300).contains(&status) {
+        return Err(classify_discord_rest(status, &body));
+    }
+    Ok(())
+}
+
 pub async fn send_typing(token: &str, channel_id: &str) -> Result<(), ConnectFailureKind> {
     if channel_id.is_empty() || !bot_enabled().await {
         return Ok(());
@@ -638,6 +688,37 @@ pub async fn ack_component(
 
 async fn bot_enabled() -> bool {
     GLOBAL_DYNAMIC_CONFIG.read().await.discord_bot_enabled
+}
+
+async fn discord_multipart(
+    token: &str,
+    path: &str,
+    form: reqwest::multipart::Form,
+) -> Result<(u16, String), ConnectFailureKind> {
+    let client = http_client::get_global_client().await;
+    let url = format!("{API_BASE}{path}");
+    let resp = client
+        .post(&url)
+        .timeout(HTTP_TIMEOUT)
+        .header("Authorization", format!("Bot {token}"))
+        .header("User-Agent", USER_AGENT)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|err| {
+            log_transport("Discord HTTP request failed", &err, token);
+            ConnectFailureKind::Transient
+        })?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.map_err(|err| {
+        log_transport("Discord HTTP body failed", &err, token);
+        ConnectFailureKind::Transient
+    })?;
+    if status == 401 {
+        warn!(path, "Discord API rejected credentials");
+        return Err(ConnectFailureKind::Permanent);
+    }
+    Ok((status, text))
 }
 
 async fn discord_request(

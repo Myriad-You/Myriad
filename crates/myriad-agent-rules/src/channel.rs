@@ -145,7 +145,7 @@ pub struct ChannelCapabilities {
     pub outfit: bool,
 }
 
-/// Telegram DM: text in, final text out, numbered options plus inline buttons.
+/// Telegram DM: text in, final text plus images out, numbered options plus inline buttons.
 /// Typing is a transport hint (`sendChatAction`), not a capability bit.
 /// Edit / streaming draft stay off.
 pub fn telegram_dm_capabilities() -> ChannelCapabilities {
@@ -155,7 +155,7 @@ pub fn telegram_dm_capabilities() -> ChannelCapabilities {
         inbound_callback: true,
         outbound_final_text: true,
         outbound_markdown: false,
-        outbound_image: false,
+        outbound_image: true,
         outbound_edit: false,
         outbound_streaming_draft: false,
         interactive: true,
@@ -165,14 +165,14 @@ pub fn telegram_dm_capabilities() -> ChannelCapabilities {
     }
 }
 
-/// Discord DM: text in, final text out, numbered options plus component buttons.
+/// Discord DM: text in, final text plus images out, numbered options plus component buttons.
 /// Typing is `POST /channels/{id}/typing` (10s), not a capability bit.
 /// Edit / streaming draft stay off. Message Content Intent is not required.
 pub fn discord_dm_capabilities() -> ChannelCapabilities {
     telegram_dm_capabilities()
 }
 
-/// C2C: text in, final text out, numbered options plus yes/no. No buttons.
+/// C2C: text in, final text plus images out, numbered options plus yes/no. No buttons.
 pub fn qq_c2c_capabilities() -> ChannelCapabilities {
     ChannelCapabilities {
         inbound_text: true,
@@ -180,7 +180,7 @@ pub fn qq_c2c_capabilities() -> ChannelCapabilities {
         inbound_callback: false,
         outbound_final_text: true,
         outbound_markdown: false,
-        outbound_image: false,
+        outbound_image: true,
         outbound_edit: false,
         outbound_streaming_draft: false,
         interactive: true,
@@ -390,8 +390,13 @@ pub enum ChannelEvent {
     StepStarted,
     StepCompleted,
     Progress,
-    Answer { message: String },
-    Error { message: String },
+    Answer {
+        message: String,
+        image_urls: Vec<String>,
+    },
+    Error {
+        message: String,
+    },
     ConfirmationRequired,
     FrontendAction,
 }
@@ -411,9 +416,11 @@ pub enum DeliveryPlan {
     PassiveText {
         content: String,
         msg_id: String,
+        image_urls: Vec<String>,
     },
     ActiveText {
         content: String,
+        image_urls: Vec<String>,
     },
     FailVisible {
         content: String,
@@ -428,27 +435,34 @@ fn can_reply_passively(ctx: &DeliveryContext) -> bool {
         && ctx.inbound_msg_id.as_ref().is_some_and(|id| !id.is_empty())
 }
 
-fn send_text(content: String, ctx: &DeliveryContext) -> DeliveryPlan {
+fn send_text(content: String, image_urls: Vec<String>, ctx: &DeliveryContext) -> DeliveryPlan {
     if can_reply_passively(ctx) {
         DeliveryPlan::PassiveText {
             content,
             msg_id: ctx.inbound_msg_id.clone().expect("checked"),
+            image_urls,
         }
     } else {
-        DeliveryPlan::ActiveText { content }
+        DeliveryPlan::ActiveText {
+            content,
+            image_urls,
+        }
     }
 }
 
 /// Map a finished-turn event onto a delivery plan. Process events are dropped.
+/// Images ride with the final answer; confirmation / frontend-action failures stay text.
 pub fn plan_delivery(event: &ChannelEvent, ctx: &DeliveryContext) -> DeliveryPlan {
     match event {
         ChannelEvent::ThinkingToken
         | ChannelEvent::StepStarted
         | ChannelEvent::StepCompleted
         | ChannelEvent::Progress => DeliveryPlan::Drop,
-        ChannelEvent::Answer { message } | ChannelEvent::Error { message } => {
-            send_text(message.clone(), ctx)
-        }
+        ChannelEvent::Answer {
+            message,
+            image_urls,
+        } => send_text(message.clone(), image_urls.clone(), ctx),
+        ChannelEvent::Error { message } => send_text(message.clone(), Vec::new(), ctx),
         ChannelEvent::ConfirmationRequired | ChannelEvent::FrontendAction => {
             let content = panel_entry_reply(None, None);
             if can_reply_passively(ctx) {
@@ -1163,9 +1177,7 @@ pub fn qq_token_needs_refresh(status: u16, body: &str) -> bool {
 /// <https://github.com/tencent-connect/bot-node-sdk/blob/main/src/types/websocket-types.ts>
 pub fn classify_gateway_close(close_code: u16) -> ConnectFailureKind {
     match close_code {
-        4004 | 4010 | 4011 | 4012 | 4013 | 4014 | 4914 | 4915 => {
-            ConnectFailureKind::Permanent
-        }
+        4004 | 4010 | 4011 | 4012 | 4013 | 4014 | 4914 | 4915 => ConnectFailureKind::Permanent,
         _ => ConnectFailureKind::Transient,
     }
 }
@@ -2040,10 +2052,11 @@ pub fn discord_private_text_from_create(
     if data.get("guild_id").is_some() {
         return None;
     }
-    let channel_type = data
-        .get("channel_type")
-        .and_then(json_i64)
-        .or_else(|| data.get("channel").and_then(|ch| ch.get("type")).and_then(json_i64));
+    let channel_type = data.get("channel_type").and_then(json_i64).or_else(|| {
+        data.get("channel")
+            .and_then(|ch| ch.get("type"))
+            .and_then(json_i64)
+    });
     if channel_type.is_some_and(|kind| kind != 1) {
         return None;
     }
@@ -2077,10 +2090,9 @@ pub fn discord_private_component_from_create(
     if data.get("guild_id").is_some() {
         return None;
     }
-    let user = data.get("user").or_else(|| {
-        data.get("member")
-            .and_then(|member| member.get("user"))
-    })?;
+    let user = data
+        .get("user")
+        .or_else(|| data.get("member").and_then(|member| member.get("user")))?;
     let author_id = json_snowflake(user.get("id"))?;
     let custom_id = data
         .get("data")
@@ -2106,4 +2118,68 @@ pub fn discord_private_component_from_create(
         channel_id: json_snowflake(data.get("channel_id"))?,
         custom_id,
     })
+}
+
+/// Final-turn image URLs from `data` plus `task.stepHistory`.
+/// Only site image-cache paths and `http(s)` URLs; `javascript:` / data URLs drop.
+pub fn collect_channel_image_urls(response: &serde_json::Value) -> Vec<String> {
+    let mut urls = Vec::new();
+    push_channel_image_url(&mut urls, extract_channel_image_url(response.get("data")));
+    if let Some(steps) = response
+        .get("task")
+        .and_then(|task| task.get("stepHistory"))
+        .and_then(|value| value.as_array())
+    {
+        for step in steps {
+            push_channel_image_url(
+                &mut urls,
+                step.get("imageUrl").and_then(|value| value.as_str()),
+            );
+        }
+    }
+    urls
+}
+
+fn extract_channel_image_url(data: Option<&serde_json::Value>) -> Option<&str> {
+    let inner = crate::task_inner_value(data?);
+    inner
+        .get("url")
+        .or_else(|| inner.get("imageUrl"))
+        .and_then(|value| value.as_str())
+        .or_else(|| data?.get("imageUrl").and_then(|value| value.as_str()))
+}
+
+fn push_channel_image_url(urls: &mut Vec<String>, candidate: Option<&str>) {
+    let Some(url) = candidate.map(str::trim).filter(|url| !url.is_empty()) else {
+        return;
+    };
+    if !(url.starts_with("http://")
+        || url.starts_with("https://")
+        || url.starts_with("/api/brew/image-cache/"))
+    {
+        return;
+    }
+    if urls.iter().any(|seen| seen == url) {
+        return;
+    }
+    urls.push(url.to_string());
+}
+
+/// `file_info` from QQ C2C / group file upload JSON. Empty or non-2xx → Transient.
+pub fn parse_qq_file_info(status: u16, body: &str) -> Result<String, ConnectFailureKind> {
+    if !(200..300).contains(&status) {
+        return Err(classify_connect_failure(&ConnectFailure::HttpStatus {
+            status,
+            body,
+        }));
+    }
+    let data: serde_json::Value =
+        serde_json::from_str(body).map_err(|_| ConnectFailureKind::Transient)?;
+    data.get("file_info")
+        .or_else(|| data.get("data").and_then(|value| value.get("file_info")))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or(ConnectFailureKind::Transient)
 }
