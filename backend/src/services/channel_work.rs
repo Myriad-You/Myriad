@@ -11,14 +11,14 @@ use chrono::{Duration as ChronoDuration, Utc};
 use myriad_agent_rules::channel::{
     channel_can_finish, clarify_base_input, clarify_followup, collect_channel_image_urls,
     decide_pending_reply, discord_dm_capabilities, discord_reply_markup, ensure_pending_id,
-    format_channel_result, format_pending_prompt, panel_entry_reply, parse_channel_command,
-    pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities, should_deliver_sequence,
-    split_channel_text, telegram_callback_action, telegram_dm_capabilities,
-    telegram_force_reply_markup, telegram_reply_markup, ChannelCommand, ChannelEvent,
-    ChannelImageRef, DeliveryContext, DeliveryPlan, PendingDecision, PendingKind, PendingOption,
-    PendingPrompt, TelegramCallbackAction, CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT,
-    CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT, PANEL_REQUIRED_REPLY,
-    PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
+    feishu_dm_capabilities, feishu_reply_markup, format_channel_result, format_pending_prompt,
+    panel_entry_reply, parse_channel_command, pending_prompt_from_model_json, plan_delivery,
+    qq_c2c_capabilities, should_deliver_sequence, split_channel_text, telegram_callback_action,
+    telegram_dm_capabilities, telegram_force_reply_markup, telegram_reply_markup, ChannelCommand,
+    ChannelEvent, ChannelImageRef, DeliveryContext, DeliveryPlan, PendingDecision, PendingKind,
+    PendingOption, PendingPrompt, TelegramCallbackAction, CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT,
+    CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT, FEISHU_TEXT_LIMIT,
+    PANEL_REQUIRED_REPLY, PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
 };
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
 use once_cell::sync::Lazy;
@@ -84,6 +84,9 @@ pub enum ChannelSink {
         openid: String,
         inbound_msg_id: Option<String>,
     },
+    Feishu {
+        chat_id: String,
+    },
 }
 
 impl ChannelSink {
@@ -92,6 +95,7 @@ impl ChannelSink {
             Self::Telegram { .. } => "telegram",
             Self::Discord { .. } => "discord",
             Self::Qq { .. } => "qq",
+            Self::Feishu { .. } => "feishu",
         }
     }
 
@@ -100,6 +104,7 @@ impl ChannelSink {
             Self::Telegram { .. } => telegram_dm_capabilities(),
             Self::Discord { .. } => discord_dm_capabilities(),
             Self::Qq { .. } => qq_c2c_capabilities(),
+            Self::Feishu { .. } => feishu_dm_capabilities(),
         }
     }
 
@@ -108,12 +113,13 @@ impl ChannelSink {
             Self::Telegram { .. } => TELEGRAM_TEXT_LIMIT,
             Self::Discord { .. } => DISCORD_TEXT_LIMIT,
             Self::Qq { .. } => QQ_TEXT_LIMIT,
+            Self::Feishu { .. } => FEISHU_TEXT_LIMIT,
         }
     }
 
     fn delivery_context(&self) -> DeliveryContext {
         match self {
-            Self::Telegram { .. } | Self::Discord { .. } => DeliveryContext {
+            Self::Telegram { .. } | Self::Discord { .. } | Self::Feishu { .. } => DeliveryContext {
                 inbound_msg_id: None,
                 passive_window_open: false,
                 remaining_passive_replies: 0,
@@ -143,7 +149,7 @@ impl ChannelSink {
                     warn!(?error, "channel typing failed");
                 }
             }
-            Self::Qq { .. } => {}
+            Self::Qq { .. } | Self::Feishu { .. } => {}
         }
     }
 
@@ -157,7 +163,9 @@ impl ChannelSink {
             )
             .await
             .map_err(|error| format!("{error:?}")),
-            Self::Discord { .. } | Self::Qq { .. } => self.send_text("请直接回复这一问。").await,
+            Self::Discord { .. } | Self::Qq { .. } | Self::Feishu { .. } => {
+                self.send_text("请直接回复这一问。").await
+            }
         }
     }
 
@@ -194,6 +202,7 @@ impl ChannelSink {
                 .and_then(|prompt| match self {
                     Self::Telegram { .. } => telegram_reply_markup(prompt),
                     Self::Discord { .. } => discord_reply_markup(prompt),
+                    Self::Feishu { .. } => feishu_reply_markup(prompt),
                     Self::Qq { .. } => None,
                 });
             self.send_text_chunk(chunk, markup).await?;
@@ -205,6 +214,7 @@ impl ChannelSink {
                     .and_then(|prompt| match self {
                         Self::Telegram { .. } => telegram_reply_markup(prompt),
                         Self::Discord { .. } => discord_reply_markup(prompt),
+                        Self::Feishu { .. } => feishu_reply_markup(prompt),
                         Self::Qq { .. } => None,
                     });
             self.send_image_chunk(url, markup).await?;
@@ -238,6 +248,11 @@ impl ChannelSink {
                     inbound_msg_id.as_deref(),
                 )
                 .await
+            }
+            Self::Feishu { chat_id } => {
+                crate::services::feishu_bot_api::send_outbound(chat_id, chunk, markup)
+                    .await
+                    .map_err(|error| format!("{error:?}"))
             }
         }
     }
@@ -278,6 +293,14 @@ impl ChannelSink {
                 )
                 .await
             }
+            Self::Feishu { chat_id } => crate::services::feishu_bot_api::send_photo(
+                chat_id,
+                &image.bytes,
+                &image.mime,
+                markup,
+            )
+            .await
+            .map_err(|error| format!("{error:?}")),
         }
     }
 }
@@ -347,6 +370,23 @@ async fn resolve_inbound_image(
             ));
         }
     }
+    if let ChannelSink::Feishu { .. } = sink {
+        if let Some(image_key) = image.url.strip_prefix("feishu:") {
+            let (bytes, mime) =
+                crate::services::feishu_bot_api::download_image_bytes(image_key).await?;
+            let stored = cache.store_bytes_with_status(&bytes, &mime).await?;
+            return Ok((
+                stored.url,
+                if image.mime.starts_with("image/") {
+                    image.mime.clone()
+                } else {
+                    mime
+                },
+                bytes.len(),
+                image.name.clone(),
+            ));
+        }
+    }
     let cached = cache.cache_image(&image.url).await?;
     finish_cached(cache, image, cached).await
 }
@@ -373,6 +413,7 @@ fn session_ns(platform: &str) -> &'static str {
     match platform {
         "telegram" => "telegram_dm_session",
         "discord" => "discord_dm_session",
+        "feishu" => "feishu_p2p_session",
         _ => "qq_c2c_session",
     }
 }
@@ -381,6 +422,7 @@ fn pending_ns(platform: &str) -> &'static str {
     match platform {
         "telegram" => "telegram_dm_pending",
         "discord" => "discord_dm_pending",
+        "feishu" => "feishu_p2p_pending",
         _ => "qq_c2c_pending",
     }
 }
@@ -389,6 +431,7 @@ fn outbound_ns(platform: &str) -> &'static str {
     match platform {
         "telegram" => "telegram_dm_outbound",
         "discord" => "discord_dm_outbound",
+        "feishu" => "feishu_p2p_outbound",
         _ => "qq_c2c_outbound",
     }
 }
@@ -397,6 +440,7 @@ fn inbound_ns(platform: &str) -> &'static str {
     match platform {
         "telegram" => "telegram_dm_update",
         "discord" => "discord_dm_msg",
+        "feishu" => "feishu_p2p_msg",
         _ => "qq_c2c_msg",
     }
 }

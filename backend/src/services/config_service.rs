@@ -710,6 +710,18 @@ impl ConfigService {
         if let Some(v) = map.get("discord_bot_token") {
             config.discord_bot_token = opt_nonempty_string(v);
         }
+        if let Some(v) = map.get("feishu_bot_enabled") {
+            config.feishu_bot_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.feishu_bot_enabled);
+        }
+        if let Some(v) = map.get("feishu_bot_app_id") {
+            config.feishu_bot_app_id = v.as_str().map(str::trim).unwrap_or("").to_string();
+        }
+        if let Some(v) = map.get("feishu_bot_app_secret") {
+            config.feishu_bot_app_secret = opt_nonempty_string(v);
+        }
 
         if let Some(v) = map.get("enable_auto_fetch") {
             if let Some(b) = v.as_bool() {
@@ -1571,6 +1583,38 @@ mod tests {
         )]));
         assert!(!off.discord_bot_enabled);
         assert_eq!(off.discord_bot_token, None);
+    }
+
+    #[test]
+    fn parses_feishu_bot_fields_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([
+            ("feishu_bot_enabled".into(), json!(true)),
+            ("feishu_bot_app_id".into(), json!("cli_a")),
+            ("feishu_bot_app_secret".into(), json!("fs-secret-value")),
+        ]));
+        assert!(configured.feishu_bot_enabled);
+        assert_eq!(configured.feishu_bot_app_id, "cli_a");
+        assert_eq!(
+            configured.feishu_bot_app_secret.as_deref(),
+            Some("fs-secret-value")
+        );
+
+        let from_str = ConfigService::parse_config(HashMap::from([
+            ("feishu_bot_enabled".into(), json!("true")),
+            ("feishu_bot_app_id".into(), json!("  ")),
+            ("feishu_bot_app_secret".into(), json!("  ")),
+        ]));
+        assert!(from_str.feishu_bot_enabled);
+        assert_eq!(from_str.feishu_bot_app_id, "");
+        assert_eq!(from_str.feishu_bot_app_secret, None);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "feishu_bot_enabled".into(),
+            json!(false),
+        )]));
+        assert!(!off.feishu_bot_enabled);
+        assert!(off.feishu_bot_app_id.is_empty());
+        assert_eq!(off.feishu_bot_app_secret, None);
     }
 
     #[test]

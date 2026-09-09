@@ -391,6 +391,11 @@ pub struct DynamicConfig {
     pub discord_bot_enabled: bool,
     pub discord_bot_token: Option<String>,
 
+    /// 飞书机器人办事通道。默认关；app_secret 只写。企业自建应用 + 长连接。
+    pub feishu_bot_enabled: bool,
+    pub feishu_bot_app_id: String,
+    pub feishu_bot_app_secret: Option<String>,
+
     // UI 配置
     pub ui_wallpaper_url: Option<String>,
     pub ui_wallpaper_blur: i32,
@@ -770,6 +775,9 @@ impl Default for DynamicConfig {
             telegram_bot_token: None,
             discord_bot_enabled: false,
             discord_bot_token: None,
+            feishu_bot_enabled: false,
+            feishu_bot_app_id: String::new(),
+            feishu_bot_app_secret: None,
 
             ui_wallpaper_url: None,
             ui_wallpaper_blur: 3,

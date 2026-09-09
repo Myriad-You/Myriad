@@ -953,6 +953,46 @@ mod settings_backup_tests {
     }
 
     #[test]
+    fn saves_feishu_bot_write_only_credentials() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("feishu_bot_enabled", "true"),
+            ui_field("feishu_bot_app_id", "cli_a"),
+            ui_field("feishu_bot_app_secret", "fs-secret-value"),
+        ];
+        let set = collect_database_updates(&config);
+        assert_eq!(set.get("feishu_bot_enabled"), Some(&json!(true)));
+        assert_eq!(set.get("feishu_bot_app_id"), Some(&json!("cli_a")));
+        assert_eq!(
+            set.get("feishu_bot_app_secret"),
+            Some(&json!("fs-secret-value"))
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("feishu_bot_enabled", "true"),
+            ui_field("feishu_bot_app_id", "cli_a"),
+            ui_field("feishu_bot_app_secret", "••••••••"),
+        ];
+        let masked = collect_database_updates(&config);
+        assert_eq!(masked.get("feishu_bot_enabled"), Some(&json!(true)));
+        assert_eq!(masked.get("feishu_bot_app_id"), Some(&json!("cli_a")));
+        assert!(
+            !masked.contains_key("feishu_bot_app_secret"),
+            "mask must keep the stored secret"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("feishu_bot_enabled", "false"),
+            ui_field("feishu_bot_app_id", ""),
+            ui_field("feishu_bot_app_secret", ""),
+        ];
+        let cleared = collect_database_updates(&config);
+        assert_eq!(cleared.get("feishu_bot_enabled"), Some(&json!(false)));
+        assert_eq!(cleared.get("feishu_bot_app_id"), Some(&json!("")));
+        assert_eq!(cleared.get("feishu_bot_app_secret"), Some(&Value::Null));
+    }
+
+    #[test]
     fn saves_telegram_bot_write_only_token() {
         let mut config = empty_config();
         config.ai_config.config_fields = vec![

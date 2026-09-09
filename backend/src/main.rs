@@ -786,6 +786,8 @@ async fn run_server() -> anyhow::Result<()> {
                 tracing::info!("✅ Telegram bot worker started");
                 services::discord_bot::spawn_worker();
                 tracing::info!("✅ Discord bot worker started");
+                services::feishu_bot::spawn_worker();
+                tracing::info!("✅ Feishu bot worker started");
 
                 // 密钥迁移：把存量明文配置与 v0 联邦私钥升级到数据密钥信封。
                 //

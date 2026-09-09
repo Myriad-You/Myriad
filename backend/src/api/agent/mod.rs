@@ -252,6 +252,10 @@ pub(crate) fn agent_run_envelopes(
 
 mod autonomy_dispatch;
 mod boot;
+mod discord_pairing;
+mod discord_status;
+mod feishu_pairing;
+mod feishu_status;
 mod heartbeat_mcp;
 mod helpers;
 mod intentions;
@@ -267,12 +271,14 @@ mod routes;
 mod sessions;
 mod telegram_pairing;
 mod telegram_status;
-mod discord_pairing;
-mod discord_status;
 mod types;
 
 pub use autonomy_dispatch::*;
 pub use boot::*;
+pub use discord_pairing::*;
+pub use discord_status::*;
+pub use feishu_pairing::*;
+pub use feishu_status::*;
 pub use heartbeat_mcp::*;
 pub use helpers::*;
 pub use intentions::*;
@@ -286,6 +292,4 @@ pub use routes::*;
 pub use sessions::*;
 pub use telegram_pairing::*;
 pub use telegram_status::*;
-pub use discord_pairing::*;
-pub use discord_status::*;
 pub use types::*;

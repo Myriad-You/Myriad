@@ -1249,6 +1249,41 @@ pub(crate) async fn build_config(
                     placeholder: "".to_string(),
                     required: false,
                 },
+                ConfigField {
+                    key: "feishu_bot_enabled".to_string(),
+                    label: "Feishu bot".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.feishu_bot_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "feishu_bot_app_id".to_string(),
+                    label: "Feishu bot AppID".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.feishu_bot_app_id.clone())
+                        .unwrap_or_default(),
+                    placeholder: "cli_...".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "feishu_bot_app_secret".to_string(),
+                    label: "Feishu bot AppSecret".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.feishu_bot_app_secret.clone())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
             ],
         },
         tripo_config: TripoConfig {
