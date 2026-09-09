@@ -16,9 +16,9 @@ use myriad_agent_rules::channel::{
     split_channel_text, telegram_callback_action, telegram_dm_capabilities,
     telegram_force_reply_markup, telegram_reply_markup, ChannelCommand, ChannelEvent,
     ChannelImageRef, DeliveryContext, DeliveryPlan, PendingDecision, PendingKind, PendingOption,
-    PendingPrompt, TelegramCallbackAction, CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY,
-    DISCORD_TEXT_LIMIT, PANEL_REQUIRED_REPLY, PENDING_STALE_REPLY, QQ_TEXT_LIMIT,
-    TELEGRAM_TEXT_LIMIT,
+    PendingPrompt, TelegramCallbackAction, CHANNEL_HELP_REPLY, CHANNEL_NEW_SESSION_REPLY,
+    CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT, PANEL_REQUIRED_REPLY, PENDING_STALE_REPLY,
+    QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
 };
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
 use once_cell::sync::Lazy;
@@ -666,6 +666,9 @@ async fn handle_command(
         ChannelCommand::Status => {
             let reply = status_reply(db, user_id, platform, session_key, session_id).await;
             let _ = sink.send_text(&reply).await;
+        }
+        ChannelCommand::Help => {
+            let _ = sink.send_text(CHANNEL_HELP_REPLY).await;
         }
     }
 }

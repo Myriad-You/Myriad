@@ -22,12 +22,12 @@ use myriad_agent_rules::channel::{
     telegram_worker_intent, truncate_telegram_text, worker_intent, ChannelCommand, ChannelEvent,
     ChannelImageRef, ConnectFailure, DeliveryContext, DeliveryPlan, InboundC2cText,
     InboundDecision, PairingBindResult, PairingLookup, PendingDecision, PendingKind, PendingOption,
-    PendingPrompt, TelegramCallbackAction, TelegramPrivateInbound, WorkerIntent, CONFIRM_HINT,
-    DISCORD_DIRECT_MESSAGES, DISCORD_PAIRING_TAKEN_REPLY, DISCORD_TEXT_LIMIT, GROUP_AND_C2C_EVENT,
-    PAIRING_INVALID_REPLY, PAIRING_OK_REPLY, PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY,
-    PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY, PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT,
-    TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES, TELEGRAM_INPUT_BUTTON,
-    TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
+    PendingPrompt, TelegramCallbackAction, TelegramPrivateInbound, WorkerIntent,
+    CHANNEL_HELP_REPLY, CONFIRM_HINT, DISCORD_DIRECT_MESSAGES, DISCORD_PAIRING_TAKEN_REPLY,
+    DISCORD_TEXT_LIMIT, GROUP_AND_C2C_EVENT, PAIRING_INVALID_REPLY, PAIRING_OK_REPLY,
+    PAIRING_REQUIRED_REPLY, PAIRING_TAKEN_REPLY, PANEL_REQUIRED_REPLY, PENDING_EXPIRED_REPLY,
+    PENDING_STALE_REPLY, TELEGRAM_CALLBACK_INPUT, TELEGRAM_CALLBACK_NO, TELEGRAM_CALLBACK_YES,
+    TELEGRAM_INPUT_BUTTON, TELEGRAM_PAIRING_TAKEN_REPLY, TELEGRAM_TEXT_LIMIT,
 };
 
 fn text(msg_id: &str, openid: &str, content: &str) -> InboundC2cText {
@@ -1111,7 +1111,11 @@ fn channel_commands_are_exact_tokens() {
         parse_channel_command("查看当前任务"),
         Some(ChannelCommand::Status)
     );
+    assert_eq!(parse_channel_command("/start"), Some(ChannelCommand::Help));
+    assert_eq!(parse_channel_command("帮助"), Some(ChannelCommand::Help));
     assert_eq!(parse_channel_command("请停止订票"), None);
+    assert_eq!(parse_channel_command("帮助我订票"), None);
+    assert!(CHANNEL_HELP_REPLY.contains("当前任务"));
     assert_eq!(encode_pending_id([0, 0, 0, 1]), "00000001");
     assert!(parse_telegram_callback("y:abcd1234").is_some());
     let _ = PENDING_STALE_REPLY;

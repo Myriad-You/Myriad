@@ -51,6 +51,10 @@ pub const CHANNEL_STOP_REPLY: &str = "已停止当前办事。再发一句就是
 /// Reply after opening a fresh Work session on this chat.
 pub const CHANNEL_NEW_SESSION_REPLY: &str = "已开新对话。之前的待答作废。";
 
+/// Reply to `/start` / `/help`. Telegram sends `/start` on its own when a
+/// person opens the bot; it must not reach the Planner as Work input.
+pub const CHANNEL_HELP_REPLY: &str = "在这里发文字或图片，就是在站点办事，结果回到这个聊天。\n「当前任务」看进度；「停止」取消正在办的事；「新对话」重开一段。\n站点面板才能做的一步，会告诉你去哪继续。";
+
 /// One-line notice when a multi-step task starts on a chat that has no
 /// typing indicator. Without it a long task looks dead.
 pub fn task_started_reply(total_steps: u32) -> String {
@@ -242,9 +246,10 @@ pub enum ChannelCommand {
     Stop,
     NewConversation,
     Status,
+    Help,
 }
 
-/// Recognize stop / new conversation / current-task. Case-insensitive ASCII.
+/// Recognize stop / new conversation / current-task / help. Case-insensitive ASCII.
 pub fn parse_channel_command(text: &str) -> Option<ChannelCommand> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -257,6 +262,7 @@ pub fn parse_channel_command(text: &str) -> Option<ChannelCommand> {
         "当前任务" | "查看当前任务" | "/status" | "status" => {
             Some(ChannelCommand::Status)
         }
+        "帮助" | "/help" | "help" | "/start" | "start" => Some(ChannelCommand::Help),
         _ => None,
     }
 }
