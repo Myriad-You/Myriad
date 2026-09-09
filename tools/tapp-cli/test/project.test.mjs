@@ -91,7 +91,8 @@ describe('Tapp project core', () => {
       'utf8',
     )
     assert.match(sdkDts, /export interface TappSdk/)
-    assert.match(sdkDts, /declare const Tapp: TappSdk/)
+    assert.match(sdkDts, /declare global \{/)
+    assert.match(sdkDts, /const Tapp: TappSdk/)
     assert.match(sdkDts, /showNotification/)
     assert.match(sdkDts, /federation/)
   })

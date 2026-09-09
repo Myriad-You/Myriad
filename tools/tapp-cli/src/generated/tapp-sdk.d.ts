@@ -556,10 +556,11 @@ export interface TappSdk {
   }
 }
 
-declare const Tapp: TappSdk
-
-interface Window {
-  Tapp: TappSdk
+declare global {
+  const Tapp: TappSdk
+  interface Window {
+    Tapp: TappSdk
+  }
 }
 
 export {}

@@ -68,3 +68,35 @@ it('types AI task inputs and snapshots and rejects malformed inputs', async () =
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+it('exposes global Tapp to referenced JavaScript without importing the SDK module', async () => {
+  const shipped = await readFile(new URL('../src/generated/tapp-sdk.d.ts', import.meta.url), 'utf8')
+  const directory = await mkdtemp(join(tmpdir(), 'tapp-global-'))
+  try {
+    await writeFile(join(directory, 'tapp-sdk.d.ts'), shipped)
+    await writeFile(
+      join(directory, 'page.js'),
+      `/// <reference path="./tapp-sdk.d.ts" />
+Tapp.lifecycle.onReady(async () => {
+  await Tapp.storage.get('ready')
+})
+`,
+    )
+    const program = ts.createProgram([join(directory, 'page.js')], {
+      allowJs: true,
+      checkJs: true,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2022,
+      lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
+      types: [],
+    })
+    assert.deepEqual(
+      ts.getPreEmitDiagnostics(program).map((diagnostic) =>
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+      ),
+      [],
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
