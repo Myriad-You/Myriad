@@ -13,12 +13,13 @@ use myriad_agent_rules::channel::{
     decide_pending_reply, discord_dm_capabilities, discord_reply_markup, ensure_pending_id,
     feishu_dm_capabilities, feishu_reply_markup, format_channel_result, format_pending_prompt,
     panel_entry_reply, parse_channel_command, pending_prompt_from_model_json, plan_delivery,
-    qq_c2c_capabilities, should_deliver_sequence, split_channel_text, telegram_callback_action,
-    telegram_dm_capabilities, telegram_force_reply_markup, telegram_reply_markup, ChannelCommand,
-    ChannelEvent, ChannelImageRef, DeliveryContext, DeliveryPlan, PendingDecision, PendingKind,
-    PendingOption, PendingPrompt, TelegramCallbackAction, CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT,
-    CHANNEL_NEW_SESSION_REPLY, CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT, FEISHU_TEXT_LIMIT,
-    PANEL_REQUIRED_REPLY, PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
+    qq_c2c_capabilities, should_deliver_sequence, split_channel_text, task_started_reply,
+    telegram_callback_action, telegram_dm_capabilities, telegram_force_reply_markup,
+    telegram_reply_markup, ChannelCommand, ChannelEvent, ChannelImageRef, DeliveryContext,
+    DeliveryPlan, PendingDecision, PendingKind, PendingOption, PendingPrompt,
+    TelegramCallbackAction, CHANNEL_HELP_REPLY, CHANNEL_IMAGE_LIMIT, CHANNEL_NEW_SESSION_REPLY,
+    CHANNEL_STOP_REPLY, DISCORD_TEXT_LIMIT, FEISHU_TEXT_LIMIT, PANEL_REQUIRED_REPLY,
+    PENDING_STALE_REPLY, QQ_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT,
 };
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
 use once_cell::sync::Lazy;
@@ -119,11 +120,17 @@ impl ChannelSink {
 
     fn delivery_context(&self) -> DeliveryContext {
         match self {
-            Self::Telegram { .. } | Self::Discord { .. } | Self::Feishu { .. } => DeliveryContext {
+            Self::Telegram { .. } | Self::Discord { .. } => DeliveryContext {
                 inbound_msg_id: None,
                 passive_window_open: false,
                 remaining_passive_replies: 0,
                 typing: true,
+            },
+            Self::Feishu { .. } => DeliveryContext {
+                inbound_msg_id: None,
+                passive_window_open: false,
+                remaining_passive_replies: 0,
+                typing: false,
             },
             Self::Qq { inbound_msg_id, .. } => DeliveryContext {
                 inbound_msg_id: inbound_msg_id.clone(),
@@ -1642,6 +1649,22 @@ mod tests {
         .expect("task start is mapped");
         assert_eq!(event, ChannelEvent::TaskStarted { total_steps: 3 });
         assert!(parked.is_none());
+    }
+
+    #[test]
+    fn feishu_has_no_typing_so_task_start_is_delivered() {
+        let sink = ChannelSink::Feishu {
+            chat_id: "oc_chat".into(),
+        };
+        let ctx = sink.delivery_context();
+        assert!(!ctx.typing);
+        assert_eq!(
+            plan_delivery(&ChannelEvent::TaskStarted { total_steps: 2 }, &ctx),
+            DeliveryPlan::ActiveText {
+                content: task_started_reply(2),
+                image_urls: Vec::new(),
+            }
+        );
     }
 
     #[test]
