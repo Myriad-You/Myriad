@@ -1741,10 +1741,10 @@ fn parse_feishu_images(message: &serde_json::Value) -> Vec<ChannelImageRef> {
     }]
 }
 
-/// Parse `im.message.receive_v1`. Drops bots, groups, and empty text without
-/// images. Missing `open_id` falls back to `user_id`; both are kept on
-/// `identity_keys` so pairing can alias them. `event_id` comes from the event
-/// header for dedup.
+/// Parse `im.message.receive_v1`. Drops bots, groups, unknown `message_type`,
+/// and empty text without images. Only `text` and `image` enter Work. Missing
+/// `open_id` falls back to `user_id`; both are kept on `identity_keys` so
+/// pairing can alias them. `event_id` comes from the event header for dedup.
 pub fn parse_feishu_message_receive(
     event_id: &str,
     event_data: &serde_json::Value,
@@ -1781,11 +1781,15 @@ pub fn parse_feishu_message_receive(
         .get("content")
         .and_then(|value| value.as_str())
         .unwrap_or("");
-    let images = parse_feishu_images(message);
     let content = match msg_type {
         "text" => feishu_text_from_content(raw_content),
         "image" => String::new(),
-        _ => raw_content.to_string(),
+        _ => return None,
+    };
+    let images = if msg_type == "image" {
+        parse_feishu_images(message)
+    } else {
+        Vec::new()
     };
     if content.trim().is_empty() && images.is_empty() {
         return None;

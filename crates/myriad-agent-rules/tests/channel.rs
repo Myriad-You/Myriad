@@ -1414,6 +1414,54 @@ fn feishu_image_message_becomes_image_ref() {
 }
 
 #[test]
+fn feishu_unknown_message_type_drops() {
+    let file = serde_json::json!({
+        "sender": {
+            "sender_id": { "open_id": "ou_file" },
+            "sender_type": "user"
+        },
+        "message": {
+            "message_id": "om_file",
+            "chat_id": "oc_file",
+            "chat_type": "p2p",
+            "message_type": "file",
+            "content": "{\"file_key\":\"file_abc\"}"
+        }
+    });
+    assert!(parse_feishu_message_receive("e", &file).is_none());
+
+    let post = serde_json::json!({
+        "sender": {
+            "sender_id": { "open_id": "ou_post" },
+            "sender_type": "user"
+        },
+        "message": {
+            "message_id": "om_post",
+            "chat_id": "oc_post",
+            "chat_type": "p2p",
+            "message_type": "post",
+            "content": "{\"zh_cn\":{\"title\":\"x\",\"content\":[]}}"
+        }
+    });
+    assert!(parse_feishu_message_receive("e", &post).is_none());
+
+    let sticker = serde_json::json!({
+        "sender": {
+            "sender_id": { "open_id": "ou_sticker" },
+            "sender_type": "user"
+        },
+        "message": {
+            "message_id": "om_sticker",
+            "chat_id": "oc_sticker",
+            "chat_type": "p2p",
+            "message_type": "sticker",
+            "content": "{\"file_key\":\"sticker_abc\"}"
+        }
+    });
+    assert!(parse_feishu_message_receive("e", &sticker).is_none());
+}
+
+#[test]
 fn feishu_card_callback_parses_operator_and_value_data() {
     let event = serde_json::json!({
         "operator": { "open_id": "ou_op", "user_id": "u_op" },
