@@ -26,6 +26,7 @@ const SECRET_ENV_KEYS: &[&str] = &[
     "QQ_BOT_APP_SECRET",
     "TELEGRAM_BOT_TOKEN",
     "DISCORD_BOT_TOKEN",
+    "FEISHU_BOT_APP_SECRET",
 ];
 
 /// `key=value` / JSON-ish keys to blank after the separator (case-insensitive match on key).
@@ -47,6 +48,7 @@ const SECRET_ASSIGNMENT_KEYS: &[&str] = &[
     "qq_bot_app_secret",
     "telegram_bot_token",
     "discord_bot_token",
+    "feishu_bot_app_secret",
     "clientSecret",
 ];
 
@@ -165,6 +167,8 @@ mod tests {
         assert!(!telegram.contains("super-secret-telegram-token"));
         let discord = redact_secrets("discord_bot_token=MTk4.super-secret-discord-token");
         assert!(!discord.contains("super-secret-discord-token"));
+        let feishu = redact_secrets("feishu_bot_app_secret=super-secret-feishu-value");
+        assert!(!feishu.contains("super-secret-feishu-value"));
     }
 
     #[test]
