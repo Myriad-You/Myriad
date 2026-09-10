@@ -11,7 +11,8 @@ use myriad_agent_rules::channel::{
     discord_dm_capabilities, discord_private_component_from_create,
     discord_private_text_from_create, discord_reply_markup, discord_worker_intent,
     encode_pairing_code, encode_pending_id, ensure_pending_id, extract_pairing_code,
-    feishu_dm_capabilities, feishu_identity_keys, feishu_reply_markup, feishu_text_from_content,
+    feishu_dm_capabilities, feishu_identity_keys, feishu_photo_messages, feishu_reply_markup,
+    feishu_text_from_content,
     feishu_token_needs_refresh, feishu_worker_intent, format_channel_result, format_pairing_code,
     format_pending_prompt, ingest_c2c_text, ingest_channel_text, next_passive_seq,
     outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for, panel_entry_reply,
@@ -1513,6 +1514,24 @@ fn feishu_reply_markup_renders_card_buttons() {
         .and_then(|v| v.as_str())
         .expect("callback data");
     assert!(data.starts_with("o:") && data.ends_with(":0"), "{data}");
+}
+
+#[test]
+fn feishu_photo_messages_follow_image_with_card() {
+    let image_only = feishu_photo_messages("img_key", None);
+    assert_eq!(image_only.len(), 1);
+    assert_eq!(image_only[0].0, "image");
+    assert_eq!(
+        image_only[0].1.get("image_key").and_then(|v| v.as_str()),
+        Some("img_key")
+    );
+
+    let markup = feishu_reply_markup(&choice_prompt()).expect("markup");
+    let with_card = feishu_photo_messages("img_key", Some(markup.clone()));
+    assert_eq!(with_card.len(), 2);
+    assert_eq!(with_card[0].0, "image");
+    assert_eq!(with_card[1].0, "interactive");
+    assert_eq!(with_card[1].1, markup);
 }
 
 #[test]

@@ -3,7 +3,8 @@
 use std::time::Duration;
 
 use myriad_agent_rules::channel::{
-    feishu_token_needs_refresh, parse_feishu_api_code, truncate_feishu_text, ConnectFailureKind,
+    feishu_photo_messages, feishu_token_needs_refresh, parse_feishu_api_code, truncate_feishu_text,
+    ConnectFailureKind,
 };
 use myriad_error::redact_secrets;
 use serde_json::Value;
@@ -62,7 +63,7 @@ pub async fn send_photo(
     chat_id: &str,
     bytes: &[u8],
     mime: &str,
-    _reply_markup: Option<Value>,
+    reply_markup: Option<Value>,
 ) -> Result<(), ConnectFailureKind> {
     if chat_id.is_empty() || bytes.is_empty() {
         return Ok(());
@@ -76,13 +77,17 @@ pub async fn send_photo(
         async move { upload_image(&auth, &data, &mime).await }
     })
     .await?;
-    let content = serde_json::json!({ "image_key": image_key }).to_string();
-    with_auth(|auth| {
-        let chat = chat_id.to_string();
-        let body = content.clone();
-        async move { post_message(&auth, &chat, "image", &body).await }
-    })
-    .await
+    for (msg_type, content) in feishu_photo_messages(&image_key, reply_markup) {
+        let body = content.to_string();
+        with_auth(|auth| {
+            let chat = chat_id.to_string();
+            let kind = msg_type.clone();
+            let body = body.clone();
+            async move { post_message(&auth, &chat, &kind, &body).await }
+        })
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn download_image_bytes(image_key: &str) -> Result<(Vec<u8>, String), String> {

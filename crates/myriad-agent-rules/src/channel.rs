@@ -896,6 +896,22 @@ pub fn feishu_reply_markup(prompt: &PendingPrompt) -> Option<serde_json::Value> 
     Some(serde_json::json!({ "elements": elements }))
 }
 
+/// Outbound Feishu messages for a Work image. Feishu `image` cannot carry a
+/// card, so a parked prompt follows as a second `interactive` message.
+pub fn feishu_photo_messages(
+    image_key: &str,
+    reply_markup: Option<serde_json::Value>,
+) -> Vec<(String, serde_json::Value)> {
+    let mut messages = vec![(
+        "image".to_string(),
+        serde_json::json!({ "image_key": image_key }),
+    )];
+    if let Some(markup) = reply_markup {
+        messages.push(("interactive".to_string(), markup));
+    }
+    messages
+}
+
 /// Force the reply composer. Placeholder is capped at 64 characters.
 pub fn telegram_force_reply_markup(placeholder: &str) -> serde_json::Value {
     let placeholder: String = placeholder.chars().take(64).collect();
