@@ -11,8 +11,8 @@ use crate::services::channel_pairing::{self, FEISHU};
 
 pub use crate::services::channel_pairing::{IssuedPairingCode, PairingStatus};
 
-pub async fn lookup_openid(db: &DatabaseConnection, openid: &str) -> Result<PairingLookup, DbErr> {
-    channel_pairing::lookup_openid(db, FEISHU, openid).await
+pub async fn lookup_any(db: &DatabaseConnection, keys: &[String]) -> Result<PairingLookup, DbErr> {
+    channel_pairing::lookup_any(db, FEISHU, keys).await
 }
 
 pub async fn status_for_user(
@@ -30,12 +30,12 @@ pub async fn unpair(db: &DatabaseConnection, user_id: i32) -> Result<bool, DbErr
     channel_pairing::unpair(db, FEISHU, user_id).await
 }
 
-pub async fn consume_code(
+pub async fn consume_code_keys(
     db: &DatabaseConnection,
-    openid: &str,
+    keys: &[String],
     raw_code: &str,
 ) -> Result<PairingBindResult, DbErr> {
-    channel_pairing::consume_code(db, FEISHU, openid, raw_code).await
+    channel_pairing::consume_code_keys(db, FEISHU, keys, raw_code).await
 }
 
 /// Worker entry: classify p2p text, pair, or start Work.
@@ -45,7 +45,7 @@ pub async fn handle_inbound(event: InboundFeishuText) {
         return;
     };
     let inbound = event.inbound();
-    let pairing = match lookup_openid(&db, &inbound.user_openid).await {
+    let pairing = match lookup_any(&db, &event.identity_keys).await {
         Ok(value) => value,
         Err(error) => {
             warn!(error = %error, "Feishu pairing lookup failed");
@@ -58,10 +58,8 @@ pub async fn handle_inbound(event: InboundFeishuText) {
         InboundDecision::PairingRequired { reply, .. } => {
             send_text(&chat_id, &reply).await;
         }
-        InboundDecision::ConsumePairingCode {
-            user_openid, code, ..
-        } => {
-            let result = match consume_code(&db, &user_openid, &code).await {
+        InboundDecision::ConsumePairingCode { code, .. } => {
+            let result = match consume_code_keys(&db, &event.identity_keys, &code).await {
                 Ok(value) => value,
                 Err(error) => {
                     warn!(error = %error, "Feishu pairing consume failed");
@@ -80,6 +78,11 @@ pub async fn handle_inbound(event: InboundFeishuText) {
             msg_id,
             ..
         } => {
+            if let Err(error) =
+                channel_pairing::ensure_aliases(&db, FEISHU, user_id, &event.identity_keys).await
+            {
+                warn!(error = %error, "Feishu pairing alias write failed");
+            }
             crate::services::feishu_work::start_paired_work_with_images(
                 &db,
                 user_id,
@@ -100,7 +103,7 @@ pub async fn handle_callback(event: FeishuCardCallback) {
         warn!("Feishu callback skipped: database is not connected");
         return;
     };
-    let pairing = match lookup_openid(&db, &event.open_id).await {
+    let pairing = match lookup_any(&db, &event.identity_keys).await {
         Ok(value) => value,
         Err(error) => {
             warn!(error = %error, "Feishu callback pairing lookup failed");
@@ -111,6 +114,11 @@ pub async fn handle_callback(event: FeishuCardCallback) {
         send_text(&event.chat_id_key(), PAIRING_REQUIRED_REPLY).await;
         return;
     };
+    if let Err(error) =
+        channel_pairing::ensure_aliases(&db, FEISHU, user_id, &event.identity_keys).await
+    {
+        warn!(error = %error, "Feishu callback alias write failed");
+    }
     crate::services::feishu_work::start_paired_callback(
         &db,
         user_id,

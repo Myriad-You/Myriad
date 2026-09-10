@@ -11,7 +11,7 @@ use myriad_agent_rules::channel::{
     discord_dm_capabilities, discord_private_component_from_create,
     discord_private_text_from_create, discord_reply_markup, discord_worker_intent,
     encode_pairing_code, encode_pending_id, ensure_pending_id, extract_pairing_code,
-    feishu_dm_capabilities, feishu_reply_markup, feishu_text_from_content,
+    feishu_dm_capabilities, feishu_identity_keys, feishu_reply_markup, feishu_text_from_content,
     feishu_token_needs_refresh, feishu_worker_intent, format_channel_result, format_pairing_code,
     format_pending_prompt, ingest_c2c_text, ingest_channel_text, next_passive_seq,
     outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for, panel_entry_reply,
@@ -1310,11 +1310,33 @@ fn feishu_p2p_text_parses_open_id_and_content() {
     assert_eq!(parsed.event_id, "evt-1");
     assert_eq!(parsed.message_id, "om_msg");
     assert_eq!(parsed.open_id, "ou_user");
+    assert_eq!(
+        parsed.identity_keys,
+        vec!["ou_user".to_string(), "u_1".to_string()]
+    );
     assert_eq!(parsed.chat_id, "oc_chat");
     assert_eq!(parsed.content, "帮我查天气");
     assert!(parsed.images.is_empty());
     assert_eq!(parsed.inbound().user_openid, "ou_user");
     assert_eq!(parsed.chat_id_key(), "oc_chat");
+}
+
+#[test]
+fn feishu_identity_keys_prefer_open_id_and_keep_user_id_alias() {
+    assert_eq!(
+        feishu_identity_keys(Some("ou_user"), Some("u_1")),
+        vec!["ou_user".to_string(), "u_1".to_string()]
+    );
+    assert_eq!(
+        feishu_identity_keys(None, Some("u_emp")),
+        vec!["u_emp".to_string()]
+    );
+    assert_eq!(
+        feishu_identity_keys(Some("ou_user"), Some("ou_user")),
+        vec!["ou_user".to_string()]
+    );
+    assert!(feishu_identity_keys(None, None).is_empty());
+    assert!(feishu_identity_keys(Some("  "), Some("")).is_empty());
 }
 
 #[test]
@@ -1334,6 +1356,7 @@ fn feishu_missing_open_id_falls_back_to_user_id() {
     });
     let parsed = parse_feishu_message_receive("evt-2", &event).expect("fallback");
     assert_eq!(parsed.open_id, "u_emp");
+    assert_eq!(parsed.identity_keys, vec!["u_emp".to_string()]);
 }
 
 #[test]
@@ -1393,13 +1416,17 @@ fn feishu_image_message_becomes_image_ref() {
 #[test]
 fn feishu_card_callback_parses_operator_and_value_data() {
     let event = serde_json::json!({
-        "operator": { "open_id": "ou_op" },
+        "operator": { "open_id": "ou_op", "user_id": "u_op" },
         "action": { "value": { "data": "y:prompt1" }, "tag": "button" },
         "context": { "open_message_id": "om_c", "open_chat_id": "oc_c" }
     });
     let callback = parse_feishu_card_callback("evt-cb", &event).expect("callback");
     assert_eq!(callback.event_id, "evt-cb");
     assert_eq!(callback.open_id, "ou_op");
+    assert_eq!(
+        callback.identity_keys,
+        vec!["ou_op".to_string(), "u_op".to_string()]
+    );
     assert_eq!(callback.chat_id, "oc_c");
     assert_eq!(callback.data, "y:prompt1");
     assert!(parse_feishu_card_callback(
@@ -1407,6 +1434,18 @@ fn feishu_card_callback_parses_operator_and_value_data() {
         &serde_json::json!({ "operator": { "open_id": "ou" } })
     )
     .is_none());
+
+    let fallback = parse_feishu_card_callback(
+        "evt-cb-user",
+        &serde_json::json!({
+            "operator": { "user_id": "u_only" },
+            "action": { "value": { "data": "y:prompt1" } },
+            "context": { "open_chat_id": "oc_c" }
+        }),
+    )
+    .expect("user_id callback");
+    assert_eq!(fallback.open_id, "u_only");
+    assert_eq!(fallback.identity_keys, vec!["u_only".to_string()]);
 }
 
 #[test]

@@ -217,7 +217,7 @@ _Avoid_: 当成自治接受
 _Avoid_: 第三个面板模式、Heartbeat、SYSTEM_USER_ID
 
 **配对（pairing）**：
-外部聊天账号（如 QQ openid、Telegram `from.id`、Discord 用户 snowflake、飞书 `open_id`）绑到已登录的站点用户。一次性配对码证明「这个号是我」，不是该平台的登录 OAuth，也不新开登录方式。Discord 登录身份已经占用 `discord` 这条身份名，通道配对用 `discord_dm`；飞书通道配对用 `feishu`。
+外部聊天账号（如 QQ openid、Telegram `from.id`、Discord 用户 snowflake、飞书 `open_id`）绑到已登录的站点用户。一次性配对码证明「这个号是我」，不是该平台的登录 OAuth，也不新开登录方式。Discord 登录身份已经占用 `discord` 这条身份名，通道配对用 `discord_dm`；飞书通道配对用 `feishu`。飞书移动端可能缺 `open_id`、只给 `user_id`，两种 id 都是同一人的配对键，绑定时写成别名，查找时任一命中即可。
 _Avoid_: QQ 登录、Telegram 登录、Discord 登录、飞书登录、把配对当会话、把 openid 漏进计划器
 
 **通道（channel）**：

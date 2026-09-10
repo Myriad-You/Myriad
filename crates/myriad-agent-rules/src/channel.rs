@@ -227,7 +227,8 @@ pub fn qq_c2c_capabilities() -> ChannelCapabilities {
 }
 
 /// Feishu p2p: text and images in, final text plus images out, numbered options
-/// plus interactive-card buttons. Typing / edit / streaming draft stay off.
+/// plus interactive-card buttons. There is no typing indicator; edit / streaming
+/// draft stay off.
 pub fn feishu_dm_capabilities() -> ChannelCapabilities {
     ChannelCapabilities {
         inbound_text: true,
@@ -1627,13 +1628,15 @@ impl TelegramPrivateCallback {
     }
 }
 
-/// Feishu p2p text after long-connection decode. `open_id` may fall back to
-/// `user_id`; both missing drops the event.
+/// Feishu p2p text after long-connection decode. `open_id` is preferred;
+/// `user_id` is kept as an alias so mobile payloads that omit `open_id` still
+/// match a pairing bound under the other id. Both missing drops the event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundFeishuText {
     pub event_id: String,
     pub message_id: String,
     pub open_id: String,
+    pub identity_keys: Vec<String>,
     pub chat_id: String,
     pub content: String,
     pub images: Vec<ChannelImageRef>,
@@ -1644,8 +1647,32 @@ pub struct InboundFeishuText {
 pub struct FeishuCardCallback {
     pub event_id: String,
     pub open_id: String,
+    pub identity_keys: Vec<String>,
     pub chat_id: String,
     pub data: String,
+}
+
+/// Pairing lookup keys for a Feishu sender. `open_id` first, then `user_id` if
+/// it is a different non-empty value. Empty after trim is skipped.
+pub fn feishu_identity_keys(open_id: Option<&str>, user_id: Option<&str>) -> Vec<String> {
+    let mut keys = Vec::new();
+    for raw in [open_id, user_id] {
+        let Some(value) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        if !keys.iter().any(|existing| existing == value) {
+            keys.push(value.to_string());
+        }
+    }
+    keys
+}
+
+fn json_trimmed_str<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
 }
 
 impl InboundFeishuText {
@@ -1715,8 +1742,9 @@ fn parse_feishu_images(message: &serde_json::Value) -> Vec<ChannelImageRef> {
 }
 
 /// Parse `im.message.receive_v1`. Drops bots, groups, and empty text without
-/// images. Missing `open_id` falls back to `user_id` (mobile delivery can omit
-/// `open_id`). `event_id` comes from the event header for dedup.
+/// images. Missing `open_id` falls back to `user_id`; both are kept on
+/// `identity_keys` so pairing can alias them. `event_id` comes from the event
+/// header for dedup.
 pub fn parse_feishu_message_receive(
     event_id: &str,
     event_data: &serde_json::Value,
@@ -1726,18 +1754,11 @@ pub fn parse_feishu_message_receive(
         return None;
     }
     let sender_id = sender.get("sender_id")?;
-    let open_id = sender_id
-        .get("open_id")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            sender_id
-                .get("user_id")
-                .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })?;
+    let identity_keys = feishu_identity_keys(
+        json_trimmed_str(sender_id, "open_id"),
+        json_trimmed_str(sender_id, "user_id"),
+    );
+    let open_id = identity_keys.first()?.clone();
     let message = event_data.get("message")?;
     if message.get("chat_type").and_then(|value| value.as_str()) != Some("p2p") {
         return None;
@@ -1772,7 +1793,8 @@ pub fn parse_feishu_message_receive(
     Some(InboundFeishuText {
         event_id: event_id.to_string(),
         message_id: message_id.to_string(),
-        open_id: open_id.to_string(),
+        open_id,
+        identity_keys,
         chat_id: chat_id.to_string(),
         content,
         images,
@@ -1780,16 +1802,17 @@ pub fn parse_feishu_message_receive(
 }
 
 /// Parse `card.action.trigger`. Drops payloads without operator, chat, or data.
+/// Operator `open_id` is preferred; `user_id` is kept as an alias.
 pub fn parse_feishu_card_callback(
     event_id: &str,
     event_data: &serde_json::Value,
 ) -> Option<FeishuCardCallback> {
-    let open_id = event_data
-        .get("operator")
-        .and_then(|value| value.get("open_id"))
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
+    let operator = event_data.get("operator")?;
+    let identity_keys = feishu_identity_keys(
+        json_trimmed_str(operator, "open_id"),
+        json_trimmed_str(operator, "user_id"),
+    );
+    let open_id = identity_keys.first()?.clone();
     let chat_id = event_data
         .get("context")
         .and_then(|value| value.get("open_chat_id"))
@@ -1805,7 +1828,8 @@ pub fn parse_feishu_card_callback(
         .filter(|value| !value.is_empty())?;
     Some(FeishuCardCallback {
         event_id: event_id.to_string(),
-        open_id: open_id.to_string(),
+        open_id,
+        identity_keys,
         chat_id: chat_id.to_string(),
         data: data.to_string(),
     })

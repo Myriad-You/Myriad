@@ -131,6 +131,23 @@ pub async fn lookup_openid(
     })
 }
 
+/// First matching key wins. Empty keys are skipped.
+pub async fn lookup_any(
+    db: &DatabaseConnection,
+    channel: PairingChannel,
+    keys: &[String],
+) -> Result<PairingLookup, DbErr> {
+    for key in keys {
+        match lookup_openid(db, channel, key).await? {
+            PairingLookup::Paired { user_id } if user_id != 0 => {
+                return Ok(PairingLookup::Paired { user_id });
+            }
+            _ => {}
+        }
+    }
+    Ok(PairingLookup::Unpaired)
+}
+
 pub async fn status_for_user(
     db: &DatabaseConnection,
     channel: PairingChannel,
@@ -304,34 +321,115 @@ pub async fn consume_code(
         return Ok(PairingBindResult::InvalidOrExpired);
     }
 
-    bind_openid(db, channel, stored.user_id, openid).await
+    bind_openids(db, channel, stored.user_id, &[openid.to_string()]).await
 }
 
-async fn bind_openid(
+/// Bind every non-empty key as the same user's pairing identity.
+/// Feishu keeps `open_id` and `user_id` as aliases so a later payload that
+/// only has one of them still finds the row.
+pub async fn consume_code_keys(
+    db: &DatabaseConnection,
+    channel: PairingChannel,
+    keys: &[String],
+    raw_code: &str,
+) -> Result<PairingBindResult, DbErr> {
+    let Some(code) = extract_pairing_code(raw_code) else {
+        return Ok(PairingBindResult::InvalidOrExpired);
+    };
+    let keys: Vec<String> = keys
+        .iter()
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
+        .collect();
+    if keys.is_empty() {
+        return Ok(PairingBindResult::InvalidOrExpired);
+    }
+
+    let Some(stored) =
+        shared_registry::take::<StoredPairingCode>(db, channel.code_namespace, &token_hash(&code))
+            .await?
+    else {
+        return Ok(PairingBindResult::InvalidOrExpired);
+    };
+    if stored.code != code {
+        return Ok(PairingBindResult::InvalidOrExpired);
+    }
+
+    bind_openids(db, channel, stored.user_id, &keys).await
+}
+
+/// If this user is already paired via one key, write the remaining keys so a
+/// later payload that only carries the alias still matches. Keys owned by
+/// another user are left alone.
+pub async fn ensure_aliases(
     db: &DatabaseConnection,
     channel: PairingChannel,
     user_id: i32,
-    openid: &str,
+    keys: &[String],
+) -> Result<(), DbErr> {
+    for key in keys {
+        let key = key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        match lookup_openid(db, channel, key).await? {
+            PairingLookup::Paired { user_id: bound } if bound == user_id => {}
+            PairingLookup::Paired { .. } => {}
+            PairingLookup::Unpaired => {
+                let _ = db
+                    .execute_raw(Statement::from_sql_and_values(
+                        DatabaseBackend::Postgres,
+                        "INSERT INTO user_identities ( \
+                            user_id, provider, provider_user_id, is_primary, linked_at \
+                         ) VALUES ($1, $2, $3, false, NOW()) \
+                         ON CONFLICT (provider, provider_user_id) DO NOTHING",
+                        vec![
+                            SeaValue::Int(Some(user_id)),
+                            SeaValue::String(Some(channel.provider.to_string())),
+                            SeaValue::String(Some(key.to_string())),
+                        ],
+                    ))
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn bind_openids(
+    db: &DatabaseConnection,
+    channel: PairingChannel,
+    user_id: i32,
+    keys: &[String],
 ) -> Result<PairingBindResult, DbErr> {
+    let keys: Vec<String> = keys
+        .iter()
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
+        .collect();
+    if keys.is_empty() {
+        return Ok(PairingBindResult::InvalidOrExpired);
+    }
+
     let txn = db.begin().await?;
-    let existing = txn
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2",
-            vec![
-                SeaValue::String(Some(channel.provider.to_string())),
-                SeaValue::String(Some(openid.to_string())),
-            ],
-        ))
-        .await?;
-    if let Some(row) = existing {
-        let bound_user: i32 = row.try_get("", "user_id").unwrap_or(0);
-        txn.commit().await?;
-        return Ok(if bound_user == user_id {
-            PairingBindResult::Bound { user_id }
-        } else {
-            PairingBindResult::OpenidTaken
-        });
+    for key in &keys {
+        let existing = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2",
+                vec![
+                    SeaValue::String(Some(channel.provider.to_string())),
+                    SeaValue::String(Some(key.clone())),
+                ],
+            ))
+            .await?;
+        if let Some(row) = existing {
+            let bound_user: i32 = row.try_get("", "user_id").unwrap_or(0);
+            if bound_user != user_id {
+                txn.commit().await?;
+                return Ok(PairingBindResult::OpenidTaken);
+            }
+        }
     }
 
     txn.execute_raw(Statement::from_sql_and_values(
@@ -344,22 +442,28 @@ async fn bind_openid(
     ))
     .await?;
 
-    let inserted = txn
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO user_identities ( \
-                user_id, provider, provider_user_id, is_primary, linked_at \
-             ) VALUES ($1, $2, $3, false, NOW()) \
-             ON CONFLICT (provider, provider_user_id) DO NOTHING \
-             RETURNING user_id",
-            vec![
-                SeaValue::Int(Some(user_id)),
-                SeaValue::String(Some(channel.provider.to_string())),
-                SeaValue::String(Some(openid.to_string())),
-            ],
-        ))
-        .await?;
-    if inserted.is_none() {
+    let mut inserted_any = false;
+    for key in &keys {
+        let inserted = txn
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO user_identities ( \
+                    user_id, provider, provider_user_id, is_primary, linked_at \
+                 ) VALUES ($1, $2, $3, false, NOW()) \
+                 ON CONFLICT (provider, provider_user_id) DO NOTHING \
+                 RETURNING user_id",
+                vec![
+                    SeaValue::Int(Some(user_id)),
+                    SeaValue::String(Some(channel.provider.to_string())),
+                    SeaValue::String(Some(key.clone())),
+                ],
+            ))
+            .await?;
+        if inserted.is_some() {
+            inserted_any = true;
+        }
+    }
+    if !inserted_any {
         txn.rollback().await?;
         return Ok(PairingBindResult::OpenidTaken);
     }
