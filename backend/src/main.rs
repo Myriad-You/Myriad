@@ -389,13 +389,6 @@ async fn run_server() -> anyhow::Result<()> {
                 api::updater_admin::resume_pending_job_notifications().await;
                 tracing::info!("✅ Agent notification system initialized");
 
-                // Install governed-text sink before scheduler / declared-API AI builtins run.
-                api::tapp_runtime::install_governed_text_executor();
-                tracing::info!("✅ Governed text AI executor installed");
-
-                // Install Agent Interaction create sink before Executor handlers run.
-                api::tapp_runtime::install_agent_interaction_executor();
-                tracing::info!("✅ Agent interaction create executor installed");
 
                 // Initialize Tapp scheduler engine
                 api::tapp_scheduler::init_scheduler(db.clone()).await;

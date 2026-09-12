@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 
 use crate::error::HttpError;
 use crate::{
-    api::tapp_store::{TappAiModelTier, TappAiOperation, TappAiOutputFormat},
+    api::tapp_store::{TappAiModelTier, TappAiOperation},
     middleware::auth::Claims,
     services::{
         ai_config::{get_ai_config_for_tier, get_ai_image_config},
@@ -27,20 +27,17 @@ use crate::{
         ai_task_context::{resolve_context, AiContextError, AiContextSubject},
         ai_task_execute::{
             default_output, execute_task, hash_request, parse_ai_manifest, prepare_task,
-            validate_output, AiTaskExecution, PreparedModel, PreparedTask,
+            validate_output, AiTaskExecution, PreparedModel,
         },
         ai_task_image::{load_image_references, validate_task_input},
-        ai_task_prepare::{
-            permission_for_operation, validate_idempotency_key, AiTaskLogicError, MAX_INPUT_BYTES,
-        },
+        ai_task_prepare::{permission_for_operation, validate_idempotency_key, AiTaskLogicError},
         ai_task_registry::{
             register_ai_task_atomically, task_id_for_request, AiTaskRegistration, AiTaskStatus,
             PersistedAiTask, AI_CANCEL_NAMESPACE, AI_TASK_MAILBOX_CHANNEL, AI_TASK_NAMESPACE,
             MAX_ACTIVE_TASKS_PER_SUBJECT, MAX_RETAINED_TASKS_PER_SUBJECT,
         },
         ai_task_runtime::{
-            cancel_local_task, insert_local, local_snapshot, local_subject_counts, LocalAiTask,
-            TaskBroadcast,
+            cancel_local_task, insert_local, local_subject_counts, LocalAiTask, TaskBroadcast,
         },
         permission_service::{TappPermission, UserRole},
     },
@@ -125,209 +122,6 @@ fn authorize_persisted<'a>(
         ));
     }
     Ok(task)
-}
-
-fn internal_ai_error(error: ApiError) -> String {
-    let body = error.0.to_json();
-    let code = body
-        .get("code")
-        .and_then(Value::as_str)
-        .unwrap_or("AI_TASK_ERROR");
-    let message = body
-        .get("error")
-        .and_then(Value::as_str)
-        .unwrap_or("AI task failed");
-    format!("{code}: {message}")
-}
-
-/// Install the services-facing governed-text sink so scheduler / declared-API
-/// builtins share this module's registry, rate limits, and quota ledger.
-pub fn install_governed_text_executor() {
-    crate::services::governed_text::install_executor(|db, request| async move {
-        execute_governed_text_impl(&db, request).await
-    });
-}
-
-/// Execute a synchronous host action through the same registry, concurrency,
-/// rate-limit and quota ledger used by the public AI Task API. Scheduler and
-/// declared builtin adapters wait for the task result, but do not get a second
-/// provider path that can bypass governance.
-async fn execute_governed_text_impl(
-    db: &DatabaseConnection,
-    request: crate::services::governed_text::GovernedTextRequest,
-) -> Result<String, String> {
-    let crate::services::governed_text::GovernedTextRequest {
-        role,
-        subject_id,
-        owner_id,
-        tapp_id,
-        source,
-        operation,
-        tier,
-        system_prompt,
-        prompt,
-        client_ip,
-    } = request;
-    if !matches!(
-        operation,
-        TappAiOperation::Generate | TappAiOperation::Analyze | TappAiOperation::Chat
-    ) {
-        return Err(
-            "AI_TASK_UNSUPPORTED_OPERATION: synchronous image tasks are unsupported".to_string(),
-        );
-    }
-    if prompt.trim().is_empty()
-        || prompt.len() > MAX_INPUT_BYTES
-        || validate_prompt_security(&prompt).is_some()
-    {
-        return Err("UNSAFE_AI_TASK_INPUT: prompt is empty, too large, or unsafe".to_string());
-    }
-
-    check_rate_limit(db, subject_id, &tapp_id, "ai.task")
-        .await
-        .map_err(internal_ai_error)?;
-    if role == UserRole::Guest {
-        check_anonymous_rate_limit(db, client_ip.as_deref(), &tapp_id)
-            .await
-            .map_err(internal_ai_error)?;
-    }
-    let model = PreparedModel::Text(
-        get_ai_config_for_tier(tier)
-            .await
-            .map_err(|error| format!("AI_NOT_CONFIGURED: {}", error.message()))?,
-    );
-    let estimated_tokens = (system_prompt.len() + prompt.len()) / 4 + 1_000;
-    let reservation = reserve_ai_quota(
-        db,
-        role,
-        subject_id,
-        owner_id,
-        &tapp_id,
-        estimated_tokens,
-        client_ip.as_deref(),
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    let usage = match get_ai_usage(db, role, subject_id, owner_id, &tapp_id).await {
-        Ok(usage) => usage,
-        Err(error) => {
-            if let Err(rollback_error) = rollback_ai_quota_reservation(db, &reservation).await {
-                tracing::error!(
-                    ?rollback_error,
-                    %tapp_id,
-                    "[TAPP] Failed to roll back internal AI quota after usage read failure"
-                );
-            }
-            return Err(error.to_string());
-        }
-    };
-
-    let request = CreateAiTaskRequest {
-        version: 2,
-        operation,
-        input: Value::String(prompt.clone()),
-        context: Vec::new(),
-        output: Some(AiTaskOutputRequest {
-            format: TappAiOutputFormat::Text,
-            schema: None,
-        }),
-        delivery: AiTaskDelivery::Result,
-        idempotency_key: None,
-    };
-    let request_hash = match hash_request(&request) {
-        Ok(hash) => hash,
-        Err(error) => {
-            let _ = rollback_ai_quota_reservation(db, &reservation).await;
-            return Err(error.to_string());
-        }
-    };
-    let task_id = task_id_for_request(subject_id, owner_id, &tapp_id, None);
-    let now = Utc::now().to_rfc3339();
-    let snapshot = AiTaskSnapshot {
-        task_id: task_id.clone(),
-        status: AiTaskStatus::Queued,
-        operation,
-        delivery: AiTaskDelivery::Result,
-        created_at: now.clone(),
-        updated_at: now,
-        result: None,
-        error: None,
-        usage,
-    };
-    let (stored, cancel_receiver) = LocalAiTask::new(
-        format!("internal:{source}:{task_id}"),
-        subject_id,
-        owner_id,
-        tapp_id.clone(),
-        None,
-        request_hash,
-        snapshot,
-    );
-    let persisted = stored.to_persisted();
-    match register_ai_task_atomically(db, &persisted).await {
-        Ok(AiTaskRegistration::Inserted) => {}
-        Ok(AiTaskRegistration::LimitReached) => {
-            let _ = rollback_ai_quota_reservation(db, &reservation).await;
-            return Err(
-                "AI_TASK_CONCURRENCY_LIMIT: too many active or retained AI tasks".to_string(),
-            );
-        }
-        Ok(AiTaskRegistration::Existing(_) | AiTaskRegistration::IdempotencyConflict) => {
-            let _ = rollback_ai_quota_reservation(db, &reservation).await;
-            return Err("AI_TASK_REGISTRATION_CONFLICT: internal task ID conflict".to_string());
-        }
-        Err(error) => {
-            let _ = rollback_ai_quota_reservation(db, &reservation).await;
-            tracing::error!(%error, %task_id, "[TAPP] Failed to register internal AI task");
-            return Err("AI_TASK_REGISTRY_UNAVAILABLE: task registry is unavailable".to_string());
-        }
-    }
-    insert_local(stored).await;
-
-    execute_task(AiTaskExecution {
-        task_id: task_id.clone(),
-        db: db.clone(),
-        role,
-        subject_id,
-        owner_id,
-        tapp_id: tapp_id.clone(),
-        request,
-        prepared: PreparedTask {
-            prompt,
-            output: AiTaskOutputRequest {
-                format: TappAiOutputFormat::Text,
-                schema: None,
-            },
-            provenance: Vec::new(),
-            image_references: Vec::new(),
-        },
-        model,
-        system_prompt: Some(system_prompt),
-        reservation,
-        cancel: cancel_receiver,
-        ledger_source: format!("internal:{source}"),
-    })
-    .await;
-
-    let snapshot = local_snapshot(&task_id)
-        .await
-        .ok_or_else(|| "AI_TASK_RESULT_MISSING: internal task disappeared".to_string())?;
-    if snapshot.status == AiTaskStatus::Completed {
-        return snapshot
-            .result
-            .as_ref()
-            .and_then(|result| result.get("value"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| "AI_TASK_INVALID_RESULT: text result is missing".to_string());
-    }
-    let error = snapshot
-        .error
-        .as_ref()
-        .and_then(|error| error.get("message"))
-        .and_then(Value::as_str)
-        .unwrap_or("AI task failed");
-    Err(error.to_string())
 }
 
 /// POST /api/tapp/ai/v2/tasks
