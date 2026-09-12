@@ -399,8 +399,11 @@ mod tests {
                 let addr = listener.local_addr().unwrap();
                 let server = tokio::spawn(async move {
                     let (mut socket, _) = listener.accept().await.unwrap();
-                    let mut request = [0; 4096];
-                    socket.read(&mut request).await.unwrap();
+                    let mut request = Vec::new();
+                    while !request.ends_with(b"\r\n\r\n") {
+                        assert!(request.len() < 8192, "fixture request headers too large");
+                        assert_ne!(socket.read_buf(&mut request).await.unwrap(), 0);
+                    }
                     let body = "x".repeat(size);
                     let response = if chunked {
                         // The oversize stream deliberately never terminates.

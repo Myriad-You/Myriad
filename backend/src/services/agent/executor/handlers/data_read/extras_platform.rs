@@ -340,9 +340,8 @@ fn map_keyword_to_netease_category(keyword: &str) -> String {
         (&["韩语", "韩国", "韩流", "kpop", "korean"], "韩语"),
     ];
 
-    match keyword_lower.as_str() {
-        "work" => return "轻音乐".to_string(),
-        _ => {}
+    if keyword_lower == "work" {
+        return "轻音乐".to_string();
     }
 
     for (keywords, category) in mappings {

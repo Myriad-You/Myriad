@@ -141,10 +141,6 @@ fn refresh_perception_text(live: &mut SelfLivePresence) {
         .collect();
 }
 
-pub fn live_presence_is_on_page(user_id: i32) -> bool {
-    last_live_presence(user_id).page_visible
-}
-
 /// Looking at her: on the page and the Agent panel is open.
 pub fn live_presence_panel_open(user_id: i32) -> bool {
     let live = last_live_presence(user_id);
@@ -696,7 +692,7 @@ mod tests {
             "presence": { "pageVisible": true }
         }));
         assert!(remember_live_presence(96, live.clone()));
-        assert!(live_presence_is_on_page(96));
+        assert!(last_live_presence(96).page_visible);
         assert!(!live_presence_panel_open(96));
         assert!(!remember_live_presence(96, live));
     }
@@ -707,13 +703,13 @@ mod tests {
             "presence": { "pageVisible": true, "panelVisible": true }
         }));
         remember_live_presence(97, on_page);
-        assert!(live_presence_is_on_page(97));
+        assert!(last_live_presence(97).page_visible);
         assert!(live_presence_panel_open(97));
         let page_only = live_presence_from_custom_data(&serde_json::json!({
             "presence": { "pageVisible": true, "panelVisible": false }
         }));
         remember_live_presence(97, page_only);
-        assert!(live_presence_is_on_page(97));
+        assert!(last_live_presence(97).page_visible);
         assert!(!live_presence_panel_open(97));
     }
 }

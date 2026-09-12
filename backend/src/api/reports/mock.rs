@@ -48,8 +48,7 @@ pub(crate) fn generate_mock_report(
                     (Some(_), None) => t(locale, "bili.leansAnime"),
                     (None, Some(_)) => t(locale, "bili.watchingUploads"),
                     (None, None) => t(locale, "bili.empty"),
-                }
-                .into(),
+                },
                 take_insights([
                     anime.map(|name| format!("{}《{}》", t(locale, "bili.stillListed"), name)),
                     video.map(|title| format!("{}《{}》", t(locale, "bili.watching"), title)),
@@ -79,8 +78,7 @@ pub(crate) fn generate_mock_report(
                     t(locale, "steam.hoursPile")
                 } else {
                     t(locale, "steam.libraryOutgrows")
-                }
-                .into(),
+                },
                 take_insights([
                     top.map(|g| format!("《{}》{}", g.name, t(locale, "steam.mostMinutes"))),
                     genre.map(|g| format!("{}{}", t(locale, "steam.genreLeans"), g)),
@@ -114,7 +112,7 @@ pub(crate) fn generate_mock_report(
                 .map(|cal| cal.iter().filter(|d| d.count > 0).count())
                 .unwrap_or(0);
             (
-                t(locale, "github.starsNotCalendar").into(),
+                t(locale, "github.starsNotCalendar"),
                 take_insights([
                     top.and_then(|repo| {
                         repo.stars.map(|n| {
@@ -144,8 +142,8 @@ pub(crate) fn generate_mock_report(
             };
             if empty {
                 (
-                    t(locale, "yt.noPublic").into(),
-                    vec![t(locale, "yt.videoCountZero").into()],
+                    t(locale, "yt.noPublic"),
+                    vec![t(locale, "yt.videoCountZero")],
                     json!({
                         "vibe": t(locale, "yt.coldShell"),
                         "channel_type": t(locale, "yt.coldStart"),
@@ -159,7 +157,7 @@ pub(crate) fn generate_mock_report(
                         .and_then(|v| v.published_at.as_deref()),
                 );
                 (
-                    t(locale, "yt.subsSplit").into(),
+                    t(locale, "yt.subsSplit"),
                     take_insights([
                         Some(format!(
                             "{} {} · {} {}",
@@ -241,7 +239,7 @@ pub(crate) fn generate_mock_report(
                 .map(|(i, tag)| json!({ "tag": tag, "color": MOOD_COLORS[i] }))
                 .collect();
             (
-                t(locale, "netease.genreHonest").into(),
+                t(locale, "netease.genreHonest"),
                 take_insights([
                     artist.map(|name| format!("{} {}", t(locale, "netease.keepsShowing"), name)),
                     region.map(|name| format!("{}{}", t(locale, "netease.regionLeans"), name)),
@@ -282,7 +280,7 @@ pub(crate) fn generate_mock_report(
                 .or(analysis.recent_posts.first())
                 .map(|p| p.text.chars().take(24).collect::<String>());
             (
-                t(locale, "x.followsHonest").into(),
+                t(locale, "x.followsHonest"),
                 take_insights([
                     Some(format!(
                         "{} {} {}",
@@ -335,7 +333,7 @@ pub(crate) fn generate_mock_report(
                 t(locale, "discord.regular")
             };
             (
-                t(locale, "discord.identityOwned").into(),
+                t(locale, "discord.identityOwned"),
                 take_insights([
                     Some(format!(
                         "{} {} · {} {}",
@@ -371,7 +369,7 @@ pub(crate) fn generate_mock_report(
                 .map(|t| t.name.as_str());
             let hunter = analysis.completed_games >= 5;
             (
-                t(locale, "xbox.greens").into(),
+                t(locale, "xbox.greens"),
                 take_insights([
                     Some(format!(
                         "{} {} / {} {:.0}%",
@@ -399,7 +397,7 @@ pub(crate) fn generate_mock_report(
                 .or(analysis.top_completed_titles.first())
                 .map(|t| t.name.as_str());
             (
-                t(locale, "psn.cabinet").into(),
+                t(locale, "psn.cabinet"),
                 take_insights([
                     Some(format!(
                         "{} {}",
