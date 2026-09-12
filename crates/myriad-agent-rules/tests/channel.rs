@@ -12,14 +12,13 @@ use myriad_agent_rules::channel::{
     discord_private_text_from_create, discord_reply_markup, discord_worker_intent,
     encode_pairing_code, encode_pending_id, ensure_pending_id, extract_pairing_code,
     feishu_dm_capabilities, feishu_identity_keys, feishu_photo_messages, feishu_reply_markup,
-    feishu_text_from_content,
-    feishu_token_needs_refresh, feishu_worker_intent, format_channel_result, format_pairing_code,
-    format_pending_prompt, ingest_c2c_text, ingest_channel_text, next_passive_seq,
-    outbound_idempotency_key, pairing_bind_reply, pairing_bind_reply_for, panel_entry_reply,
-    parse_access_token_response, parse_channel_command, parse_discord_channel_type,
-    parse_feishu_api_code, parse_feishu_card_callback, parse_feishu_event_envelope,
-    parse_feishu_message_receive, parse_feishu_tenant_token, parse_feishu_ws_endpoint,
-    parse_gateway_url_response, parse_qq_c2c_images, parse_qq_file_info,
+    feishu_text_from_content, feishu_token_needs_refresh, feishu_worker_intent,
+    format_channel_result, format_pairing_code, format_pending_prompt, ingest_c2c_text,
+    ingest_channel_text, next_passive_seq, outbound_idempotency_key, pairing_bind_reply,
+    pairing_bind_reply_for, panel_entry_reply, parse_access_token_response, parse_channel_command,
+    parse_discord_channel_type, parse_feishu_api_code, parse_feishu_card_callback,
+    parse_feishu_event_envelope, parse_feishu_message_receive, parse_feishu_tenant_token,
+    parse_feishu_ws_endpoint, parse_gateway_url_response, parse_qq_c2c_images, parse_qq_file_info,
     parse_telegram_bot_identity, parse_telegram_callback, parse_telegram_file_path,
     parse_telegram_ok_payload, parse_telegram_private_inbounds, parse_telegram_private_texts,
     pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities, qq_token_needs_refresh,
@@ -1411,7 +1410,7 @@ fn feishu_image_message_becomes_image_ref() {
     let parsed = parse_feishu_message_receive("evt-img", &event).expect("image");
     assert!(parsed.content.is_empty());
     assert_eq!(parsed.images.len(), 1);
-    assert_eq!(parsed.images[0].url, "feishu:img_abc");
+    assert_eq!(parsed.images[0].url, "feishu:om_img/img_abc");
 }
 
 #[test]
@@ -1661,4 +1660,28 @@ fn feishu_ws_endpoint_and_handshake_and_envelope() {
         parse_feishu_api_code(200, r#"{"code":99991663}"#),
         Err(ConnectFailureKind::Transient)
     );
+}
+
+#[test]
+fn answer_buttons_are_bound_to_task_not_only_question_text() {
+    let mut first = myriad_agent_rules::channel::PendingPrompt {
+        id: String::new(),
+        kind: myriad_agent_rules::channel::PendingKind::Answer {
+            task_id: "task-a".into(),
+            question_id: "pre_param:1:city".into(),
+            question_type: "free_text".into(),
+        },
+        question: "城市？".into(),
+        options: Vec::new(),
+        expires_at_unix: None,
+    };
+    let mut second = first.clone();
+    second.kind = myriad_agent_rules::channel::PendingKind::Answer {
+        task_id: "task-b".into(),
+        question_id: "pre_param:1:city".into(),
+        question_type: "free_text".into(),
+    };
+    myriad_agent_rules::channel::ensure_pending_id(&mut first);
+    myriad_agent_rules::channel::ensure_pending_id(&mut second);
+    assert_ne!(first.id, second.id);
 }

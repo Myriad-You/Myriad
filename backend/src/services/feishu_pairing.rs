@@ -86,6 +86,7 @@ pub async fn handle_inbound(event: InboundFeishuText) {
             crate::services::feishu_work::start_paired_work_with_images(
                 &db,
                 user_id,
+                &event.open_id,
                 &chat_id,
                 &input,
                 &event.images,
@@ -122,6 +123,7 @@ pub async fn handle_callback(event: FeishuCardCallback) {
     crate::services::feishu_work::start_paired_callback(
         &db,
         user_id,
+        &event.open_id,
         &event.chat_id_key(),
         &event.data,
         &session_key("feishu", &event.chat_id_key()),

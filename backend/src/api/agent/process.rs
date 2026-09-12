@@ -521,7 +521,7 @@ pub(crate) async fn start_process_run(
         None => (None, None),
     };
     // tx 会被移动到 spawn 中，确保 channel 在任务完成前不会关闭
-    tokio::spawn(async move {
+    let execution = tokio::spawn(async move {
         // 获取 Lane Queue 执行许可（同一用户串行，全局并发上限 4）
         // 注意：进入 wait-for-input 后必须释放，否则最多 4 个等待任务会堵死全局槽位
         {
@@ -841,6 +841,8 @@ pub(crate) async fn start_process_run(
         }
         // tx 在这里被 drop，channel 关闭，SSE 流结束
     });
+
+    run.register_execution(execution.abort_handle());
 
     Ok(run)
 }
@@ -1186,168 +1188,9 @@ pub async fn answer_task_question_stream(
     Path(task_id): Path<String>,
     Json(req): Json<AnswerQuestionRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, HttpError> {
-    let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
-
-    tracing::info!(
-        user_id = user_id,
-        task_id = %task_id,
-        question_id = %req.question_id,
-        "[Agent API] Answering task question (SSE stream mode)"
-    );
-
-    let (tx, rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
-
-    let db_clone = db.clone();
-    tokio::spawn(async move {
-        // Resolve session/lane BEFORE take so we match process_stream's session lane.
-        let session_from_waiting = {
-            let map = WAITING_TASKS.read().await;
-            map.get(&task_id)
-                .filter(|ctx| ctx.user_id == user_id)
-                .map(|ctx| ctx.session_id.clone())
-                .filter(|s| !s.is_empty())
-        };
-        let task_for_lane =
-            crate::services::agent::executor::get_task_for_user(&task_id, user_id).await;
-        let lane_key = LaneQueue::resolve_answer_lane_key(
-            user_id,
-            task_for_lane.as_ref().and_then(|t| t.lane_id.as_deref()),
-            session_from_waiting.as_deref(),
-        );
-
-        // resume 执行前重新获取 lane 许可（process_stream 在 wait-for-input 时已释放）
-        let queue = LANE_QUEUE.clone();
-        let _lane_guard = match queue
-            .acquire_timeout(
-                &lane_key,
-                std::time::Duration::from_secs(LaneQueue::DEFAULT_ACQUIRE_TIMEOUT_SECS),
-            )
-            .await
-        {
-            Ok(guard) => guard,
-            Err(e) => {
-                let _ = tx
-                    .send(AgentProgressEvent::Error {
-                        task_id: Some(task_id.clone()),
-                        message: e,
-                        code: "QUEUE_FULL".to_string(),
-                    })
-                    .await;
-                return;
-            }
-        };
-
-        let agent = Agent::new(db_clone.clone()).await;
-
-        // 从 WAITING_TASKS 获取后端 run 上下文（仅所有者可取，防跨用户抢 oneshot）
-        let waiting_ctx = take_waiting_task(&task_id, user_id).await;
-
-        // 持久化用户的回答到会话消息历史（确保后续 Planner 能看到完整对话）
-        let ctx_session_id = waiting_ctx
-            .as_ref()
-            .map(|ctx| ctx.session_id.clone())
-            .or(session_from_waiting)
-            .unwrap_or_default();
-        if !ctx_session_id.is_empty() {
-            let _ = persist_user_message(&db_clone, &ctx_session_id, &req.answer).await;
-        }
-
-        let answer = UserAnswer {
-            question_id: req.question_id,
-            task_id: task_id.clone(),
-            answer: req.answer,
-            skipped: false,
-        };
-
-        let resume_tx = waiting_ctx
-            .as_ref()
-            .map(|ctx| ctx.progress_tx.clone())
-            .unwrap_or_else(|| tx.clone());
-
-        match agent
-            .resume_task_with_progress(&task_id, answer, user_id, resume_tx)
-            .await
-        {
-            Ok(response) => {
-                let api_response: ApiResponse = response.into();
-                let final_task_id = api_response
-                    .task
-                    .as_ref()
-                    .map(|t| t.task_id.clone())
-                    .unwrap_or_default();
-                let success = api_response.success;
-
-                // 检查任务是否仍然在等待用户输入（多轮提问场景）
-                let still_waiting = api_response
-                    .task
-                    .as_ref()
-                    .map(|t| t.status == "waiting_for_input")
-                    .unwrap_or(false);
-
-                let response_value = serde_json::to_value(&api_response)
-                    .unwrap_or_else(|_| json!({"error": "serialization failed"}));
-
-                // 回传结果给 process_stream（如果它在等待）
-                // process_stream 的循环会检查 status 决定是否继续等待
-                if let Some(ctx) = waiting_ctx {
-                    let _ = ctx.done_tx.send(response_value.clone());
-                }
-
-                // 在 answer_stream 自己的 SSE 上发送事件
-                if still_waiting {
-                    // 任务仍在等待：发送 TaskCompleted（携带 pendingQuestion 数据，
-                    // 前端 handleAgentResponse 会检测到并显示新问题）
-                    // 这里仍然发 TaskCompleted 以便 executeSSERequest resolve
-                    let _ = tx
-                        .send(AgentProgressEvent::TaskCompleted {
-                            task_id: final_task_id,
-                            success,
-                            response: Box::new(response_value),
-                        })
-                        .await;
-                } else {
-                    // 任务真正完成
-                    let _ = tx
-                        .send(AgentProgressEvent::TaskCompleted {
-                            task_id: final_task_id,
-                            success,
-                            response: Box::new(response_value),
-                        })
-                        .await;
-                }
-            }
-            Err(e) => {
-                let code = agent_stream_error_code(&e, "RESUME_ERROR");
-                if code == "RESUME_ERROR" {
-                    tracing::error!(error = %e, "[Agent API] Resume failed");
-                }
-
-                // 回传错误给 process_stream
-                if let Some(ctx) = waiting_ctx {
-                    let _ = ctx.done_tx.send(json!({
-                        "success": false,
-                        "message": e.clone(),
-                        "responseType": "error",
-                    }));
-                }
-
-                let _ = tx
-                    .send(AgentProgressEvent::Error {
-                        task_id: Some(task_id),
-                        message: e,
-                        code,
-                    })
-                    .await;
-            }
-        }
-    });
-
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|event| {
-        let data = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
-        Ok(Event::default().data(data))
-    });
-
-    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+    let run = start_answer_run(db, claims, task_id, req.question_id, req.answer, None).await?;
+    Ok(Sse::new(agent_run_event_stream(run))
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
 pub(crate) async fn start_answer_run(
@@ -1359,6 +1202,17 @@ pub(crate) async fn start_answer_run(
     session_id: Option<String>,
 ) -> Result<Arc<AgentRun>, HttpError> {
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
+    validate_input(&answer)?;
+    let task = crate::services::agent::executor::get_task_for_user(&task_id, user_id)
+        .await
+        .ok_or_else(|| {
+            HttpError::from((
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Task not found"})),
+            ))
+        })?;
+    let session_id =
+        myriad_agent_rules::session_id_from_lane_id(task.lane_id.as_deref()).or(session_id);
     let run = create_run(user_id, session_id).await;
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
     let run_for_forwarder = run.clone();
@@ -1372,7 +1226,8 @@ pub(crate) async fn start_answer_run(
         question_id,
         answer,
     };
-    spawn_answer_resume(db, user_id, task_id, req, tx);
+    let execution = spawn_answer_resume(db, user_id, task_id, req, tx);
+    run.register_execution(execution.abort_handle());
     Ok(run)
 }
 
@@ -1382,7 +1237,7 @@ fn spawn_answer_resume(
     task_id: String,
     req: AnswerQuestionRequest,
     tx: tokio::sync::mpsc::Sender<ProgressEvent>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let session_from_waiting = {
             let map = WAITING_TASKS.read().await;
@@ -1438,10 +1293,21 @@ fn spawn_answer_resume(
             skipped: false,
         };
 
-        let resume_tx = waiting_ctx
-            .as_ref()
-            .map(|ctx| ctx.progress_tx.clone())
-            .unwrap_or_else(|| tx.clone());
+        // Existing run subscribers and this continuation observe the same progress.
+        let resume_tx = if let Some(ctx) = waiting_ctx.as_ref() {
+            let original = ctx.progress_tx.clone();
+            let current = tx.clone();
+            let (progress, mut events) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
+            tokio::spawn(async move {
+                while let Some(event) = events.recv().await {
+                    let _ = current.send(event.clone()).await;
+                    let _ = original.send(event).await;
+                }
+            });
+            progress
+        } else {
+            tx.clone()
+        };
 
         match agent
             .resume_task_with_progress(&task_id, answer, user_id, resume_tx)
@@ -1489,7 +1355,7 @@ fn spawn_answer_resume(
                     .await;
             }
         }
-    });
+    })
 }
 
 /// 提供澄清回答
@@ -1608,7 +1474,7 @@ pub(crate) async fn start_confirm_run(
     };
     let run_for_task = run.clone();
     let db_clone = db.clone();
-    tokio::spawn(async move {
+    let execution = tokio::spawn(async move {
         // Agent/executor progress events share the same run hub as the SSE subscriber.
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(256);
         let run_for_forwarder = run_for_task.clone();
@@ -1793,6 +1659,8 @@ pub(crate) async fn start_confirm_run(
             }
         }
     });
+
+    run.register_execution(execution.abort_handle());
 
     Ok(run)
 }

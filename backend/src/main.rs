@@ -780,6 +780,7 @@ async fn run_server() -> anyhow::Result<()> {
                 federation::delivery::spawn_delivery_worker(db.clone());
                 tracing::info!("✅ Federation delivery worker started");
 
+                services::channel_work::spawn_recovery_worker();
                 services::qq_bot::spawn_worker();
                 tracing::info!("✅ QQ bot Gateway worker started");
                 services::telegram_bot::spawn_worker();

@@ -769,3 +769,30 @@ mod tests {
         assert_eq!(current_status().await.phase, QqBotPhase::Online);
     }
 }
+
+/// Outbound retries can outlive the Gateway session that received the message.
+pub(crate) async fn outbound_auth_header() -> Result<String, ConnectFailureKind> {
+    static TOKEN: OnceLock<tokio::sync::Mutex<Option<(String, AccessToken)>>> = OnceLock::new();
+    let scope = crate::services::channel_pairing::credential_scope("qq").await;
+    let mut cached = TOKEN
+        .get_or_init(|| tokio::sync::Mutex::new(None))
+        .lock()
+        .await;
+    if let Some((saved_scope, token)) = cached.as_ref() {
+        if saved_scope == &scope && !token.needs_refresh() {
+            return Ok(token.header.clone());
+        }
+    }
+    let fingerprint = CredentialFingerprint::from_config(&*GLOBAL_DYNAMIC_CONFIG.read().await);
+    let token = fetch_access_token(
+        &fingerprint.app_id,
+        fingerprint
+            .secret
+            .as_deref()
+            .ok_or(ConnectFailureKind::Permanent)?,
+    )
+    .await?;
+    let header = token.header.clone();
+    *cached = Some((scope, token));
+    Ok(header)
+}

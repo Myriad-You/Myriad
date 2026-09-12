@@ -90,13 +90,17 @@ pub async fn send_photo(
     Ok(())
 }
 
-pub async fn download_image_bytes(image_key: &str) -> Result<(Vec<u8>, String), String> {
-    if image_key.is_empty() {
+pub async fn download_image_bytes(
+    message_id: &str,
+    image_key: &str,
+) -> Result<(Vec<u8>, String), String> {
+    if message_id.is_empty() || image_key.is_empty() {
         return Err("empty image_key".into());
     }
     with_auth(|auth| {
         let key = image_key.to_string();
-        async move { download_image_raw(&auth, &key).await }
+        let message_id = message_id.to_string();
+        async move { download_image_raw(&auth, &message_id, &key).await }
     })
     .await
     .map_err(|err| format!("{err:?}"))
@@ -120,12 +124,13 @@ where
 
 async fn download_image_raw(
     auth_header: &str,
+    message_id: &str,
     image_key: &str,
 ) -> Result<(Vec<u8>, String), ConnectFailureKind> {
     let client = http_client::get_global_client().await;
-    let url = format!("{API_BASE}/im/v1/images/{image_key}");
+    let url = message_resource_url(message_id, image_key)?;
     let resp = client
-        .get(&url)
+        .get(url)
         .timeout(HTTP_TIMEOUT)
         .header("Authorization", auth_header)
         .send()
@@ -258,4 +263,29 @@ fn parse_feishu_openapi(status: u16, body: &str) -> Result<Value, ConnectFailure
 
 async fn bot_enabled() -> bool {
     GLOBAL_DYNAMIC_CONFIG.read().await.feishu_bot_enabled
+}
+
+fn message_resource_url(
+    message_id: &str,
+    image_key: &str,
+) -> Result<reqwest::Url, ConnectFailureKind> {
+    let mut url = reqwest::Url::parse(&format!("{API_BASE}/im/v1/messages/"))
+        .map_err(|_| ConnectFailureKind::Permanent)?;
+    url.path_segments_mut()
+        .map_err(|_| ConnectFailureKind::Permanent)?
+        .pop_if_empty()
+        .push(message_id)
+        .push("resources")
+        .push(image_key);
+    url.query_pairs_mut().append_pair("type", "image");
+    Ok(url)
+}
+
+#[cfg(test)]
+mod resource_tests {
+    #[test]
+    fn downloads_message_resources_and_escapes_ids() {
+        let url = super::message_resource_url("om_123", "img/a?b").unwrap();
+        assert_eq!(url.as_str(), "https://open.feishu.cn/open-apis/im/v1/messages/om_123/resources/img%2Fa%3Fb?type=image");
+    }
 }

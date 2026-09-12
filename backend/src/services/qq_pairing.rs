@@ -99,6 +99,7 @@ pub async fn handle_inbound_c2c(event: InboundC2cText, auth_header: &str) {
                 &db,
                 user_id,
                 &event.user_openid,
+                &event.user_openid,
                 &input,
                 &event.images,
                 &session_key,

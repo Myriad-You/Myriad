@@ -970,7 +970,7 @@ async fn upsert_identity(
          ) VALUES ( \
             $1, $2, $3, $4, $5, $6, $7, $8, $9, \
             (NOT EXISTS (SELECT 1 FROM user_identities WHERE user_id = $1 \
-                AND LOWER(provider) NOT IN ('qq', 'telegram'))), \
+                AND LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu'))), \
             NOW(), NOW() \
          ) \
          ON CONFLICT (provider, provider_user_id) DO UPDATE SET \

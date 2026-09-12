@@ -87,6 +87,7 @@ pub async fn handle_inbound(event: DiscordPrivateText, token: &str) {
             crate::services::discord_work::start_paired_work_with_images(
                 &db,
                 user_id,
+                &event.author_id,
                 &event.channel_id,
                 &input,
                 &event.images,
@@ -128,6 +129,7 @@ pub async fn handle_component(event: DiscordPrivateComponent, token: &str) {
     crate::services::discord_work::start_paired_callback(
         &db,
         user_id,
+        &event.author_id,
         &event.channel_id,
         &event.custom_id,
         &session_key("discord", &event.author_id),

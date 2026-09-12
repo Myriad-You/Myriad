@@ -83,6 +83,7 @@ pub async fn handle_inbound(event: TelegramPrivateText, token: &str) {
             crate::services::telegram_work::start_paired_work_with_images(
                 &db,
                 user_id,
+                &event.from_id.to_string(),
                 &chat_id,
                 &input,
                 &event.images,
@@ -120,6 +121,7 @@ pub async fn handle_callback(event: TelegramPrivateCallback, token: &str) {
     crate::services::telegram_work::start_paired_callback(
         &db,
         user_id,
+        &event.from_id.to_string(),
         &event.chat_id_key(),
         &event.data,
         &myriad_agent_rules::channel::session_key("telegram", &event.chat_id_key()),

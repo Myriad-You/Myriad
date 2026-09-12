@@ -624,7 +624,18 @@ pub fn ensure_pending_id(prompt: &mut PendingPrompt) {
 fn pending_id_from_parts(kind: &PendingKind, question: &str) -> String {
     let seed = match kind {
         PendingKind::Confirm { confirmation_id } => confirmation_id.as_str(),
-        PendingKind::Answer { question_id, .. } => question_id.as_str(),
+        PendingKind::Answer {
+            task_id,
+            question_id,
+            ..
+        } => {
+            return pending_id_from_parts(
+                &PendingKind::Confirm {
+                    confirmation_id: format!("{task_id}:{question_id}"),
+                },
+                question,
+            )
+        }
         PendingKind::Clarify { original_input } => original_input.as_str(),
     };
     let mut n: u32 = 0x811c_9dc5;
@@ -1732,8 +1743,8 @@ pub fn feishu_text_from_content(content: &str) -> String {
 }
 
 /// Image refs from a Feishu message. `image_key` is not a public URL — the
-/// worker downloads via `/im/v1/images/{key}` before caching, so `url` carries
-/// the `feishu:`-prefixed key.
+/// worker downloads the message resource before caching. Keep the message id
+/// alongside the image key; the image endpoint only reads bot-owned uploads.
 fn parse_feishu_images(message: &serde_json::Value) -> Vec<ChannelImageRef> {
     let Some(content) = message.get("content").and_then(|value| value.as_str()) else {
         return Vec::new();
@@ -1749,8 +1760,11 @@ fn parse_feishu_images(message: &serde_json::Value) -> Vec<ChannelImageRef> {
     else {
         return Vec::new();
     };
+    let Some(message_id) = json_trimmed_str(message, "message_id") else {
+        return Vec::new();
+    };
     vec![ChannelImageRef {
-        url: format!("feishu:{key}"),
+        url: format!("feishu:{message_id}/{key}"),
         name: "image.jpg".to_string(),
         mime: "image/jpeg".to_string(),
         size: 0,

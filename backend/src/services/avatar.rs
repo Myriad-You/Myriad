@@ -52,7 +52,7 @@ const IMPLICIT_LADDER_TEMPLATE: &str = r#"COALESCE(
         SELECT NULLIF(ui.avatar_url, '')
         FROM user_identities ui
         WHERE ui.user_id = {alias}.id
-          AND LOWER(ui.provider) NOT IN ('qq', 'telegram')
+          AND LOWER(ui.provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu')
           AND ui.avatar_url IS NOT NULL
           AND ui.avatar_url <> ''
         ORDER BY ui.is_primary DESC, ui.last_login_at DESC NULLS LAST, ui.linked_at DESC
@@ -101,7 +101,7 @@ pub fn avatar_presence_expr(alias: &str) -> String {
              AND {a}.avatar_url NOT LIKE 'http://ui-avatars.com/%') \
          OR EXISTS (SELECT 1 FROM user_identities ui \
                     WHERE ui.user_id = {a}.id \
-                      AND LOWER(ui.provider) NOT IN ('qq', 'telegram') \
+                      AND LOWER(ui.provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu') \
                       AND ui.avatar_url IS NOT NULL AND ui.avatar_url <> ''))",
         a = alias
     )

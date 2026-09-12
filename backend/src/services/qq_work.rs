@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::warn;
 
-use crate::services::channel_work::{self, ChannelSink};
+use crate::services::channel_work::{self, ChannelTransport};
 use crate::services::http_client;
 use crate::services::tapp_registry::{self as shared_registry, RegistryIdentity};
 use crate::GLOBAL_DYNAMIC_CONFIG;
@@ -27,24 +27,25 @@ struct StoredSeq {
 pub async fn start_paired_work_with_images(
     db: &DatabaseConnection,
     user_id: i32,
+    sender_id: &str,
     openid: &str,
     input: &str,
     images: &[myriad_agent_rules::channel::ChannelImageRef],
     session_key: &str,
     msg_id: &str,
-    auth_header: &str,
+    _auth_header: &str,
 ) {
     channel_work::handle_text_with_images(
         db,
         user_id,
+        sender_id,
         openid,
         input,
         images,
         session_key,
         msg_id,
-        ChannelSink::Qq {
+        ChannelTransport::Qq {
             db: db.clone(),
-            auth_header: auth_header.to_string(),
             openid: openid.to_string(),
             inbound_msg_id: (!msg_id.is_empty()).then(|| msg_id.to_string()),
         },

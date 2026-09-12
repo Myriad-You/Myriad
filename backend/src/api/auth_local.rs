@@ -1081,7 +1081,7 @@ pub async fn toggle_local_login(
             DatabaseBackend::Postgres,
             "SELECT password_hash IS NOT NULL AS has_password, \
                     (SELECT COUNT(*) FROM user_identities WHERE user_id = users.id \
-                        AND LOWER(provider) NOT IN ('qq', 'telegram')) AS identity_count \
+                        AND LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu')) AS identity_count \
              FROM users WHERE id = $1",
             vec![SeaValue::Int(Some(user_id))],
         ))

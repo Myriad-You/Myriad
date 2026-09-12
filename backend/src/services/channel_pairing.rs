@@ -62,6 +62,8 @@ pub const SQL_NOT_PAIRING_PROVIDER: &str =
 struct StoredPairingCode {
     user_id: i32,
     code: String,
+    #[serde(default)]
+    scope: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,10 +118,11 @@ pub async fn lookup_openid(
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2",
+            "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2 AND raw_profile->>'channel_scope' = $3",
             vec![
                 SeaValue::String(Some(channel.provider.to_string())),
                 SeaValue::String(Some(openid.to_string())),
+                credential_scope(channel.provider).await.into(),
             ],
         ))
         .await?;
@@ -157,10 +160,11 @@ pub async fn status_for_user(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id, provider_user_id, linked_at FROM user_identities \
-             WHERE user_id = $1 AND provider = $2 ORDER BY linked_at DESC LIMIT 1",
+             WHERE user_id = $1 AND provider = $2 AND raw_profile->>'channel_scope' = $3 ORDER BY linked_at DESC LIMIT 1",
             vec![
                 SeaValue::Int(Some(user_id)),
                 SeaValue::String(Some(channel.provider.to_string())),
+                credential_scope(channel.provider).await.into(),
             ],
         ))
         .await?;
@@ -256,6 +260,7 @@ pub async fn mint_code(
     let stored = StoredPairingCode {
         user_id,
         code: code.clone(),
+        scope: credential_scope(channel.provider).await,
     };
     shared_registry::put(
         db,
@@ -284,16 +289,29 @@ pub async fn unpair(
     channel: PairingChannel,
     user_id: i32,
 ) -> Result<bool, DbErr> {
-    let result = db
+    let txn = db.begin().await?;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [format!("channel-pairing:{}:{user_id}", channel.provider).into()],
+    ))
+    .await?;
+    let result = txn
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "DELETE FROM user_identities WHERE user_id = $1 AND provider = $2",
-            vec![
-                SeaValue::Int(Some(user_id)),
-                SeaValue::String(Some(channel.provider.to_string())),
-            ],
+            [user_id.into(), channel.provider.into()],
         ))
         .await?;
+    // Revoke first; running observers must fail their binding check even if cleanup fails.
+    txn.commit().await?;
+    crate::services::channel_work::revoke_pairing(db, channel.provider, user_id).await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM tapp_runtime_registry WHERE subject_id = $1 AND namespace = $2",
+        [user_id.into(), channel.code_namespace.into()],
+    ))
+    .await?;
     Ok(result.rows_affected() > 0)
 }
 
@@ -317,11 +335,18 @@ pub async fn consume_code(
     else {
         return Ok(PairingBindResult::InvalidOrExpired);
     };
-    if stored.code != code {
+    if stored.code != code || stored.scope != credential_scope(channel.provider).await {
         return Ok(PairingBindResult::InvalidOrExpired);
     }
 
-    bind_openids(db, channel, stored.user_id, &[openid.to_string()]).await
+    bind_openids(
+        db,
+        channel,
+        stored.user_id,
+        &[openid.to_string()],
+        &stored.scope,
+    )
+    .await
 }
 
 /// Bind every non-empty key as the same user's pairing identity.
@@ -351,11 +376,11 @@ pub async fn consume_code_keys(
     else {
         return Ok(PairingBindResult::InvalidOrExpired);
     };
-    if stored.code != code {
+    if stored.code != code || stored.scope != credential_scope(channel.provider).await {
         return Ok(PairingBindResult::InvalidOrExpired);
     }
 
-    bind_openids(db, channel, stored.user_id, &keys).await
+    bind_openids(db, channel, stored.user_id, &keys, &stored.scope).await
 }
 
 /// If this user is already paired via one key, write the remaining keys so a
@@ -367,33 +392,40 @@ pub async fn ensure_aliases(
     user_id: i32,
     keys: &[String],
 ) -> Result<(), DbErr> {
+    let scope = credential_scope(channel.provider).await;
+    let txn = db.begin().await?;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [format!("channel-pairing:{}:{user_id}", channel.provider).into()],
+    ))
+    .await?;
+    // An in-flight event must not recreate identities after unpair committed.
+    let mut has_current_identity = false;
     for key in keys {
-        let key = key.trim();
-        if key.is_empty() {
-            continue;
-        }
-        match lookup_openid(db, channel, key).await? {
-            PairingLookup::Paired { user_id: bound } if bound == user_id => {}
-            PairingLookup::Paired { .. } => {}
-            PairingLookup::Unpaired => {
-                let _ = db
-                    .execute_raw(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        "INSERT INTO user_identities ( \
-                            user_id, provider, provider_user_id, is_primary, linked_at \
-                         ) VALUES ($1, $2, $3, false, NOW()) \
-                         ON CONFLICT (provider, provider_user_id) DO NOTHING",
-                        vec![
-                            SeaValue::Int(Some(user_id)),
-                            SeaValue::String(Some(channel.provider.to_string())),
-                            SeaValue::String(Some(key.to_string())),
-                        ],
-                    ))
-                    .await?;
+        let row = txn.query_one_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+            "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2 AND raw_profile->>'channel_scope' = $3",
+            [channel.provider.into(), key.as_str().into(), scope.clone().into()])).await?;
+        if let Some(row) = row {
+            if row.try_get::<i32>("", "user_id")? != user_id {
+                return Err(DbErr::Custom("Conflicting channel identity aliases".into()));
             }
+            has_current_identity = true;
         }
     }
-    Ok(())
+    if !has_current_identity {
+        return Ok(());
+    }
+    for key in keys
+        .iter()
+        .map(|key| key.trim())
+        .filter(|key| !key.is_empty())
+    {
+        txn.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+            "INSERT INTO user_identities (user_id, provider, provider_user_id, is_primary, linked_at, raw_profile)              VALUES ($1, $2, $3, false, NOW(), jsonb_build_object('channel_scope', $4::text))              ON CONFLICT (provider, provider_user_id) DO NOTHING",
+            [user_id.into(), channel.provider.into(), key.into(), scope.clone().into()])).await?;
+    }
+    txn.commit().await
 }
 
 async fn bind_openids(
@@ -401,6 +433,7 @@ async fn bind_openids(
     channel: PairingChannel,
     user_id: i32,
     keys: &[String],
+    scope: &str,
 ) -> Result<PairingBindResult, DbErr> {
     let keys: Vec<String> = keys
         .iter()
@@ -412,14 +445,21 @@ async fn bind_openids(
     }
 
     let txn = db.begin().await?;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [format!("channel-pairing:{}:{user_id}", channel.provider).into()],
+    ))
+    .await?;
     for key in &keys {
         let existing = txn
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2",
+                "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2 AND raw_profile->>'channel_scope' = $3",
                 vec![
                     SeaValue::String(Some(channel.provider.to_string())),
                     SeaValue::String(Some(key.clone())),
+                    scope.into(),
                 ],
             ))
             .await?;
@@ -442,30 +482,43 @@ async fn bind_openids(
     ))
     .await?;
 
+    for key in &keys {
+        txn.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+            "DELETE FROM user_identities WHERE provider = $1 AND provider_user_id = $2 AND raw_profile->>'channel_scope' IS DISTINCT FROM $3",
+            [channel.provider.into(), key.as_str().into(), scope.into()])).await?;
+    }
     let mut inserted_any = false;
     for key in &keys {
         let inserted = txn
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO user_identities ( \
-                    user_id, provider, provider_user_id, is_primary, linked_at \
-                 ) VALUES ($1, $2, $3, false, NOW()) \
+                    user_id, provider, provider_user_id, is_primary, linked_at, raw_profile \
+                 ) VALUES ($1, $2, $3, false, NOW(), jsonb_build_object('channel_scope', $4::text)) \
                  ON CONFLICT (provider, provider_user_id) DO NOTHING \
                  RETURNING user_id",
                 vec![
                     SeaValue::Int(Some(user_id)),
                     SeaValue::String(Some(channel.provider.to_string())),
                     SeaValue::String(Some(key.clone())),
+                    scope.into(),
                 ],
             ))
             .await?;
         if inserted.is_some() {
             inserted_any = true;
+        } else {
+            txn.rollback().await?;
+            return Ok(PairingBindResult::OpenidTaken);
         }
     }
     if !inserted_any {
         txn.rollback().await?;
         return Ok(PairingBindResult::OpenidTaken);
+    }
+    if credential_scope(channel.provider).await != scope {
+        txn.rollback().await?;
+        return Ok(PairingBindResult::InvalidOrExpired);
     }
     txn.commit().await?;
     Ok(PairingBindResult::Bound { user_id })
@@ -486,3 +539,6 @@ mod tests {
         assert!(!is_pairing_provider(""));
     }
 }
+
+mod binding;
+pub(crate) use binding::{credential_scope, provider_for_platform, ChannelBinding};
