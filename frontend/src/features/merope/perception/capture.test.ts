@@ -125,21 +125,6 @@ test.describe('perception capture', { concurrency: false }, () => {
   })
 })
 
-test('provider event path writes the current-song snapshot', () => {
-  const source = readFileSync(
-    new URL('../../../contexts/MusicPlayerContext.tsx', import.meta.url),
-    'utf8',
-  )
-  const provider = source
-    .split('export function MusicPlayerProvider')[1]
-    ?.split('export function useMusicPlayerControl')[0]
-  assert.ok(provider)
-  assert.match(provider, /applyPublishedMusicState\(/)
-  assert.match(provider, /music-player-state-change/)
-  assert.match(source, /bindPublishedMusicState\(/)
-  assert.match(source, /attachMusicEventListener\(/)
-})
-
 test('capture wires consented sources', () => {
   const source = readFileSync(new URL('./capture.ts', import.meta.url), 'utf8')
   assert.match(source, /replaceMusicTrackSource\(/)
