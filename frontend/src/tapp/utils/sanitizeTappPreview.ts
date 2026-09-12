@@ -43,6 +43,52 @@ const URL_ATTRIBUTES = new Set([
 
 const INTERACTIVE_SHELL_SCORE_LIMIT = 120
 
+/** 空挂载点：无子元素且无文本（纯文本节点不算子元素）。 */
+function isEmptyMount(element: Element): boolean {
+  return element.childElementCount === 0 && !element.textContent?.trim()
+}
+
+/**
+ * 裸空元素：既无 inline style 也无 class。运行时壳的挂载点通常如此
+ * （如 `<div id="app"></div>`）；带 class/style 的空元素多半是靠 CSS
+ * 背景/裁剪绘制的静态装饰层，不应算作等待 JS 填充的挂载点。
+ */
+function isBareMount(element: Element): boolean {
+  if (element.hasAttribute('style')) return false
+  const className = element.getAttribute('class')
+  return !className || !className.trim()
+}
+
+export interface ShellScoreSignals {
+  blockedNodeCount: number
+  emptyMountCount: number
+  bareEmptyMountCount: number
+  hasText: boolean
+}
+
+/**
+ * 运行时壳评分。文档已有文本时只统计裸空元素（装饰层不计），
+ * 无文本时才按全部空挂载点统计，以保留对无文本骨架壳的识别。
+ */
+export function computeShellScore(signals: ShellScoreSignals): number {
+  const mountCount = signals.hasText
+    ? signals.bareEmptyMountCount
+    : signals.emptyMountCount
+  return signals.blockedNodeCount + mountCount * 2
+}
+
+/**
+ * 文档是否含可见文本。排除 style/script/template 的源码文本，
+ * 否则运行时壳内联的样式/脚本会被误判为“有内容”。
+ */
+function hasRenderableText(body: HTMLElement): boolean {
+  const clone = body.cloneNode(true) as HTMLElement
+  clone
+    .querySelectorAll('style,script,noscript,template')
+    .forEach((node) => node.remove())
+  return Boolean((clone.textContent || '').trim())
+}
+
 function isRuntimeDependentShell(
   parsed: Document,
   preserveControls: boolean,
@@ -51,14 +97,18 @@ function isRuntimeDependentShell(
     ? DANGEROUS_SELECTOR
     : `${DANGEROUS_SELECTOR},${INTERACTIVE_SELECTOR}`
   const blockedNodeCount = parsed.querySelectorAll(blockedSelector).length
-  const emptyMountCount = Array.from(
+  const emptyMounts = Array.from(
     parsed.body.querySelectorAll('div,span,main,section,aside'),
-  ).filter(
-    (element) =>
-      element.childElementCount === 0 && !element.textContent?.trim(),
-  ).length
+  ).filter(isEmptyMount)
 
-  return blockedNodeCount + emptyMountCount * 2 >= INTERACTIVE_SHELL_SCORE_LIMIT
+  return (
+    computeShellScore({
+      blockedNodeCount,
+      emptyMountCount: emptyMounts.length,
+      bareEmptyMountCount: emptyMounts.filter(isBareMount).length,
+      hasText: hasRenderableText(parsed.body),
+    }) >= INTERACTIVE_SHELL_SCORE_LIMIT
+  )
 }
 
 function sanitizePreviewCss(css: string): string {
