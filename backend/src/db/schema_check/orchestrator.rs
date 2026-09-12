@@ -244,11 +244,16 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     if !ddl_statements.is_empty() {
         tracing::info!("🔧 Applying {} schema changes...", ddl_statements.len());
 
-        for ddl in &ddl_statements {
+        for item in drift.missing_columns.iter().chain(&drift.missing_indexes) {
+            let ddl = &item.ddl;
             tracing::debug!("Executing: {}", ddl);
-            db.execute_unprepared(ddl)
-                .await
-                .map_err(|e| DbErr::Custom(format!("schema repair DDL failed: {ddl}: {e}")))?;
+            // These unique indexes must clean historical duplicates before creation.
+            let result = match item.label.as_str() {
+                "idx_timeline_user_activity" => ensure_timeline_unique(db).await,
+                "idx_delivery_queue_activity_target" => ensure_delivery_queue_unique(db).await,
+                _ => db.execute_unprepared(ddl).await.map(|_| ()),
+            };
+            result.map_err(|e| DbErr::Custom(format!("schema repair DDL failed: {ddl}: {e}")))?;
         }
 
         tracing::info!("✅ Applied {} schema changes", changes_made);
