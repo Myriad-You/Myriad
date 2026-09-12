@@ -135,8 +135,25 @@ pub struct LatestAvailable {
     pub notes_url: String,
 }
 
+/// Evidence recorded by the installer, never supplied by an update request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTrust {
+    pub trust_path: String,
+    pub verification: String,
+    pub reason: Option<String>,
+    pub commit_sha: Option<String>,
+    pub backend: Option<crate::release::ImageRef>,
+    pub frontend: Option<crate::release::ImageRef>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailedUpdate {
+    #[serde(default)]
+    pub confirmation_required: bool,
+    #[serde(default)]
+    pub trust: Option<UpdateTrust>,
+    #[serde(default)]
+    pub risk_flags: crate::worker::preflight::RiskFlags,
     pub from_version: Option<DeployTag>,
     pub to_version: Option<DeployTag>,
     pub at: DateTime<Utc>,
@@ -235,6 +252,8 @@ impl Phase {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Job {
+    #[serde(default)]
+    pub trust: Option<UpdateTrust>,
     pub id: String,
     pub kind: JobKind,
     pub created_at: DateTime<Utc>,
@@ -325,6 +344,25 @@ fn default_schema() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_jobs_and_failures_never_gain_trust_or_confirmation() {
+        let job: Job = serde_json::from_value(serde_json::json!({
+            "id":"old", "kind":"update", "created_at":"2026-01-01T00:00:00Z",
+            "finished_at":null, "from_version":null, "to_version":"v1.0.0",
+            "snapshot_id":null, "status":"succeeded", "steps":[], "idempotency_key":null
+        }))
+        .unwrap();
+        assert!(job.trust.is_none());
+        let failure: FailedUpdate = serde_json::from_value(serde_json::json!({
+            "from_version":null, "to_version":"v1.0.0", "at":"2026-01-01T00:00:00Z",
+            "reason":"allow_tag_install", "job_id":"old"
+        }))
+        .unwrap();
+        assert!(!failure.confirmation_required);
+        assert!(!failure.risk_flags.allow_tag_install);
+        assert!(failure.trust.is_none());
+    }
 
     #[test]
     fn rollback_version_reads_legacy_state_name_and_writes_the_new_name() {

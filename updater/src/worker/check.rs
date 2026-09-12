@@ -94,6 +94,7 @@ impl Worker {
                 mode,
                 allow_downgrade: false,
                 allow_risk: false,
+                allow_tag_install: false,
                 allow_diverged: None,
                 allow_unknown: None,
                 allow_irreversible: None,
@@ -532,13 +533,10 @@ impl Worker {
                     }
                     return Ok(Some(AvailableInfo::Release(manifest)));
                 }
-                Err(e) => {
-                    warn!(
-                        err = %e,
-                        target = %tag,
-                        "dev-channel release tip: fetch_manifest failed; caching release tag only"
-                    );
+                Err(e) if GithubClient::is_release_json_unavailable(&e) => {
+                    warn!(err = %e, target = %tag, "release manifest unavailable; tag install requires confirmation");
                 }
+                Err(e) => return Err(e),
             }
         }
 

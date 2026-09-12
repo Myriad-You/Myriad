@@ -599,6 +599,7 @@ fn validate_update_body(
     const BOOLEANS: &[&str] = &[
         "allow_downgrade",
         "allow_risk",
+        "allow_tag_install",
         "allow_diverged",
         "allow_unknown",
         "allow_irreversible",
@@ -942,6 +943,16 @@ async fn forward_response(upstream: reqwest::Response) -> Response {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gateway_accepts_tag_consent_but_not_caller_supplied_trust() {
+        let body = serde_json::json!({"target_version":"v1.2.3", "allow_tag_install":true, "confirm_risk":true});
+        assert!(super::validate_update_body(body.as_object().unwrap()).is_ok());
+        let forged = serde_json::json!({"target_version":"v1.2.3", "trust_path":"github_release"});
+        assert!(super::validate_update_body(forged.as_object().unwrap()).is_err());
+        let wrong_type = serde_json::json!({"target_version":"v1.2.3", "allow_tag_install":"true"});
+        assert!(super::validate_update_body(wrong_type.as_object().unwrap()).is_err());
+    }
+
     use super::*;
     use axum::http::HeaderValue;
     use tower::ServiceExt;

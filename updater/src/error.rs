@@ -31,6 +31,9 @@ pub enum UpdaterError {
     #[error("precondition failed: {0}")]
     Precondition(String),
 
+    #[error("tag installation requires allow_tag_install=true and confirm_risk=true: {0}")]
+    TagInstallRequired(String),
+
     #[error("unauthorized")]
     Unauthorized,
 

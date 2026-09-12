@@ -1834,5 +1834,16 @@
       "hitokoto",
       "quote"
     ]
-  }
+  },
+  "updaterTagConfirmationTitle": "需要確認安裝來源",
+  "updaterTagConfirmationAction": "確認按 tag 安裝",
+  "updaterConfirmTagInstall": "確認從 Docker Hub 安裝 {version}？此路徑缺少已驗證的發佈清單或完整 CI 簽名。平台會記錄映像 digest，但無法保證建置來源和遷移相容性。",
+  "updaterTrustManifest": "GitHub 發佈清單",
+  "updaterTrustSignedCommit": "已簽名 commit 建置",
+  "updaterTrustTag": "Docker Hub 正式 tag",
+  "updaterTrustLegacyCommit": "Docker Hub 未簽名 commit 建置",
+  "updaterTrustVerified": "簽名已驗證",
+  "updaterTrustPending": "正在驗證",
+  "updaterTrustUnverified": "簽名未驗證",
+  "updaterTrustEvidence": "安裝依據"
 }

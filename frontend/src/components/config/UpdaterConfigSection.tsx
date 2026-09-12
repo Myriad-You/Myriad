@@ -64,7 +64,9 @@ import {
 } from './updater/helpers'
 import { SnapshotLimitPrefs } from './updater/SnapshotLimitPrefs'
 import { ProgressCard, StatusHero } from './updater/StatusHero'
+import { tagInstallRetryOptions } from './updater/tagInstallRetry'
 import { TargetPicker } from './updater/TargetPicker'
+import { TrustDetails } from './updater/TrustDetails'
 import {
   AGO_TICK_MS,
   isCheckStale,
@@ -527,6 +529,28 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     },
     [api, status, refresh, tokenRequired, explain, u, beginMaintWatch],
   )
+
+  const confirmTagInstall = useCallback(async () => {
+    const failed = status?.last_failed_update
+    if (!failed || busy || tokenRequired || status?.job_in_flight) return
+    const retry = tagInstallRetryOptions(failed)
+    if (!retry) return
+    if (!confirm(format(u.updaterConfirmTagInstall, { version: retry.target }))) return
+    setBusy('update')
+    setToast(null)
+    try {
+      const r = await api.triggerUpdate(retry.target, {
+        ...retry.opts,
+        idemKey: `update-tag-${retry.target}-${Date.now()}`,
+      })
+      beginMaintWatch(r.job_id)
+      await refresh()
+    } catch (e) {
+      setToast({ kind: 'error', text: explain(e) })
+    } finally {
+      setBusy(null)
+    }
+  }, [status, busy, tokenRequired, u, api, beginMaintWatch, refresh, explain])
 
   /** recheck latest first; on error don't apply the previous cache */
   const updateToLatest = useCallback(async () => {
@@ -1047,7 +1071,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         !isDismissedLastFailed(status.last_failed_update.job_id) && (
           <div className="updater-last-failed" role="status">
             <div className="updater-last-failed-head">
-              <strong>{u.updaterLastFailedTitle}</strong>
+              <strong>{status.last_failed_update.confirmation_required ? u.updaterTagConfirmationTitle : u.updaterLastFailedTitle}</strong>
               <button
                 type="button"
                 className="updater-last-failed-dismiss"
@@ -1065,6 +1089,16 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                 reason: status.last_failed_update.reason,
               })}
             </span>
+            <TrustDetails trust={status.last_failed_update.trust} u={u} />
+            {status.last_failed_update.confirmation_required && (
+              <SettingsButton
+                variant="primary"
+                disabled={!!busy || tokenRequired || !!status.job_in_flight}
+                onClick={() => void confirmTagInstall()}
+              >
+                {u.updaterTagConfirmationAction}
+              </SettingsButton>
+            )}
           </div>
         )}
 

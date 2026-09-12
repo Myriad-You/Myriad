@@ -456,6 +456,8 @@ struct UpdateBody {
     #[serde(default)]
     allow_risk: bool,
     #[serde(default)]
+    allow_tag_install: bool,
+    #[serde(default)]
     allow_diverged: Option<bool>,
     #[serde(default)]
     allow_unknown: Option<bool>,
@@ -478,7 +480,8 @@ fn extract_actor(headers: &axum::http::HeaderMap) -> Option<String> {
 }
 
 fn risk_flags_set(body: &UpdateBody) -> bool {
-    body.allow_risk
+    body.allow_tag_install
+        || body.allow_risk
         || body.allow_downgrade
         || body.allow_diverged == Some(true)
         || body.allow_unknown == Some(true)
@@ -552,6 +555,7 @@ async fn update(
             mode,
             allow_downgrade: body.allow_downgrade,
             allow_risk: body.allow_risk,
+            allow_tag_install: body.allow_tag_install,
             allow_diverged: body.allow_diverged,
             allow_unknown: body.allow_unknown,
             allow_irreversible: body.allow_irreversible,
@@ -569,6 +573,7 @@ async fn update(
         "mode": mode.as_str(),
         "allow_downgrade": body.allow_downgrade,
         "allow_risk": body.allow_risk,
+        "allow_tag_install": body.allow_tag_install,
         "allow_diverged": body.allow_diverged,
         "allow_unknown": body.allow_unknown,
         "allow_irreversible": body.allow_irreversible,
@@ -1151,7 +1156,9 @@ impl<E: Into<UpdaterError>> From<E> for ApiError {
             UpdaterError::Conflict => StatusCode::CONFLICT,
             UpdaterError::NotFound(_) => StatusCode::NOT_FOUND,
             UpdaterError::InvalidInput(_) => StatusCode::BAD_REQUEST,
-            UpdaterError::Precondition(_) => StatusCode::PRECONDITION_FAILED,
+            UpdaterError::Precondition(_) | UpdaterError::TagInstallRequired(_) => {
+                StatusCode::PRECONDITION_FAILED
+            }
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         ApiError(status, e.to_string())
@@ -1177,6 +1184,16 @@ mod tests {
         assert_eq!(v, json!({"ok": true}));
         // No version / token / config leakage on the public probe.
         assert!(v.as_object().map(|o| o.len() == 1).unwrap_or(false));
+    }
+
+    #[test]
+    fn tag_install_requires_explicit_confirmation() {
+        let body: UpdateBody =
+            serde_json::from_value(json!({"target_version":"v1.2.3", "allow_tag_install":true}))
+                .unwrap();
+        assert!(risk_flags_set(&body));
+        assert!(!confirm_risk_present(&body, &axum::http::HeaderMap::new()));
+        assert!(!body.allow_risk);
     }
 
     #[test]
@@ -1208,6 +1225,7 @@ mod tests {
             mode: None,
             allow_downgrade,
             allow_risk,
+            allow_tag_install: false,
             allow_diverged: None,
             allow_unknown: None,
             allow_irreversible: None,

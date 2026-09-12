@@ -1492,3 +1492,7 @@ html.dark .updater-infra-card.is-update-cue.setting-group--in-grid {
     var(--updater-subtle-bg)
   );
 }
+
+.updater-trust {
+  overflow-wrap: anywhere;
+}

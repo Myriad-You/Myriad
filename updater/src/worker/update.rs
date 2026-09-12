@@ -73,7 +73,7 @@ pub async fn run(
         .unwrap_or_default();
     let audit = format!(
         "audit: update_request job={} target={} mode={} \
-         allow_downgrade={} allow_diverged={} allow_unknown={} allow_irreversible={}{}",
+         allow_downgrade={} allow_diverged={} allow_unknown={} allow_irreversible={} allow_tag_install={}{}",
         job_id,
         target.as_str(),
         mode.as_str(),
@@ -81,18 +81,19 @@ pub async fn run(
         risk.allow_diverged,
         risk.allow_unknown,
         risk.allow_irreversible,
+        risk.allow_tag_install,
         actor_suffix,
     );
     let _ = worker.state().append_history(&audit);
     let _ = worker.state().append_audit(&audit);
 
     if let Err(e) = rec.enter(Phase::Preflight, "updater.phase.preflight") {
-        record_preflight_failure(&worker, &rec, &e);
+        record_preflight_failure(&worker, &rec, &e, risk);
         let _ = rec.finalize(JobStatus::Failed);
         let _ = crate::worker::machine::clear_maintenance(worker.state());
         return Err(e);
     }
-    let pre = match preflight::run(worker.clone(), &target, mode, risk).await {
+    let pre = match preflight::run(worker.clone(), &job_id, &target, mode, risk).await {
         Ok(r) => {
             let _ = rec.finish_step_ok();
             r
@@ -102,7 +103,7 @@ pub async fn run(
             let _ = rec.finish_step_err(format!("preflight: {e}"));
             // Surface reason on About → update block; stop auto-install so a
             // broken pre-check does not keep firing until the operator fixes it.
-            record_preflight_failure(&worker, &rec, &e);
+            record_preflight_failure(&worker, &rec, &e, risk);
             let _ = rec.finalize(JobStatus::Failed);
             let _ = crate::worker::machine::clear_maintenance(worker.state());
             return Err(e);
@@ -290,6 +291,26 @@ async fn run_update_body(
     mode: UpdateMode,
     job_id: &str,
 ) -> Result<()> {
+    let trust = worker
+        .state()
+        .read_job(job_id)?
+        .trust
+        .ok_or_else(|| UpdaterError::State("missing preflight image evidence".into()))?;
+    let pin = |image: Option<crate::release::ImageRef>| -> Result<String> {
+        let image =
+            image.ok_or_else(|| UpdaterError::State("missing pulled image evidence".into()))?;
+        let reference = image.r#ref.split('@').next().unwrap_or(&image.r#ref);
+        let pinned = format!("{reference}@{}", image.digest);
+        Ok(match &worker.config().registry_mirror {
+            Some(mirror) => super::rewrite_with_mirror(&pinned, mirror),
+            None => pinned,
+        })
+    };
+    let backend_pin = pin(trust.backend)?;
+    let frontend_pin = pin(trust.frontend)?;
+    let (pinned_compose, _pin_file) =
+        compose.with_pinned_business_images(&backend_pin, &frontend_pin)?;
+
     // ----- Stop app -----
     flow.scope = PreSwapRestoreScope::App;
     rec.enter(Phase::Stopping, "updater.phase.stopping")?;
@@ -419,7 +440,7 @@ async fn run_update_body(
 
     // ----- Start new -----
     rec.enter(Phase::StartingNew, "updater.phase.starting_new")?;
-    let volume_init = compose.init_backend_volumes().await.map_err(|e| {
+    let volume_init = pinned_compose.init_backend_volumes().await.map_err(|e| {
         UpdaterError::Internal(anyhow::anyhow!(
             "backend volume ownership initialization failed: {e}"
         ))
@@ -435,7 +456,7 @@ async fn run_update_body(
         diagnostics = %volume_init.stderr_tail.trim(),
         "backend volume ownership and write verification completed"
     );
-    let up = compose
+    let up = pinned_compose
         .up_detached_recreate(&["backend", "frontend"])
         .await
         .map_err(|e| UpdaterError::Internal(anyhow::anyhow!("compose up new failed: {e}")))?;
@@ -449,6 +470,15 @@ async fn run_update_body(
 
     // ----- Health -----
     rec.enter(Phase::HealthProbing, "updater.phase.health_probing")?;
+    for (container, image) in [
+        ("myriad-backend", &backend_pin),
+        ("myriad-frontend", &frontend_pin),
+    ] {
+        worker
+            .docker()
+            .require_container_digest(container, image)
+            .await?;
+    }
     let deadline = Duration::from_secs(300u64.max((pre.estimated_seconds as u64) * 3));
     // Preserve original error text so is_health_probe_failure still matches.
     health_probe_phased(&worker, target, deadline).await?;
@@ -730,6 +760,9 @@ async fn finish_pre_swap_failure(
     // Record failure context for UI / ops (same shape as post-swap auto-rollback).
     if let Ok(mut st) = worker.state().read_updater() {
         st.last_failed_update = Some(crate::state::FailedUpdate {
+            confirmation_required: false,
+            trust: None,
+            risk_flags: Default::default(),
             from_version: rec.from_version.clone(),
             to_version: rec.to_version.clone(),
             at: Utc::now(),
@@ -895,6 +928,9 @@ async fn finish_with_rollback(
                     }
                 }
                 st.last_failed_update = Some(crate::state::FailedUpdate {
+                    confirmation_required: false,
+                    trust: None,
+                    risk_flags: Default::default(),
                     from_version: rec.from_version.clone(),
                     to_version: rec.to_version.clone(),
                     at: Utc::now(),
@@ -933,6 +969,9 @@ async fn finish_with_rollback(
             // Persist last_failed even when rollback itself failed.
             if let Ok(mut st) = worker.state().read_updater() {
                 st.last_failed_update = Some(crate::state::FailedUpdate {
+                    confirmation_required: false,
+                    trust: None,
+                    risk_flags: Default::default(),
                     from_version: rec.from_version.clone(),
                     to_version: rec.to_version.clone(),
                     at: Utc::now(),
@@ -962,7 +1001,12 @@ fn is_health_probe_failure(err: &UpdaterError) -> bool {
 
 /// Persist preflight failure for the About-page update block and turn off
 /// auto-install so a hard pre-check failure cannot loop on the next tick.
-fn record_preflight_failure(worker: &Worker, rec: &PhaseRecorder<'_>, err: &UpdaterError) {
+fn record_preflight_failure(
+    worker: &Worker,
+    rec: &PhaseRecorder<'_>,
+    err: &UpdaterError,
+    risk: preflight::RiskFlags,
+) {
     if let Ok(mut st) = worker.state().read_updater() {
         let was_auto = st.auto_install;
         let reason = if was_auto {
@@ -971,8 +1015,20 @@ fn record_preflight_failure(worker: &Worker, rec: &PhaseRecorder<'_>, err: &Upda
             format!("preflight: {err}")
         };
         st.last_failed_update = Some(crate::state::FailedUpdate {
+            confirmation_required: matches!(err, UpdaterError::TagInstallRequired(_)),
+            trust: worker
+                .state()
+                .read_job(&rec.job_id)
+                .ok()
+                .and_then(|job| job.trust),
+            risk_flags: risk,
             from_version: rec.from_version.clone(),
-            to_version: rec.to_version.clone(),
+            to_version: worker
+                .state()
+                .read_job(&rec.job_id)
+                .ok()
+                .and_then(|job| job.to_version)
+                .or(rec.to_version.clone()),
             at: Utc::now(),
             reason: reason.clone(),
             job_id: rec.job_id.clone(),
@@ -1628,6 +1684,9 @@ mod health_match_tests {
     fn successful_deploy_clears_last_failed_banner() {
         let mut state = UpdaterStateFile {
             last_failed_update: Some(crate::state::FailedUpdate {
+                confirmation_required: false,
+                trust: None,
+                risk_flags: Default::default(),
                 from_version: DeployTag::parse("v0.3.32").ok(),
                 to_version: DeployTag::parse("v0.3.33").ok(),
                 at: Utc::now(),

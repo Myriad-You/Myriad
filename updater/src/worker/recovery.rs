@@ -323,6 +323,7 @@ mod recovery_plan_tests {
 
     fn job(status: JobStatus, phase: Phase) -> Job {
         Job {
+            trust: None,
             id: "j1".into(),
             kind: JobKind::Update,
             created_at: Utc::now(),

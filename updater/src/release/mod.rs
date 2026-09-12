@@ -1,6 +1,7 @@
 //! release.json fetching, parsing, and validation.
 
 pub mod cosign;
+pub mod dev_signature;
 pub mod dockerhub;
 pub mod github;
 pub mod manifest;

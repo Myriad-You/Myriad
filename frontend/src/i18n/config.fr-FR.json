@@ -1756,5 +1756,16 @@
       "hitokoto",
       "citation"
     ]
-  }
+  },
+  "updaterTagConfirmationTitle": "Confirmation de la source requise",
+  "updaterTagConfirmationAction": "Confirmer l’installation par tag",
+  "updaterConfirmTagInstall": "Installer {version} depuis Docker Hub sans manifeste de publication vérifié ou signatures CI complètes ? Les digests seront enregistrés, mais l’origine et la compatibilité des migrations ne sont pas garanties.",
+  "updaterTrustManifest": "Manifeste de publication GitHub",
+  "updaterTrustSignedCommit": "Build de commit signé",
+  "updaterTrustTag": "Tag de publication Docker Hub",
+  "updaterTrustLegacyCommit": "Build de commit Docker Hub non signé",
+  "updaterTrustVerified": "Signature vérifiée",
+  "updaterTrustPending": "Vérification en cours",
+  "updaterTrustUnverified": "Signature non vérifiée",
+  "updaterTrustEvidence": "Preuves d’installation"
 }

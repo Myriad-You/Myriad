@@ -62,6 +62,7 @@ pub enum Command {
         allow_downgrade: bool,
         /// Umbrella for diverged / unknown / irreversible (see also granular flags).
         allow_risk: bool,
+        allow_tag_install: bool,
         allow_diverged: Option<bool>,
         allow_unknown: Option<bool>,
         allow_irreversible: Option<bool>,
@@ -280,6 +281,8 @@ impl Worker {
                 "BACKEND_IMAGE / FRONTEND_IMAGE must be non-empty (image repo without tag)".into(),
             ));
         }
+        crate::worker::preflight::validate_image_repo(&backend)?;
+        crate::worker::preflight::validate_image_repo(&frontend)?;
         Ok((backend, frontend))
     }
 
@@ -583,6 +586,7 @@ impl Worker {
                     mode,
                     allow_downgrade,
                     allow_risk,
+                    allow_tag_install,
                     allow_diverged,
                     allow_unknown,
                     allow_irreversible,
@@ -597,6 +601,7 @@ impl Worker {
                             mode,
                             allow_downgrade,
                             allow_risk,
+                            allow_tag_install,
                             allow_diverged,
                             allow_unknown,
                             allow_irreversible,
@@ -709,6 +714,7 @@ impl Worker {
         mode: UpdateMode,
         allow_downgrade: bool,
         allow_risk: bool,
+        allow_tag_install: bool,
         allow_diverged: Option<bool>,
         allow_unknown: Option<bool>,
         allow_irreversible: Option<bool>,
@@ -732,6 +738,7 @@ impl Worker {
         let job_id = uuid::Uuid::new_v4().simple().to_string();
         let from_version = self.state.read_updater()?.current_version;
         let job = Job {
+            trust: None,
             id: job_id.clone(),
             kind: JobKind::Update,
             created_at: Utc::now(),
@@ -756,13 +763,14 @@ impl Worker {
 
         let job_id_clone = job_id.clone();
         let me = self.clone();
-        let risk = preflight::RiskFlags::from_api(
+        let mut risk = preflight::RiskFlags::from_api(
             allow_downgrade,
             allow_risk,
             allow_diverged,
             allow_unknown,
             allow_irreversible,
         );
+        risk.allow_tag_install = allow_tag_install;
         tokio::spawn(async move {
             if let Err(e) =
                 update::run(me.clone(), job_id_clone.clone(), target, mode, risk, actor).await
@@ -785,6 +793,7 @@ impl Worker {
         }
         let job_id = uuid::Uuid::new_v4().simple().to_string();
         let job = Job {
+            trust: None,
             id: job_id.clone(),
             kind: JobKind::Rollback,
             created_at: Utc::now(),

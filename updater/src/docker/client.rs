@@ -64,15 +64,8 @@ impl DockerClient {
             .inspect_image(image_ref)
             .await
             .map_err(|e| UpdaterError::Docker(format!("inspect {image_ref}: {e}")))?;
-        let digest = inspect
-            .repo_digests
-            .as_ref()
-            .and_then(|v| v.first())
-            .and_then(|s| s.split_once('@').map(|(_, d)| d.to_string()))
-            .or(inspect.id)
-            .ok_or_else(|| {
-                UpdaterError::Docker(format!("could not determine digest for {image_ref}"))
-            })?;
+        let digest =
+            matching_repo_digest(&image, inspect.repo_digests.as_deref().unwrap_or_default())?;
         Ok(digest)
     }
 
@@ -216,10 +209,65 @@ impl DockerClient {
         Ok(())
     }
 
+    /// Compare Docker's running config image ID with the local image addressed
+    /// by the preflight registry digest. Tag names are not identity evidence.
+    pub async fn require_container_digest(&self, container: &str, pinned_ref: &str) -> Result<()> {
+        let expected = self.inner.inspect_image(pinned_ref).await.map_err(|_| {
+            UpdaterError::Precondition(format!("cannot inspect verified image for {container}"))
+        })?;
+        let running = self
+            .inner
+            .inspect_container(container, None)
+            .await
+            .map_err(|_| {
+                UpdaterError::Precondition(format!("cannot inspect running {container}"))
+            })?;
+        if expected.id.is_none() || expected.id != running.image {
+            return Err(UpdaterError::Precondition(format!(
+                "running {container} differs from the preflight image digest"
+            )));
+        }
+        Ok(())
+    }
+
     /// True if the named image ref exists locally (inspect succeeds).
     pub async fn image_exists_local(&self, image_ref: &str) -> bool {
         self.inner.inspect_image(image_ref).await.is_ok()
     }
+}
+
+fn canonical_repository(repo: &str) -> String {
+    let repo = repo
+        .strip_prefix("docker.io/")
+        .or_else(|| repo.strip_prefix("index.docker.io/"))
+        .or_else(|| repo.strip_prefix("registry-1.docker.io/"))
+        .unwrap_or(repo);
+    if repo.contains('/') {
+        repo.into()
+    } else {
+        format!("library/{repo}")
+    }
+}
+
+fn matching_repo_digest(repository: &str, digests: &[String]) -> Result<String> {
+    let want = canonical_repository(repository);
+    let matching: std::collections::BTreeSet<_> = digests
+        .iter()
+        .filter_map(|entry| {
+            let (repo, digest) = entry.split_once('@')?;
+            (canonical_repository(repo) == want).then_some(digest)
+        })
+        .collect();
+    // A Docker config ID is not a registry manifest digest. Ambiguous aliases
+    // also cannot establish which artifact a tag pull resolved to.
+    if matching.len() != 1 {
+        return Err(UpdaterError::Precondition(
+            "pull did not resolve one unambiguous repository digest".into(),
+        ));
+    }
+    let digest = matching.into_iter().next().unwrap();
+    crate::release::dev_signature::require_digest(digest)?;
+    Ok(digest.into())
 }
 
 /// Split "registry/image:tag" into (image_without_tag, tag).
@@ -282,6 +330,24 @@ async fn direct_http_probe(target: &str, timeout: Duration) -> Result<(u16, Stri
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pull_digest_belongs_to_requested_repository_and_is_unambiguous() {
+        let a = format!("sha256:{}", "a".repeat(64));
+        let b = format!("sha256:{}", "b".repeat(64));
+        let values = vec![format!("other/image@{b}"), format!("org/backend@{a}")];
+        assert_eq!(
+            super::matching_repo_digest("docker.io/org/backend", &values).unwrap(),
+            a
+        );
+        assert!(super::matching_repo_digest("org/frontend", &values).is_err());
+        assert!(super::matching_repo_digest("org/backend", &[]).is_err());
+        assert!(super::matching_repo_digest(
+            "org/backend",
+            &[format!("org/backend@{a}"), format!("org/backend@{b}")]
+        )
+        .is_err());
+    }
+
     use super::*;
 
     #[test]

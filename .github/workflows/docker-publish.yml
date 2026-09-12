@@ -391,6 +391,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -465,8 +466,39 @@ jobs:
             exit 1
           fi
           # shellcheck disable=SC2086
-          docker buildx imagetools create $TAG_ARGS \
+          docker buildx imagetools create --metadata-file /tmp/dev-image-metadata.json -t "${REGISTRY_IMAGE}:ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' "$@")
+
+      - name: Install cosign
+        if: steps.gate.outputs.present == 'true'
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Sign development image digest and commit
+        if: steps.gate.outputs.present == 'true'
+        env:
+          BUILD_SHA: ${{ github.sha }}
+          COMPONENT: ${{ matrix.component }}
+          COSIGN_EXPERIMENTAL: '1'
+        run: |
+          set -euo pipefail
+          # Authenticate the manifest-list digest, not a mutable tag lookup at install time.
+          DIGEST=$(jq -er '."containerimage.descriptor".digest' /tmp/dev-image-metadata.json)
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          cosign sign --yes -a "git_sha=${BUILD_SHA}" -a "component=${COMPONENT}" "${REGISTRY_IMAGE}@${DIGEST}"
+
+      - name: Publish signed development tags
+        if: steps.gate.outputs.present == 'true'
+        env:
+          META_JSON: ${{ steps.meta.outputs.json }}
+        run: |
+          set -euo pipefail
+          DIGEST=$(jq -er '."containerimage.descriptor".digest' /tmp/dev-image-metadata.json)
+          mapfile -t TAGS < <(jq -r '.tags[]' <<<"$META_JSON")
+          TAG_ARGS=()
+          for tag in "${TAGS[@]}"; do TAG_ARGS+=(-t "$tag"); done
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${REGISTRY_IMAGE}@${DIGEST}"
 
       - name: Summary
         if: steps.gate.outputs.present == 'true'

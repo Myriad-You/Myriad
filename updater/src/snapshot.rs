@@ -928,6 +928,7 @@ mod tests {
         plant_snapshot_meta(&state, "snap-busy");
 
         let job = Job {
+            trust: None,
             id: "job-1".into(),
             kind: JobKind::Update,
             created_at: Utc::now(),
@@ -1137,6 +1138,7 @@ mod tests {
         plant_snapshot_meta_at(&state, "n3", now - chrono::Duration::hours(1), false);
 
         let job = Job {
+            trust: None,
             id: "job-prune".into(),
             kind: JobKind::Update,
             created_at: now,
@@ -1300,6 +1302,7 @@ mod tests {
         plant_snapshot_meta_at(&state, "busy", now, false);
 
         let job = Job {
+            trust: None,
             id: "job-rc".into(),
             kind: JobKind::Update,
             created_at: now,

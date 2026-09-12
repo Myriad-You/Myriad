@@ -106,8 +106,8 @@ pub struct Config {
     ///
     /// - **Release mode** prefers GitHub for `release.json` (digests, cosign, min_from).
     ///   When the release asset is missing/private (404/401) or the token is unset, preflight
-    ///   falls back to Docker Hub: pull `BACKEND_IMAGE`/`FRONTEND_IMAGE` tagged `vX.Y.Z`.
-    ///   Public image installs therefore work without a GitHub Release or token.
+    ///   allows Docker Hub `vX.Y.Z` only with explicit per-install tag consent.
+    ///   Public image installs therefore work without a GitHub Release or token after consent.
     /// - **Commit mode** works without it: discovery uses Docker Hub common frontend/backend
     ///   tags when the token is absent (typical for private source repos that only publish
     ///   images publicly).

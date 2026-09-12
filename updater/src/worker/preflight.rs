@@ -3,10 +3,10 @@
 //!
 //! Two modes:
 //! - **Release**: prefer GitHub `release.json` (digests, cosign, min_from_version). When the
-//!   manifest is unavailable (404 / no token / network / missing asset), fall back to pulling
+//!   manifest is unavailable (404 / no token / network / missing asset), require tag consent to pull
 //!   `BACKEND_IMAGE`/`FRONTEND_IMAGE` tagged with the release version from Docker Hub — same
 //!   image naming as commit mode. Cosign/schema failures still hard-fail (no silent skip).
-//! - **Commit**: resolve image tags to `dev-<sha>` (never persist branch tips), pull images.
+//! - **Commit**: resolve to `dev-<sha>`, pull and verify CI image signatures; missing signatures require consent.
 //!
 //! Direction gates (fail-closed):
 //! - pure upgrade → ok
@@ -34,6 +34,7 @@ use crate::docker::network_allowlist::{
 use crate::env_file::EnvFile;
 use crate::error::{Result, UpdaterError};
 use crate::release::{CommitRelation, Manifest};
+use crate::state::UpdateTrust;
 use crate::version::{DeployTag, DeployTagKind, MyriadVersion, UpdateMode};
 use crate::worker::Worker;
 use crate::SUPPORTED_RELEASE_SCHEMA;
@@ -54,13 +55,15 @@ pub struct PreflightReport {
 }
 
 /// Operator confirmation flags. `allow_risk` is a backward-compatible umbrella that
-/// enables all non-downgrade risk gates when true.
-#[derive(Debug, Clone, Copy, Default)]
+/// enables downgrade/ancestry/migration exceptions, never tag-install consent.
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct RiskFlags {
     pub allow_downgrade: bool,
     pub allow_diverged: bool,
     pub allow_unknown: bool,
     pub allow_irreversible: bool,
+    pub allow_tag_install: bool,
 }
 
 impl RiskFlags {
@@ -77,18 +80,103 @@ impl RiskFlags {
             allow_diverged: allow_diverged.unwrap_or(allow_risk),
             allow_unknown: allow_unknown.unwrap_or(allow_risk),
             allow_irreversible: allow_irreversible.unwrap_or(allow_risk),
+            allow_tag_install: false,
         }
+    }
+}
+
+pub(crate) fn new_trust(path: &str, verification: &str, reason: Option<String>) -> UpdateTrust {
+    UpdateTrust {
+        trust_path: path.into(),
+        verification: verification.into(),
+        reason,
+        commit_sha: None,
+        backend: None,
+        frontend: None,
+    }
+}
+
+pub(crate) fn record_trust(worker: &Worker, job_id: &str, trust: UpdateTrust) -> Result<()> {
+    let mut job = worker.state().read_job(job_id)?;
+    let line = format!(
+        "audit: update_trust job={} evidence={}",
+        job_id,
+        serde_json::to_string(&trust)?
+    );
+    job.trust = Some(trust);
+    worker.state().write_job(&job)?;
+    worker.state().append_audit(&line)?;
+    worker.state().append_history(&line)?;
+    Ok(())
+}
+
+fn record_image(
+    worker: &Worker,
+    job_id: &str,
+    component: &str,
+    image: &str,
+    digest: &str,
+) -> Result<()> {
+    let mut trust = worker
+        .state()
+        .read_job(job_id)?
+        .trust
+        .ok_or_else(|| UpdaterError::State("missing update trust context".into()))?;
+    let evidence = Some(crate::release::ImageRef {
+        r#ref: image.into(),
+        digest: digest.into(),
+    });
+    match component {
+        "backend" => trust.backend = evidence,
+        "frontend" => trust.frontend = evidence,
+        _ => return Err(UpdaterError::State("unknown image component".into())),
+    }
+    record_trust(worker, job_id, trust)
+}
+
+fn require_tag_install(risk: RiskFlags, reason: &str) -> Result<()> {
+    if risk.allow_tag_install {
+        Ok(())
+    } else {
+        Err(UpdaterError::TagInstallRequired(reason.into()))
+    }
+}
+
+fn require_formal_tag(target: &DeployTag) -> Result<()> {
+    if target
+        .as_release()
+        .is_some_and(|v| v.semver().pre.is_empty())
+    {
+        Ok(())
+    } else {
+        Err(UpdaterError::InvalidInput(
+            "Docker Hub formal tag path requires vX.Y.Z without a prerelease suffix".into(),
+        ))
+    }
+}
+
+pub(crate) fn validate_image_repo(repo: &str) -> Result<()> {
+    // A repository, never a caller-controlled tag/digest/URL or a whitespace-bearing value.
+    let valid = regex::Regex::new(r"^(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$").unwrap();
+    if valid.is_match(repo) {
+        Ok(())
+    } else {
+        Err(UpdaterError::Precondition(
+            "BACKEND_IMAGE / FRONTEND_IMAGE must be repository names without a tag or digest"
+                .into(),
+        ))
     }
 }
 
 pub async fn run(
     worker: Arc<Worker>,
+    job_id: &str,
     target: &DeployTag,
     mode: UpdateMode,
     risk: RiskFlags,
 ) -> Result<PreflightReport> {
     // Route by target shape, not only by UI mode:
-    // - formal releases always use release.json / manifest path
+    // - formal releases always use release preflight (manifest first, explicit tag path otherwise)
     // - dev-<sha> / branch tips always use commit path
     // (Dev channel may list both; never install a release tag as a commit.)
     let effective_mode = if target.is_release() {
@@ -101,14 +189,23 @@ pub async fn run(
     } else {
         UpdateMode::Commit
     };
-    match effective_mode {
-        UpdateMode::Release => run_release(worker, target, risk).await,
-        UpdateMode::Commit => run_commit(worker, target, risk).await,
-    }
+    let report = match effective_mode {
+        UpdateMode::Release => run_release(worker.clone(), job_id, target, risk).await,
+        UpdateMode::Commit => run_commit(worker.clone(), job_id, target, risk).await,
+    }?;
+    let mut trust = worker
+        .state()
+        .read_job(job_id)?
+        .trust
+        .ok_or_else(|| UpdaterError::State("missing completed preflight evidence".into()))?;
+    trust.commit_sha = report.target_commit_sha.clone();
+    record_trust(&worker, job_id, trust)?;
+    Ok(report)
 }
 
 async fn run_release(
     worker: Arc<Worker>,
+    job_id: &str,
     target: &DeployTag,
     risk: RiskFlags,
 ) -> Result<PreflightReport> {
@@ -121,21 +218,11 @@ async fn run_release(
 
     info!(target = %release, "preflight(release): fetching GitHub release.json");
     match try_fetch_release_manifest(worker.as_ref(), release.as_str()).await {
-        Ok(Some((gh, manifest))) => {
-            run_release_with_manifest(worker, target, risk, gh, manifest).await
+        Ok(Some((gh, manifest, verification))) => {
+            run_release_with_manifest(worker, job_id, target, risk, gh, manifest, verification)
+                .await
         }
-        Ok(None) => {
-            // Self-host / dev-channel often installs formal v* tags from Docker Hub when
-            // GitHub release.json is missing (private repo, no token, asset not published).
-            // Fall back without an extra allow gate — digests/cosign/min_from are skipped
-            // on this path (same as pre-hardening behavior). Cosign hard-failures still
-            // do not fall back (try_fetch_release_manifest returns Err).
-            warn!(
-                target = %release,
-                "preflight(release): GitHub release.json unavailable; verifying via Docker Hub images"
-            );
-            run_release_via_dockerhub(worker, target, risk).await
-        }
+        Ok(None) => run_release_via_dockerhub(worker, job_id, target, risk).await,
         Err(e) => Err(e),
     }
 }
@@ -148,7 +235,7 @@ async fn run_release(
 async fn try_fetch_release_manifest(
     worker: &Worker,
     tag: &str,
-) -> Result<Option<(crate::release::GithubClient, Manifest)>> {
+) -> Result<Option<(crate::release::GithubClient, Manifest, &'static str)>> {
     let gh = match worker.github_client() {
         Ok(gh) => gh,
         Err(e) => {
@@ -156,8 +243,8 @@ async fn try_fetch_release_manifest(
             return Ok(None);
         }
     };
-    match gh.fetch_manifest(tag).await {
-        Ok(manifest) => Ok(Some((gh, manifest))),
+    match gh.fetch_manifest_with_verification(tag).await {
+        Ok((manifest, verification)) => Ok(Some((gh, manifest, verification))),
         Err(e) if crate::release::GithubClient::is_release_json_unavailable(&e) => {
             warn!(
                 err = %e,
@@ -172,11 +259,23 @@ async fn try_fetch_release_manifest(
 
 async fn run_release_with_manifest(
     worker: Arc<Worker>,
+    job_id: &str,
     target: &DeployTag,
     risk: RiskFlags,
     gh: crate::release::GithubClient,
     manifest: Manifest,
+    verification: &str,
 ) -> Result<PreflightReport> {
+    record_trust(
+        &worker,
+        job_id,
+        new_trust("github_release", verification, None),
+    )?;
+    if manifest.version.as_str() != target.as_str() {
+        return Err(UpdaterError::Precondition(
+            "release manifest version does not match requested target".into(),
+        ));
+    }
     if manifest.schema_version > SUPPORTED_RELEASE_SCHEMA {
         return Err(UpdaterError::Precondition(format!(
             "release schema_version {} exceeds updater support {}; upgrade updater first",
@@ -349,10 +448,18 @@ async fn run_release_with_manifest(
         .docker_pull_with_mirror(&backend.r#ref)
         .await
         .map_err(|e| UpdaterError::Precondition(format!("pull backend: {e}")))?;
+    record_image(&worker, job_id, "backend", &backend.r#ref, &backend_pulled)?;
     let frontend_pulled = worker
         .docker_pull_with_mirror(&frontend.r#ref)
         .await
         .map_err(|e| UpdaterError::Precondition(format!("pull frontend: {e}")))?;
+    record_image(
+        &worker,
+        job_id,
+        "frontend",
+        &frontend.r#ref,
+        &frontend_pulled,
+    )?;
 
     if !digest_matches(&backend_pulled, &backend.digest) {
         return Err(UpdaterError::Precondition(format!(
@@ -398,6 +505,7 @@ async fn run_release_with_manifest(
 /// Missing images hard-fail with a clear Docker Hub error (no silent install).
 async fn run_release_via_dockerhub(
     worker: Arc<Worker>,
+    job_id: &str,
     target: &DeployTag,
     risk: RiskFlags,
 ) -> Result<PreflightReport> {
@@ -407,6 +515,15 @@ async fn run_release_via_dockerhub(
             target.as_str()
         ))
     })?;
+
+    require_formal_tag(target)?;
+    let reason = "GitHub release.json unavailable; no manifest digest, Cosign or migration compatibility guarantees";
+    record_trust(
+        &worker,
+        job_id,
+        new_trust("dockerhub_tag", "unsigned", Some(reason.into())),
+    )?;
+    require_tag_install(risk, reason)?;
 
     let from_version = worker.state().read_updater()?.current_version.clone();
     let mut is_downgrade = false;
@@ -531,6 +648,7 @@ async fn run_release_via_dockerhub(
                 "pull backend {backend_ref}: {e} (is release {tag} published on Docker Hub?)"
             ))
         })?;
+    record_image(&worker, job_id, "backend", &backend_ref, &backend_pulled)?;
     let frontend_pulled = worker
         .docker_pull_with_mirror(&frontend_ref)
         .await
@@ -540,6 +658,7 @@ async fn run_release_via_dockerhub(
             ))
         })?;
 
+    record_image(&worker, job_id, "frontend", &frontend_ref, &frontend_pulled)?;
     // Optional commit_sha when GitHub is reachable but only the release asset was missing.
     let target_commit_sha = if worker.github_commit_metadata_enabled() {
         match worker.github_client() {
@@ -575,6 +694,7 @@ async fn run_release_via_dockerhub(
 
 async fn run_commit(
     worker: Arc<Worker>,
+    job_id: &str,
     target: &DeployTag,
     risk: RiskFlags,
 ) -> Result<PreflightReport> {
@@ -585,13 +705,17 @@ async fn run_commit(
         )));
     }
     info!(target = %target, kind = ?target.kind(), "preflight(commit): resolving + pulling");
+    record_trust(
+        &worker,
+        job_id,
+        new_trust("dockerhub_commit", "pending", None),
+    )?;
 
     let from_version = worker.state().read_updater()?.current_version.clone();
 
     // Prefer GitHub for full-SHA normalization and ancestry when a token is present.
-    // Private source repos without GITHUB_TOKEN are the normal self-host case: treat
-    // immutable `dev-<sha>` tags as Docker Hub–verified (pull both images) and skip
-    // ancestry — do NOT require allow_unknown just because GitHub is private.
+    // Private source repositories need no GitHub access for image signature verification.
+    // Missing ancestry alone does not require allow_unknown; signatures are checked below.
     let git_ref = crate::release::deploy_tag_to_git_ref(target);
     let (effective, target_commit_sha, compare_ref) = if !worker.github_commit_metadata_enabled() {
         if target.kind() != DeployTagKind::Commit {
@@ -645,6 +769,11 @@ async fn run_commit(
             }
         }
     };
+
+    // Confirmation retries bind the resolved commit, never a moving branch name.
+    let mut job = worker.state().read_job(job_id)?;
+    job.to_version = Some(effective.clone());
+    worker.state().write_job(&job)?;
 
     if from_version.as_ref() == Some(&effective) {
         return Err(UpdaterError::Precondition(format!(
@@ -753,6 +882,7 @@ async fn run_commit(
                 "pull backend {backend_ref}: {e} (is the commit built by CI?)"
             ))
         })?;
+    record_image(&worker, job_id, "backend", &backend_ref, &backend_pulled)?;
     let frontend_pulled = worker
         .docker_pull_with_mirror(&frontend_ref)
         .await
@@ -761,6 +891,56 @@ async fn run_commit(
                 "pull frontend {frontend_ref}: {e} (is the commit built by CI?)"
             ))
         })?;
+
+    record_image(&worker, job_id, "frontend", &frontend_ref, &frontend_pulled)?;
+    let expected_sha = target_commit_sha
+        .as_deref()
+        .ok_or_else(|| UpdaterError::Precondition("commit target has no SHA".into()))?;
+    let source_repo = &worker.config().github_repo;
+    let backend_signature = crate::release::dev_signature::verify(
+        &backend_repo,
+        &backend_pulled,
+        source_repo,
+        "backend",
+        expected_sha,
+    )
+    .await?;
+    let frontend_signature = crate::release::dev_signature::verify(
+        &frontend_repo,
+        &frontend_pulled,
+        source_repo,
+        "frontend",
+        expected_sha,
+    )
+    .await?;
+    let signed_commit =
+        crate::release::dev_signature::pair_commit(&backend_signature, &frontend_signature)?;
+    let mut trust = worker
+        .state()
+        .read_job(job_id)?
+        .trust
+        .ok_or_else(|| UpdaterError::State("missing commit trust context".into()))?;
+    trust.commit_sha = signed_commit.clone().or(target_commit_sha.clone());
+    trust.verification = if signed_commit.is_some() {
+        "verified"
+    } else {
+        "unsigned"
+    }
+    .into();
+    trust.trust_path = if signed_commit.is_some() {
+        "signed_commit"
+    } else {
+        "dockerhub_commit"
+    }
+    .into();
+    trust.reason = signed_commit
+        .is_none()
+        .then(|| "Development image signature missing; commit origin is not authenticated".into());
+    record_trust(&worker, job_id, trust)?;
+    if signed_commit.is_none() {
+        require_tag_install(risk, "Development image signature missing; install legacy unsigned commit build only after confirmation")?;
+    }
+    let target_commit_sha = signed_commit.or(target_commit_sha);
 
     Ok(PreflightReport {
         manifest: None,
@@ -998,7 +1178,9 @@ pub(crate) fn should_skip_pgdata_disk_check(db_mode: crate::config::DbMode) -> b
 }
 
 fn digest_matches(pulled: &str, expected: &str) -> bool {
-    pulled == expected || pulled.ends_with(expected)
+    let pulled = pulled.strip_prefix("sha256:").unwrap_or(pulled);
+    let expected = expected.strip_prefix("sha256:").unwrap_or(expected);
+    expected.len() == 64 && expected.bytes().all(|b| b.is_ascii_hexdigit()) && pulled == expected
 }
 
 fn fs_size(p: &std::path::Path) -> std::io::Result<u64> {
@@ -1018,6 +1200,55 @@ fn fs_size(p: &std::path::Path) -> std::io::Result<u64> {
 #[cfg(test)]
 mod risk_flag_tests {
     use super::*;
+
+    #[test]
+    fn tag_install_consent_is_independent_of_other_risk_flags() {
+        let umbrella = RiskFlags::from_api(false, true, None, None, None);
+        assert!(matches!(
+            require_tag_install(umbrella, "no manifest"),
+            Err(UpdaterError::TagInstallRequired(_))
+        ));
+        let tag_only = RiskFlags {
+            allow_tag_install: true,
+            ..Default::default()
+        };
+        assert!(require_tag_install(tag_only, "no manifest").is_ok());
+        assert!(require_downgrade(tag_only.allow_downgrade, "v1.0.0").is_err());
+        assert!(!tag_only.allow_irreversible);
+    }
+
+    #[test]
+    fn formal_tag_path_rejects_dev_branch_and_prerelease() {
+        assert!(require_formal_tag(&DeployTag::parse("v1.2.3").unwrap()).is_ok());
+        for tag in ["dev-abcdef0", "preview", "v1.2.3-beta.1"] {
+            assert!(
+                require_formal_tag(&DeployTag::parse(tag).unwrap()).is_err(),
+                "{tag}"
+            );
+        }
+    }
+
+    #[test]
+    fn repository_config_cannot_inject_a_tag_digest_or_url() {
+        for repo in [
+            "docker.io/org/backend",
+            "org/frontend",
+            "localhost:5000/org/backend",
+        ] {
+            assert!(validate_image_repo(repo).is_ok(), "{repo}");
+        }
+        for repo in [
+            "org/backend:v1",
+            "org/backend@sha256:abc",
+            "https://registry/org/backend",
+            " org/backend",
+            "org/backend\n",
+            "org/../backend",
+            "",
+        ] {
+            assert!(validate_image_repo(repo).is_err(), "{repo:?}");
+        }
+    }
 
     #[test]
     fn allow_risk_umbrellas_granular_flags() {
@@ -1107,12 +1338,14 @@ mod github_manifest_fallback_tests {
     }
 
     #[test]
-    fn digest_matches_accepts_suffix() {
+    fn digest_matches_accepts_full_hex_but_rejects_short_suffix() {
         assert!(digest_matches(
             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ));
         assert!(!digest_matches("sha256:abc", "sha256:def"));
+        assert!(!digest_matches(&format!("sha256:{}", "a".repeat(64)), "a"));
+        assert!(!digest_matches(&format!("sha256:{}", "a".repeat(64)), ""));
     }
 }
 

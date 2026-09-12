@@ -396,6 +396,15 @@ impl GithubClient {
     /// Download release.json for the given tag, optionally verifying the cosign signature.
     /// Uses ETag/If-None-Match cache for the manifest blob.
     pub async fn fetch_manifest(&self, tag: &str) -> Result<Manifest> {
+        self.fetch_manifest_with_verification(tag)
+            .await
+            .map(|(manifest, _)| manifest)
+    }
+
+    pub async fn fetch_manifest_with_verification(
+        &self,
+        tag: &str,
+    ) -> Result<(Manifest, &'static str)> {
         let release = self.get_release_by_tag(tag).await?;
         let manifest_asset = release
             .assets
@@ -410,14 +419,20 @@ impl GithubClient {
         let manifest = Manifest::from_json(&bytes)?;
 
         // 2) cosign verification (governed by policy)
+        let mut verification = "off";
         if !matches!(self.cosign_policy, CosignPolicy::Off) {
             let outcome = self.verify_cosign(tag, &release, &bytes).await;
+            verification = if matches!(outcome, VerifyOutcome::Verified) {
+                "verified"
+            } else {
+                "soft_unverified"
+            };
             if let Err(e) = cosign::enforce(&outcome, self.cosign_policy) {
                 return Err(UpdaterError::Precondition(format!("cosign: {e}")));
             }
         }
 
-        Ok(manifest)
+        Ok((manifest, verification))
     }
 
     /// Fetch .sig + .pem siblings for `release.json` and ask cosign to verify them.

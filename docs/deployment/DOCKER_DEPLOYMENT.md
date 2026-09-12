@@ -184,9 +184,13 @@ bash scripts/extra/deploy.sh doctor
   stricter per-IP rate limit; status/jobs polling stays on the normal limit.
 - **Audit actor**: backend proxies pass `X-Update-Actor: admin:<id>:<user>` after admin
   JWT; gateway injects `UPDATE_TOKEN` (included in updater `audit.log` when present).
-- **High-risk updates**: when `allow_risk` / `allow_downgrade` / related flags are set,
+- **High-risk updates**: when `allow_tag_install` / `allow_risk` / `allow_downgrade` / related flags are set,
   request body must also include `confirm_risk: true` (or header `X-Myriad-Confirm-Risk: true`).
   Normal upgrades without risk flags need no extra confirm field.
+- **Business update trust**: prefer the GitHub release manifest; development builds verify
+  CI signatures stored in the image registry. Missing manifests or unsigned legacy dev builds
+  require per-install tag consent. Verification failures never fall back to unsigned images.
+  See [trust paths and migration](UPDATER_QUICKSTART.md#更新来源签名与确认).
 - **TCB upgrades**: the admin UI keeps one-click self-update. The lower-trust updater
   authenticates with the dedicated host-policy capability and sends only an
   immutable-shaped target tag. Guard fixes the official updater repository,

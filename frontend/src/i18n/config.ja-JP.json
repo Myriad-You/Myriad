@@ -1737,5 +1737,16 @@
       "visibility",
       "hitokoto"
     ]
-  }
+  },
+  "updaterTagConfirmationTitle": "インストール元の確認が必要です",
+  "updaterTagConfirmationAction": "タグでのインストールを確認",
+  "updaterConfirmTagInstall": "Docker Hub から {version} をインストールしますか？検証済みのリリースマニフェストまたは完全な CI 署名がありません。イメージの digest は記録されますが、ビルド元と移行の互換性は保証されません。",
+  "updaterTrustManifest": "GitHub リリースマニフェスト",
+  "updaterTrustSignedCommit": "署名付き commit ビルド",
+  "updaterTrustTag": "Docker Hub リリースタグ",
+  "updaterTrustLegacyCommit": "Docker Hub 未署名 commit ビルド",
+  "updaterTrustVerified": "署名を検証済み",
+  "updaterTrustPending": "検証中",
+  "updaterTrustUnverified": "署名は未検証",
+  "updaterTrustEvidence": "インストールの根拠"
 }

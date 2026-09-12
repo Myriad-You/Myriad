@@ -1834,5 +1834,16 @@
       "hitokoto",
       "quote"
     ]
-  }
+  },
+  "updaterTagConfirmationTitle": "需要确认安装来源",
+  "updaterTagConfirmationAction": "确认按 tag 安装",
+  "updaterConfirmTagInstall": "确认从 Docker Hub 安装 {version}？此路径缺少已验证的发布清单或完整 CI 签名。平台会记录镜像 digest，但无法保证构建来源和迁移兼容性。",
+  "updaterTrustManifest": "GitHub 发布清单",
+  "updaterTrustSignedCommit": "已签名 commit 构建",
+  "updaterTrustTag": "Docker Hub 正式 tag",
+  "updaterTrustLegacyCommit": "Docker Hub 未签名 commit 构建",
+  "updaterTrustVerified": "签名已验证",
+  "updaterTrustPending": "正在验证",
+  "updaterTrustUnverified": "签名未验证",
+  "updaterTrustEvidence": "安装依据"
 }

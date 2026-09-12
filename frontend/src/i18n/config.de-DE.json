@@ -1805,5 +1805,16 @@
       "zitat",
       "quote"
     ]
-  }
+  },
+  "updaterTagConfirmationTitle": "Installationsquelle bestätigen",
+  "updaterTagConfirmationAction": "Installation per Tag bestätigen",
+  "updaterConfirmTagInstall": "{version} von Docker Hub ohne verifiziertes Release-Manifest oder vollständige CI-Signaturen installieren? Die Digests werden aufgezeichnet, aber Herkunft und Migrationskompatibilität sind nicht garantiert.",
+  "updaterTrustManifest": "GitHub-Release-Manifest",
+  "updaterTrustSignedCommit": "Signierter Commit-Build",
+  "updaterTrustTag": "Docker-Hub-Release-Tag",
+  "updaterTrustLegacyCommit": "Unsignierter Docker-Hub-Commit-Build",
+  "updaterTrustVerified": "Signatur verifiziert",
+  "updaterTrustPending": "Verifizierung läuft",
+  "updaterTrustUnverified": "Signatur nicht verifiziert",
+  "updaterTrustEvidence": "Installationsnachweise"
 }

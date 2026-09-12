@@ -103,7 +103,27 @@ export interface UpdaterStatus {
   last_failed_update?: LastFailedUpdate | null
 }
 
+export interface UpdateTrust {
+  trust_path: 'github_release' | 'signed_commit' | 'dockerhub_tag' | 'dockerhub_commit'
+  verification: 'pending' | 'verified' | 'unsigned' | 'off' | 'soft_unverified'
+  reason?: string | null
+  commit_sha?: string | null
+  backend?: ImageRef | null
+  frontend?: ImageRef | null
+}
+
+export interface UpdateRiskFlags {
+  allow_downgrade?: boolean
+  allow_diverged?: boolean
+  allow_unknown?: boolean
+  allow_irreversible?: boolean
+  allow_tag_install?: boolean
+}
+
 export interface LastFailedUpdate {
+  confirmation_required?: boolean
+  trust?: UpdateTrust | null
+  risk_flags?: UpdateRiskFlags
   from_version?: string | null
   to_version?: string | null
   at: string
@@ -211,6 +231,7 @@ export interface JobStep {
 }
 
 export interface Job {
+  trust?: UpdateTrust | null
   id: string
   kind: 'update' | 'rollback' | 'self_update'
   created_at: string
@@ -433,6 +454,7 @@ export function makeUpdaterApi(
         commit?: boolean
         allowDowngrade?: boolean
         allowRisk?: boolean
+        allowTagInstall?: boolean
         allowDiverged?: boolean
         allowUnknown?: boolean
         allowIrreversible?: boolean
@@ -440,11 +462,13 @@ export function makeUpdaterApi(
     ) => {
       const allowDowngrade = !!opts?.allowDowngrade
       const allowRisk = !!opts?.allowRisk
+      const allowTagInstall = !!opts?.allowTagInstall
       const allowDiverged = opts?.allowDiverged
       const allowUnknown = opts?.allowUnknown
       const allowIrreversible = opts?.allowIrreversible
       // confirm_risk only when risk/downgrade flags are set.
       const needsConfirm =
+        allowTagInstall ||
         allowDowngrade ||
         allowRisk ||
         allowDiverged === true ||
@@ -462,6 +486,7 @@ export function makeUpdaterApi(
               }),
           allow_downgrade: allowDowngrade,
           allow_risk: allowRisk,
+          ...(allowTagInstall ? { allow_tag_install: true } : {}),
           allow_diverged: allowDiverged,
           allow_unknown: allowUnknown,
           allow_irreversible: allowIrreversible,

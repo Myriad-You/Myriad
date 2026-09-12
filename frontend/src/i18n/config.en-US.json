@@ -1750,5 +1750,16 @@
       "hitokoto",
       "quote"
     ]
-  }
+  },
+  "updaterTagConfirmationTitle": "Install confirmation required",
+  "updaterTagConfirmationAction": "Confirm tag installation",
+  "updaterConfirmTagInstall": "Install {version} from Docker Hub without a verified release manifest or complete CI signatures? The image digests will be recorded, but source authenticity and migration compatibility are not guaranteed.",
+  "updaterTrustManifest": "GitHub release manifest",
+  "updaterTrustSignedCommit": "Signed commit build",
+  "updaterTrustTag": "Docker Hub release tag",
+  "updaterTrustLegacyCommit": "Docker Hub unsigned commit build",
+  "updaterTrustVerified": "Signature verified",
+  "updaterTrustPending": "Verification pending",
+  "updaterTrustUnverified": "Signature not verified",
+  "updaterTrustEvidence": "Installation evidence"
 }

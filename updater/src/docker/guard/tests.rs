@@ -289,6 +289,41 @@ fn create(service: &str, image: &str, host: Value) -> Bytes {
 }
 
 #[test]
+fn digest_pinned_business_images_keep_the_existing_guard_boundary() {
+    let digest = "a".repeat(64);
+    for (service, repo) in [("backend", "backend"), ("frontend", "frontend")] {
+        let body = create(
+            service,
+            &format!("docker.io/example/{repo}:dev-abcdef0@sha256:{digest}"),
+            json!({}),
+        );
+        assert!(validate_container_create(&state(), &body).is_ok());
+        let wrong_repo = create(
+            service,
+            &format!("docker.io/evil/{repo}@sha256:{digest}"),
+            json!({}),
+        );
+        assert!(validate_container_create(&state(), &wrong_repo).is_err());
+    }
+    let init = backend_volume_init_create(
+        "0:0",
+        "MYRIAD_VOLUME_INIT_ONLY=true",
+        json!({
+            "AutoRemove":false, "Binds":["myriad_backend_cache:/app/cache:rw", "myriad_backend_data:/app/data:rw"],
+            "NetworkMode":"none", "SecurityOpt":["no-new-privileges:true"]
+        }),
+    );
+    let mut value: Value = serde_json::from_slice(&init).unwrap();
+    value["Image"] = json!(format!(
+        "docker.io/example/backend:dev-abcdef0@sha256:{digest}"
+    ));
+    assert!(
+        validate_container_create(&state(), &Bytes::from(serde_json::to_vec(&value).unwrap()))
+            .is_ok()
+    );
+}
+
+#[test]
 fn backend_create_allows_only_named_project_volumes() {
     let body = create(
         "backend",

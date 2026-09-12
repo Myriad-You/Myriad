@@ -22,6 +22,7 @@ import {
   moodText,
 
 } from './helpers'
+import { TrustDetails } from './TrustDetails'
 
 export function StatusHero({
   mood,
@@ -323,6 +324,7 @@ export function ProgressCard({ job, u }: { job: Job; u: U }) {
           {done} / {total}
         </span>
       </div>
+      <TrustDetails trust={job.trust} u={u} />
       <p className="updater-progress-hint">{u.updaterHintUpdating}</p>
       <p className="updater-progress-hint muted">
         {u.updaterProgressOnMaintenance}

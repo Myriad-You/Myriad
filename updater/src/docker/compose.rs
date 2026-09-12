@@ -121,6 +121,7 @@ pub(crate) fn validate_guard_policy_file(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct ComposeRunner {
     binary: ComposeBinary,
     project: String,
@@ -134,6 +135,20 @@ pub struct ComposeRunner {
     workdir: PathBuf,
     /// Host-side project directory used to resolve relative bind sources for the daemon.
     project_directory: PathBuf,
+}
+
+fn business_image_pins(backend: &str, frontend: &str) -> Result<serde_json::Value> {
+    for image in [backend, frontend] {
+        let (_, digest) = image.rsplit_once('@').ok_or_else(|| {
+            UpdaterError::Precondition("business image must be digest-pinned".into())
+        })?;
+        crate::release::dev_signature::require_digest(digest)?;
+    }
+    Ok(serde_json::json!({"services": {
+        "backend": {"image":backend, "pull_policy":"never"},
+        "backend-volume-init": {"image":backend, "pull_policy":"never"},
+        "frontend": {"image":frontend, "pull_policy":"never"}
+    }}))
 }
 
 #[derive(Debug, Clone)]
@@ -280,9 +295,26 @@ impl ComposeRunner {
         self.run(&args, Duration::from_secs(600)).await
     }
 
+    /// Override only business image identities for this update. Rollback keeps
+    /// the original runner; the temporary file lives until init/start complete.
+    pub fn with_pinned_business_images(
+        &self,
+        backend: &str,
+        frontend: &str,
+    ) -> Result<(Self, tempfile::NamedTempFile)> {
+        let mut file = tempfile::Builder::new()
+            .prefix("myriad-image-pins-")
+            .suffix(".json")
+            .tempfile()?;
+        serde_json::to_writer(file.as_file_mut(), &business_image_pins(backend, frontend)?)?;
+        file.as_file().sync_all()?;
+        let mut runner = self.clone();
+        runner.files.push(file.path().to_owned());
+        Ok((runner, file))
+    }
+
     /// Repair backend named-volume ownership with the target backend image's
-    /// narrowly scoped init mode. The regular backend container remains uid
-    /// 1000; only this disposable container runs as root.
+    /// narrowly scoped init mode. Only this disposable container runs as root.
     pub async fn init_backend_volumes(&self) -> Result<ComposeOutput> {
         let container_name = format!(
             "{}-backend-volume-init-{}",
@@ -491,4 +523,29 @@ fn tail_string(buf: &[u8], limit: usize) -> String {
     let slice = &buf[start..];
     let s = String::from_utf8_lossy(slice).into_owned();
     format!("…(truncated {} bytes)\n{}", start, s)
+}
+
+#[cfg(test)]
+mod image_pin_tests {
+    #[test]
+    fn business_pins_cover_volume_initializer_and_never_repull_tags() {
+        let backend = format!(
+            "docker.io/org/backend:dev-abcdef0@sha256:{}",
+            "a".repeat(64)
+        );
+        let frontend = format!(
+            "docker.io/org/frontend:dev-abcdef0@sha256:{}",
+            "b".repeat(64)
+        );
+        let value = super::business_image_pins(&backend, &frontend).unwrap();
+        for (service, image) in [
+            ("backend", &backend),
+            ("backend-volume-init", &backend),
+            ("frontend", &frontend),
+        ] {
+            assert_eq!(value["services"][service]["image"], *image);
+            assert_eq!(value["services"][service]["pull_policy"], "never");
+        }
+        assert!(super::business_image_pins("org/backend:tag", &frontend).is_err());
+    }
 }

@@ -414,9 +414,10 @@ updater 会先从 `*:myriad-rollback` 重新创建原版本 tag，再交给 Comp
 ### 8.2 镜像拉取
 
 - 通过 docker 调用 `pull` (bollard)；**不钉死 platform**，由引擎按宿主机选 amd64/arm64
-- **pull 后**读取 `RepoDigests`，与 `release.json` 中的 manifest-list digest 对账（相等或 `ends_with`）
+- **pull 后**读取 `RepoDigests`，与 `release.json` 中的 manifest-list digest 对账（完整 64 位 hex 相等；兼容省略 `sha256:` 前缀）
 - 支持 `REGISTRY_MIRROR` env：retag 后 pull，digest 校验保持
-- Docker Hub tip / 列表回退路径不做 digest 对账（只按 tag pull）
+- 开发镜像按拉取 digest 验 CI 签名；经确认的无签名/无清单路径只记录 digest，不能声称签名已验证
+- 本次业务更新用临时 Compose 覆盖固定 backend/frontend/backend-volume-init 到预检 digest，禁止重新拉取；启动后核对容器镜像 ID。回滚继续使用原 Compose runner
 - 失败分类：401/403 token 错误；404 版本失效；5xx/网络 重试
 
 ### 8.3 代理与时钟
@@ -684,16 +685,30 @@ proxy 通道开关：proxy 启动时读 `PROXY_ALLOW_DIRECT_UPDATER`，未开启
 
 所有响应包含 `schema_version`，前端按版本兼容。
 
-### 13.5 Docker Hub 提交构建回退
+### 13.5 更新信任路径
 
-提交模式默认使用 GitHub 提交列表和 compare API。GitHub 请求失败或没有返回提交时，UI
-改用 `/builds`，查询 `.env` 中 `BACKEND_IMAGE` 与 `FRONTEND_IMAGE` 对应的 Docker Hub
-仓库，只返回两边同时存在的不可变 `dev-<sha>` 标签；`preview` 等可变标签不会成为候选。
+开发频道从 Docker Hub 查询前后端共有构建；分支目标需要 GitHub 解析后固定为
+`dev-<sha>`。`vX.Y.Z` 目标即使从开发频道选中，也始终执行正式版本预检。
 
-自动检查同样在 GitHub 失败时选择最新的共有构建。因为 Docker Hub 标签无法证明 Git
-祖先关系，安装前必须显式允许 unknown risk；预检随后实际拉取前端和后端两个镜像，任一
-不存在都会在进入维护模式前失败。release 模式不使用此回退，仍要求 release manifest、
-迁移元数据和镜像摘要校验。
+- `github_release`：优先使用 `release.json`，执行 digest、版本和迁移约束。签名状态
+  分别记录 `verified`、`soft_unverified`、`off`，不能把清单存在等同于签名已验证。
+- `signed_commit`：Cosign 验证 registry 中签名，核对 `docker-publish.yml` 的 GitHub
+  Actions 身份（main/preview/beta）、完整 commit、组件和 digest；前后端完整 commit 相同。
+- `dockerhub_tag`：清单不可得时，只能从配置仓库拉严格 `vX.Y.Z`，逐次确认。
+- `dockerhub_commit`：历史开发镜像缺少签名，逐次确认；不是验证失败时的回退。
+
+独立 `allow_tag_install` 不属于 `allow_risk` 伞形许可；它为 true 时 API 仍要求
+`confirm_risk`。预检缺少确认时返回结构化任务失败（`confirmation_required`、`trust`、
+原有 `risk_flags`），不进入维护。前端从异步结果发起同一目标的新任务。
+任务记录拉取的镜像 ref/digest、实际签名状态和 commit，审计与历史同步落盘；成功任务
+通过 `snapshot_id` 关联升级前快照。旧任务字段缺省不赋予信任。
+
+开发签名使用 updater 镜像固定的 Cosign 2.4.1。只有 exit 10 表示无签名；其他非零退出、
+网络错误、JSON/签名/身份/commit/digest 错误均拒绝，不能经确认跳过。清单路径的硬错误
+也不能回退。自动更新只派发未授予 tag 许可的请求；遇到缺签名/清单需手动处理。
+没有 GitHub 祖先关系本身不阻止开发更新，也不能充当签名验证。
+
+完整部署说明与历史镜像升级方式见 [UPDATER_QUICKSTART.md](deployment/UPDATER_QUICKSTART.md)。
 
 ## 14. 更新 Guard / updater TCB
 
@@ -802,9 +817,9 @@ docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d 
      等固定名；bundled 下 postgres 的 pgdata 须为 **bind**；运行中容器 project 标签一致
      （external 不 inspect 残留 `myriad-postgres`）。
   3. **网络 allowlist**：三网 allowlist + 已存在 + 运行中容器不得挂外来网。
-  4. **release 无 manifest**：GitHub `release.json` 不可用时 **允许** 回退 Docker Hub
-     `vX.Y.Z` 镜像（开发频道 / 无私有 GitHub 常态）；该路径无 digest/cosign/min_from。
-     cosign **硬失败** 仍不 fallback。
+  4. **release 无 manifest**：GitHub `release.json` 不可用时，须逐次确认后才可从配置
+     仓库按严格 `vX.Y.Z` 安装。记录 digest，但无清单 digest/Cosign/min_from 保证。
+     Cosign/schema/digest **硬失败** 不能 fallback。
   5. **NeedsManual**：卡住时拒绝新的业务 update / auto-install（rescue/rollback 仍可用）。
   6. **健康 recheck**：探针超时后仅 **HardOk** 可跳过回滚；SoftOk（含维护页）必须回滚。
   面板改 project / container_name / 外来网络 / pgdata named volume 时，应在此阶段被拦下。
@@ -828,7 +843,7 @@ docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d 
 - 所有 docker / shell 子进程调用使用参数数组，不拼 shell 字符串
 - version / tag 走白名单：`^v\d+\.\d+\.\d+(-[a-z0-9.]+)?$`
 - compose 路径限定预设路径
-- 高风险更新：当 body 含 `allow_risk` / `allow_downgrade` / `allow_diverged|unknown|irreversible`
+- 高风险更新：当 body 含 `allow_tag_install` / `allow_risk` / `allow_downgrade` / `allow_diverged|unknown|irreversible`
   为 true 时，另需 `confirm_risk: true` 或 header `X-Myriad-Confirm-Risk: true`。普通升级无额外字段。
 
 ### 15.3 token / gateway secret

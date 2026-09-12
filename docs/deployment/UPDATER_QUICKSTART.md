@@ -97,12 +97,42 @@ UI 提供：
 - 列出快照、一键回滚
 - 强制退出维护模式
 
-**Release 安装与 GitHub / Docker Hub**
+**更新来源、签名与确认**
 
-1. Preflight **优先**从 GitHub 拉该 tag 的 `release.json`（镜像 digest、cosign、`min_from_version`）。
-2. 若 GitHub 不可用（无私有 Release、`GITHUB_TOKEN` 未设、404/401、网络错误、缺少 `release.json` asset），**回退**到 Docker Hub：用 `.env` 里的 `BACKEND_IMAGE` / `FRONTEND_IMAGE` 仓库 + 目标 tag `vX.Y.Z` 拉取前后端镜像；两边都必须成功，否则明确失败（不会静默安装）。
-3. 无 `release.json` 时跳过 cosign 与 manifest digest 对账；`PreflightReport.manifest` 为 `None`，后续 swap 仍只依赖已拉取的 tag/digest。
-4. 因此：**只要 Docker Hub 上有公开的 `vX.Y.Z` 业务镜像，即使没有 GitHub Release 也能完成正式版安装**。
+| `trust_path` | 安装依据 | 确认 |
+| --- | --- | --- |
+| `github_release` | GitHub `release.json`；执行 digest 对账、版本/迁移限制，按 Cosign 配置验证清单 | 沿用升级/降级确认 |
+| `signed_commit` | Docker Hub 开发镜像签名；绑定完整 commit、组件和 digest | 验证通过后可自动更新 |
+| `dockerhub_tag` | 缺少清单时的正式 `vX.Y.Z` 镜像 | 每次 `allow_tag_install: true` + `confirm_risk: true` |
+| `dockerhub_commit` | 历史开发镜像缺少签名 | 同上；不自动安装 |
+
+公开正式发布推荐 GitHub 清单路径。私有仓库可配置 `GITHUB_TOKEN` 读取 Release API
+附件；没有清单的内部安装仍可经明确确认使用 Hub。正式 tag 路径只接受 `vX.Y.Z`，
+不接受预发布后缀或分支名，仓库只取 `.env` 的 `BACKEND_IMAGE` / `FRONTEND_IMAGE`。
+`allow_risk` 不包含按 tag 安装的许可，`allow_tag_install` 也不放开降级等其他限制。
+
+开发 CI 在 `main` / `preview` / `beta` 上通过 `docker-publish.yml` 签署镜像，签名保存在
+镜像 registry，安装验证无需读取私有 GitHub。签名绑定 GitHub Actions OIDC 身份、完整
+40 位 commit SHA、组件名和镜像 manifest digest；前后端签名中的完整 SHA 必须相同。
+它证明该工作流声明的构建来源，不是可复现构建证明或完整 SLSA 认证。
+CI 先签名，再发布可发现的 tag。开发镜像验证独立于清单的 `COSIGN_VERIFY` 配置，不能
+通过 `soft` / `off` 绕过。
+
+只有 Cosign 2.4.1 明确返回“无签名”（exit 10）才允许历史开发镜像确认安装。
+签名存在但验证失败、身份/commit/digest 不匹配、网络错误、工具不可执行都直接失败，
+即使传了 `allow_tag_install` 也不能跳过。清单 JSON/schema、签名硬错误和 digest
+对账失败同样不能转为 Hub 安装。
+
+预检在异步任务中执行；需要确认时会记录 `confirmation_required` 和实际 `trust`，
+在进入维护前结束任务。管理界面提供确认重试按钮；API 调用方通过 status/job 读取结果，
+以新的幂等键提交同一目标及两个确认字段。原有降级等已确认 flags 仍需随重试提交。
+自动更新遇到该情况会停止并关闭自动安装，确认处理后可重新开启。
+
+每个任务记录实际信任路径、验证状态、commit、前后端拉取 digest，并写入审计/历史日志；
+任务的 `snapshot_id` 关联升级前快照（目标镜像 digest 不是快照源镜像身份）。旧任务缺少
+这些字段表示“未记录”。无清单路径记录的 digest 不代表通过了清单签名或迁移兼容性检查。
+启动业务容器及卷初始化容器时使用预检 digest 的临时 Compose 覆盖且禁止重新拉取，
+健康验收前还核对实际容器镜像 ID；失败沿用原回滚流程。
 
 ```bash
 # 切换到 commit 模式并跟踪 preview 分支 tip
